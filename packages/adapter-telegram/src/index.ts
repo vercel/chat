@@ -1737,6 +1737,8 @@ export class TelegramAdapter
           size: photo.file_size,
           width: photo.width,
           height: photo.height,
+          fileUniqueId: photo.file_unique_id,
+          mimeType: "image/jpeg",
         })
       );
     }
@@ -1749,6 +1751,7 @@ export class TelegramAdapter
           height: raw.video.height,
           name: raw.video.file_name,
           mimeType: raw.video.mime_type,
+          fileUniqueId: raw.video.file_unique_id,
         })
       );
     }
@@ -1759,6 +1762,7 @@ export class TelegramAdapter
           size: raw.audio.file_size,
           name: raw.audio.file_name,
           mimeType: raw.audio.mime_type,
+          fileUniqueId: raw.audio.file_unique_id,
         })
       );
     }
@@ -1768,6 +1772,7 @@ export class TelegramAdapter
         this.createAttachment("audio", raw.voice.file_id, {
           size: raw.voice.file_size,
           mimeType: raw.voice.mime_type,
+          fileUniqueId: raw.voice.file_unique_id,
         })
       );
     }
@@ -1778,6 +1783,7 @@ export class TelegramAdapter
           size: raw.document.file_size,
           name: raw.document.file_name,
           mimeType: raw.document.mime_type,
+          fileUniqueId: raw.document.file_unique_id,
         })
       );
     }
@@ -1788,6 +1794,7 @@ export class TelegramAdapter
           size: raw.video_note.file_size,
           width: raw.video_note.length,
           height: raw.video_note.length,
+          fileUniqueId: raw.video_note.file_unique_id,
         })
       );
     }
@@ -1801,6 +1808,7 @@ export class TelegramAdapter
             height: media.height,
             name: media.name,
             mimeType: media.mimeType,
+            fileUniqueId: media.file.file_unique_id,
           })
         );
       }
@@ -1818,6 +1826,7 @@ export class TelegramAdapter
       height?: number;
       name?: string;
       mimeType?: string;
+      fileUniqueId?: string;
     }
   ): Attachment {
     return {
@@ -1827,7 +1836,12 @@ export class TelegramAdapter
       height: metadata?.height,
       name: metadata?.name,
       mimeType: metadata?.mimeType,
-      fetchMetadata: { fileId },
+      fetchMetadata: {
+        fileId,
+        ...(metadata?.fileUniqueId
+          ? { fileUniqueId: metadata.fileUniqueId }
+          : {}),
+      },
       fetchData: async () => this.downloadFile(fileId),
     };
   }

@@ -219,6 +219,7 @@ Behavior change in 4.27.0: previous versions used Telegram's legacy `Markdown` p
 - If `getWebhookInfo` fails in `mode: "auto"`, the adapter stays in webhook mode (safe fallback).
 - `Button` and `LinkButton` in card `Actions` render as inline keyboard buttons.
 - Telegram callback data is limited to 64 bytes. Keep button `id`/`value` payloads short.
+- Incoming attachments preserve Telegram's downloadable `file_id` and stable `file_unique_id` as `fetchMetadata.fileId` and `fetchMetadata.fileUniqueId`. Photo attachments use the `image/jpeg` MIME type.
 - `files` upload as Telegram documents. Multiple `files` are sent as Telegram media groups. `attachments` preserve image, audio, video, or file media type and also use media groups when multiple compatible attachments are posted. Use `data` or `fetchData` for private/authenticated files; URL-only attachments must be public URLs Telegram can fetch directly.
 - Other rich card elements (images/select menus/radios) render as fallback text only.
 

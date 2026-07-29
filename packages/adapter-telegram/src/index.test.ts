@@ -10,7 +10,7 @@ import {
   mockLogger,
   threadIdContract,
 } from "@chat-adapter/tests";
-import type { ChatInstance } from "chat";
+import { type ChatInstance, Message } from "chat";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { encodeTelegramCallbackData } from "./cards";
 import {
@@ -3568,7 +3568,7 @@ describe("TelegramAdapter", () => {
     expect(parsedMessage.text).toBe("channel announcement");
   });
 
-  it("extracts photo attachments from photo messages", async () => {
+  it("preserves stable photo identity and JPEG metadata across resends and serialization", async () => {
     mockFetch.mockResolvedValueOnce(
       telegramOk({
         id: 999,
@@ -3587,23 +3587,69 @@ describe("TelegramAdapter", () => {
 
     await adapter.initialize(createMockChat());
 
-    const photoMessage = sampleMessage({
-      text: undefined,
-      photo: [
-        { file_id: "photo1", file_unique_id: "u1", width: 100, height: 100 },
-        { file_id: "photo2", file_unique_id: "u2", width: 800, height: 600 },
-      ],
-      caption: "Nice photo",
-    });
-
-    const parsed = adapter.parseMessage(photoMessage);
+    const parsed = adapter.parseMessage(
+      sampleMessage({
+        text: undefined,
+        photo: [
+          {
+            file_id: "photo-small",
+            file_unique_id: "photo-small-unique",
+            width: 100,
+            height: 100,
+          },
+          {
+            file_id: "photo-download-1",
+            file_unique_id: "photo-stable",
+            width: 800,
+            height: 600,
+          },
+        ],
+        caption: "Nice photo",
+      })
+    );
+    const resent = adapter.parseMessage(
+      sampleMessage({
+        photo: [
+          {
+            file_id: "photo-download-2",
+            file_unique_id: "photo-stable",
+            width: 800,
+            height: 600,
+          },
+        ],
+      })
+    );
 
     expect(parsed.attachments).toHaveLength(1);
     const attachment = parsed.attachments[0];
     expect(attachment?.type).toBe("image");
     expect(attachment?.width).toBe(800);
     expect(attachment?.height).toBe(600);
+    expect(attachment?.mimeType).toBe("image/jpeg");
+    expect(attachment?.fetchMetadata).toEqual({
+      fileId: "photo-download-1",
+      fileUniqueId: "photo-stable",
+    });
+    expect(resent.attachments[0]?.fetchMetadata).toEqual({
+      fileId: "photo-download-2",
+      fileUniqueId: "photo-stable",
+    });
     expect(parsed.text).toBe("Nice photo");
+
+    const restored = Message.fromJSON(
+      JSON.parse(JSON.stringify(parsed.toJSON()))
+    );
+    expect(restored.attachments[0]?.fetchMetadata).toEqual({
+      fileId: "photo-download-1",
+      fileUniqueId: "photo-stable",
+    });
+    const restoredAttachment = restored.attachments[0];
+    if (!restoredAttachment) {
+      throw new Error("Expected restored photo attachment");
+    }
+    expect(
+      adapter.rehydrateAttachment(restoredAttachment).fetchData
+    ).toBeTypeOf("function");
   });
 
   it("extracts document attachments from document messages", async () => {
@@ -3641,6 +3687,10 @@ describe("TelegramAdapter", () => {
     expect(attachment?.type).toBe("file");
     expect(attachment?.name).toBe("report.pdf");
     expect(attachment?.mimeType).toBe("application/pdf");
+    expect(attachment?.fetchMetadata).toEqual({
+      fileId: "doc1",
+      fileUniqueId: "u1",
+    });
   });
 
   it("extracts audio attachments from audio messages", async () => {
@@ -3681,6 +3731,47 @@ describe("TelegramAdapter", () => {
     expect(attachment?.name).toBe("track.mp3");
     expect(attachment?.mimeType).toBe("audio/mpeg");
     expect(attachment?.size).toBe(2048000);
+    expect(attachment?.fetchMetadata).toEqual({
+      fileId: "audio1",
+      fileUniqueId: "ua1",
+    });
+  });
+
+  it("preserves stable identity for voice attachments", async () => {
+    mockFetch.mockResolvedValueOnce(
+      telegramOk({
+        id: 999,
+        is_bot: true,
+        first_name: "Bot",
+        username: "mybot",
+      })
+    );
+
+    const adapter = createTelegramAdapter({
+      botToken: "token",
+      mode: "webhook",
+      logger: mockLogger,
+      userName: "mybot",
+    });
+
+    await adapter.initialize(createMockChat());
+
+    const parsed = adapter.parseMessage(
+      sampleMessage({
+        voice: {
+          file_id: "voice1",
+          file_unique_id: "voice-stable",
+          duration: 30,
+          mime_type: "audio/ogg",
+          file_size: 512000,
+        },
+      })
+    );
+
+    expect(parsed.attachments[0]?.fetchMetadata).toEqual({
+      fileId: "voice1",
+      fileUniqueId: "voice-stable",
+    });
   });
 
   it("extracts video attachments from video messages", async () => {
@@ -3723,6 +3814,10 @@ describe("TelegramAdapter", () => {
     expect(attachment?.width).toBe(1920);
     expect(attachment?.height).toBe(1080);
     expect(attachment?.mimeType).toBe("video/mp4");
+    expect(attachment?.fetchMetadata).toEqual({
+      fileId: "vid1",
+      fileUniqueId: "uv1",
+    });
   });
 
   it("extracts video_note attachments from round video messages", async () => {
@@ -3762,6 +3857,10 @@ describe("TelegramAdapter", () => {
     expect(attachment?.width).toBe(240);
     expect(attachment?.height).toBe(240);
     expect(attachment?.size).toBe(512000);
+    expect(attachment?.fetchMetadata).toEqual({
+      fileId: "vn1",
+      fileUniqueId: "uvn1",
+    });
   });
 
   it("isDM returns false for forum topic thread IDs", async () => {
@@ -4417,14 +4516,21 @@ describe("applyTelegramEntities", () => {
 
     expect(parsed.attachments).toMatchObject([
       {
-        fetchMetadata: { fileId: "large" },
+        fetchMetadata: {
+          fileId: "large",
+          fileUniqueId: "large-unique",
+        },
         height: 800,
+        mimeType: "image/jpeg",
         size: 2048,
         type: "image",
         width: 1200,
       },
       {
-        fetchMetadata: { fileId: "video" },
+        fetchMetadata: {
+          fileId: "video",
+          fileUniqueId: "video-unique",
+        },
         height: 720,
         mimeType: "video/mp4",
         name: "clip.mp4",
