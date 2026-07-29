@@ -296,6 +296,26 @@
     "readme": "https://github.com/buiducnhat/chat-adapter-zalo/tree/a11acb91efa9752c6d15c0a00c759b92c479e6fa"
   },
   {
+    "name": "QQ Bot",
+    "slug": "qq",
+    "type": "platform",
+    "community": true,
+    "description": "Community QQ Bot adapter for Chat SDK with WebSocket and webhook modes, multi-scene support (DM, group, text channel), and rich media.",
+    "packageName": "@agentor/chat-qq",
+    "author": "DemoMacro",
+    "readme": "https://github.com/DemoMacro/agentor/tree/6248fcc6b09821cfc2fb7bc50ef16eec1526e756/packages/chat-qq"
+  },
+  {
+    "name": "WeCom",
+    "slug": "wecom",
+    "type": "platform",
+    "community": true,
+    "description": "Community WeCom (企业微信) adapter for Chat SDK covering group webhook bots, smart bots, and apps, with template cards and AES encryption.",
+    "packageName": "@agentor/chat-wecom",
+    "author": "DemoMacro",
+    "readme": "https://github.com/DemoMacro/agentor/tree/6248fcc6b09821cfc2fb7bc50ef16eec1526e756/packages/chat-wecom"
+  },
+  {
     "name": "Mattermost",
     "slug": "mattermost",
     "type": "platform",

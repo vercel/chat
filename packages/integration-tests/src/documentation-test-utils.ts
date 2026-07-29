@@ -235,6 +235,8 @@ export const VALID_DOC_PACKAGES = [
   "chat-adapter-zalo",
   "@larksuite/vercel-chat-adapter",
   "chat-adapter-weixin",
+  "@agentor/chat-qq",
+  "@agentor/chat-wecom",
   "qrcode-terminal",
 ];
 
