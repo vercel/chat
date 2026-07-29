@@ -9194,6 +9194,128 @@ describe("native streaming fallback", () => {
   });
 });
 
+describe("native streaming outgoing mention resolution", () => {
+  function createMentionStreamAdapter() {
+    const state = createMockState();
+    const adapter = createSlackAdapter({
+      botToken: "xoxb-test-token",
+      signingSecret: "test-signing-secret",
+      logger: mockLogger,
+    });
+    (adapter as unknown as { chat: ChatInstance | null }).chat =
+      createMockChatInstance({ state });
+    const append = vi.fn().mockResolvedValue({ ok: true });
+    const stop = vi.fn().mockResolvedValue({
+      ok: true,
+      ts: "1234567890.111111",
+    });
+    mockClientMethod(
+      adapter,
+      "chatStream",
+      vi.fn().mockReturnValue({ append, stop })
+    );
+    return { adapter, append, state };
+  }
+
+  function appendedText(append: ReturnType<typeof vi.fn>): string {
+    return append.mock.calls
+      .map(
+        (call) => (call[0] as { markdown_text?: string }).markdown_text ?? ""
+      )
+      .join("");
+  }
+
+  it("resolves cached @name mentions on the native streaming path", async () => {
+    const { adapter, append, state } = createMentionStreamAdapter();
+    await state.appendToList("slack:user-by-name:alice", "U_ALICE_1");
+
+    async function* stream() {
+      yield "Thanks, @alice";
+    }
+
+    await adapter.stream("slack:D123:1234567890.000000", stream());
+
+    expect(appendedText(append)).toBe("Thanks, <@U_ALICE_1>");
+  });
+
+  it("resolves mentions that span source chunks", async () => {
+    const { adapter, append, state } = createMentionStreamAdapter();
+    await state.appendToList("slack:user-by-name:alice", "U_ALICE_1");
+
+    async function* stream() {
+      yield "Thanks, @ali";
+      yield "ce";
+    }
+
+    await adapter.stream("slack:D123:1234567890.000000", stream());
+
+    expect(appendedText(append)).toBe("Thanks, <@U_ALICE_1>");
+  });
+
+  it("resolves mentions on lines committed mid-stream", async () => {
+    const { adapter, append, state } = createMentionStreamAdapter();
+    await state.appendToList("slack:user-by-name:alice", "U_ALICE_1");
+
+    async function* stream() {
+      yield "Hi @alice\nmore ";
+      yield "text";
+    }
+
+    await adapter.stream("slack:D123:1234567890.000000", stream());
+
+    // The completed line flushes before the stream ends, already resolved.
+    expect(
+      (append.mock.calls[0][0] as { markdown_text?: string }).markdown_text
+    ).toBe("Hi <@U_ALICE_1>\n");
+    expect(appendedText(append)).toBe("Hi <@U_ALICE_1>\nmore text");
+  });
+
+  it("leaves ambiguous mentions as plain text", async () => {
+    const { adapter, append, state } = createMentionStreamAdapter();
+    await state.appendToList("slack:user-by-name:alice", "U_ALICE_1");
+    await state.appendToList("slack:user-by-name:alice", "U_ALICE_2");
+
+    async function* stream() {
+      yield "hey @alice";
+    }
+
+    await adapter.stream("slack:D123:1234567890.000000", stream());
+
+    expect(appendedText(append)).toBe("hey @alice");
+  });
+
+  it("disambiguates ambiguous mentions using thread participants", async () => {
+    const { adapter, append, state } = createMentionStreamAdapter();
+    await state.appendToList("slack:user-by-name:alice", "U_ALICE_1");
+    await state.appendToList("slack:user-by-name:alice", "U_ALICE_2");
+    await state.appendToList(
+      "slack:thread-participants:slack:D123:1234567890.000000",
+      "U_ALICE_2"
+    );
+
+    async function* stream() {
+      yield "hey @alice";
+    }
+
+    await adapter.stream("slack:D123:1234567890.000000", stream());
+
+    expect(appendedText(append)).toBe("hey <@U_ALICE_2>");
+  });
+
+  it("keeps mentions literal inside code fences", async () => {
+    const { adapter, append, state } = createMentionStreamAdapter();
+    await state.appendToList("slack:user-by-name:alice", "U_ALICE_1");
+
+    async function* stream() {
+      yield "```\n@alice\n```\nping @alice";
+    }
+
+    await adapter.stream("slack:D123:1234567890.000000", stream());
+
+    expect(appendedText(append)).toBe("```\n@alice\n```\nping <@U_ALICE_1>");
+  });
+});
+
 describe("feedbackButtons", () => {
   function createStreamAdapter(
     feedbackButtons?: SlackAdapterConfig["feedbackButtons"]
