@@ -2112,7 +2112,7 @@ describe("TelegramAdapter", () => {
     expect((formData.get("media1") as { name?: string }).name).toBe("two.txt");
   });
 
-  it("posts mixed image and video attachments as a Telegram media group", async () => {
+  it("posts and normalizes mixed image and video attachments as a Telegram media group", async () => {
     mockFetch
       .mockResolvedValueOnce(
         telegramOk({
@@ -2203,6 +2203,35 @@ describe("TelegramAdapter", () => {
     expect((formData.get("media1") as { name?: string }).name).toBe(
       "video.mp4"
     );
+
+    const cached = await adapter.fetchMessages("telegram:123", {
+      limit: 10,
+    });
+    expect(cached.messages).toMatchObject([
+      {
+        attachments: [
+          {
+            fetchMetadata: {
+              fileId: "photo-1",
+              fileUniqueId: "p1",
+            },
+            mimeType: "image/jpeg",
+            type: "image",
+          },
+        ],
+      },
+      {
+        attachments: [
+          {
+            fetchMetadata: {
+              fileId: "video-1",
+              fileUniqueId: "v1",
+            },
+            type: "video",
+          },
+        ],
+      },
+    ]);
   });
 
   it("rejects incompatible Telegram media group attachment types", async () => {
