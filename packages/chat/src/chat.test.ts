@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+const ANY_REGEX = /.*/;
 const HELP_REGEX = /help/i;
 const HELLO_REGEX = /hello/i;
 
@@ -613,7 +614,7 @@ describe("Chat", () => {
       ["https://user@slack-bot.com", "url userinfo"],
     ])("should not treat %s as a mention (%s)", async (text) => {
       const handler = vi.fn().mockResolvedValue(undefined);
-      chat.onNewMessage(/.*/, handler);
+      chat.onNewMessage(ANY_REGEX, handler);
 
       await chat.handleIncomingMessage(
         mockAdapter,
