@@ -37,8 +37,21 @@ export interface XchatAdapterConfig {
   /**
    * App consumer secret (API secret key) for webhook signature verification.
    * When set, incoming POST webhooks are verified via HMAC-SHA256.
+   *
+   * Required to receive webhooks: without it every POST is rejected with 401.
+   * Registering an XChat webhook already needs this secret to answer the CRC
+   * challenge, so a working webhook deployment always has one. Polling
+   * deployments never receive webhooks and do not need it.
    */
   consumerSecret?: string;
+  /**
+   * Accept webhook POSTs without verifying their signature.
+   *
+   * Only set this when the deployment terminates and verifies X's signature
+   * upstream. It lets anyone who learns the webhook URL deliver forged
+   * envelopes to the adapter, so it is not recommended in production.
+   */
+  disableWebhookVerification?: boolean;
   /**
    * Minimum age (ms) a freshly posted message must reach before its first
    * edit is sent, giving receiving clients time to store the original an

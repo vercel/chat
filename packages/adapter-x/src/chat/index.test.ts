@@ -108,6 +108,9 @@ function createTestAdapter(): XchatAdapter {
     userId: TEST_USER_ID,
     userName: "test-bot",
     logger: mockLogger,
+    // These tests exercise routing and parsing, not webhook authentication,
+    // so they opt out of the signature check the adapter otherwise requires.
+    disableWebhookVerification: true,
   });
 }
 
@@ -302,6 +305,39 @@ describe("handleWebhook", () => {
 
   it("should return 200 for valid event without conversationId", async () => {
     const adapter = createTestAdapter();
+    const request = new Request("https://example.com/webhook", {
+      method: "POST",
+      body: JSON.stringify({}),
+      headers: { "Content-Type": "application/json" },
+    });
+    const response = await adapter.handleWebhook(request);
+    expect(response.status).toBe(200);
+  });
+
+  it("should reject POST when no consumerSecret is configured", async () => {
+    const adapter = new XchatAdapter({
+      accessToken: "test-token",
+      userId: TEST_USER_ID,
+      userName: "test-bot",
+      logger: mockLogger,
+    });
+    const request = new Request("https://example.com/webhook", {
+      method: "POST",
+      body: JSON.stringify({}),
+      headers: { "Content-Type": "application/json" },
+    });
+    const response = await adapter.handleWebhook(request);
+    expect(response.status).toBe(401);
+  });
+
+  it("should accept unsigned POST when signature verification is disabled", async () => {
+    const adapter = new XchatAdapter({
+      accessToken: "test-token",
+      userId: TEST_USER_ID,
+      userName: "test-bot",
+      logger: mockLogger,
+      disableWebhookVerification: true,
+    });
     const request = new Request("https://example.com/webhook", {
       method: "POST",
       body: JSON.stringify({}),

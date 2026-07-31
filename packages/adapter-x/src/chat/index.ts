@@ -8,7 +8,7 @@
  * @example
  * ```typescript
  * import { Chat } from "chat";
- * import { createXchatAdapter } from "@chat-adapter/xchat";
+ * import { createXchatAdapter } from "@chat-adapter/x/chat";
  * import { MemoryState } from "@chat-adapter/state-memory";
  *
  * const chat = new Chat({
@@ -613,6 +613,8 @@ export class XchatAdapter implements Adapter<XchatThreadId, XchatRawMessage> {
   private readonly pin: string | undefined;
   /** When false, decryption proceeds even for unverifiable signatures */
   private readonly verifySignatures: boolean;
+  /** When true, webhook POSTs are accepted without a signature check */
+  private readonly disableWebhookVerification: boolean;
   private chat: ChatInstance | null = null;
   private readonly logger: Logger;
   private readonly formatConverter = new XchatFormatConverter();
@@ -685,6 +687,9 @@ export class XchatAdapter implements Adapter<XchatThreadId, XchatRawMessage> {
     this.signingKeyVersion = config.signingKeyVersion ?? null;
     this.pin = config.pin;
     this.verifySignatures = config.verifySignatures ?? true;
+    this.disableWebhookVerification = Boolean(
+      config.disableWebhookVerification
+    );
     this.welcomeMessage = config.welcomeMessage;
     this.editSafetyDelayMs =
       config.editSafetyDelayMs ?? DEFAULT_EDIT_SAFETY_DELAY_MS;
@@ -709,11 +714,13 @@ export class XchatAdapter implements Adapter<XchatThreadId, XchatRawMessage> {
     this.chat = chatInstance;
     this._cryptoStatus = "initializing";
 
-    if (!this.consumerSecret) {
+    if (!(this.consumerSecret || this.disableWebhookVerification)) {
       this.logger.warn(
         "XChat adapter: consumerSecret is not set — incoming webhook POSTs " +
-          "will not be signature-verified. Set X_CONSUMER_SECRET to enable " +
-          "webhook authentication."
+          "will be rejected with 401. Set X_CONSUMER_SECRET to enable webhook " +
+          "authentication, or disableWebhookVerification: true to accept " +
+          "unverified webhooks (NOT recommended in production). Polling " +
+          "deployments are unaffected."
       );
     }
 
@@ -999,7 +1006,10 @@ export class XchatAdapter implements Adapter<XchatThreadId, XchatRawMessage> {
     // Read the raw body for signature verification
     const rawBody = await request.text();
 
-    // Verify webhook signature if consumer secret is configured
+    // Fail closed: an unsigned POST is rejected unless the operator has
+    // explicitly opted out. Registering an XChat webhook already requires the
+    // consumer secret to answer the CRC challenge, so a working webhook
+    // deployment always has one. Polling deployments never reach this path.
     if (this.consumerSecret) {
       const signature = request.headers.get("x-twitter-webhooks-signature");
       if (!signature) {
@@ -1010,6 +1020,11 @@ export class XchatAdapter implements Adapter<XchatThreadId, XchatRawMessage> {
         this.logger.warn("webhook_invalid_signature");
         return new Response("Invalid signature", { status: 401 });
       }
+    } else if (!this.disableWebhookVerification) {
+      this.logger.warn("webhook_verification_unconfigured");
+      return new Response("Signature verification not configured", {
+        status: 401,
+      });
     }
 
     // Parse the XAA webhook envelope and extract the event payload.
@@ -2828,6 +2843,9 @@ export function createXchatAdapter(config?: XchatAdapterConfig): XchatAdapter {
 
   const consumerSecret =
     config?.consumerSecret ?? process.env.X_CONSUMER_SECRET ?? undefined;
+  const disableWebhookVerification =
+    config?.disableWebhookVerification ??
+    process.env.X_DISABLE_WEBHOOK_VERIFICATION === "true";
 
   const pin = config?.pin ?? process.env.XCHAT_PIN ?? undefined;
 
@@ -2845,6 +2863,7 @@ export function createXchatAdapter(config?: XchatAdapterConfig): XchatAdapter {
     apiBaseUrl: config?.apiBaseUrl,
     apiHeaders: config?.apiHeaders,
     consumerSecret,
+    disableWebhookVerification,
     editSafetyDelayMs: config?.editSafetyDelayMs,
     logger,
     pin,

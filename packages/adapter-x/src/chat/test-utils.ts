@@ -214,6 +214,9 @@ export async function createInitializedTestAdapter(
     pin: TEST_PIN,
     userName: "test-bot",
     logger: mockLogger,
+    // These fixtures drive the decrypt and delivery path, not webhook
+    // authentication, so they opt out of the signature check.
+    disableWebhookVerification: true,
     ...configOverrides,
   });
 
