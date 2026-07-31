@@ -7,6 +7,7 @@ import {
 } from "@chat-adapter/shared";
 import {
   createMockChatInstance,
+  createMockState,
   mockLogger,
   threadIdContract,
 } from "@chat-adapter/tests";
@@ -58,6 +59,7 @@ afterEach(() => {
     }
   }
   vi.unstubAllGlobals();
+  vi.useRealTimers();
 });
 
 function telegramOk(result: unknown): Response {
@@ -380,6 +382,113 @@ describe("TelegramAdapter", () => {
         String(input).includes("/sendChatAction")
       )
     ).toBe(false);
+  });
+
+  it("combines an incoming media group into one ordered message", async () => {
+    vi.useFakeTimers();
+    mockFetch.mockResolvedValue(
+      telegramOk({
+        id: 999,
+        is_bot: true,
+        first_name: "Bot",
+        username: "mybot",
+      })
+    );
+
+    const state = createMockState();
+    const adapters = [0, 1].map(() =>
+      createTelegramAdapter({
+        botToken: "token",
+        mode: "webhook",
+        logger: mockLogger,
+        userName: "mybot",
+      })
+    );
+    const chats = [0, 1].map(() =>
+      createMockChatInstance({ logger: mockLogger, state, userName: "mybot" })
+    );
+    await Promise.all(
+      adapters.map((adapter, index) => adapter.initialize(chats[index]))
+    );
+
+    const pending: Promise<unknown>[] = [];
+    const waitUntil = (task: Promise<unknown>): void => {
+      pending.push(task);
+    };
+    const messages = [
+      sampleMessage({
+        message_id: 41,
+        media_group_id: "meal-album",
+        text: undefined,
+        caption: "I ate both pieces",
+        photo: [
+          {
+            file_id: "photo-1",
+            file_unique_id: "photo-unique-1",
+            width: 800,
+            height: 600,
+          },
+        ],
+      }),
+      sampleMessage({
+        message_id: 42,
+        media_group_id: "meal-album",
+        text: undefined,
+        photo: [
+          {
+            file_id: "photo-2",
+            file_unique_id: "photo-unique-2",
+            width: 800,
+            height: 600,
+          },
+        ],
+      }),
+    ];
+
+    for (const [index, message] of messages.entries()) {
+      await adapters[index].handleWebhook(
+        new Request("https://example.com/webhook", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ update_id: index + 1, message }),
+        }),
+        { waitUntil }
+      );
+    }
+
+    const processMessages = chats.map(
+      (chat) => chat.processMessage as ReturnType<typeof vi.fn>
+    );
+    expect(
+      processMessages.every(
+        (processMessage) => processMessage.mock.calls.length === 0
+      )
+    ).toBe(true);
+
+    await vi.runAllTimersAsync();
+    await Promise.all(pending);
+
+    const calls = processMessages.flatMap(
+      (processMessage) => processMessage.mock.calls
+    );
+    expect(calls).toHaveLength(1);
+    const [, threadId, parsedMessage] = calls[0] as [
+      unknown,
+      string,
+      {
+        attachments: Array<{ fetchMetadata?: { fileId?: string } }>;
+        id: string;
+        text: string;
+      },
+    ];
+    expect(threadId).toBe("telegram:123");
+    expect(parsedMessage.id).toBe("123:42");
+    expect(parsedMessage.text).toBe("I ate both pieces");
+    expect(
+      parsedMessage.attachments.map(
+        (attachment) => attachment.fetchMetadata?.fileId
+      )
+    ).toEqual(["photo-1", "photo-2"]);
   });
 
   it("rejects disallowed and identityless updates before dispatch", async () => {
