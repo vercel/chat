@@ -16,7 +16,10 @@ permissions:
 jobs:
   changeset:
     runs-on: ubuntu-latest
-    if: github.event_name == 'pull_request'
+    # Skipped on the release PR: it consumes every changeset and bumps the
+    # versions, which is exactly the state `changeset status` reports as an
+    # error, so the check always fails there.
+    if: github.event_name == 'pull_request' && github.head_ref != 'changeset-release/main'
     steps:
       - name: Checkout
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v6.0.0
