@@ -111,6 +111,12 @@ export interface CatalogAdapter {
    */
   group: "official" | "vendor-official";
   /**
+   * Module specifier the factory is imported from, when the adapter ships on
+   * a subpath of {@link CatalogAdapter.packageName}. The package to install is
+   * still `packageName`. Defaults to `packageName` when omitted.
+   */
+  importPath?: string;
+  /**
    * Display name.
    */
   name: string;
@@ -1100,7 +1106,11 @@ export const ADAPTERS = {
       optional: [
         secretEnv(
           "X_CONSUMER_SECRET",
-          "App consumer secret for webhook CRC and signature verification. Incoming webhook POSTs are not signature-verified when omitted."
+          "App consumer secret for webhook CRC and signature verification. Required to receive webhooks: incoming POSTs are rejected when omitted. Polling deployments do not need it."
+        ),
+        env(
+          "X_DISABLE_WEBHOOK_VERIFICATION",
+          "Set to true to accept webhook POSTs without verifying their signature. Not recommended in production."
         ),
         env(
           "X_BOT_USERNAME",
@@ -1129,8 +1139,9 @@ export const ADAPTERS = {
     },
     factoryExport: "createXchatAdapter",
     group: "official",
+    importPath: "@chat-adapter/x/chat",
     name: "XChat",
-    packageName: "@chat-adapter/xchat",
+    packageName: "@chat-adapter/x",
     peerDeps: ["@xdevplatform/chat-xdk", "@xdevplatform/xdk", "juicebox-sdk"],
     slug: "xchat",
     type: "platform",

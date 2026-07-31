@@ -66,7 +66,7 @@ const renderConnectCall = (
 const REQUIRE_ENV_HELPER = `const requireEnv = (name: string): string => {\n${INDENT}const value = process.env[name];\n${INDENT}if (!value) {\n${INDENT.repeat(2)}throw new Error(\`Missing required environment variable: \${name}\`);\n${INDENT}}\n${INDENT}return value;\n};`;
 
 const importLine = (adapter: CatalogAdapter): string =>
-  `import { ${adapter.factoryExport} } from ${quote(adapter.packageName)};`;
+  `import { ${adapter.factoryExport} } from ${quote(adapter.importPath ?? adapter.packageName)};`;
 
 /**
  * Generate the contents of `src/lib/bot.ts`.

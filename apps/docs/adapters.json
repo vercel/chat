@@ -104,10 +104,10 @@
     "slug": "xchat",
     "type": "platform",
     "description": "Hold encrypted 1:1 and group conversations on XChat with all cryptography handled inside the adapter.",
-    "packageName": "@chat-adapter/xchat",
+    "packageName": "@chat-adapter/x",
     "icon": "x",
     "beta": true,
-    "readme": "https://github.com/vercel/chat/tree/main/packages/adapter-xchat"
+    "readme": "https://github.com/vercel/chat/tree/main/packages/adapter-x"
   },
   {
     "name": "Messenger",

@@ -1,7 +1,7 @@
 ---
 title: XChat
 description: XChat (encrypted messaging) adapter using the X API v2 chat endpoints and the X Activity API.
-packageName: "@chat-adapter/xchat"
+packageName: "@chat-adapter/x"
 slug: xchat
 type: platform
 logo: x
@@ -57,7 +57,7 @@ features:
 
 ## Install
 
-<PackageInstall package="@chat-adapter/xchat" />
+<PackageInstall package="@chat-adapter/x" />
 
 ## Quick start
 
@@ -67,7 +67,7 @@ The adapter auto-detects `XCHAT_BOT_TOKEN`, `XCHAT_PIN`, and `X_CONSUMER_SECRET`
 
 ```typescript title="lib/bot.ts" lineNumbers
 import { Chat } from "chat";
-import { createXchatAdapter } from "@chat-adapter/xchat";
+import { createXchatAdapter } from "@chat-adapter/x/chat";
 
 const bot = new Chat({
   userName: "mybot",
@@ -125,7 +125,12 @@ export async function POST(request: Request) {
     consumerSecret: {
       type: "string",
       description:
-        "App consumer secret for webhook signature verification. Auto-detected from `X_CONSUMER_SECRET`. When unset, incoming webhook POSTs are not signature-verified (a warning is logged at startup).",
+        "App consumer secret for webhook signature verification. Auto-detected from `X_CONSUMER_SECRET`. Required to receive webhooks: X signs every POST, so without it every POST is rejected with 401. Polling deployments do not need it.",
+    },
+    disableWebhookVerification: {
+      type: "boolean",
+      description:
+        "Accept webhook POSTs without verifying their HMAC. Auto-detected from `X_DISABLE_WEBHOOK_VERIFICATION`. Only use it when an upstream layer verifies the signature. Not recommended in production.",
     },
     editSafetyDelayMs: {
       type: "number",
