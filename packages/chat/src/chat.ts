@@ -2672,6 +2672,11 @@ export class Chat<
   /**
    * Detect if the bot was mentioned in the message.
    * All adapters normalize mentions to @name format, so we just check for @username.
+   *
+   * The `@` must not follow a word character, so email addresses and URL
+   * userinfo (`jane@acme.com`) are not read as a mention of a bot named
+   * `acme`. The trailing guard keeps `@bot` from matching `@botlong` while
+   * still allowing suffixed names such as GitHub's `mybot[bot]`.
    */
   private detectMention(adapter: Adapter, message: Message): boolean {
     const botUserName = adapter.userName || this.userName;
@@ -2679,7 +2684,7 @@ export class Chat<
 
     // Primary check: @username format (normalized by all adapters)
     const usernamePattern = new RegExp(
-      `@${this.escapeRegex(botUserName)}(?![\\w-])`,
+      `(?<!\\w)@${this.escapeRegex(botUserName)}(?![\\w-])`,
       "i"
     );
     if (usernamePattern.test(message.text)) {
@@ -2689,7 +2694,7 @@ export class Chat<
     // Fallback: check for user ID mention if available (e.g., @U_BOT_123)
     if (botUserId) {
       const userIdPattern = new RegExp(
-        `@${this.escapeRegex(botUserId)}(?![\\w-])`,
+        `(?<!\\w)@${this.escapeRegex(botUserId)}(?![\\w-])`,
         "i"
       );
       if (userIdPattern.test(message.text)) {
