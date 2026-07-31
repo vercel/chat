@@ -10,7 +10,7 @@ import {
   mockLogger,
   threadIdContract,
 } from "@chat-adapter/tests";
-import { type ChatInstance, Message } from "chat";
+import { type Attachment, type ChatInstance, Message } from "chat";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { encodeTelegramCallbackData } from "./cards";
 import {
@@ -139,6 +139,15 @@ function readMediaGroup(callIndex: number): TelegramMediaGroupItem[] {
     throw new Error("Expected media group payload to be a string");
   }
   return JSON.parse(media) as TelegramMediaGroupItem[];
+}
+
+function roundTripAttachments(
+  adapter: TelegramAdapter,
+  message: Message
+): Attachment[] {
+  return Message.fromJSON(
+    JSON.parse(JSON.stringify(message.toJSON()))
+  ).attachments.map((attachment) => adapter.rehydrateAttachment(attachment));
 }
 
 function createAbortError(): Error {
@@ -2204,33 +2213,31 @@ describe("TelegramAdapter", () => {
       "video.mp4"
     );
 
-    const cached = await adapter.fetchMessages("telegram:123", {
-      limit: 10,
-    });
-    expect(cached.messages).toMatchObject([
-      {
-        attachments: [
-          {
-            fetchMetadata: {
-              fileId: "photo-1",
-              fileUniqueId: "p1",
-            },
-            mimeType: "image/jpeg",
-            type: "image",
+    const cached = await adapter.fetchMessages("telegram:123", { limit: 10 });
+    expect(
+      cached.messages.map((message) => roundTripAttachments(adapter, message))
+    ).toMatchObject([
+      [
+        {
+          fetchData: expect.any(Function),
+          fetchMetadata: {
+            fileId: "photo-1",
+            fileUniqueId: "p1",
           },
-        ],
-      },
-      {
-        attachments: [
-          {
-            fetchMetadata: {
-              fileId: "video-1",
-              fileUniqueId: "v1",
-            },
-            type: "video",
+          mimeType: "image/jpeg",
+          type: "image",
+        },
+      ],
+      [
+        {
+          fetchData: expect.any(Function),
+          fetchMetadata: {
+            fileId: "video-1",
+            fileUniqueId: "v1",
           },
-        ],
-      },
+          type: "video",
+        },
+      ],
     ]);
   });
 
@@ -3665,20 +3672,12 @@ describe("TelegramAdapter", () => {
     });
     expect(parsed.text).toBe("Nice photo");
 
-    const restored = Message.fromJSON(
-      JSON.parse(JSON.stringify(parsed.toJSON()))
-    );
-    expect(restored.attachments[0]?.fetchMetadata).toEqual({
+    const [restoredAttachment] = roundTripAttachments(adapter, parsed);
+    expect(restoredAttachment?.fetchMetadata).toEqual({
       fileId: "photo-download-1",
       fileUniqueId: "photo-stable",
     });
-    const restoredAttachment = restored.attachments[0];
-    if (!restoredAttachment) {
-      throw new Error("Expected restored photo attachment");
-    }
-    expect(
-      adapter.rehydrateAttachment(restoredAttachment).fetchData
-    ).toBeTypeOf("function");
+    expect(restoredAttachment?.fetchData).toBeTypeOf("function");
   });
 
   it("extracts document attachments from document messages", async () => {
@@ -4566,6 +4565,24 @@ describe("applyTelegramEntities", () => {
         size: 4096,
         type: "video",
         width: 1280,
+      },
+    ]);
+    expect(roundTripAttachments(adapter, parsed)).toMatchObject([
+      {
+        fetchData: expect.any(Function),
+        fetchMetadata: {
+          fileId: "large",
+          fileUniqueId: "large-unique",
+        },
+        mimeType: "image/jpeg",
+      },
+      {
+        fetchData: expect.any(Function),
+        fetchMetadata: {
+          fileId: "video",
+          fileUniqueId: "video-unique",
+        },
+        mimeType: "video/mp4",
       },
     ]);
   });
