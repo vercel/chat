@@ -51,7 +51,7 @@ export const AdapterSlugList = () => {
       <div className="mt-4 grid gap-4 md:grid-cols-3">
         {groups.map((group) => (
           <section key={group.label}>
-            <h3 className="font-medium text-sm">{group.label}</h3>
+            <h3 className="text-heading-14">{group.label}</h3>
             <ul className="mt-2 space-y-1 text-sm">
               {group.adapters.map((adapter) => (
                 <li key={adapter.slug}>

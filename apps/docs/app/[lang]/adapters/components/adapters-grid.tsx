@@ -100,9 +100,7 @@ export const AdaptersGrid = ({ adapters }: AdaptersGridProps) => {
           {officialPlatform.length > 0 ? (
             <section className="grid gap-5">
               <div className="grid gap-1">
-                <h2 className="font-medium text-base tracking-tight">
-                  Official
-                </h2>
+                <h2 className="text-heading-16">Official</h2>
                 <p className="text-[13px] text-muted-foreground">
                   Published under <code>@chat-adapter/*</code> and maintained by
                   Vercel.
@@ -123,9 +121,7 @@ export const AdaptersGrid = ({ adapters }: AdaptersGridProps) => {
           {vendorOfficialPlatform.length > 0 ? (
             <section className="grid gap-5">
               <div className="grid gap-1">
-                <h2 className="font-medium text-base tracking-tight">
-                  Vendor Official
-                </h2>
+                <h2 className="text-heading-16">Vendor Official</h2>
                 <p className="text-[13px] text-muted-foreground">
                   Built and maintained by the platform vendor.
                 </p>
@@ -147,9 +143,7 @@ export const AdaptersGrid = ({ adapters }: AdaptersGridProps) => {
           {communityPlatform.length > 0 ? (
             <section className="grid gap-5">
               <div className="grid gap-1">
-                <h2 className="font-medium text-base tracking-tight">
-                  Community
-                </h2>
+                <h2 className="text-heading-16">Community</h2>
                 <p className="text-[13px] text-muted-foreground">
                   Built by third-party developers.
                 </p>
@@ -175,9 +169,7 @@ export const AdaptersGrid = ({ adapters }: AdaptersGridProps) => {
           className={`grid gap-10 ${showPlatformSection && activeTab === "all" ? "mt-16 border-t pt-16" : ""}`}
         >
           <div className="grid gap-1">
-            <h2 className="font-semibold text-lg tracking-tight">
-              State Adapters
-            </h2>
+            <h2 className="text-heading-20">State Adapters</h2>
             <p className="text-[13px] text-muted-foreground">
               Pluggable state adapters for thread subscriptions, distributed
               locking, and caching.
@@ -187,9 +179,7 @@ export const AdaptersGrid = ({ adapters }: AdaptersGridProps) => {
           {officialState.length > 0 ? (
             <section className="grid gap-5">
               <div className="grid gap-1">
-                <h3 className="font-medium text-base tracking-tight">
-                  Official
-                </h3>
+                <h3 className="text-heading-16">Official</h3>
                 <p className="text-[13px] text-muted-foreground">
                   Published under <code>@chat-adapter/*</code> and maintained by
                   Vercel.
@@ -210,9 +200,7 @@ export const AdaptersGrid = ({ adapters }: AdaptersGridProps) => {
           {communityState.length > 0 ? (
             <section className="grid gap-5">
               <div className="grid gap-1">
-                <h3 className="font-medium text-base tracking-tight">
-                  Community
-                </h3>
+                <h3 className="text-heading-16">Community</h3>
                 <p className="text-[13px] text-muted-foreground">
                   Built by third-party developers.
                 </p>
