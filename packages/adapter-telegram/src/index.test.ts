@@ -417,20 +417,6 @@ describe("TelegramAdapter", () => {
     };
     const messages = [
       sampleMessage({
-        message_id: 41,
-        media_group_id: "meal-album",
-        text: undefined,
-        caption: "I ate both pieces",
-        photo: [
-          {
-            file_id: "photo-1",
-            file_unique_id: "photo-unique-1",
-            width: 800,
-            height: 600,
-          },
-        ],
-      }),
-      sampleMessage({
         message_id: 42,
         media_group_id: "meal-album",
         text: undefined,
@@ -438,6 +424,20 @@ describe("TelegramAdapter", () => {
           {
             file_id: "photo-2",
             file_unique_id: "photo-unique-2",
+            width: 800,
+            height: 600,
+          },
+        ],
+      }),
+      sampleMessage({
+        message_id: 41,
+        media_group_id: "meal-album",
+        text: undefined,
+        caption: "/analyze both pieces",
+        photo: [
+          {
+            file_id: "photo-1",
+            file_unique_id: "photo-unique-1",
             width: 800,
             height: 600,
           },
@@ -483,7 +483,7 @@ describe("TelegramAdapter", () => {
     ];
     expect(threadId).toBe("telegram:123");
     expect(parsedMessage.id).toBe("123:42");
-    expect(parsedMessage.text).toBe("I ate both pieces");
+    expect(parsedMessage.text).toBe("/analyze both pieces");
     expect(
       parsedMessage.attachments.map(
         (attachment) => attachment.fetchMetadata?.fileId

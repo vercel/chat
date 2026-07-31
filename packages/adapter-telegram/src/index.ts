@@ -626,6 +626,7 @@ export class TelegramAdapter
 
     const handledSlashCommand =
       update.message !== undefined &&
+      !update.message.media_group_id &&
       this.handleSlashCommandUpdate(update.message, options);
 
     if (messageUpdate && !handledSlashCommand) {
@@ -688,19 +689,7 @@ export class TelegramAdapter
     const state = this.chat.getState();
     const mediaGroupKey = `${this.name}:incoming-media-group:${threadId}:${telegramMessage.media_group_id}`;
     const lockKey = `${mediaGroupKey}:lock`;
-
-    await state.appendToList(
-      mediaGroupKey,
-      {
-        message: telegramMessage,
-        receivedAt: Date.now(),
-      } satisfies TelegramIncomingMediaGroupEntry,
-      {
-        maxLength: TELEGRAM_MEDIA_GROUP_MAX,
-        ttlMs: TELEGRAM_INCOMING_MEDIA_GROUP_BUFFER_TTL_MS,
-      }
-    );
-    await this.sleep(TELEGRAM_INCOMING_MEDIA_GROUP_SETTLE_MS);
+    let appended = false;
 
     for (;;) {
       const lock = await state.acquireLock(
@@ -716,21 +705,31 @@ export class TelegramAdapter
       let remainingSettleMs = 0;
       try {
         entries =
-          await state.getList<TelegramIncomingMediaGroupEntry>(mediaGroupKey);
-        if (entries.length === 0) {
+          (await state.get<TelegramIncomingMediaGroupEntry[]>(mediaGroupKey)) ??
+          [];
+        if (!appended) {
+          entries.push({ message: telegramMessage, receivedAt: Date.now() });
+          await state.set(
+            mediaGroupKey,
+            entries.slice(-TELEGRAM_MEDIA_GROUP_MAX),
+            TELEGRAM_INCOMING_MEDIA_GROUP_BUFFER_TTL_MS
+          );
+          appended = true;
+          remainingSettleMs = TELEGRAM_INCOMING_MEDIA_GROUP_SETTLE_MS;
+        } else if (entries.length === 0) {
           return;
-        }
-
-        const newestReceivedAt = Math.max(
-          ...entries.map((entry) => entry.receivedAt)
-        );
-        remainingSettleMs = Math.max(
-          0,
-          TELEGRAM_INCOMING_MEDIA_GROUP_SETTLE_MS -
-            (Date.now() - newestReceivedAt)
-        );
-        if (remainingSettleMs === 0) {
-          await state.delete(mediaGroupKey);
+        } else {
+          const newestReceivedAt = Math.max(
+            ...entries.map((entry) => entry.receivedAt)
+          );
+          remainingSettleMs = Math.max(
+            0,
+            TELEGRAM_INCOMING_MEDIA_GROUP_SETTLE_MS -
+              (Date.now() - newestReceivedAt)
+          );
+          if (remainingSettleMs === 0) {
+            await state.delete(mediaGroupKey);
+          }
         }
       } finally {
         await state.releaseLock(lock);

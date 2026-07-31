@@ -205,6 +205,7 @@ Pass `{ raw: "..." }` only if you need to ship a fully pre-escaped MarkdownV2 st
 - `listThreads` is not available for Telegram chats.
 - Telegram callback data is limited to 64 bytes — keep `Button` `id`/`value` payloads short.
 - Multiple `files` or compatible `attachments` are sent as Telegram media groups. `files` upload as documents; `attachments` preserve image, audio, video, or file media type.
+- Incoming media groups are delivered as one message after the album settles, with attachments ordered by Telegram message ID and the shared caption preserved.
 - Other rich card elements (images, select menus, radios) render as fallback text.
 
 ## Feature support
