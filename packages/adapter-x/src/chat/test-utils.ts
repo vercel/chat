@@ -23,7 +23,7 @@ import type { XchatAdapterConfig } from "./types";
 
 const VECTORS_PATH = resolve(
   fileURLToPath(import.meta.url),
-  "../../tests/fixtures/sdk_vectors.json"
+  "../../../tests/fixtures/sdk_vectors.json"
 );
 
 export interface SdkVectors {

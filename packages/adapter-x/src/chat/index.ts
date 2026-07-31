@@ -82,7 +82,7 @@ const DEFAULT_API_BASE_URL = "https://api.x.com";
 
 /** Adapter version, read from package.json (works from both src and dist). */
 const ADAPTER_VERSION: string = createRequire(import.meta.url)(
-  "../package.json"
+  "../../package.json"
 ).version;
 
 /** Product token identifying Chat SDK traffic in X API request logs */
