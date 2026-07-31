@@ -1,7 +1,7 @@
 {
   "name": "@chat-adapter/x",
   "version": "4.35.0",
-  "description": "X (Twitter) adapter for Chat SDK: reply to mentions, send direct messages, and post from your bot account with the X API v2",
+  "description": "X (Twitter) adapter for Chat SDK: reply to mentions, send direct messages, and post from your bot account with the X API v2, plus encrypted XChat conversations from the @chat-adapter/x/chat subpath",
   "type": "module",
   "engines": {
     "node": ">=20"
@@ -13,6 +13,10 @@
     ".": {
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js"
+    },
+    "./chat": {
+      "types": "./dist/chat/index.d.ts",
+      "import": "./dist/chat/index.js"
     }
   },
   "files": [
@@ -32,6 +36,9 @@
   },
   "devDependencies": {
     "@types/node": "^25.3.2",
+    "@xdevplatform/chat-xdk": "^0.4.3",
+    "@xdevplatform/xdk": "^0.6.6",
+    "juicebox-sdk": "^0.3.6",
     "tsup": "^8.3.5",
     "typescript": "^5.7.2",
     "vitest": "^4.0.18"
@@ -60,7 +67,24 @@
     "messaging",
     "ai-agent",
     "ai-sdk",
-    "vercel"
+    "vercel",
+    "xchat"
   ],
-  "license": "MIT"
+  "license": "MIT",
+  "peerDependencies": {
+    "@xdevplatform/chat-xdk": "^0.4.3",
+    "@xdevplatform/xdk": "^0.6.6",
+    "juicebox-sdk": "^0.3.6"
+  },
+  "peerDependenciesMeta": {
+    "@xdevplatform/chat-xdk": {
+      "optional": true
+    },
+    "@xdevplatform/xdk": {
+      "optional": true
+    },
+    "juicebox-sdk": {
+      "optional": true
+    }
+  }
 }

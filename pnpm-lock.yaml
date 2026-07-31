@@ -710,37 +710,15 @@ importers:
       '@types/node':
         specifier: ^25.3.2
         version: 25.9.2
-      tsup:
-        specifier: ^8.3.5
-        version: 8.5.1(@swc/core@1.15.3)(jiti@2.7.0)(postcss@8.5.16)(tsx@4.22.3)(typescript@5.9.3)(yaml@2.9.0)
-      typescript:
-        specifier: ^5.7.2
-        version: 5.9.3
-      vitest:
-        specifier: ^4.0.18
-        version: 4.1.8(@opentelemetry/api@1.9.0)(@types/node@25.9.2)(@vitest/coverage-v8@4.1.8)(vite@7.3.6(@types/node@25.9.2)(jiti@2.7.0)(lightningcss@1.30.2)(terser@5.48.0)(tsx@4.22.3)(yaml@2.9.0))
-
-  packages/adapter-xchat:
-    dependencies:
-      '@chat-adapter/shared':
-        specifier: workspace:*
-        version: link:../adapter-shared
       '@xdevplatform/chat-xdk':
         specifier: ^0.4.3
         version: 0.4.3(juicebox-sdk@0.3.6)
       '@xdevplatform/xdk':
         specifier: ^0.6.6
         version: 0.6.6(node-fetch@3.3.2)
-      chat:
-        specifier: workspace:*
-        version: link:../chat
       juicebox-sdk:
         specifier: ^0.3.6
         version: 0.3.6
-    devDependencies:
-      '@types/node':
-        specifier: ^25.3.2
-        version: 25.9.2
       tsup:
         specifier: ^8.3.5
         version: 8.5.1(@swc/core@1.15.3)(jiti@2.7.0)(postcss@8.5.16)(tsx@4.22.3)(typescript@5.9.3)(yaml@2.9.0)
