@@ -1,5 +1,25 @@
 # @chat-adapter/teams
 
+## 4.36.0
+
+### Minor Changes
+
+- 0153a39: Add `DateInput` and `NumberInput` modal children. The Slack adapter renders them as a `datepicker` and a `number_input`, the Teams adapter as `Input.Date` and `Input.Number`, and both submitted values arrive in `event.values` as strings.
+
+  Teams submit values that arrive as JSON numbers are now stringified into `event.values` instead of being dropped. This fixes `Input.Number`, but applies to any numeric value a Teams dialog submits — a key that was previously absent from `event.values` will now be present as a string.
+
+### Patch Changes
+
+- 257a32d: Route Teams personal and group conversations using their explicit conversation type so group chats use buffered fallback even when their IDs resemble direct messages.
+- 3c37cfb: Authenticate connector-hosted inline attachments and parse Teams file download cards.
+- Updated dependencies [257a32d]
+- Updated dependencies [c5d86b1]
+- Updated dependencies [0153a39]
+- Updated dependencies [b547f45]
+- Updated dependencies [caa6325]
+  - chat@4.36.0
+  - @chat-adapter/shared@4.36.0
+
 ## 4.35.0
 
 ### Minor Changes

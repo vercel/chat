@@ -1,5 +1,31 @@
 # chat
 
+## 4.36.0
+
+### Minor Changes
+
+- c5d86b1: confine built-in agent read tools to the conversation being handled, with an optional scope override
+- 0153a39: Add `DateInput` and `NumberInput` modal children. The Slack adapter renders them as a `datepicker` and a `number_input`, the Teams adapter as `Input.Date` and `Input.Number`, and both submitted values arrive in `event.values` as strings.
+
+  Teams submit values that arrive as JSON numbers are now stringified into `event.values` instead of being dropped. This fixes `Input.Number`, but applies to any numeric value a Teams dialog submits — a key that was previously absent from `event.values` will now be present as a string.
+
+### Patch Changes
+
+- 257a32d: Route Teams personal and group conversations using their explicit conversation type so group chats use buffered fallback even when their IDs resemble direct messages.
+- b547f45: Stop treating email addresses as bot mentions. A message containing `jane@acme.com` no longer triggers a bot named `acme`, because the `@` in `detectMention` must not follow a word character. Real mentions are unaffected, including at the start of a message, after punctuation, and suffixed names such as GitHub's `mybot[bot]`.
+- caa6325: Add XChat support to `@chat-adapter/x`, shipped from the new `@chat-adapter/x/chat` subpath so it sits alongside the existing X adapter. The XChat crypto stack (`@xdevplatform/chat-xdk`, `@xdevplatform/xdk`, `juicebox-sdk`) is an optional peer dependency, so existing `@chat-adapter/x` users are unaffected. All cryptography is handled inside the adapter via `@xdevplatform/chat-xdk` (wasm) and all REST goes through the typed `@xdevplatform/xdk` client. Only a bot token and a Juicebox PIN are required: the bot's identity (user id and @handle) is resolved from `GET /2/users/me` at startup.
+
+  - Encrypted send/receive in DMs and groups (webhook push + polling), signature verification on by default; undecryptable or unverified events are dropped
+  - Webhook POSTs must carry a valid `x-twitter-webhooks-signature`, which X sends on every delivery. Set `consumerSecret` (or `X_CONSUMER_SECRET`) to receive webhooks, or `disableWebhookVerification` when an upstream layer already verifies them. Polling deployments are unaffected
+  - Mention detection from structured mention entities, swipe-replies to the bot, and a plain-text `@handle` fallback; group replies sent as quoted replies
+  - `openDM(userId)` starts (or reuses) an encrypted 1:1, running a full key exchange when needed so the bot can message first
+  - Media both ways: inbound attachments with lazy download+decrypt, outbound encrypted uploads
+  - Edit and delete of the bot's own messages; the first edit of a fresh message is age-gated by `editSafetyDelayMs` (default 5000ms) so receiving clients have stored the original
+  - Reactions in and out, read receipts (`sendReadReceipts`, default on), typing keep-alive, configurable group welcome message
+  - Cards degrade to text with tappable URL/mention entities plus a URL preview attachment
+  - Requests carry a `chat-sdk-xchat/<version>` User-Agent product token so Chat SDK traffic is identifiable in X API request logs (a User-Agent set via `apiHeaders` takes precedence)
+  - Registered in the `chat/adapters` catalog and the `create-chat-sdk` CLI scaffold, with a new optional `importPath` catalog field for adapters that ship on a subpath
+
 ## 4.35.0
 
 ### Minor Changes

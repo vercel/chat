@@ -1,5 +1,18 @@
 # @chat-adapter/telegram
 
+## 4.36.0
+
+### Patch Changes
+
+- 53bf73d: Preserve Telegram stable media identifiers in normalized attachment metadata and report photo attachments as JPEG.
+- Updated dependencies [257a32d]
+- Updated dependencies [c5d86b1]
+- Updated dependencies [0153a39]
+- Updated dependencies [b547f45]
+- Updated dependencies [caa6325]
+  - chat@4.36.0
+  - @chat-adapter/shared@4.36.0
+
 ## 4.35.0
 
 ### Minor Changes
