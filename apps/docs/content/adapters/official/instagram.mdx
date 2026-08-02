@@ -169,7 +169,7 @@ or Page tokens and `graph.facebook.com`.
 ### 2. Add the test account and generate a token
 
 1. In the left menu, open **Instagram > API setup with Instagram login**.
-2. Under **1. Generate access tokens**, click **Add account** and sign in to
+2. Under **Generate access tokens**, click **Add account** and sign in to
    the public Instagram professional account the bot will use.
 3. Once the account appears, click **Generate token**, sign in again, and copy
    the token to `INSTAGRAM_ACCESS_TOKEN`.
@@ -178,8 +178,8 @@ Tokens generated in the App Dashboard are long-lived and valid for 60 days.
 They are suitable for development and for accounts you own or manage. Refresh
 or rotate the token before it expires.
 
-For an app that connects other businesses' accounts, configure **3. Set up
-Instagram business login** and request these scopes in the login flow:
+For an app that connects other businesses' accounts, configure **Instagram
+business login** and request these scopes in the login flow:
 
 - `instagram_business_basic`
 - `instagram_business_manage_messages`
@@ -210,7 +210,7 @@ Set the remaining secrets:
 Deploy the GET and POST route shown above to a public HTTPS URL first, then:
 
 1. Return to **Instagram > API setup with Instagram login**.
-2. Under **2. Configure webhooks**, click **Configure**.
+2. Under **Configure webhooks**, click **Configure**.
 3. Set **Callback URL** to
    `https://your-domain.com/api/webhooks/instagram`.
 4. Set **Verify token** to the same value as `INSTAGRAM_VERIFY_TOKEN`, then
