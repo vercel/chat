@@ -13,6 +13,8 @@ aggregator.
 
 Documentation: [chat-sdk.dev/adapters/official/instagram](https://chat-sdk.dev/adapters/official/instagram) · Guides: [vercel.com/kb/chat-sdk](https://vercel.com/kb/chat-sdk)
 
+> Building for Facebook Messenger? Use [`@chat-adapter/messenger`](https://chat-sdk.dev/adapters/official/messenger) instead. It connects through the Messenger Platform API and uses a Facebook Page access token.
+
 ## Installation
 
 ```bash

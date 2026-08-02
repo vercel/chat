@@ -11,6 +11,8 @@ Facebook Messenger adapter for [Chat SDK](https://chat-sdk.dev), using the [Mess
 
 Documentation: [chat-sdk.dev/adapters/official/messenger](https://chat-sdk.dev/adapters/official/messenger) · Guides: [vercel.com/kb/chat-sdk](https://vercel.com/kb/chat-sdk)
 
+> Building for Instagram Direct Messages? Use [`@chat-adapter/instagram`](https://chat-sdk.dev/adapters/official/instagram) instead. It connects through Instagram API with Instagram Login and does not require a Facebook Page.
+
 ## Installation
 
 ```bash
