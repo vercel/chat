@@ -91,7 +91,16 @@ describe("Slack format primitives", () => {
         "Hey <@U123|jane> in <#C123|general>, see <https://example.com|this> and *bold* ~done~"
       )
     ).toBe(
-      "Hey @jane in #general, see [this](https://example.com) and **bold** ~~done~~"
+      "Hey @jane in #general (C123), see [this](https://example.com) and **bold** ~~done~~"
+    );
+  });
+
+  it("preserves the channel ID for labeled channel tokens", () => {
+    expect(slackMrkdwnToMarkdown("Post in <#C042BLND6R6|general>")).toBe(
+      "Post in #general (C042BLND6R6)"
+    );
+    expect(slackMrkdwnToMarkdown("Post in <#C042BLND6R6>")).toBe(
+      "Post in #C042BLND6R6"
     );
   });
 
@@ -107,6 +116,12 @@ describe("Slack format primitives", () => {
         "See <docs|https://example.com> and <https://a.com|A>"
       )
     ).toBe("See [docs](https://example.com) and [A](https://a.com)");
+  });
+
+  it("does not invert links whose display label is itself a URL", () => {
+    expect(slackMrkdwnToMarkdown("See <https://a.com|https://b.com>")).toBe(
+      "See [https://b.com](https://a.com)"
+    );
   });
 
   it("converts basic Markdown bold to Slack mrkdwn bold", () => {
