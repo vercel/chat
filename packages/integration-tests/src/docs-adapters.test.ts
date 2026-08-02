@@ -8,9 +8,13 @@ const ADAPTERS_DIR = join(DOCS_CONTENT_DIR, "adapters");
 const VENDOR_DIR = join(ADAPTERS_DIR, "vendor-official");
 const COMMUNITY_DIR = join(ADAPTERS_DIR, "community");
 const OFFICIAL_DIR = join(ADAPTERS_DIR, "official");
+const DOCS_DIR = join(DOCS_CONTENT_DIR, "..");
 
 const FRONTMATTER_BLOCK = /^---\r?\n([\s\S]*?)\r?\n---/;
 const FIELD_LINE = /^([a-zA-Z][a-zA-Z0-9_]*):\s*(.*)$/;
+const ICON_MAP_BLOCK =
+  /const (?:ICON_MAP|iconMap): Record<[\s\S]*?> = \{([\s\S]*?)\n\};/;
+const ICON_MAP_ENTRY = /^\s{2}(\w+),$/gm;
 const NEWLINE = /\r?\n/;
 const CHAT_ADAPTER_PACKAGE = /^@chat-adapter\//;
 const CHAT_STATE_ADAPTER_PACKAGE = /^@chat-adapter\/state-/;
@@ -101,6 +105,15 @@ const packageInstallDeps = (adapter: AdapterFile): string[] => {
   return [...packageNames].sort();
 };
 
+const readIconMap = (filePath: string): Set<string> => {
+  const source = readFileSync(filePath, "utf-8");
+  const block = source.match(ICON_MAP_BLOCK)?.[1];
+  if (!block) {
+    throw new Error(`${filePath}: missing adapter icon map`);
+  }
+  return new Set([...block.matchAll(ICON_MAP_ENTRY)].map((match) => match[1]));
+};
+
 describe("Adapter MDX frontmatter", () => {
   const allAdapters = [
     ...loadAdapterMdx(OFFICIAL_DIR, "official"),
@@ -128,6 +141,38 @@ describe("Adapter MDX frontmatter", () => {
       it("file basename matches the `slug` frontmatter field", () => {
         expect(adapter.frontmatter.fields.slug).toBe(adapter.slug);
       });
+    });
+  }
+});
+
+describe("Official adapter logos", () => {
+  const officialAdapters = loadAdapterMdx(OFFICIAL_DIR, "official");
+  const cardIcons = readIconMap(
+    join(DOCS_DIR, "app/[lang]/adapters/components/adapter-card.tsx")
+  );
+  const heroIcons = readIconMap(
+    join(DOCS_DIR, "components/geistdocs/adapter-hero.tsx")
+  );
+
+  for (const adapter of officialAdapters) {
+    const logo = adapter.frontmatter.fields.logo;
+
+    it(`${adapter.slug} is registered on adapter cards`, () => {
+      expect(
+        logo,
+        `${adapter.fileName}: missing logo frontmatter`
+      ).toBeTruthy();
+      expect(
+        cardIcons.has(logo),
+        `${adapter.slug}: logo "${logo}" is missing from the adapter card icon map`
+      ).toBe(true);
+    });
+
+    it(`${adapter.slug} is registered in the adapter hero`, () => {
+      expect(
+        heroIcons.has(logo),
+        `${adapter.slug}: logo "${logo}" is missing from the adapter hero icon map`
+      ).toBe(true);
     });
   }
 });
