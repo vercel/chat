@@ -1,6 +1,6 @@
 # Next.js Chat Example
 
-A full-featured example app demonstrating the Chat SDK with Next.js. Integrates with Slack, Microsoft Teams, Google Chat, Discord, GitHub, and Linear — configure whichever platforms you need via environment variables.
+A full-featured example app demonstrating the Chat SDK with Next.js. Integrates with Slack, Microsoft Teams, Google Chat, Discord, GitHub, Linear, Instagram, and other supported platforms — configure whichever platforms you need via environment variables.
 
 ## Getting started
 
@@ -81,6 +81,10 @@ Copy `.env.example` for the full list. At minimum, set `BOT_USERNAME` and creden
 | `GOOGLE_CHAT_CREDENTIALS` | Google Chat service account JSON |
 | `DISCORD_BOT_TOKEN` | Discord bot token |
 | `DISCORD_PUBLIC_KEY` | Discord interaction verification key |
+| `INSTAGRAM_ACCESS_TOKEN` | Instagram User access token |
+| `INSTAGRAM_ACCOUNT_ID` | Instagram professional account ID returned by `/me?fields=user_id,username` |
+| `INSTAGRAM_APP_SECRET` | Meta app secret used to verify Instagram webhook signatures |
+| `INSTAGRAM_VERIFY_TOKEN` | Private value configured as the Instagram webhook verify token |
 | `GITHUB_CONNECTOR` | GitHub [Vercel Connect](https://vercel.com/docs/connect) connector UID (needs `VERCEL_OIDC_TOKEN` — run `vercel env pull`) |
 | `LINEAR_CONNECTOR` | Linear [Vercel Connect](https://vercel.com/docs/connect) connector UID (needs `VERCEL_OIDC_TOKEN` — run `vercel env pull`) |
 | `LINEAR_MODE` | Linear inbound mode: `comments` or `agent-sessions` |
@@ -89,6 +93,23 @@ Copy `.env.example` for the full list. At minimum, set `BOT_USERNAME` and creden
 See the [Chat SDK docs](https://chat-sdk.dev/docs) for full platform setup guides.
 
 For Linear app-actor mode, set `LINEAR_MODE=agent-sessions`, enable **Agent session events** on the webhook, install the Linear app with `actor=app` and `app:mentionable`, and keep using the existing `thread.startTyping()` / `thread.post(...)` handler flow. The adapter maps those calls onto Linear agent activities automatically.
+
+### Test Instagram DMs
+
+1. Add the four required `INSTAGRAM_*` variables to `.env.local`.
+2. Expose the app through an HTTPS tunnel or deploy it to Vercel.
+3. Configure Meta's callback URL as
+   `https://your-domain.com/api/webhooks/instagram`.
+4. Subscribe the professional account to the webhook fields:
+
+```bash
+curl -X POST \
+  "https://graph.instagram.com/v26.0/me/subscribed_apps?subscribed_fields=messages,message_reactions,messaging_postbacks,messaging_seen&access_token=$INSTAGRAM_ACCESS_TOKEN"
+```
+
+Send the professional account a DM from another Instagram account. Normal
+messages run the example's AI response; send `post-card` to test Instagram
+quick replies without invoking the model.
 
 ## Recording and replay
 

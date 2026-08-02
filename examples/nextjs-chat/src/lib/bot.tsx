@@ -49,6 +49,8 @@ const ENABLE_AI_REGEX = /enable\s*AI/i;
 const DM_ME_REGEX = /\bdm\s*me\b/i;
 const POSTCARD_TRIGGER_REGEX = /^post-card$/i;
 const SLACK_PREFIX_REGEX = /^slack:/;
+const TEST_IMAGE_URL =
+  "https://images.unsplash.com/photo-1575699914911-0027c7b95fb6?q=80&w=1171&auto=format&fit=crop&ixlib=rb-4.1.0&ixid=M3wxMjA3fDB8MHxwaG90by1wYWdlfHx8fGVufDB8fHx8fA%3D%3D";
 
 // Hardcoded user key for testing the Transcripts API — every inbound message
 // is persisted under this single key, so you can exercise append/list/delete
@@ -220,6 +222,7 @@ bot.onDirectMessage(async (thread, message, channel) => {
           </Button>
           <Button id="info">Show Info</Button>
           <Button id="who-am-i">Who Am I</Button>
+          <Button id="send-image">Show Image</Button>
           <Button id="goodbye" style="danger">
             Goodbye
           </Button>
@@ -441,6 +444,16 @@ bot.onAction("hello", async (event) => {
     return;
   }
   await event.thread.post(`${emoji.wave} Hello, ${event.user.fullName}!`);
+});
+
+bot.onAction("send-image", async (event) => {
+  if (!event.thread) {
+    return;
+  }
+  await event.thread.post({
+    raw: "",
+    attachments: [{ type: "image", url: TEST_IMAGE_URL }],
+  });
 });
 
 bot.onAction("info", async (event) => {
@@ -1381,12 +1394,13 @@ bot.onReaction(["thumbs_up", "heart", "fire", "rocket"], async (event) => {
     return;
   }
 
-  // GChat, Teams, and Messenger bots cannot add reactions via their APIs
+  // GChat, Teams, Messenger, and Instagram cannot add reactions via their APIs
   // Respond with a message instead
   if (
     event.adapter.name === "gchat" ||
     event.adapter.name === "teams" ||
-    event.adapter.name === "messenger"
+    event.adapter.name === "messenger" ||
+    event.adapter.name === "instagram"
   ) {
     await event.adapter.postMessage(
       event.threadId,

@@ -187,6 +187,9 @@ importers:
       '@chat-adapter/github':
         specifier: workspace:*
         version: link:../../packages/adapter-github
+      '@chat-adapter/instagram':
+        specifier: workspace:*
+        version: link:../../packages/adapter-instagram
       '@chat-adapter/linear':
         specifier: workspace:*
         version: link:../../packages/adapter-linear
@@ -408,6 +411,31 @@ importers:
       '@octokit/rest':
         specifier: ^22.0.1
         version: 22.0.1
+      chat:
+        specifier: workspace:*
+        version: link:../chat
+    devDependencies:
+      '@chat-adapter/tests':
+        specifier: workspace:*
+        version: link:../tests
+      '@types/node':
+        specifier: ^25.3.2
+        version: 25.3.2
+      tsup:
+        specifier: ^8.3.5
+        version: 8.5.1(@swc/core@1.15.3)(jiti@2.7.0)(postcss@8.5.25)(tsx@4.22.3)(typescript@5.9.3)(yaml@2.9.0)
+      typescript:
+        specifier: ^5.7.2
+        version: 5.9.3
+      vitest:
+        specifier: ^4.0.18
+        version: 4.0.18(@opentelemetry/api@1.9.0)(@types/node@25.3.2)(jiti@2.7.0)(lightningcss@1.30.2)(terser@5.48.0)(tsx@4.22.3)(yaml@2.9.0)
+
+  packages/adapter-instagram:
+    dependencies:
+      '@chat-adapter/shared':
+        specifier: workspace:*
+        version: link:../adapter-shared
       chat:
         specifier: workspace:*
         version: link:../chat
@@ -826,6 +854,9 @@ importers:
       '@chat-adapter/github':
         specifier: workspace:*
         version: link:../adapter-github
+      '@chat-adapter/instagram':
+        specifier: workspace:*
+        version: link:../adapter-instagram
       '@chat-adapter/messenger':
         specifier: workspace:*
         version: link:../adapter-messenger

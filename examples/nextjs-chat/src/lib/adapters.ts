@@ -7,6 +7,10 @@ import {
   type GoogleChatAdapter,
 } from "@chat-adapter/gchat";
 import { createGitHubAdapter, type GitHubAdapter } from "@chat-adapter/github";
+import {
+  createInstagramAdapter,
+  type InstagramAdapter,
+} from "@chat-adapter/instagram";
 import { createLinearAdapter, type LinearAdapter } from "@chat-adapter/linear";
 import {
   createMessengerAdapter,
@@ -42,6 +46,7 @@ export interface Adapters {
   discord?: DiscordAdapter;
   gchat?: GoogleChatAdapter;
   github?: GitHubAdapter;
+  instagram?: InstagramAdapter;
   linear?: LinearAdapter;
   messenger?: MessengerAdapter;
   slack?: SlackAdapter;
@@ -159,6 +164,12 @@ const MESSENGER_METHODS = [
   "openDM",
   "fetchMessages",
 ];
+const INSTAGRAM_METHODS = [
+  "postMessage",
+  "startTyping",
+  "openDM",
+  "fetchMessages",
+];
 const TELEGRAM_METHODS = [
   "postMessage",
   "editMessage",
@@ -223,6 +234,31 @@ export function buildAdapters(): Adapters {
     } catch (err) {
       console.warn(
         "[chat] Failed to create messenger adapter:",
+        err instanceof Error ? err.message : err
+      );
+    }
+  }
+
+  // Instagram adapter (optional) - env vars: INSTAGRAM_ACCESS_TOKEN,
+  // INSTAGRAM_ACCOUNT_ID, INSTAGRAM_APP_SECRET, INSTAGRAM_VERIFY_TOKEN
+  if (
+    process.env.INSTAGRAM_ACCESS_TOKEN &&
+    process.env.INSTAGRAM_ACCOUNT_ID &&
+    process.env.INSTAGRAM_APP_SECRET &&
+    process.env.INSTAGRAM_VERIFY_TOKEN
+  ) {
+    try {
+      adapters.instagram = withRecording(
+        createInstagramAdapter({
+          userName: "Chat SDK Bot",
+          logger: logger.child("instagram"),
+        }),
+        "instagram",
+        INSTAGRAM_METHODS
+      );
+    } catch (err) {
+      console.warn(
+        "[chat] Failed to create instagram adapter:",
         err instanceof Error ? err.message : err
       );
     }

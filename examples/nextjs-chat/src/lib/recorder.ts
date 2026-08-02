@@ -93,6 +93,7 @@ const RECORDING_TTL_SECONDS = 1 * 60 * 60; // 1 hour
 
 const DEFAULT_FETCH_URL_PATTERNS: RegExp[] = [
   /graph\.microsoft\.com/,
+  /graph\.instagram\.com/,
   /\.slack\.com/,
   /chat\.googleapis\.com/,
 ];
