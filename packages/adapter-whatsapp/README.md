@@ -153,6 +153,25 @@ export async function POST(request: Request) {
 | DMs | Yes |
 | Open DM | Yes |
 
+### Typing indicators
+
+WhatsApp supports typing indicators through `thread.startTyping()` or `adapter.startTyping(threadId)`.
+
+Use it when the bot is about to respond and may take a few seconds. The adapter uses the most recent inbound message ID from thread history, so `startTyping()` only works after the bot has received a message.
+
+```typescript
+await thread.startTyping();
+
+await thread.post({
+  markdown: "Thanks, I am checking that now.",
+});
+```
+
+WhatsApp-specific behavior:
+
+- If there is no inbound message context, `startTyping()` no-ops.
+- The typing indicator is dismissed when the bot sends its reply, or after the WhatsApp platform timeout.
+
 ### Incoming message types
 
 | Type | Supported |
