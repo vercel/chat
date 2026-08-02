@@ -24,6 +24,7 @@
     "@chat-adapter/discord": "workspace:*",
     "@chat-adapter/gchat": "workspace:*",
     "@chat-adapter/github": "workspace:*",
+    "@chat-adapter/instagram": "workspace:*",
     "@chat-adapter/messenger": "workspace:*",
     "@chat-adapter/slack": "workspace:*",
     "@chat-adapter/state-memory": "workspace:*",

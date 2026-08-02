@@ -1,0 +1,116 @@
+{
+  "accountId": "17841400000000000",
+  "botName": "Instagram Test Shop",
+  "userId": "200000000000001",
+  "firstMessage": {
+    "object": "instagram",
+    "entry": [
+      {
+        "id": "17841400000000000",
+        "time": 1772998024000,
+        "messaging": [
+          {
+            "sender": { "id": "200000000000001" },
+            "recipient": { "id": "17841400000000000" },
+            "timestamp": 1772998024000,
+            "message": {
+              "mid": "mid_ig_text_001",
+              "text": "Do you ship to Córdoba?"
+            }
+          }
+        ]
+      }
+    ]
+  },
+  "storyReply": {
+    "object": "instagram",
+    "entry": [
+      {
+        "id": "17841400000000000",
+        "time": 1772998034000,
+        "messaging": [
+          {
+            "sender": { "id": "200000000000001" },
+            "recipient": { "id": "17841400000000000" },
+            "timestamp": 1772998034000,
+            "message": {
+              "mid": "mid_ig_story_001",
+              "text": "Is this available?",
+              "reply_to": {
+                "story": {
+                  "id": "17900000000000001",
+                  "url": "https://cdn.example.com/story.jpg"
+                }
+              }
+            }
+          }
+        ]
+      }
+    ]
+  },
+  "reactionAdded": {
+    "object": "instagram",
+    "entry": [
+      {
+        "id": "17841400000000000",
+        "time": 1772998044000,
+        "messaging": [
+          {
+            "sender": { "id": "200000000000001" },
+            "recipient": { "id": "17841400000000000" },
+            "timestamp": 1772998044000,
+            "reaction": {
+              "mid": "mid_ig_text_001",
+              "action": "react",
+              "emoji": "❤️"
+            }
+          }
+        ]
+      }
+    ]
+  },
+  "quickReply": {
+    "object": "instagram",
+    "entry": [
+      {
+        "id": "17841400000000000",
+        "time": 1772998054000,
+        "messaging": [
+          {
+            "sender": { "id": "200000000000001" },
+            "recipient": { "id": "17841400000000000" },
+            "timestamp": 1772998054000,
+            "message": {
+              "mid": "mid_ig_quick_001",
+              "text": "Yes",
+              "quick_reply": {
+                "payload": "chat:{\"a\":\"confirm\",\"v\":\"yes\"}"
+              }
+            }
+          }
+        ]
+      }
+    ]
+  },
+  "echoMessage": {
+    "object": "instagram",
+    "entry": [
+      {
+        "id": "17841400000000000",
+        "time": 1772998064000,
+        "messaging": [
+          {
+            "sender": { "id": "17841400000000000" },
+            "recipient": { "id": "200000000000001" },
+            "timestamp": 1772998064000,
+            "message": {
+              "mid": "mid_ig_echo_001",
+              "text": "Bot response",
+              "is_echo": true
+            }
+          }
+        ]
+      }
+    ]
+  }
+}
