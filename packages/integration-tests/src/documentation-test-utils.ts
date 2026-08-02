@@ -114,6 +114,7 @@ export const VALID_PACKAGE_README_IMPORTS = [
   "@chat-adapter/telegram",
   "@chat-adapter/github",
   "@chat-adapter/linear",
+  "@chat-adapter/instagram",
   "@chat-adapter/whatsapp",
   "@chat-adapter/twilio",
   "@chat-adapter/messenger",
@@ -165,6 +166,7 @@ export const VALID_DOC_PACKAGES = [
   "@chat-adapter/telegram",
   "@chat-adapter/github",
   "@chat-adapter/linear",
+  "@chat-adapter/instagram",
   "@chat-adapter/whatsapp",
   "@chat-adapter/twilio",
   "@chat-adapter/twilio/api",
@@ -310,6 +312,9 @@ export function createTempProject(codeBlocks: string[]): string {
         ],
         "@chat-adapter/linear": [
           join(import.meta.dirname, "../../adapter-linear/src/index.ts"),
+        ],
+        "@chat-adapter/instagram": [
+          join(import.meta.dirname, "../../adapter-instagram/src/index.ts"),
         ],
         "@chat-adapter/messenger": [
           join(import.meta.dirname, "../../adapter-messenger/src/index.ts"),

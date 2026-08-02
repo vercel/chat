@@ -182,6 +182,9 @@ export const CLI_SCAFFOLD_SPEC = {
     },
     stateHint: "production - ioredis driver",
   },
+  instagram: {
+    invocation: { kind: "zero-arg" },
+  },
   kapso: {
     invocation: {
       kind: "object",

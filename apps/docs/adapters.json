@@ -120,6 +120,16 @@
     "readme": "https://github.com/vercel/chat/tree/main/packages/adapter-messenger"
   },
   {
+    "name": "Instagram",
+    "slug": "instagram",
+    "type": "platform",
+    "description": "Build bots for Instagram Direct with DMs, media, quick replies, reactions, and story replies.",
+    "packageName": "@chat-adapter/instagram",
+    "icon": "instagram",
+    "beta": true,
+    "readme": "https://github.com/vercel/chat/tree/main/packages/adapter-instagram"
+  },
+  {
     "name": "Web",
     "slug": "web",
     "type": "platform",

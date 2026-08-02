@@ -391,6 +391,41 @@ export const ADAPTERS = {
     slug: "ioredis",
     type: "state",
   },
+  instagram: {
+    description:
+      "Build bots for Instagram Direct with DMs, media, quick replies, reactions, and story replies.",
+    env: {
+      config: ["apiVersion", "userName"],
+      optional: [
+        env(
+          "INSTAGRAM_API_VERSION",
+          "Meta Graph API version. Defaults to the adapter's supported version."
+        ),
+      ],
+      required: [
+        secretEnv(
+          "INSTAGRAM_ACCESS_TOKEN",
+          "Instagram access token for the Messaging API."
+        ),
+        secretEnv(
+          "INSTAGRAM_APP_SECRET",
+          "Meta app secret for webhook signature verification."
+        ),
+        secretEnv("INSTAGRAM_VERIFY_TOKEN", "Webhook verification token."),
+        env(
+          "INSTAGRAM_ACCOUNT_ID",
+          "Instagram professional account ID used to send messages."
+        ),
+      ],
+    },
+    factoryExport: "createInstagramAdapter",
+    group: "official",
+    name: "Instagram",
+    packageName: "@chat-adapter/instagram",
+    peerDeps: [],
+    slug: "instagram",
+    type: "platform",
+  },
   kapso: {
     description:
       "Kapso-first WhatsApp adapter for Chat SDK with signed Kapso webhooks, WhatsApp replies, buttons, media, reactions, and conversation history.",
