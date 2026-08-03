@@ -142,9 +142,16 @@ export interface WhatsAppInboundMessage {
     forwarded?: boolean;
     /** True when the message was forwarded more than five times; forwards only */
     frequently_forwarded?: boolean;
-    /** WhatsApp ID of the sender of the quoted message; replies only */
+    /**
+     * Sender of the quoted message on a reply, or the business display phone
+     * number when the message came from a "Message business" button. Absent on
+     * forwards.
+     */
     from?: string;
-    /** ID of the quoted message; replies only */
+    /**
+     * ID of the quoted message on a reply, or of the message the user tapped
+     * "Message business" from. Absent on forwards.
+     */
     id?: string;
     /** Product the customer is asking about; catalog inquiries only */
     referred_product?: {
