@@ -1050,23 +1050,29 @@ export class Chat<
       relatedChannel,
     };
 
-    let result: ModalResponse | undefined;
-    for (const { callbackIds, handler } of this.modalSubmitHandlers) {
-      if (callbackIds.length === 0 || callbackIds.includes(event.callbackId)) {
-        try {
-          const response = await handler(fullEvent);
-          if (response) {
-            result = response;
-            break;
+    const conversationId = relatedThread?.id ?? relatedChannel?.id;
+    const runHandlers = async (): Promise<ModalResponse | undefined> => {
+      for (const { callbackIds, handler } of this.modalSubmitHandlers) {
+        if (
+          callbackIds.length === 0 ||
+          callbackIds.includes(event.callbackId)
+        ) {
+          try {
+            const response = await handler(fullEvent);
+            if (response) {
+              return response;
+            }
+          } catch (err) {
+            this.logger.error("Modal submit handler error", {
+              error: err,
+              callbackId: event.callbackId,
+            });
           }
-        } catch (err) {
-          this.logger.error("Modal submit handler error", {
-            error: err,
-            callbackId: event.callbackId,
-          });
         }
       }
-    }
+      return;
+    };
+    const result = await runInConversation(conversationId, runHandlers);
 
     if (callbackUrl && result?.action !== "errors") {
       const task = postToCallbackUrl(callbackUrl, {
@@ -1117,14 +1123,18 @@ export class Chat<
         relatedChannel,
       };
 
-      for (const { callbackIds, handler } of this.modalCloseHandlers) {
-        if (
-          callbackIds.length === 0 ||
-          callbackIds.includes(event.callbackId)
-        ) {
-          await handler(fullEvent);
+      const conversationId = relatedThread?.id ?? relatedChannel?.id;
+      const runHandlers = async () => {
+        for (const { callbackIds, handler } of this.modalCloseHandlers) {
+          if (
+            callbackIds.length === 0 ||
+            callbackIds.includes(event.callbackId)
+          ) {
+            await handler(fullEvent);
+          }
         }
-      }
+      };
+      await runInConversation(conversationId, runHandlers);
     })().catch((err) => {
       this.logger.error("Modal close handler error", {
         error: err,
@@ -1165,11 +1175,11 @@ export class Chat<
     event: AssistantThreadStartedEvent,
     options?: WebhookOptions
   ): void {
-    const task = (async () => {
+    const task = runInConversation(event.threadId, async () => {
       for (const handler of this.assistantThreadStartedHandlers) {
         await handler(event);
       }
-    })().catch((err) => {
+    }).catch((err) => {
       this.logger.error("Assistant thread started handler error", {
         error: err,
         threadId: event.threadId,
@@ -1185,11 +1195,11 @@ export class Chat<
     event: AssistantContextChangedEvent,
     options?: WebhookOptions
   ): void {
-    const task = (async () => {
+    const task = runInConversation(event.threadId, async () => {
       for (const handler of this.assistantContextChangedHandlers) {
         await handler(event);
       }
-    })().catch((err) => {
+    }).catch((err) => {
       this.logger.error("Assistant context changed handler error", {
         error: err,
         threadId: event.threadId,
@@ -1205,11 +1215,11 @@ export class Chat<
     event: AppHomeOpenedEvent,
     options?: WebhookOptions
   ): void {
-    const task = (async () => {
+    const task = runInConversation(event.channelId, async () => {
       for (const handler of this.appHomeOpenedHandlers) {
         await handler(event);
       }
-    })().catch((err) => {
+    }).catch((err) => {
       this.logger.error("App home opened handler error", {
         error: err,
         userId: event.userId,
@@ -1225,11 +1235,11 @@ export class Chat<
     event: AppContextChangedEvent,
     options?: WebhookOptions
   ): void {
-    const task = (async () => {
+    const task = runInConversation(event.channelId, async () => {
       for (const handler of this.appContextChangedHandlers) {
         await handler(event);
       }
-    })().catch((err) => {
+    }).catch((err) => {
       this.logger.error("App context changed handler error", {
         error: err,
         userId: event.userId,
@@ -1245,11 +1255,11 @@ export class Chat<
     event: MemberJoinedChannelEvent,
     options?: WebhookOptions
   ): void {
-    const task = (async () => {
+    const task = runInConversation(event.channelId, async () => {
       for (const handler of this.memberJoinedChannelHandlers) {
         await handler(event);
       }
-    })().catch((err) => {
+    }).catch((err) => {
       this.logger.error("Member joined channel handler error", {
         error: err,
         channelId: event.channelId,
