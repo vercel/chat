@@ -7,8 +7,10 @@ import {
   createMockState,
   threadIdContract,
 } from "@chat-adapter/tests";
-import { ConsoleLogger } from "chat";
+import type { IStreamer } from "@microsoft/teams.apps";
+import { ConsoleLogger, getEmoji } from "chat";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import type { TeamsActivityAttachment } from "./attachments";
 import { createTeamsAdapter, TeamsAdapter, type TeamsThreadId } from "./index";
 
 const WHITESPACE_START_PATTERN = /^\s/;
@@ -32,6 +34,40 @@ class MockTeamsError extends Error {
 }
 
 const logger = new ConsoleLogger("error");
+const TEST_SERVICE_URL = "https://smba.trafficmanager.net/teams/";
+
+class AttachmentTestAdapter extends TeamsAdapter {
+  createTestAttachment(
+    attachment: TeamsActivityAttachment,
+    serviceUrl?: string
+  ) {
+    return this.createAttachment(attachment, serviceUrl);
+  }
+}
+
+function createAttachmentTestAdapter(): AttachmentTestAdapter {
+  return new AttachmentTestAdapter({
+    appId: "test-app",
+    appPassword: "test",
+    logger,
+  });
+}
+
+function setAuthenticatedAttachmentGet(
+  adapter: TeamsAdapter,
+  get: ReturnType<typeof vi.fn>
+): void {
+  const app = (
+    adapter as unknown as {
+      app: {
+        api: {
+          http: { get: typeof get };
+        };
+      };
+    }
+  ).app;
+  app.api.http.get = get;
+}
 
 // encodeThreadId/decodeThreadId/isDM are pure — a minimally configured adapter
 // suffices for the shared thread-id contract (no init/network needed).
@@ -89,13 +125,41 @@ threadIdContract<TeamsThreadId>({
     fn: (id) => contractAdapter.isDM(id),
     dmThreadId: contractAdapter.encodeThreadId({
       conversationId: "a]8:orgid:user-id-here",
+      conversationType: "personal",
       serviceUrl: "https://smba.trafficmanager.net/teams/",
     }),
     nonDmThreadId: contractAdapter.encodeThreadId({
-      conversationId: "19:abc@thread.tacv2",
+      conversationId: "a:group-chat-id",
+      conversationType: "groupChat",
       serviceUrl: "https://smba.trafficmanager.net/teams/",
     }),
   },
+});
+
+describe("Teams conversation type routing", () => {
+  it("keeps the legacy ID when the conversation type agrees with its prefix", () => {
+    const personal = contractAdapter.encodeThreadId({
+      conversationId: "a:personal-conversation",
+      conversationType: "personal",
+      serviceUrl: "https://smba.trafficmanager.net/teams/",
+    });
+    const legacyPersonal = contractAdapter.encodeThreadId({
+      conversationId: "a:personal-conversation",
+      serviceUrl: "https://smba.trafficmanager.net/teams/",
+    });
+    const channel = contractAdapter.encodeThreadId({
+      conversationId: "19:channel@thread.tacv2",
+      conversationType: "channel",
+      serviceUrl: "https://smba.trafficmanager.net/teams/",
+    });
+    const legacyChannel = contractAdapter.encodeThreadId({
+      conversationId: "19:channel@thread.tacv2",
+      serviceUrl: "https://smba.trafficmanager.net/teams/",
+    });
+
+    expect(personal).toBe(legacyPersonal);
+    expect(channel).toBe(legacyChannel);
+  });
 });
 
 describe("ESM compatibility", () => {
@@ -164,6 +228,7 @@ describe("TeamsAdapter", () => {
 
   afterEach(() => {
     process.env = { ...savedEnv };
+    vi.unstubAllGlobals();
   });
 
   it("should export createTeamsAdapter function", () => {
@@ -242,6 +307,111 @@ describe("TeamsAdapter", () => {
         logger,
       });
       expect(adapter.name).toBe("teams");
+    });
+  });
+
+  describe("streaming", () => {
+    class StreamingTestAdapter extends TeamsAdapter {
+      streamNatively(
+        textStream: AsyncIterable<string>,
+        stream: IStreamer,
+        placeholderText?: string | null
+      ) {
+        return this.streamViaEmit(
+          "teams:dm",
+          textStream,
+          stream,
+          placeholderText
+        );
+      }
+    }
+
+    let adapter: StreamingTestAdapter;
+
+    beforeEach(() => {
+      adapter = new StreamingTestAdapter({
+        appId: "test",
+        appPassword: "test",
+        logger,
+      });
+    });
+
+    const textStream = async function* (chunks: string[]) {
+      yield* chunks;
+    };
+
+    const createStreamer = () => {
+      let onChunk: ((activity: { id: string }) => void) | undefined;
+      return {
+        canceled: false,
+        close: vi.fn(),
+        emit: vi.fn(() => onChunk?.({ id: "answer-id" })),
+        events: {
+          once: vi.fn((_event, listener) => {
+            onChunk = listener;
+          }),
+        },
+        update: vi.fn(),
+      } as unknown as IStreamer;
+    };
+
+    it("uses core fallback for an explicit group-chat placeholder", async () => {
+      let consumed = false;
+      const source = {
+        async *[Symbol.asyncIterator]() {
+          consumed = true;
+          yield "Done";
+        },
+      };
+
+      const result = await adapter.stream("teams:group", source, {
+        fallbackStreamingPlaceholderText: "Working...",
+      });
+
+      expect(result).toBeNull();
+      expect(consumed).toBe(false);
+    });
+
+    it.each([
+      undefined,
+      null,
+    ])("preserves buffered group-chat streaming for placeholder %s", async (placeholderText) => {
+      const postMessage = vi.spyOn(adapter, "postMessage").mockResolvedValue({
+        id: "answer-id",
+        threadId: "teams:group",
+        raw: {},
+      });
+
+      const result = await adapter.stream(
+        "teams:group",
+        textStream(["Do", "ne"]),
+        placeholderText === undefined
+          ? undefined
+          : { fallbackStreamingPlaceholderText: placeholderText }
+      );
+
+      expect(postMessage).toHaveBeenCalledOnce();
+      expect(postMessage).toHaveBeenCalledWith("teams:group", {
+        markdown: "Done",
+      });
+      expect(result?.id).toBe("answer-id");
+    });
+
+    it("sends an explicit placeholder as native status before the first chunk", async () => {
+      const stream = createStreamer();
+
+      const result = await adapter.streamNatively(
+        textStream(["Do", "ne"]),
+        stream,
+        "Working..."
+      );
+
+      expect(stream.update).toHaveBeenCalledWith("Working...");
+      expect(vi.mocked(stream.update).mock.invocationCallOrder[0]).toBeLessThan(
+        vi.mocked(stream.emit).mock.invocationCallOrder[0] ?? 0
+      );
+      expect(stream.emit).toHaveBeenCalledTimes(2);
+      expect(result).toMatchObject({ id: "answer-id", threadId: "teams:dm" });
     });
   });
 
@@ -326,6 +496,16 @@ describe("TeamsAdapter", () => {
       const adapter = createTeamsAdapter({
         appId: "test",
         federated: { clientId: "managed-identity-client-id" },
+        logger,
+      });
+      expect(adapter).toBeInstanceOf(TeamsAdapter);
+    });
+
+    it("should create adapter with a custom token factory", () => {
+      const adapter = createTeamsAdapter({
+        appId: "test",
+        appTenantId: "test-tenant",
+        token: async () => "custom-access-token",
         logger,
       });
       expect(adapter).toBeInstanceOf(TeamsAdapter);
@@ -590,6 +770,70 @@ describe("TeamsAdapter", () => {
       expect(message.attachments[1].type).toBe("video");
       expect(message.attachments[2].type).toBe("audio");
       expect(message.attachments[3].type).toBe("file");
+    });
+
+    it("authenticates trusted inline attachment downloads", async () => {
+      const adapter = createAttachmentTestAdapter();
+      const authenticatedGet = vi.fn(async () => ({
+        data: new TextEncoder().encode("protected image").buffer,
+      }));
+      setAuthenticatedAttachmentGet(adapter, authenticatedGet);
+      const anonymousFetch = vi.fn();
+      vi.stubGlobal("fetch", anonymousFetch);
+      const url =
+        "https://smba.trafficmanager.net/teams/v3/attachments/image/views/original";
+
+      const attachment = adapter.createTestAttachment(
+        {
+          contentType: "image/png",
+          contentUrl: url,
+          name: "screenshot.png",
+        },
+        TEST_SERVICE_URL
+      );
+
+      expect(attachment.fetchMetadata).toEqual({
+        url,
+        auth: "bot",
+        connectorOrigin: "https://smba.trafficmanager.net",
+      });
+      await expect(attachment.fetchData?.()).resolves.toEqual(
+        Buffer.from("protected image")
+      );
+      expect(authenticatedGet).toHaveBeenCalledWith(url, {
+        maxRedirects: 0,
+        responseType: "arraybuffer",
+      });
+      expect(anonymousFetch).not.toHaveBeenCalled();
+    });
+
+    it("preserves anonymous fetch overrides during rehydration", async () => {
+      const overriddenFetch = vi.fn(async () => Buffer.from("overridden"));
+
+      class CustomTeamsAdapter extends TeamsAdapter {
+        protected override createFetchDataFn(
+          url: string
+        ): () => Promise<Buffer> {
+          expect(url).toBe("https://files.example.com/report.pdf");
+          return overriddenFetch;
+        }
+      }
+
+      const adapter = new CustomTeamsAdapter({
+        appId: "test-app",
+        appPassword: "test",
+        logger,
+      });
+      const attachment = adapter.rehydrateAttachment({
+        type: "file",
+        url: "https://files.example.com/report.pdf",
+        fetchMetadata: { url: "https://files.example.com/report.pdf" },
+      });
+
+      await expect(attachment.fetchData?.()).resolves.toEqual(
+        Buffer.from("overridden")
+      );
+      expect(overriddenFetch).toHaveBeenCalledOnce();
     });
 
     it("should set metadata.edited to false for new messages", () => {
@@ -867,6 +1111,151 @@ describe("TeamsAdapter", () => {
     });
   });
 
+  describe("postEphemeral", () => {
+    it("should send a targeted text message to the requested user", async () => {
+      const adapter = createTeamsAdapter({
+        appId: "test-app-id",
+        appPassword: "test",
+        logger,
+      });
+
+      const mockApp = (
+        adapter as unknown as { app: { send: ReturnType<typeof vi.fn> } }
+      ).app;
+      mockApp.send = vi.fn(async () => ({
+        id: "targeted-msg-123",
+        type: "message",
+      }));
+
+      const threadId = adapter.encodeThreadId({
+        conversationId: "19:abc@thread.tacv2",
+        serviceUrl: "https://smba.trafficmanager.net/teams/",
+      });
+
+      const result = await adapter.postEphemeral(threadId, "29:target-user", {
+        markdown: "Only you can see this",
+      });
+
+      expect(result.id).toBe("targeted-msg-123");
+      expect(result.threadId).toBe(threadId);
+      expect(result.usedFallback).toBe(false);
+      expect(mockApp.send).toHaveBeenCalledWith(
+        "19:abc@thread.tacv2",
+        expect.objectContaining({
+          recipient: expect.objectContaining({
+            id: "29:target-user",
+            isTargeted: true,
+            role: "user",
+          }),
+          textFormat: "markdown",
+        })
+      );
+    });
+
+    it("should send targeted adaptive cards", async () => {
+      const adapter = createTeamsAdapter({
+        appId: "test-app-id",
+        appPassword: "test",
+        logger,
+      });
+
+      const mockApp = (
+        adapter as unknown as { app: { send: ReturnType<typeof vi.fn> } }
+      ).app;
+      mockApp.send = vi.fn(async () => ({
+        id: "targeted-card-123",
+        type: "message",
+      }));
+
+      const threadId = adapter.encodeThreadId({
+        conversationId: "19:abc@thread.tacv2",
+        serviceUrl: "https://smba.trafficmanager.net/teams/",
+      });
+
+      const result = await adapter.postEphemeral(threadId, "29:target-user", {
+        card: {
+          type: "card",
+          title: "Private card",
+          children: [],
+        },
+      });
+
+      expect(result.id).toBe("targeted-card-123");
+      expect(result.usedFallback).toBe(false);
+      expect(mockApp.send).toHaveBeenCalledWith(
+        "19:abc@thread.tacv2",
+        expect.objectContaining({
+          attachments: expect.arrayContaining([
+            expect.objectContaining({
+              contentType: "application/vnd.microsoft.card.adaptive",
+            }),
+          ]),
+          recipient: expect.objectContaining({
+            id: "29:target-user",
+            isTargeted: true,
+          }),
+        })
+      );
+    });
+
+    it("should handle targeted send failure by calling handleTeamsError", async () => {
+      const adapter = createTeamsAdapter({
+        appId: "test-app-id",
+        appPassword: "test",
+        logger,
+      });
+
+      const mockApp = (
+        adapter as unknown as { app: { send: ReturnType<typeof vi.fn> } }
+      ).app;
+      mockApp.send = vi.fn(async () => {
+        throw new MockTeamsError({ statusCode: 401, message: "Unauthorized" });
+      });
+
+      const threadId = adapter.encodeThreadId({
+        conversationId: "19:abc@thread.tacv2",
+        serviceUrl: "https://smba.trafficmanager.net/teams/",
+      });
+
+      await expect(
+        adapter.postEphemeral(threadId, "29:target-user", "Private")
+      ).rejects.toThrow(AuthenticationError);
+    });
+
+    it("falls back to a normal post in a 1:1 chat instead of a targeted send", async () => {
+      const adapter = createTeamsAdapter({
+        appId: "test-app-id",
+        appPassword: "test",
+        logger,
+      });
+
+      const mockApp = (
+        adapter as unknown as { app: { send: ReturnType<typeof vi.fn> } }
+      ).app;
+      mockApp.send = vi.fn(async () => ({
+        id: "personal-msg-123",
+        type: "message",
+      }));
+
+      const threadId = adapter.encodeThreadId({
+        conversationId: "a:1personal-chat-id",
+        serviceUrl: "https://smba.trafficmanager.net/teams/",
+      });
+
+      const result = await adapter.postEphemeral(threadId, "29:target-user", {
+        markdown: "Only you can see this",
+      });
+
+      expect(result.id).toBe("personal-msg-123");
+      expect(result.usedFallback).toBe(true);
+
+      const sentActivity = mockApp.send.mock.calls[0]?.[1] as {
+        recipient?: { isTargeted?: boolean };
+      };
+      expect(sentActivity.recipient?.isTargeted).not.toBe(true);
+    });
+  });
+
   describe("editMessage", () => {
     it("should call api.conversations.activities.update", async () => {
       const adapter = createTeamsAdapter({
@@ -936,6 +1325,88 @@ describe("TeamsAdapter", () => {
     });
   });
 
+  describe("reactions", () => {
+    function createReactionTestAdapter() {
+      const adapter = createTeamsAdapter({
+        appId: "test-app-id",
+        appPassword: "test",
+        logger,
+      });
+      const addReaction = vi.fn(async () => undefined);
+      const deleteReaction = vi.fn(async () => undefined);
+      const mockApp = (adapter as unknown as { app: { api: unknown } }).app;
+      mockApp.api = {
+        conversations: {
+          addReaction,
+          deleteReaction,
+        },
+        serviceUrl: "https://smba.trafficmanager.net/teams/",
+      };
+
+      const threadId = adapter.encodeThreadId({
+        conversationId: "19:abc@thread.tacv2",
+        serviceUrl: "https://smba.trafficmanager.net/teams/",
+      });
+
+      return { adapter, addReaction, deleteReaction, threadId };
+    }
+
+    it("should add a raw Teams reaction ID", async () => {
+      const { adapter, addReaction, threadId } = createReactionTestAdapter();
+
+      await adapter.addReaction(threadId, "message-1", "think");
+
+      expect(addReaction).toHaveBeenCalledWith(
+        "19:abc@thread.tacv2",
+        "message-1",
+        "think"
+      );
+    });
+
+    it.each([
+      ["check", "2705_whiteheavycheckmark"],
+      ["eyes", "1f440_eyes"],
+      ["pin", "1f4cc_pushpin"],
+      ["rocket", "launch"],
+      ["thinking", "think"],
+      ["thumbs_up", "like"],
+      ["x", "274c_crossmark"],
+    ])("should map %s to the Teams reaction ID %s", async (name, teamsId) => {
+      const { adapter, addReaction, threadId } = createReactionTestAdapter();
+
+      await adapter.addReaction(threadId, "message-1", getEmoji(name));
+
+      expect(addReaction).toHaveBeenCalledWith(
+        "19:abc@thread.tacv2",
+        "message-1",
+        teamsId
+      );
+    });
+
+    it("should remove a reaction with the Teams conversation API", async () => {
+      const { adapter, deleteReaction, threadId } = createReactionTestAdapter();
+
+      await adapter.removeReaction(threadId, "message-1", getEmoji("check"));
+
+      expect(deleteReaction).toHaveBeenCalledWith(
+        "19:abc@thread.tacv2",
+        "message-1",
+        "2705_whiteheavycheckmark"
+      );
+    });
+
+    it("should translate Teams API failures", async () => {
+      const { adapter, addReaction, threadId } = createReactionTestAdapter();
+      addReaction.mockRejectedValueOnce(
+        new MockTeamsError({ statusCode: 401, message: "Unauthorized" })
+      );
+
+      await expect(
+        adapter.addReaction(threadId, "message-1", "like")
+      ).rejects.toThrow(AuthenticationError);
+    });
+  });
+
   // ==========================================================================
   // startTyping Tests
   // ==========================================================================
@@ -991,6 +1462,164 @@ describe("TeamsAdapter", () => {
   // getUser Tests
   // ==========================================================================
 
+  describe("incoming sender email", () => {
+    class IncomingMessageTestAdapter extends TeamsAdapter {
+      handleIncoming(activity: Record<string, unknown>) {
+        return this.handleMessageActivity({ activity } as never);
+      }
+    }
+
+    const activity = (aadObjectId?: string) => ({
+      type: "message",
+      id: "msg-100",
+      text: "Hello world",
+      from: {
+        id: "29:user-123",
+        name: "Alice",
+        aadObjectId,
+      },
+      conversation: { id: "19:abc@thread.tacv2" },
+      serviceUrl: "https://smba.trafficmanager.net/teams/",
+    });
+
+    const setup = async (
+      graphResult: Record<string, unknown> | Error,
+      cachedAadObjectId?: string
+    ) => {
+      const adapter = new IncomingMessageTestAdapter({
+        appId: "test",
+        appPassword: "test",
+        logger,
+      });
+      const state = createMockState();
+      if (cachedAadObjectId) {
+        state.cache.set("teams:aadObjectId:29:user-123", cachedAadObjectId);
+      }
+      const chat = createMockChatInstance({ state });
+      const mockApp = (
+        adapter as unknown as {
+          app: {
+            initialize: ReturnType<typeof vi.fn>;
+            graph: { call: ReturnType<typeof vi.fn> };
+          };
+        }
+      ).app;
+      mockApp.initialize = vi.fn(async () => undefined);
+      mockApp.graph = {
+        call: vi.fn(async () => {
+          if (graphResult instanceof Error) {
+            throw graphResult;
+          }
+          return graphResult;
+        }),
+      };
+      await adapter.initialize(chat);
+      return { adapter, chat, mockApp, state };
+    };
+
+    it("hydrates email from the activity AAD object ID without cached state", async () => {
+      const { adapter, chat, mockApp, state } = await setup({
+        displayName: "Alice",
+        mail: "alice@example.com",
+        userPrincipalName: "alice@contoso.com",
+      });
+
+      await adapter.handleIncoming(activity("activity-aad-id"));
+
+      expect(state.get).not.toHaveBeenCalledWith(
+        "teams:aadObjectId:29:user-123"
+      );
+      expect(mockApp.graph.call).toHaveBeenCalledWith(expect.anything(), {
+        "user-id": "activity-aad-id",
+      });
+      const message = vi.mocked(chat.processMessage).mock.calls[0]?.[2];
+      expect(message?.author.email).toBe("alice@example.com");
+    });
+
+    it("falls back to the cached AAD object ID", async () => {
+      const { adapter, chat, mockApp } = await setup(
+        {
+          displayName: "Alice",
+          mail: null,
+          userPrincipalName: "alice@contoso.com",
+        },
+        "cached-aad-id"
+      );
+
+      await adapter.handleIncoming(activity());
+
+      expect(mockApp.graph.call).toHaveBeenCalledWith(expect.anything(), {
+        "user-id": "cached-aad-id",
+      });
+      const message = vi.mocked(chat.processMessage).mock.calls[0]?.[2];
+      expect(message?.author.email).toBe("alice@contoso.com");
+    });
+
+    it("dispatches the message when Graph lookup fails", async () => {
+      const { adapter, chat } = await setup(new Error("Forbidden"));
+
+      await adapter.handleIncoming(activity("activity-aad-id"));
+
+      expect(chat.processMessage).toHaveBeenCalledOnce();
+      const message = vi.mocked(chat.processMessage).mock.calls[0]?.[2];
+      expect(message?.author.email).toBeUndefined();
+    });
+
+    it("caches the Graph lookup across messages", async () => {
+      const { adapter, chat, mockApp } = await setup({
+        displayName: "Alice",
+        mail: "alice@example.com",
+        userPrincipalName: "alice@contoso.com",
+      });
+
+      await adapter.handleIncoming(activity("activity-aad-id"));
+      await adapter.handleIncoming(activity("activity-aad-id"));
+
+      expect(mockApp.graph.call).toHaveBeenCalledOnce();
+      const message = vi.mocked(chat.processMessage).mock.calls[1]?.[2];
+      expect(message?.author.email).toBe("alice@example.com");
+    });
+
+    it("caches failed Graph lookups without retrying", async () => {
+      const { adapter, chat, mockApp } = await setup(new Error("Forbidden"));
+
+      await adapter.handleIncoming(activity("activity-aad-id"));
+      await adapter.handleIncoming(activity("activity-aad-id"));
+
+      expect(mockApp.graph.call).toHaveBeenCalledOnce();
+      expect(chat.processMessage).toHaveBeenCalledTimes(2);
+      const message = vi.mocked(chat.processMessage).mock.calls[1]?.[2];
+      expect(message?.author.email).toBeUndefined();
+    });
+
+    it("hydrates email on the DM path and completes processing", async () => {
+      const { adapter, chat } = await setup({
+        displayName: "Alice",
+        mail: "alice@example.com",
+        userPrincipalName: "alice@contoso.com",
+      });
+      // DM handling blocks on a waitUntil-driven promise for native
+      // streaming, so the mock must invoke waitUntil for the handler
+      // to resolve.
+      vi.mocked(chat.processMessage).mockImplementation(
+        (_adapter, _threadId, _message, options) => {
+          (
+            options as { waitUntil?: (task: Promise<unknown>) => void }
+          )?.waitUntil?.(Promise.resolve());
+        }
+      );
+
+      await adapter.handleIncoming({
+        ...activity("activity-aad-id"),
+        conversation: { id: "a:1dm-conversation" },
+      });
+
+      expect(chat.processMessage).toHaveBeenCalledOnce();
+      const message = vi.mocked(chat.processMessage).mock.calls[0]?.[2];
+      expect(message?.author.email).toBe("alice@example.com");
+    });
+  });
+
   describe("getUser", () => {
     it("should return user info when aadObjectId is cached and Graph call succeeds", async () => {
       const adapter = new TeamsAdapter({
@@ -1015,7 +1644,7 @@ describe("TeamsAdapter", () => {
       mockApp.graph = {
         call: vi.fn(async () => ({
           displayName: "Alice Smith",
-          mail: "alice@contoso.com",
+          mail: "alice.smith@contoso.com",
           userPrincipalName: "alice@contoso.com",
           id: "aad-object-id-456",
         })),
@@ -1026,7 +1655,7 @@ describe("TeamsAdapter", () => {
       const user = await adapter.getUser("29:user-123");
       expect(user).not.toBeNull();
       expect(user?.fullName).toBe("Alice Smith");
-      expect(user?.email).toBe("alice@contoso.com");
+      expect(user?.email).toBe("alice.smith@contoso.com");
       expect(user?.userName).toBe("alice@contoso.com");
       expect(user?.userId).toBe("29:user-123");
       expect(user?.isBot).toBe(false);
@@ -1086,7 +1715,7 @@ describe("TeamsAdapter", () => {
       expect(user).toBeNull();
     });
 
-    it("should handle missing mail gracefully", async () => {
+    it("should fall back to userPrincipalName when mail is missing", async () => {
       const adapter = new TeamsAdapter({
         appId: "test",
         appPassword: "test",
@@ -1120,7 +1749,7 @@ describe("TeamsAdapter", () => {
       const user = await adapter.getUser("29:user-123");
       expect(user).not.toBeNull();
       expect(user?.fullName).toBe("Bob Jones");
-      expect(user?.email).toBeUndefined();
+      expect(user?.email).toBe("bob@contoso.com");
       expect(user?.userName).toBe("bob@contoso.com");
     });
 

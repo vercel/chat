@@ -1,5 +1,52 @@
 # @chat-adapter/telegram
 
+## 4.36.0
+
+### Patch Changes
+
+- 53bf73d: Preserve Telegram stable media identifiers in normalized attachment metadata and report photo attachments as JPEG.
+- Updated dependencies [257a32d]
+- Updated dependencies [c5d86b1]
+- Updated dependencies [0153a39]
+- Updated dependencies [b547f45]
+- Updated dependencies [caa6325]
+  - chat@4.36.0
+  - @chat-adapter/shared@4.36.0
+
+## 4.35.0
+
+### Minor Changes
+
+- 54eea71: Add an optional Telegram user allowlist via `allowedUserIds` or the comma-separated `TELEGRAM_ALLOWED_USER_IDS` environment variable.
+
+### Patch Changes
+
+- 0701679: Cache the compiled bot-mention regex in `isBotMentioned` instead of recompiling it per message, and make the protected `sleep` helper accept an optional `AbortSignal` so `stopPolling()` interrupts the polling backoff delay immediately.
+- Updated dependencies [80def3a]
+- Updated dependencies [4cb7e5d]
+- Updated dependencies [46681f5]
+- Updated dependencies [93a58af]
+- Updated dependencies [25f3099]
+  - chat@4.35.0
+  - @chat-adapter/shared@4.35.0
+
+## 4.34.0
+
+### Minor Changes
+
+- 8d7ccdb: Add Telegram media group uploads for multiple files and attachments.
+
+### Patch Changes
+
+- 2531a42: Fix `detectMention` (and the Telegram adapter's `isBotMentioned`) falsely matching `@bot` when `@bot-dev` is mentioned. `\b` (word boundary) matches between a word character and a hyphen, so `/@bot\b/` incorrectly matches `@bot-dev`. Replaced with `(?![\w-])` to exclude hyphens.
+- Updated dependencies [5c926f1]
+- Updated dependencies [2531a42]
+- Updated dependencies [1721fa0]
+- Updated dependencies [4717a38]
+- Updated dependencies [6714efc]
+  - chat@4.34.0
+  - @chat-adapter/shared@4.34.0
+
 ## 4.33.0
 
 ### Patch Changes

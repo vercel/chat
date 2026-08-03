@@ -377,7 +377,47 @@ The `event` object includes:
 |----------|------|-------------|
 | `userId` | `string` | User who opened the Home tab |
 | `channelId` | `string` | Channel context |
+| `tab` | `string \| undefined` | The opened tab (`"home"` or `"messages"`). Under `agentView` the event fires for every tab — branch on this to tell a Home-tab open from the DM-open signal |
+| `entities` | `AppContextEntity[] \| undefined` | Folded active-view context (`agentView` only) |
 | `adapter` | `Adapter` | The Slack adapter |
+
+### Handling active-view context (Agent messaging)
+
+Under Slack's [Agent messaging experience](/adapters/official/slack#agent-messaging-experience) (`agent_view`), `onAppContextChanged` fires when the user's active view changes (opening a channel, DM, or canvas). The event carries normalized `entities` describing what the user is viewing.
+
+```typescript title="lib/bot.ts" lineNumbers
+bot.onAppContextChanged((event) => {
+  for (const entity of event.entities) {
+    if (entity.kind === "channel") {
+      // User is viewing channel entity.channelId
+    }
+  }
+});
+```
+
+The `event` object includes:
+
+| Property | Type | Description |
+|----------|------|-------------|
+| `channelId` | `string` | The agent conversation channel |
+| `userId` | `string` | The user whose view changed |
+| `entities` | `AppContextEntity[]` | Relevance-ordered active-view entities; empty when the view is empty |
+| `raw` | `unknown` | Platform-specific raw payload |
+| `adapter` | `Adapter` | The Slack adapter |
+
+Each `AppContextEntity` is one of: `{ kind: "channel", channelId }`, `{ kind: "canvas", canvasId }`, `{ kind: "list", listId }`, `{ kind: "message", messageTs, channelId }`, or `{ kind: "unknown", type, value }` (all with optional `teamId`/`enterpriseId`).
+
+Slack also folds this context onto the events the user acts through. `onAppHomeOpened` events carry the same normalized `entities`, and DM messages carry it too — read it at message time with `getAppContext`:
+
+```typescript title="lib/bot.ts" lineNumbers
+import { getAppContext } from "@chat-adapter/slack";
+
+bot.onDirectMessage((thread, message) => {
+  const viewing = getAppContext(message);
+  const viewedThread = viewing.find((e) => e.kind === "message");
+  // viewedThread?.messageTs is the root ts of the thread the user is viewing
+});
+```
 
 ### Handling member joined channel
 

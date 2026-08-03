@@ -2,8 +2,15 @@ import DynamicLink from "fumadocs-core/dynamic-link";
 import type { CSSProperties } from "react";
 import { codeToTokens } from "shiki";
 import { Button } from "@/components/ui/button";
+import {
+  CommandPromptContent,
+  CommandPromptCopy,
+  CommandPromptPrefix,
+  CommandPromptRoot,
+  CommandPromptSurface,
+  CommandPromptViewport,
+} from "@/components/ui/command-prompt";
 import { cn } from "@/lib/utils";
-import { CopyButton } from "./copy-button";
 
 const COMMAND = "npx create-chat-sdk@latest";
 
@@ -96,38 +103,41 @@ const CodePreview = async ({ code }: { code: string }) => {
 
 export const GetStartedSection = ({ data }: { data: Template[] }) => (
   <div>
-    <div className="flex flex-col gap-6 px-6 py-12 sm:px-10 sm:py-14 lg:flex-row lg:items-start lg:justify-between lg:gap-12">
-      <div
-        className="flex flex-col gap-4"
-        style={{ fontFamily: "var(--font-sans)" }}
-      >
-        <h2 className="font-semibold text-[24px] leading-[1.1] tracking-tight sm:text-[32px] md:text-[40px]">
-          Build with Chat SDK today
-        </h2>
-        <p className="max-w-sm text-[18px] text-muted-foreground leading-[1.4]">
-          Get started by exploring the docs, following a guide, or using a
-          template.
-        </p>
-      </div>
-      <div className="flex flex-col items-stretch gap-3 sm:shrink-0">
+    <div className="flex flex-col gap-6 py-12 sm:py-14 lg:flex-row lg:items-start lg:justify-between lg:gap-12">
+      <h2 className="text-heading-20 sm:text-heading-24 md:text-heading-32 lg:text-heading-40">
+        Build with Chat SDK today
+      </h2>
+      <div className="flex flex-col items-stretch gap-3 sm:shrink-0 lg:flex-row lg:items-center">
         <Button asChild className="h-[42px] rounded-full px-5" size="default">
           <DynamicLink href="/[lang]/docs">Visit Documentation</DynamicLink>
         </Button>
-        <div className="relative flex h-[42px] items-center rounded-full border bg-background pr-12 pl-4 font-mono text-[13px] leading-5 [&_button]:absolute [&_button]:top-1/2 [&_button]:right-1 [&_button]:size-8 [&_button]:-translate-y-1/2 [&_button]:rounded-full [&_svg]:size-4">
-          <span className="select-none text-muted-foreground">$&nbsp;</span>
-          <span>{COMMAND}</span>
-          <CopyButton code={COMMAND} />
-        </div>
+        {/* Root is `w-full items-center` by default, which would stretch and
+            centre the pill while the buttons are stacked. */}
+        <CommandPromptRoot
+          className="items-stretch lg:w-fit"
+          defaultValue="install"
+        >
+          {/* Match the adjacent Visit Documentation button's height. */}
+          <CommandPromptSurface className="h-[42px] py-0">
+            <CommandPromptPrefix>$</CommandPromptPrefix>
+            <CommandPromptViewport>
+              <CommandPromptContent copyValue={COMMAND} value="install">
+                {COMMAND}
+              </CommandPromptContent>
+            </CommandPromptViewport>
+            <CommandPromptCopy />
+          </CommandPromptSurface>
+        </CommandPromptRoot>
       </div>
     </div>
-    <div className="grid gap-6 border-t px-6 py-10 sm:px-10 sm:py-12 md:grid-cols-3">
+    <div className="grid gap-6 py-10 sm:py-12 md:grid-cols-3">
       {data.map((item) => (
         <a
           className="group flex flex-col overflow-hidden rounded-lg border bg-background p-4 transition-colors hover:bg-muted/40"
           href={item.link}
           key={item.title}
         >
-          <h3 className="font-semibold tracking-tight">{item.title}</h3>
+          <h3 className="text-heading-16">{item.title}</h3>
           <p className="mt-1 line-clamp-2 text-muted-foreground text-sm">
             {item.description}
           </p>

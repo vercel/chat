@@ -1,0 +1,145 @@
+---
+title: QQ Bot
+description: Community QQ Bot adapter for Chat SDK with WebSocket and webhook modes, multi-scene support (DM, group, text channel), rich media, and Ed25519 signature verification.
+packageName: "@agentor/chat-qq"
+slug: qq
+type: platform
+tagline: QQ Bot adapter for Chat SDK. Connects to the QQ Bot Gateway over WebSocket or HTTP callback, supporting DM, group, and text-channel scenes with images, video, voice, and files.
+community: true
+mdxBody: true
+features:
+  postMessage: yes
+  editMessage: no
+  deleteMessage: no
+  fileUploads: yes
+  streaming: no
+  scheduledMessages: no
+  cardFormat: no
+  buttons: no
+  linkButtons: no
+  selectMenus: no
+  tables: no
+  fields: no
+  imagesInCards: no
+  modals: no
+  slashCommands: no
+  mentions: no
+  addReactions: no
+  removeReactions: no
+  typingIndicator: no
+  directMessages: yes
+  ephemeralMessages: no
+  userLookup: no
+  customApiEndpoint: no
+  fetchMessages: no
+  fetchSingleMessage: no
+  fetchThreadInfo: no
+  fetchChannelMessages: no
+  listThreads: no
+  fetchChannelInfo: no
+  postChannelMessage: no
+---
+
+## Install
+
+<PackageInstall package="@agentor/chat-qq chat @chat-adapter/state-memory" />
+
+## Quick start
+
+### WebSocket mode
+
+Connect directly to the QQ Bot Gateway — no public endpoint required:
+
+```typescript title="lib/bot.ts" lineNumbers
+import { createQQBotAdapter } from "@agentor/chat-qq";
+
+const adapter = createQQBotAdapter({
+  appId: process.env.QQ_BOT_APP_ID,
+  clientSecret: process.env.QQ_BOT_CLIENT_SECRET,
+});
+
+await adapter.initialize({
+  processMessage: async (_adapter, threadId, factory) => {
+    const message = await factory();
+    await adapter.postMessage(threadId, message.text);
+  },
+});
+```
+
+### Webhook (callback) mode
+
+Receive events over HTTP with Ed25519 signature verification. Once an HTTPS
+callback URL is configured on the bot, WebSocket mode is no longer available —
+the two modes are mutually exclusive.
+
+```typescript title="lib/bot.ts" lineNumbers
+import { createQQBotAdapter } from "@agentor/chat-qq";
+
+const adapter = createQQBotAdapter({
+  mode: "callback",
+  appId: process.env.QQ_BOT_APP_ID,
+  clientSecret: process.env.QQ_BOT_CLIENT_SECRET,
+});
+```
+
+## Environment variables
+
+| Variable | Required | Description |
+| --- | --- | --- |
+| `QQ_BOT_APP_ID` | Yes | QQ Bot application ID. |
+| `QQ_BOT_CLIENT_SECRET` | Yes | QQ Bot client secret. |
+
+## Configuration
+
+<TypeTable
+  type={{
+    mode: {
+      type: '"websocket" | "callback"',
+      default: '"websocket"',
+      description: "Connection mode. The two modes are mutually exclusive.",
+    },
+    appId: { type: "string", description: "QQ Bot application ID." },
+    clientSecret: { type: "string", description: "QQ Bot client secret." },
+    intents: { type: "number", description: "Event intent bitmask." },
+    sandbox: {
+      type: "boolean",
+      default: "false",
+      description: "Use the sandbox environment (WebSocket mode).",
+    },
+    userName: {
+      type: "string",
+      default: '"QQ Bot"',
+      description: "Bot display name.",
+    },
+  }}
+/>
+
+## Rich media
+
+`postMessage` uploads local files (`FileUpload`) and URL attachments
+automatically, then sends them as rich-media messages; unsupported scenarios
+fall back to text.
+
+```typescript
+// Send a local file
+await adapter.postMessage(threadId, {
+  text: "Document",
+  files: [
+    {
+      data: buffer,
+      filename: "report.xlsx",
+      mimeType: "application/vnd.ms-excel",
+    },
+  ],
+});
+```
+
+## Scenes
+
+Supports QQ DM (C2C), QQ Group, Text Channel, and Channel DM. File upload in
+group chats is not currently available; text channels and channel DMs send
+images and videos via `msg_type: 7`.
+
+## Feature support
+
+<FeatureSupport />

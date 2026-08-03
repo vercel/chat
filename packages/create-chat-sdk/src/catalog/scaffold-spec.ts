@@ -332,6 +332,17 @@ export const CLI_SCAFFOLD_SPEC = {
   x: {
     invocation: { kind: "zero-arg" },
   },
+  xchat: {
+    // The XChat crypto stack is an optional peer of @chat-adapter/x so plain X
+    // bots don't carry the wasm, which means a scaffolded XChat bot has to
+    // install it explicitly or it crashes on startup.
+    extraDependencies: [
+      "@xdevplatform/chat-xdk",
+      "@xdevplatform/xdk",
+      "juicebox-sdk",
+    ],
+    invocation: { kind: "zero-arg" },
+  },
   zernio: {
     invocation: { kind: "zero-arg" },
   },

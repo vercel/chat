@@ -40,13 +40,21 @@ describe("DiscordFormatConverter", () => {
       );
     });
 
-    it("should render an autolink as a bare URL, not a masked link", () => {
+    it("should preserve angle brackets on an autolink to suppress its embed", () => {
       const ast = converter.toAst("<https://example.com>");
       const result = converter.fromAst(ast);
-      expect(result).toContain("https://example.com");
-      expect(result).not.toContain(
-        "[https://example.com](https://example.com)"
-      );
+      expect(result).toBe("<https://example.com>");
+    });
+
+    it("should preserve angle brackets in a masked link destination", () => {
+      const ast = converter.toAst("[link text](<https://example.com>)");
+      const result = converter.fromAst(ast);
+      expect(result).toBe("[link text](<https://example.com>)");
+    });
+
+    it("should preserve a masked link whose label matches its URL", () => {
+      const input = "[https://example.com](<https://example.com>)";
+      expect(converter.fromAst(converter.toAst(input))).toBe(input);
     });
 
     it("should preserve inline code", () => {
@@ -107,6 +115,20 @@ describe("DiscordFormatConverter", () => {
   });
 
   describe("renderPostable (mentions)", () => {
+    it("should preserve a preview-suppressed link in markdown", () => {
+      expect(
+        converter.renderPostable({ markdown: "<https://example.com>" })
+      ).toBe("<https://example.com>");
+    });
+
+    it("should preserve a preview-suppressed masked link in markdown", () => {
+      expect(
+        converter.renderPostable({
+          markdown: "[link text](<https://example.com>)",
+        })
+      ).toBe("[link text](<https://example.com>)");
+    });
+
     it("should convert a bare mention in raw text", () => {
       expect(converter.renderPostable({ raw: "hey @alice" })).toContain(
         "<@alice>"

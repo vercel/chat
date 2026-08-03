@@ -187,11 +187,13 @@ describe("Teams modal primitives", () => {
     });
   });
 
-  it("ignores non-string submit values", () => {
-    expect(parseTeamsDialogSubmitValues({ count: 5, note: "ok" })).toEqual({
+  it("stringifies numeric submit values and ignores other non-strings", () => {
+    expect(
+      parseTeamsDialogSubmitValues({ count: 5, note: "ok", flag: true })
+    ).toEqual({
       callbackId: undefined,
       contextId: undefined,
-      values: { note: "ok" },
+      values: { count: "5", note: "ok" },
     });
   });
 

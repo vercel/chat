@@ -187,6 +187,19 @@ export interface XDmSendResult {
   dm_event_id: string;
 }
 
+/** Response body of the /2/media/upload INIT, FINALIZE, and STATUS commands. */
+export interface XMediaUploadResult {
+  expires_after_secs?: number;
+  id: string;
+  media_key?: string;
+  processing_info?: {
+    state: "pending" | "in_progress" | "succeeded" | "failed";
+    check_after_secs?: number;
+    progress_percent?: number;
+    error?: { code?: number; name?: string; message?: string };
+  };
+}
+
 /** Response body of POST /2/oauth2/token. */
 export interface XOauthTokenResult {
   access_token?: string;

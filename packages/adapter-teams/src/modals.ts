@@ -10,23 +10,29 @@ import type {
   ActionStyle,
   CardElementArray,
   ChoiceSetInputOptions,
+  DateInputOptions,
+  NumberInputOptions,
   TextInputOptions,
 } from "@microsoft/teams.cards";
 import {
   AdaptiveCard,
   Choice,
   ChoiceSetInput,
+  DateInput,
   Fact,
   FactSet,
+  NumberInput,
   SubmitAction,
   TextBlock,
   TextInput,
 } from "@microsoft/teams.cards";
 import type {
+  DateInputElement,
   FieldsElement,
   ModalChild,
   ModalElement,
   ModalResponse,
+  NumberInputElement,
   RadioSelectElement,
   SelectElement,
   TextElement,
@@ -94,6 +100,10 @@ function modalChildToAdaptiveElements(child: ModalChild): CardElementArray {
   switch (child.type) {
     case "text_input":
       return [textInputToAdaptive(child)];
+    case "date_input":
+      return [dateInputToAdaptive(child)];
+    case "number_input":
+      return [numberInputToAdaptive(child)];
     case "select":
       return [selectToAdaptive(child)];
     case "external_select":
@@ -121,6 +131,34 @@ function textInputToAdaptive(input: TextInputElement): TextInput {
   };
 
   return new TextInput(options);
+}
+
+function dateInputToAdaptive(input: DateInputElement): DateInput {
+  const options: DateInputOptions = {
+    id: input.id,
+    label: convertEmoji(input.label),
+    isRequired: !(input.optional ?? false),
+    placeholder: input.placeholder,
+    value: input.initialValue,
+  };
+
+  return new DateInput(options);
+}
+
+function numberInputToAdaptive(input: NumberInputElement): NumberInput {
+  // Adaptive Cards has no decimal switch — Input.Number always accepts
+  // decimals, so `decimal: false` is enforced by Slack only.
+  const options: NumberInputOptions = {
+    id: input.id,
+    label: convertEmoji(input.label),
+    isRequired: !(input.optional ?? false),
+    placeholder: input.placeholder,
+    value: input.initialValue,
+    min: input.min,
+    max: input.max,
+  };
+
+  return new NumberInput(options);
 }
 
 function selectToAdaptive(select: SelectElement): ChoiceSetInput {
@@ -211,6 +249,9 @@ export function parseDialogSubmitValues(
     }
     if (typeof val === "string") {
       values[key] = val;
+    } else if (typeof val === "number") {
+      // Input.Number submits a JSON number
+      values[key] = String(val);
     }
   }
 

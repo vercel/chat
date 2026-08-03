@@ -35,7 +35,7 @@ describe("Teams Integration", () => {
   let mockTeamsApp: MockTeamsApp;
   let tracker: ReturnType<typeof createWaitUntilTracker>;
 
-  const TEST_CONVERSATION_ID = "19:meeting_123@thread.v2";
+  const TEST_CONVERSATION_ID = "a:group-chat-id";
   const TEST_THREAD_ID = getTeamsThreadId(
     TEST_CONVERSATION_ID,
     DEFAULT_TEAMS_SERVICE_URL

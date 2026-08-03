@@ -145,6 +145,44 @@ describe("Message", () => {
       const json = makeMessage({ isMention: true }).toJSON();
       expect(json.isMention).toBe(true);
     });
+
+    it("should preserve author.isSystem through a full JSON roundtrip", () => {
+      const msg = makeMessage({
+        author: {
+          userId: "USLACK",
+          userName: "Slack",
+          fullName: "Slack",
+          isBot: false,
+          isMe: false,
+          isSystem: true,
+        },
+      });
+      const roundtripped = JSON.parse(JSON.stringify(msg.toJSON()));
+      const restored = Message.fromJSON(roundtripped);
+      expect(restored.author.isSystem).toBe(true);
+    });
+
+    it("should leave author.isSystem absent for non-system authors", () => {
+      const json = makeMessage().toJSON();
+      expect(json.author.isSystem).toBeUndefined();
+    });
+
+    it("should preserve author email through serialization", () => {
+      const original = makeMessage({
+        author: {
+          userId: "U123",
+          userName: "testuser",
+          fullName: "Test User",
+          email: "test@example.com",
+          isBot: false,
+          isMe: false,
+        },
+      });
+
+      const json = original.toJSON();
+      expect(json.author.email).toBe("test@example.com");
+      expect(Message.fromJSON(json).author.email).toBe("test@example.com");
+    });
   });
 
   describe("fromJSON()", () => {

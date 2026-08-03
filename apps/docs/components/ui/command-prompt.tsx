@@ -14,8 +14,8 @@ import {
   useRef,
   useState,
 } from "react";
-import { IconCheck } from "@/components/geistcn-fallbacks/geistcn-assets/icons/icon-check";
-import { IconCopy } from "@/components/geistcn-fallbacks/geistcn-assets/icons/icon-copy";
+import { IconCheck } from "@vercel/geistdocs/assets/icons/icon-check";
+import { IconCopy } from "@vercel/geistdocs/assets/icons/icon-copy";
 import { cn } from "@/lib/utils";
 
 type CommandPromptContextValue = {

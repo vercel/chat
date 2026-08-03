@@ -99,17 +99,25 @@ describe("Adapter markdown URL scheme", () => {
 describe("Adapter Accept-header markdown negotiation", () => {
   const proxy = readFileSync(PROXY_PATH, "utf-8");
 
-  // `rewritePath().rewrite` returns `string | false`. With `??`, a `false`
-  // result from the docs rewriter does NOT fall through to the adapters
-  // rewriter, so `Accept: text/markdown` on an adapter page (e.g.
-  // /adapters/official/slack) would keep serving HTML. It must use `||`.
-  it("falls through to the adapters rewriter with `||`", () => {
+  // The geistdocs proxy resolves `.md` URLs, `Accept: text/markdown`
+  // negotiation, and AI-agent rewrites from the `markdownRoutes` mappings.
+  // Docs and adapters use different markdown route handlers, so both
+  // families must be mapped explicitly — dropping either one silently
+  // serves HTML to markdown-preferring clients.
+  it("uses the geistdocs proxy", () => {
+    expect(proxy).toContain('from "@vercel/geistdocs/proxy"');
+    expect(proxy).toContain("createProxy(");
+  });
+
+  it("maps the docs family to the docs markdown route", () => {
     expect(proxy).toContain(
-      "rewriteLLM(pathname) || rewriteAdaptersLLM(pathname)"
+      '{ from: "/docs/*path", to: "/[lang]/llms.mdx/*path" }'
     );
   });
 
-  it("does not regress to `??` for the rewriter fallback", () => {
-    expect(proxy).not.toContain("rewriteLLM(pathname) ?? rewriteAdaptersLLM");
+  it("maps the adapters family to the adapters markdown route", () => {
+    expect(proxy).toContain(
+      '{ from: "/adapters/*path", to: "/[lang]/adapters.mdx/*path" }'
+    );
   });
 });

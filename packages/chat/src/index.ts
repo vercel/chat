@@ -80,6 +80,7 @@ import {
   Card as _Card,
   CardLink as _CardLink,
   CardText as _CardText,
+  Chart as _Chart,
   cardChildToFallbackText as _cardChildToFallbackText,
   Divider as _Divider,
   Field as _Field,
@@ -96,6 +97,8 @@ import type {
   ButtonComponent,
   CardComponent,
   CardLinkComponent,
+  ChartComponent,
+  DateInputComponent,
   DividerComponent,
   ExternalSelectComponent,
   FieldComponent,
@@ -103,6 +106,7 @@ import type {
   ImageComponent,
   LinkButtonComponent,
   ModalComponent,
+  NumberInputComponent,
   RadioSelectComponent,
   SectionComponent,
   SelectComponent,
@@ -124,6 +128,7 @@ export const Card = _Card as unknown as CardComponent;
 export const cardChildToFallbackText = _cardChildToFallbackText;
 export const CardLink = _CardLink as unknown as CardLinkComponent;
 export const CardText = _CardText as unknown as TextComponent;
+export const Chart = _Chart as unknown as ChartComponent;
 export const Divider = _Divider as unknown as DividerComponent;
 export const Field = _Field as unknown as FieldComponent;
 export const Fields = _Fields as unknown as FieldsComponent;
@@ -139,10 +144,12 @@ export const toModalElement = _toModalElement;
 
 // Modal builders
 import {
+  DateInput as _DateInput,
   ExternalSelect as _ExternalSelect,
   fromReactModalElement as _fromReactModalElement,
   isModalElement as _isModalElement,
   Modal as _Modal,
+  NumberInput as _NumberInput,
   RadioSelect as _RadioSelect,
   Select as _Select,
   SelectOption as _SelectOption,
@@ -150,9 +157,11 @@ import {
 } from "./modals";
 export const fromReactModalElement = _fromReactModalElement;
 export const isModalElement = _isModalElement;
+export const DateInput = _DateInput as unknown as DateInputComponent;
 export const ExternalSelect =
   _ExternalSelect as unknown as ExternalSelectComponent;
 export const Modal = _Modal as unknown as ModalComponent;
+export const NumberInput = _NumberInput as unknown as NumberInputComponent;
 export const RadioSelect = _RadioSelect as unknown as RadioSelectComponent;
 export const Select = _Select as unknown as SelectComponent;
 export const SelectOption = _SelectOption as unknown as SelectOptionComponent;
@@ -167,6 +176,12 @@ export type {
   CardChild,
   CardElement,
   CardOptions,
+  ChartDataPoint,
+  ChartDefinition,
+  ChartElement,
+  ChartOptions,
+  ChartSegment,
+  ChartSeries,
   DividerElement,
   FieldElement,
   FieldsElement,
@@ -174,7 +189,9 @@ export type {
   LinkButtonElement,
   LinkButtonOptions,
   LinkElement,
+  PieChartDefinition,
   SectionElement,
+  SeriesChartDefinition,
   TableAlignment,
   TableElement,
   TableOptions,
@@ -205,6 +222,8 @@ export type {
   CardProps,
   ChatElement,
   ContainerProps,
+  DateInputComponent,
+  DateInputProps,
   DividerComponent,
   DividerProps,
   ExternalSelectComponent,
@@ -218,6 +237,8 @@ export type {
   LinkButtonProps,
   ModalComponent,
   ModalProps,
+  NumberInputComponent,
+  NumberInputProps,
   RadioSelectComponent,
   SectionComponent,
   SelectComponent,
@@ -254,6 +275,7 @@ export {
   // Format converter base class
   BaseFormatConverter,
   blockquote,
+  chartElementToFallbackText,
   codeBlock,
   emphasis,
   // Types
@@ -295,11 +317,15 @@ export {
 } from "./markdown";
 // Modal types
 export type {
+  DateInputElement,
+  DateInputOptions,
   ExternalSelectElement,
   ExternalSelectOptions,
   ModalChild,
   ModalElement,
   ModalOptions,
+  NumberInputElement,
+  NumberInputOptions,
   RadioSelectElement,
   RadioSelectOptions,
   SelectElement,
@@ -314,6 +340,15 @@ export type {
   ActionHandler,
   Adapter,
   AdapterPostableMessage,
+  AppContextCanvasEntity,
+  AppContextChangedEvent,
+  AppContextChangedHandler,
+  AppContextChannelEntity,
+  AppContextEntity,
+  AppContextEntityBase,
+  AppContextListEntity,
+  AppContextMessageEntity,
+  AppContextUnknownEntity,
   AppendInput,
   AppendOptions,
   AppHomeOpenedEvent,

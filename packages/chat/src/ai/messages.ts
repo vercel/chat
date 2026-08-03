@@ -144,7 +144,8 @@ async function attachmentToPart(
 /**
  * Convert chat SDK messages to AI SDK conversation format.
  *
- * - Filters out messages with empty/whitespace-only text
+ * - Keeps messages that have no text but carry content (images, files, links).
+ *   Only messages with no usable content at all are skipped.
  * - Maps `author.isMe === true` to `"assistant"`, otherwise `"user"`
  * - Uses `message.text` for content
  * - Appends link metadata when available
@@ -182,15 +183,17 @@ export async function toAiMessages(
       (b.metadata.dateSent?.getTime() ?? 0)
   );
 
-  const filtered = sorted.filter((msg) => msg.text.trim());
-
   const results = await Promise.all(
-    filtered.map(async (msg) => {
+    sorted.map(async (msg) => {
       const role: "user" | "assistant" = msg.author.isMe ? "assistant" : "user";
-      let textContent =
-        includeNames && role === "user"
-          ? `[${msg.author.userName}]: ${msg.text}`
-          : msg.text;
+      const hasText = msg.text.trim().length > 0;
+      let textContent = "";
+      if (hasText) {
+        textContent =
+          includeNames && role === "user"
+            ? `[${msg.author.userName}]: ${msg.text}`
+            : msg.text;
+      }
 
       // Append link metadata when available
       if (msg.links && msg.links.length > 0) {
@@ -211,7 +214,9 @@ export async function toAiMessages(
             return parts.join("\n");
           })
           .join("\n\n");
-        textContent += `\n\nLinks:\n${linkParts}`;
+        textContent = textContent
+          ? `${textContent}\n\nLinks:\n${linkParts}`
+          : `Links:\n${linkParts}`;
       }
 
       // Build attachment parts for images and text files (only for user messages)
@@ -228,18 +233,27 @@ export async function toAiMessages(
         }
 
         if (attachmentParts.length > 0) {
-          aiMessage = {
-            role,
-            content: [
-              { type: "text" as const, text: textContent },
-              ...attachmentParts,
-            ],
-          } satisfies AiUserMessage;
+          // Only prepend a text part when there is text — a message may have
+          // images (or other attachments) with no accompanying text.
+          const parts: AiMessagePart[] = textContent
+            ? [{ type: "text" as const, text: textContent }, ...attachmentParts]
+            : attachmentParts;
+          aiMessage = { role, content: parts } satisfies AiUserMessage;
         } else {
           aiMessage = { role, content: textContent } as AiMessage;
         }
       } else {
         aiMessage = { role, content: textContent } as AiMessage;
+      }
+
+      // Skip messages that carry no usable content (no text, no attachments,
+      // no links). Text-only or attachment-only messages are kept.
+      const isEmpty =
+        typeof aiMessage.content === "string"
+          ? aiMessage.content.trim().length === 0
+          : aiMessage.content.length === 0;
+      if (isEmpty) {
+        return { result: null, source: msg };
       }
 
       if (transformMessage) {

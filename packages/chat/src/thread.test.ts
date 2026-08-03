@@ -529,9 +529,8 @@ describe("ThreadImpl", () => {
       const textStream = createTextStream(["hello.", "\n\n", "how are you?"]);
       const result = await thread.post(textStream);
 
-      // Plain text extraction from parsed markdown joins paragraphs without separator
-      // (mdast-util-to-string behavior). The formatted AST preserves paragraph structure.
-      expect(result.text).toBe("hello.how are you?");
+      // Plain text extraction preserves paragraph boundaries from parsed markdown.
+      expect(result.text).toBe("hello.\n\nhow are you?");
       expect(capturedChunks).toEqual(["hello.", "\n\n", "how are you?"]);
     });
 

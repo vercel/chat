@@ -1,10 +1,12 @@
 import { describe, expect, it, vi } from "vitest";
 import {
+  DateInput,
   ExternalSelect,
   filterModalChildren,
   fromReactModalElement,
   isModalElement,
   Modal,
+  NumberInput,
   RadioSelect,
   Select,
   SelectOption,
@@ -128,6 +130,65 @@ describe("Builder Functions", () => {
     });
   });
 
+  describe("DateInput", () => {
+    it("should create with required fields", () => {
+      const input = DateInput({ id: "d1", label: "Due date" });
+      expect(input.type).toBe("date_input");
+      expect(input.id).toBe("d1");
+      expect(input.label).toBe("Due date");
+    });
+
+    it("should include optional fields", () => {
+      const input = DateInput({
+        id: "d1",
+        label: "Due date",
+        placeholder: "Pick a date",
+        initialValue: "2026-08-01",
+        optional: true,
+      });
+      expect(input.placeholder).toBe("Pick a date");
+      expect(input.initialValue).toBe("2026-08-01");
+      expect(input.optional).toBe(true);
+    });
+  });
+
+  describe("NumberInput", () => {
+    it("should create with required fields", () => {
+      const input = NumberInput({ id: "n1", label: "Quantity" });
+      expect(input.type).toBe("number_input");
+      expect(input.id).toBe("n1");
+      expect(input.label).toBe("Quantity");
+    });
+
+    it("should include optional fields", () => {
+      const input = NumberInput({
+        id: "n1",
+        label: "Quantity",
+        placeholder: "How many?",
+        initialValue: 3,
+        min: 1,
+        max: 10,
+        decimal: true,
+        optional: true,
+      });
+      expect(input.placeholder).toBe("How many?");
+      expect(input.initialValue).toBe(3);
+      expect(input.min).toBe(1);
+      expect(input.max).toBe(10);
+      expect(input.decimal).toBe(true);
+      expect(input.optional).toBe(true);
+    });
+
+    it("should keep a zero initial value", () => {
+      const input = NumberInput({
+        id: "n1",
+        label: "Quantity",
+        initialValue: 0,
+      });
+      expect(input.initialValue).toBe(0);
+    });
+  });
+
   describe("SelectOption", () => {
     it("should create with label and value", () => {
       const opt = SelectOption({ label: "Option A", value: "a" });
@@ -183,6 +244,8 @@ describe("Type Guards", () => {
     it("should keep valid child types", () => {
       const children = [
         TextInput({ id: "t1", label: "Name" }),
+        DateInput({ id: "d1", label: "Due date" }),
+        NumberInput({ id: "n1", label: "Quantity" }),
         ExternalSelect({ id: "person", label: "Person" }),
         Select({
           id: "s1",
@@ -191,7 +254,7 @@ describe("Type Guards", () => {
         }),
       ];
       const result = filterModalChildren(children);
-      expect(result).toHaveLength(3);
+      expect(result).toHaveLength(5);
     });
 
     it("should filter invalid children and warn", () => {
@@ -245,6 +308,38 @@ describe("JSX Support", () => {
       expect(result).not.toBeNull();
       if (result && "type" in result) {
         expect(result.type).toBe("text_input");
+      }
+    });
+
+    it("should convert a DateInput react element", () => {
+      const el = makeReactElement(DateInput, {
+        id: "d1",
+        label: "Due date",
+        initialValue: "2026-08-01",
+      });
+      const result = fromReactModalElement(el);
+      expect(result).not.toBeNull();
+      if (result && "type" in result && result.type === "date_input") {
+        expect(result.initialValue).toBe("2026-08-01");
+      } else {
+        expect.unreachable("expected a date_input element");
+      }
+    });
+
+    it("should convert a NumberInput react element", () => {
+      const el = makeReactElement(NumberInput, {
+        id: "n1",
+        label: "Quantity",
+        min: 1,
+        max: 10,
+      });
+      const result = fromReactModalElement(el);
+      expect(result).not.toBeNull();
+      if (result && "type" in result && result.type === "number_input") {
+        expect(result.min).toBe(1);
+        expect(result.max).toBe(10);
+      } else {
+        expect.unreachable("expected a number_input element");
       }
     });
 

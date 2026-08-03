@@ -389,6 +389,7 @@ function media(blocks: TelegramRichBlock[], result: RichMedia[]): void {
           result.push({
             file: photo,
             height: photo.height,
+            mimeType: "image/jpeg",
             type: "image",
             width: photo.width,
           });

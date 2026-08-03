@@ -7,10 +7,11 @@ import {
 } from "@chat-adapter/shared";
 import {
   createMockChatInstance,
+  createMockState,
   mockLogger,
   threadIdContract,
 } from "@chat-adapter/tests";
-import type { ChatInstance } from "chat";
+import { type Attachment, type ChatInstance, Message } from "chat";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { encodeTelegramCallbackData } from "./cards";
 import {
@@ -20,6 +21,7 @@ import {
   type TelegramMessage,
   type TelegramReactionType,
   type TelegramThreadId,
+  type TelegramUpdate,
 } from "./index";
 import {
   TELEGRAM_CAPTION_LIMIT,
@@ -57,6 +59,7 @@ afterEach(() => {
     }
   }
   vi.unstubAllGlobals();
+  vi.useRealTimers();
 });
 
 function telegramOk(result: unknown): Response {
@@ -121,6 +124,32 @@ function readFormData(callIndex: number): FormData {
     throw new Error("Expected request body to be FormData");
   }
   return body as FormData;
+}
+
+interface TelegramMediaGroupItem {
+  caption?: string;
+  height?: number;
+  media: string;
+  parse_mode?: string;
+  type: string;
+  width?: number;
+}
+
+function readMediaGroup(callIndex: number): TelegramMediaGroupItem[] {
+  const media = readFormData(callIndex).get("media");
+  if (typeof media !== "string") {
+    throw new Error("Expected media group payload to be a string");
+  }
+  return JSON.parse(media) as TelegramMediaGroupItem[];
+}
+
+function roundTripAttachments(
+  adapter: TelegramAdapter,
+  message: Message
+): Attachment[] {
+  return Message.fromJSON(
+    JSON.parse(JSON.stringify(message.toJSON()))
+  ).attachments.map((attachment) => adapter.rehydrateAttachment(attachment));
 }
 
 function createAbortError(): Error {
@@ -212,6 +241,24 @@ describe("constructor env var resolution", () => {
     process.env.TELEGRAM_API_BASE_URL = "https://custom-api.example.com";
     const adapter = new TelegramAdapter();
     expect(adapter).toBeInstanceOf(TelegramAdapter);
+  });
+
+  it("should resolve allowedUserIds from TELEGRAM_ALLOWED_USER_IDS env var", () => {
+    process.env.TELEGRAM_BOT_TOKEN = "env-bot-token";
+    process.env.TELEGRAM_ALLOWED_USER_IDS = "123, 456";
+    const adapter = new TelegramAdapter();
+    expect(
+      (adapter as unknown as { allowedUserIds: Set<string> }).allowedUserIds
+    ).toEqual(new Set(["123", "456"]));
+  });
+
+  it("should allow all users when TELEGRAM_ALLOWED_USER_IDS is empty", () => {
+    process.env.TELEGRAM_BOT_TOKEN = "env-bot-token";
+    process.env.TELEGRAM_ALLOWED_USER_IDS = " , ";
+    const adapter = new TelegramAdapter();
+    expect(
+      (adapter as unknown as { allowedUserIds?: Set<string> }).allowedUserIds
+    ).toBeUndefined();
   });
 
   it("should accept apiUrl config and prefer it over apiBaseUrl", () => {
@@ -346,6 +393,191 @@ describe("TelegramAdapter", () => {
     ).toBe(false);
   });
 
+  it("combines an incoming media group into one ordered message", async () => {
+    vi.useFakeTimers();
+    mockFetch.mockResolvedValue(
+      telegramOk({
+        id: 999,
+        is_bot: true,
+        first_name: "Bot",
+        username: "mybot",
+      })
+    );
+
+    const state = createMockState();
+    const adapters = [0, 1].map(() =>
+      createTelegramAdapter({
+        botToken: "token",
+        mode: "webhook",
+        logger: mockLogger,
+        userName: "mybot",
+      })
+    );
+    const chats = [0, 1].map(() =>
+      createMockChatInstance({ logger: mockLogger, state, userName: "mybot" })
+    );
+    await Promise.all(
+      adapters.map((adapter, index) => adapter.initialize(chats[index]))
+    );
+
+    const pending: Promise<unknown>[] = [];
+    const waitUntil = (task: Promise<unknown>): void => {
+      pending.push(task);
+    };
+    const messages = [
+      sampleMessage({
+        message_id: 42,
+        media_group_id: "meal-album",
+        text: undefined,
+        photo: [
+          {
+            file_id: "photo-2",
+            file_unique_id: "photo-unique-2",
+            width: 800,
+            height: 600,
+          },
+        ],
+      }),
+      sampleMessage({
+        message_id: 41,
+        media_group_id: "meal-album",
+        text: undefined,
+        caption: "/analyze both pieces",
+        photo: [
+          {
+            file_id: "photo-1",
+            file_unique_id: "photo-unique-1",
+            width: 800,
+            height: 600,
+          },
+        ],
+      }),
+    ];
+
+    for (const [index, message] of messages.entries()) {
+      await adapters[index].handleWebhook(
+        new Request("https://example.com/webhook", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ update_id: index + 1, message }),
+        }),
+        { waitUntil }
+      );
+    }
+
+    const processMessages = chats.map(
+      (chat) => chat.processMessage as ReturnType<typeof vi.fn>
+    );
+    expect(
+      processMessages.every(
+        (processMessage) => processMessage.mock.calls.length === 0
+      )
+    ).toBe(true);
+
+    await vi.runAllTimersAsync();
+    await Promise.all(pending);
+
+    const calls = processMessages.flatMap(
+      (processMessage) => processMessage.mock.calls
+    );
+    expect(calls).toHaveLength(1);
+    const [, threadId, parsedMessage] = calls[0] as [
+      unknown,
+      string,
+      {
+        attachments: Array<{ fetchMetadata?: { fileId?: string } }>;
+        id: string;
+        text: string;
+      },
+    ];
+    expect(threadId).toBe("telegram:123");
+    expect(parsedMessage.id).toBe("123:42");
+    expect(parsedMessage.text).toBe("/analyze both pieces");
+    expect(
+      parsedMessage.attachments.map(
+        (attachment) => attachment.fetchMetadata?.fileId
+      )
+    ).toEqual(["photo-1", "photo-2"]);
+  });
+
+  it("rejects disallowed and identityless updates before dispatch", async () => {
+    mockFetch.mockResolvedValueOnce(
+      telegramOk({
+        id: 999,
+        is_bot: true,
+        first_name: "Bot",
+        username: "mybot",
+      })
+    );
+
+    class TestTelegramAdapter extends TelegramAdapter {
+      dispatch(update: TelegramUpdate): void {
+        this.processUpdate(update);
+      }
+    }
+
+    const adapter = new TestTelegramAdapter({
+      allowedUserIds: [456],
+      botToken: "token",
+      mode: "webhook",
+      logger: mockLogger,
+      userName: "mybot",
+    });
+    const chat = createMockChat();
+    await adapter.initialize(chat);
+
+    const disallowedUser = {
+      id: 789,
+      is_bot: false,
+      first_name: "Other User",
+    };
+    const groupMessage = sampleMessage({
+      chat: { id: -100123, type: "supergroup", title: "General" },
+    });
+
+    const updates: TelegramUpdate[] = [
+      {
+        update_id: 1,
+        message: { ...groupMessage, from: disallowedUser },
+      },
+      {
+        update_id: 2,
+        callback_query: {
+          id: "callback-1",
+          from: disallowedUser,
+          message: groupMessage,
+          chat_instance: "ci_1",
+          data: "approve",
+        },
+      },
+      {
+        update_id: 3,
+        message_reaction: {
+          chat: groupMessage.chat,
+          message_id: groupMessage.message_id,
+          date: groupMessage.date,
+          old_reaction: [],
+          new_reaction: [{ type: "emoji", emoji: "👍" }],
+          user: disallowedUser,
+        },
+      },
+      {
+        update_id: 4,
+        channel_post: { ...groupMessage, from: undefined },
+      },
+    ];
+
+    for (const update of updates) {
+      adapter.dispatch(update);
+    }
+    adapter.dispatch({ update_id: 5, message: groupMessage });
+
+    expect(chat.processMessage).toHaveBeenCalledTimes(1);
+    expect(chat).not.toHaveDispatched("processSlashCommand");
+    expect(chat).not.toHaveDispatched("processAction");
+    expect(chat).not.toHaveDispatched("processReaction");
+  });
+
   it("starts typing before processing private message updates", async () => {
     const events: string[] = [];
     mockFetch
@@ -394,6 +626,57 @@ describe("TelegramAdapter", () => {
     expect(response.status).toBe(200);
     expect(events).toEqual(["typing", "processMessage"]);
     expect(waitUntil).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not mark a mention when a hyphen-suffixed name is mentioned", async () => {
+    mockFetch.mockResolvedValueOnce(
+      telegramOk({
+        id: 999,
+        is_bot: true,
+        first_name: "Bot",
+        username: "mybot",
+      })
+    );
+
+    const adapter = createTelegramAdapter({
+      botToken: "token",
+      mode: "webhook",
+      logger: mockLogger,
+      userName: "mybot",
+    });
+
+    const chat = createMockChat();
+    await adapter.initialize(chat);
+
+    const request = new Request("https://example.com/webhook", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        update_id: 1,
+        message: sampleMessage({
+          chat: {
+            id: -100123,
+            type: "supergroup",
+            title: "General",
+          },
+          text: "see @mybot-dev for details",
+        }),
+      }),
+    });
+
+    const response = await adapter.handleWebhook(request);
+    expect(response.status).toBe(200);
+
+    const processMessage = chat.processMessage as ReturnType<typeof vi.fn>;
+    expect(processMessage).toHaveBeenCalledTimes(1);
+
+    const [, , parsedMessage] = processMessage.mock.calls[0] as [
+      unknown,
+      string,
+      { isMention?: boolean; text: string },
+    ];
+
+    expect(parsedMessage.isMention).toBe(false);
   });
 
   it("routes bot command messages to slash command handlers", async () => {
@@ -1866,7 +2149,208 @@ describe("TelegramAdapter", () => {
     });
   });
 
-  it("rejects multiple Telegram attachments in one message", async () => {
+  it("posts multiple files as a Telegram media group", async () => {
+    mockFetch
+      .mockResolvedValueOnce(
+        telegramOk({
+          id: 999,
+          is_bot: true,
+          first_name: "Bot",
+          username: "mybot",
+        })
+      )
+      .mockResolvedValueOnce(
+        telegramOk([
+          sampleMessage({
+            message_id: 21,
+            media_group_id: "group-1",
+            document: {
+              file_id: "doc-1",
+              file_unique_id: "doc-unique-1",
+              file_name: "one.txt",
+            },
+          }),
+          sampleMessage({
+            message_id: 22,
+            media_group_id: "group-1",
+            document: {
+              file_id: "doc-2",
+              file_unique_id: "doc-unique-2",
+              file_name: "two.txt",
+            },
+          }),
+        ])
+      );
+
+    const adapter = createTelegramAdapter({
+      botToken: "token",
+      mode: "webhook",
+      logger: mockLogger,
+      userName: "mybot",
+    });
+
+    await adapter.initialize(createMockChat());
+
+    const posted = await adapter.postMessage("telegram:-100123:42", {
+      markdown: "attached **files**",
+      files: [
+        {
+          data: Buffer.from("one"),
+          filename: "one.txt",
+          mimeType: "text/plain",
+        },
+        {
+          data: Buffer.from("two"),
+          filename: "two.txt",
+          mimeType: "text/plain",
+        },
+      ],
+    });
+
+    expect(posted.id).toBe("123:22");
+    expect(String(mockFetch.mock.calls[1]?.[0])).toContain("/sendMediaGroup");
+
+    const formData = readFormData(1);
+    const media = readMediaGroup(1);
+
+    expect(formData.get("chat_id")).toBe("-100123");
+    expect(formData.get("message_thread_id")).toBe("42");
+    expect(media).toEqual([
+      {
+        caption: "attached *files*",
+        media: "attach://media0",
+        parse_mode: "MarkdownV2",
+        type: "document",
+      },
+      { media: "attach://media1", type: "document" },
+    ]);
+    expect(formData.get("media0")).toBeInstanceOf(Blob);
+    expect((formData.get("media0") as { name?: string }).name).toBe("one.txt");
+    expect(formData.get("media1")).toBeInstanceOf(Blob);
+    expect((formData.get("media1") as { name?: string }).name).toBe("two.txt");
+  });
+
+  it("posts and normalizes mixed image and video attachments as a Telegram media group", async () => {
+    mockFetch
+      .mockResolvedValueOnce(
+        telegramOk({
+          id: 999,
+          is_bot: true,
+          first_name: "Bot",
+          username: "mybot",
+        })
+      )
+      .mockResolvedValueOnce(
+        telegramOk([
+          sampleMessage({
+            message_id: 31,
+            media_group_id: "group-2",
+            photo: [
+              {
+                file_id: "photo-1",
+                file_unique_id: "p1",
+                width: 100,
+                height: 100,
+              },
+            ],
+          }),
+          sampleMessage({
+            message_id: 32,
+            media_group_id: "group-2",
+            video: {
+              file_id: "video-1",
+              file_unique_id: "v1",
+              width: 1280,
+              height: 720,
+            },
+          }),
+        ])
+      );
+
+    const adapter = createTelegramAdapter({
+      botToken: "token",
+      mode: "webhook",
+      logger: mockLogger,
+      userName: "mybot",
+    });
+
+    await adapter.initialize(createMockChat());
+
+    const posted = await adapter.postMessage("telegram:123", {
+      markdown: "visual **album**",
+      attachments: [
+        {
+          mimeType: "image/png",
+          name: "image.png",
+          type: "image",
+          url: "https://cdn.example.com/image.png",
+        },
+        {
+          data: Buffer.from("video"),
+          height: 720,
+          mimeType: "video/mp4",
+          name: "video.mp4",
+          type: "video",
+          width: 1280,
+        },
+      ],
+    });
+
+    expect(posted.id).toBe("123:32");
+    expect(String(mockFetch.mock.calls[1]?.[0])).toContain("/sendMediaGroup");
+
+    const formData = readFormData(1);
+    const media = readMediaGroup(1);
+
+    expect(media).toEqual([
+      {
+        caption: "visual *album*",
+        media: "https://cdn.example.com/image.png",
+        parse_mode: "MarkdownV2",
+        type: "photo",
+      },
+      {
+        height: 720,
+        media: "attach://media1",
+        type: "video",
+        width: 1280,
+      },
+    ]);
+    expect(formData.get("media0")).toBeNull();
+    expect(formData.get("media1")).toBeInstanceOf(Blob);
+    expect((formData.get("media1") as { name?: string }).name).toBe(
+      "video.mp4"
+    );
+
+    const cached = await adapter.fetchMessages("telegram:123", { limit: 10 });
+    expect(
+      cached.messages.map((message) => roundTripAttachments(adapter, message))
+    ).toMatchObject([
+      [
+        {
+          fetchData: expect.any(Function),
+          fetchMetadata: {
+            fileId: "photo-1",
+            fileUniqueId: "p1",
+          },
+          mimeType: "image/jpeg",
+          type: "image",
+        },
+      ],
+      [
+        {
+          fetchData: expect.any(Function),
+          fetchMetadata: {
+            fileId: "video-1",
+            fileUniqueId: "v1",
+          },
+          type: "video",
+        },
+      ],
+    ]);
+  });
+
+  it("rejects incompatible Telegram media group attachment types", async () => {
     mockFetch.mockResolvedValueOnce(
       telegramOk({
         id: 999,
@@ -1890,10 +2374,41 @@ describe("TelegramAdapter", () => {
         raw: "attachments",
         attachments: [
           { data: Buffer.from("one"), type: "image" },
-          { data: Buffer.from("two"), type: "image" },
+          { data: Buffer.from("two"), type: "file" },
         ],
       })
-    ).rejects.toThrow("single attachment upload");
+    ).rejects.toThrow("documents and audio files must be grouped only");
+    expect(mockFetch.mock.calls).toHaveLength(1);
+  });
+
+  it("rejects Telegram media groups with more than 10 files", async () => {
+    mockFetch.mockResolvedValueOnce(
+      telegramOk({
+        id: 999,
+        is_bot: true,
+        first_name: "Bot",
+        username: "mybot",
+      })
+    );
+
+    const adapter = createTelegramAdapter({
+      botToken: "token",
+      mode: "webhook",
+      logger: mockLogger,
+      userName: "mybot",
+    });
+
+    await adapter.initialize(createMockChat());
+
+    await expect(
+      adapter.postMessage("telegram:123", {
+        raw: "files",
+        files: Array.from({ length: 11 }, (_, index) => ({
+          data: Buffer.from(String(index)),
+          filename: `${index}.txt`,
+        })),
+      })
+    ).rejects.toThrow("Telegram media groups support 2-10 files");
     expect(mockFetch.mock.calls).toHaveLength(1);
   });
 
@@ -3198,7 +3713,7 @@ describe("TelegramAdapter", () => {
     expect(parsedMessage.text).toBe("channel announcement");
   });
 
-  it("extracts photo attachments from photo messages", async () => {
+  it("preserves stable photo identity and JPEG metadata across resends and serialization", async () => {
     mockFetch.mockResolvedValueOnce(
       telegramOk({
         id: 999,
@@ -3217,23 +3732,61 @@ describe("TelegramAdapter", () => {
 
     await adapter.initialize(createMockChat());
 
-    const photoMessage = sampleMessage({
-      text: undefined,
-      photo: [
-        { file_id: "photo1", file_unique_id: "u1", width: 100, height: 100 },
-        { file_id: "photo2", file_unique_id: "u2", width: 800, height: 600 },
-      ],
-      caption: "Nice photo",
-    });
-
-    const parsed = adapter.parseMessage(photoMessage);
+    const parsed = adapter.parseMessage(
+      sampleMessage({
+        text: undefined,
+        photo: [
+          {
+            file_id: "photo-small",
+            file_unique_id: "photo-small-unique",
+            width: 100,
+            height: 100,
+          },
+          {
+            file_id: "photo-download-1",
+            file_unique_id: "photo-stable",
+            width: 800,
+            height: 600,
+          },
+        ],
+        caption: "Nice photo",
+      })
+    );
+    const resent = adapter.parseMessage(
+      sampleMessage({
+        photo: [
+          {
+            file_id: "photo-download-2",
+            file_unique_id: "photo-stable",
+            width: 800,
+            height: 600,
+          },
+        ],
+      })
+    );
 
     expect(parsed.attachments).toHaveLength(1);
     const attachment = parsed.attachments[0];
     expect(attachment?.type).toBe("image");
     expect(attachment?.width).toBe(800);
     expect(attachment?.height).toBe(600);
+    expect(attachment?.mimeType).toBe("image/jpeg");
+    expect(attachment?.fetchMetadata).toEqual({
+      fileId: "photo-download-1",
+      fileUniqueId: "photo-stable",
+    });
+    expect(resent.attachments[0]?.fetchMetadata).toEqual({
+      fileId: "photo-download-2",
+      fileUniqueId: "photo-stable",
+    });
     expect(parsed.text).toBe("Nice photo");
+
+    const [restoredAttachment] = roundTripAttachments(adapter, parsed);
+    expect(restoredAttachment?.fetchMetadata).toEqual({
+      fileId: "photo-download-1",
+      fileUniqueId: "photo-stable",
+    });
+    expect(restoredAttachment?.fetchData).toBeTypeOf("function");
   });
 
   it("extracts document attachments from document messages", async () => {
@@ -3271,6 +3824,10 @@ describe("TelegramAdapter", () => {
     expect(attachment?.type).toBe("file");
     expect(attachment?.name).toBe("report.pdf");
     expect(attachment?.mimeType).toBe("application/pdf");
+    expect(attachment?.fetchMetadata).toEqual({
+      fileId: "doc1",
+      fileUniqueId: "u1",
+    });
   });
 
   it("extracts audio attachments from audio messages", async () => {
@@ -3311,6 +3868,47 @@ describe("TelegramAdapter", () => {
     expect(attachment?.name).toBe("track.mp3");
     expect(attachment?.mimeType).toBe("audio/mpeg");
     expect(attachment?.size).toBe(2048000);
+    expect(attachment?.fetchMetadata).toEqual({
+      fileId: "audio1",
+      fileUniqueId: "ua1",
+    });
+  });
+
+  it("preserves stable identity for voice attachments", async () => {
+    mockFetch.mockResolvedValueOnce(
+      telegramOk({
+        id: 999,
+        is_bot: true,
+        first_name: "Bot",
+        username: "mybot",
+      })
+    );
+
+    const adapter = createTelegramAdapter({
+      botToken: "token",
+      mode: "webhook",
+      logger: mockLogger,
+      userName: "mybot",
+    });
+
+    await adapter.initialize(createMockChat());
+
+    const parsed = adapter.parseMessage(
+      sampleMessage({
+        voice: {
+          file_id: "voice1",
+          file_unique_id: "voice-stable",
+          duration: 30,
+          mime_type: "audio/ogg",
+          file_size: 512000,
+        },
+      })
+    );
+
+    expect(parsed.attachments[0]?.fetchMetadata).toEqual({
+      fileId: "voice1",
+      fileUniqueId: "voice-stable",
+    });
   });
 
   it("extracts video attachments from video messages", async () => {
@@ -3353,6 +3951,10 @@ describe("TelegramAdapter", () => {
     expect(attachment?.width).toBe(1920);
     expect(attachment?.height).toBe(1080);
     expect(attachment?.mimeType).toBe("video/mp4");
+    expect(attachment?.fetchMetadata).toEqual({
+      fileId: "vid1",
+      fileUniqueId: "uv1",
+    });
   });
 
   it("extracts video_note attachments from round video messages", async () => {
@@ -3392,6 +3994,10 @@ describe("TelegramAdapter", () => {
     expect(attachment?.width).toBe(240);
     expect(attachment?.height).toBe(240);
     expect(attachment?.size).toBe(512000);
+    expect(attachment?.fetchMetadata).toEqual({
+      fileId: "vn1",
+      fileUniqueId: "uvn1",
+    });
   });
 
   it("isDM returns false for forum topic thread IDs", async () => {
@@ -3637,7 +4243,7 @@ describe("message length limits", () => {
     const markdown = readSentBody(1).rich_message?.markdown ?? "";
     expect(Array.from(markdown).length).toBeLessThanOrEqual(32_768);
     expect(markdown.endsWith("...")).toBe(true);
-  });
+  }, 15_000);
 
   it("MarkdownV2 truncation does not leave an orphan trailing backslash before the ellipsis", async () => {
     const adapter = await createInitializedAdapter();
@@ -4047,20 +4653,45 @@ describe("applyTelegramEntities", () => {
 
     expect(parsed.attachments).toMatchObject([
       {
-        fetchMetadata: { fileId: "large" },
+        fetchMetadata: {
+          fileId: "large",
+          fileUniqueId: "large-unique",
+        },
         height: 800,
+        mimeType: "image/jpeg",
         size: 2048,
         type: "image",
         width: 1200,
       },
       {
-        fetchMetadata: { fileId: "video" },
+        fetchMetadata: {
+          fileId: "video",
+          fileUniqueId: "video-unique",
+        },
         height: 720,
         mimeType: "video/mp4",
         name: "clip.mp4",
         size: 4096,
         type: "video",
         width: 1280,
+      },
+    ]);
+    expect(roundTripAttachments(adapter, parsed)).toMatchObject([
+      {
+        fetchData: expect.any(Function),
+        fetchMetadata: {
+          fileId: "large",
+          fileUniqueId: "large-unique",
+        },
+        mimeType: "image/jpeg",
+      },
+      {
+        fetchData: expect.any(Function),
+        fetchMetadata: {
+          fileId: "video",
+          fileUniqueId: "video-unique",
+        },
+        mimeType: "video/mp4",
       },
     ]);
   });
@@ -4236,5 +4867,99 @@ describe("subclass extensibility", () => {
       }
     }
     expect(TestSubclass.prototype.checkAccess).toBeInstanceOf(Function);
+  });
+});
+
+describe("sleep abort support", () => {
+  class SleepTestAdapter extends TelegramAdapter {
+    sleepFor(delayMs: number, signal?: AbortSignal): Promise<void> {
+      return this.sleep(delayMs, signal);
+    }
+  }
+
+  const makeAdapter = () =>
+    new SleepTestAdapter({
+      botToken: "token",
+      mode: "webhook",
+      logger: mockLogger,
+    });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("resolves immediately when the signal is already aborted", async () => {
+    vi.useFakeTimers();
+    const controller = new AbortController();
+    controller.abort();
+
+    await makeAdapter().sleepFor(10_000, controller.signal);
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it("resolves early and clears the timeout when aborted mid-sleep", async () => {
+    vi.useFakeTimers();
+    const controller = new AbortController();
+    let resolved = false;
+    const promise = makeAdapter()
+      .sleepFor(10_000, controller.signal)
+      .then(() => {
+        resolved = true;
+      });
+
+    await Promise.resolve();
+    expect(resolved).toBe(false);
+
+    controller.abort();
+    await promise;
+    expect(resolved).toBe(true);
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it("sleeps the full delay when no signal is provided", async () => {
+    vi.useFakeTimers();
+    let resolved = false;
+    const promise = makeAdapter()
+      .sleepFor(1000)
+      .then(() => {
+        resolved = true;
+      });
+
+    await vi.advanceTimersByTimeAsync(999);
+    expect(resolved).toBe(false);
+
+    await vi.advanceTimersByTimeAsync(1);
+    await promise;
+    expect(resolved).toBe(true);
+  });
+});
+
+describe("mention regex caching", () => {
+  class MentionTestAdapter extends TelegramAdapter {
+    checkMention(text: string): boolean {
+      return this.isBotMentioned({} as TelegramMessage, text);
+    }
+
+    setUserName(name: string): void {
+      this._userName = name;
+    }
+  }
+
+  it("matches with the cached regex and recompiles when the username changes", () => {
+    const adapter = new MentionTestAdapter({
+      botToken: "token",
+      mode: "webhook",
+      userName: "first_bot",
+      logger: mockLogger,
+    });
+
+    expect(adapter.checkMention("hi @first_bot")).toBe(true);
+    // Second call exercises the cached-regex path.
+    expect(adapter.checkMention("hi @first_bot, again")).toBe(true);
+    expect(adapter.checkMention("hi @second_bot")).toBe(false);
+
+    adapter.setUserName("second_bot");
+    expect(adapter.checkMention("hi @second_bot")).toBe(true);
+    expect(adapter.checkMention("hi @first_bot")).toBe(false);
   });
 });

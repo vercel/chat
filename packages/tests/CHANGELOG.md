@@ -1,5 +1,11 @@
 # @chat-adapter/tests
 
+## 4.36.0
+
+## 4.35.0
+
+## 4.34.0
+
 ## 4.33.0
 
 ### Minor Changes

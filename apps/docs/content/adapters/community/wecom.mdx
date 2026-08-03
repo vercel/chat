@@ -1,0 +1,153 @@
+---
+title: WeCom
+description: Community WeCom (企业微信) adapter for Chat SDK covering group webhook bots, smart bots, and apps, with template cards, rich media, and AES-256-CBC encryption.
+packageName: "@agentor/chat-wecom"
+slug: wecom
+type: platform
+tagline: WeCom (企业微信) adapter for Chat SDK. Group webhook bots, smart bots (callback or WebSocket), and apps, with template cards and AES encryption.
+community: true
+mdxBody: true
+features:
+  postMessage: yes
+  editMessage: no
+  deleteMessage:
+    status: partial
+    label: App adapter only
+  fileUploads: yes
+  streaming: no
+  scheduledMessages: no
+  cardFormat: yes
+  buttons: yes
+  linkButtons: no
+  selectMenus:
+    status: partial
+    label: Template card dropdown (multiple_interaction)
+  tables: no
+  fields: yes
+  imagesInCards: yes
+  modals: no
+  slashCommands: no
+  mentions:
+    status: partial
+    label: App adapter (@mentioned_list)
+  addReactions: no
+  removeReactions: no
+  typingIndicator: no
+  directMessages: yes
+  ephemeralMessages: no
+  userLookup: no
+  customApiEndpoint: no
+  fetchMessages: no
+  fetchSingleMessage: no
+  fetchThreadInfo: no
+  fetchChannelMessages: no
+  listThreads: no
+  fetchChannelInfo: no
+  postChannelMessage: no
+---
+
+## Install
+
+<PackageInstall package="@agentor/chat-wecom chat @chat-adapter/state-memory" />
+
+## Quick start
+
+### Webhook (group bot)
+
+One-way message push to a group chat:
+
+```typescript title="lib/bot.ts" lineNumbers
+import { createWeComWebhookAdapter } from "@agentor/chat-wecom";
+
+const adapter = createWeComWebhookAdapter({
+  key: process.env.WECOM_WEBHOOK_KEY,
+});
+
+const threadId = adapter.encodeThreadId({ key: process.env.WECOM_WEBHOOK_KEY });
+await adapter.postMessage(threadId, "Hello from @agentor/chat-wecom!");
+```
+
+### Smart bot (WebSocket)
+
+```typescript title="lib/bot.ts" lineNumbers
+import { createWeComBotAdapter } from "@agentor/chat-wecom";
+
+const adapter = createWeComBotAdapter({
+  botId: process.env.WECOM_BOT_WS_BOT_ID,
+  secret: process.env.WECOM_BOT_WS_SECRET,
+});
+
+await adapter.initialize({
+  processMessage: async (_adapter, threadId, factory) => {
+    const message = await factory();
+    await adapter.postMessage(threadId, message.text);
+  },
+});
+```
+
+### App (application)
+
+```typescript title="lib/bot.ts" lineNumbers
+import { createWeComAppAdapter } from "@agentor/chat-wecom";
+
+const adapter = createWeComAppAdapter({
+  corpId: process.env.WECOM_APP_CORP_ID,
+  corpSecret: process.env.WECOM_APP_CORP_SECRET,
+  agentId: Number(process.env.WECOM_APP_AGENT_ID),
+});
+```
+
+## Configuration
+
+<TypeTable
+  type={{
+    key: {
+      type: "string",
+      description: "Webhook group-bot key (webhook adapter).",
+    },
+    corpId: { type: "string", description: "WeCom corporation ID (app adapter)." },
+    corpSecret: {
+      type: "string",
+      description: "Application secret (app adapter).",
+    },
+    agentId: {
+      type: "number",
+      description: "Application AgentId (app adapter).",
+    },
+    botId: { type: "string", description: "Smart bot ID (bot, WebSocket)." },
+    secret: {
+      type: "string",
+      description: "Smart bot secret (bot, WebSocket).",
+    },
+    token: { type: "string", description: "Callback token (callback modes)." },
+    encodingAESKey: {
+      type: "string",
+      description: "Callback AES key (callback modes).",
+    },
+  }}
+/>
+
+## Template cards
+
+Chat SDK `CardElement` is converted automatically to a WeCom Template Card. The
+card type is inferred from the content:
+
+| Card type | Inferred from |
+| --- | --- |
+| `text_notice` | Default (text only). |
+| `news_notice` | Contains an image. |
+| `button_interaction` | Contains buttons. |
+| `vote_interaction` | Contains a single-select. |
+| `multiple_interaction` | Contains multi-select / dropdown. |
+
+Webhook and callback bots only support `text_notice` and `news_notice`;
+WebSocket and app adapters support all five card types.
+
+## Encryption
+
+All callback communication uses AES-256-CBC encryption with SHA1 signature
+verification.
+
+## Feature support
+
+<FeatureSupport />

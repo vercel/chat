@@ -1,8 +1,6 @@
-import { ArrowUpRightIcon, PlusIcon } from "lucide-react";
-import Link from "next/link";
-import type { CSSProperties, ReactNode } from "react";
+import type { ReactNode } from "react";
 import { Badge } from "@/components/ui/badge";
-import { CopyButton } from "./copy-button";
+import { CardSnippet } from "./card-snippet";
 
 interface Integration {
   description: string;
@@ -45,121 +43,40 @@ const integrations: Integration[] = [
   },
 ];
 
-const Snippet = ({ text }: { text: string }) => (
-  <div className="relative w-full rounded-md border bg-background py-[10px] pr-12 pl-3 font-mono text-[13px] leading-5 [&_button]:absolute [&_button]:top-1/2 [&_button]:right-1 [&_button]:size-8 [&_button]:-translate-y-1/2 [&_button]:rounded-md [&_svg]:size-4">
-    <span className="select-none text-muted-foreground">$ </span>
-    {text}
-    <CopyButton code={text} />
-  </div>
-);
-
-const IntegrationCard = ({
-  href,
-  title,
-  description,
-  children,
-}: {
-  href: string;
-  title: ReactNode;
-  description: string;
-  children: ReactNode;
-}) => (
-  <>
-    <Link
-      className="focus:outline-hidden"
-      href={href}
-      rel="noopener"
-      target="_blank"
-    >
-      <span aria-hidden="true" className="absolute inset-0" />
-    </Link>
-    <div className="flex h-full flex-col justify-between gap-6">
-      <div>
-        <p className="font-medium font-mono text-base">{title}</p>
-        <p className="mt-3 text-copy-14 text-gray-900 sm:text-copy-16">
-          {description}
-        </p>
-      </div>
-      <div className="relative z-10">{children}</div>
-    </div>
-    <span className="pointer-events-none absolute top-0 right-0 overflow-hidden bg-gray-100 p-2">
-      <PlusIcon className="size-3.5 text-gray-900 transition-all duration-200 group-hover:scale-0 group-hover:opacity-0" />
-      <ArrowUpRightIcon className="absolute top-2 right-2 size-3.5 -translate-x-[6px] translate-y-[6px] scale-0 text-gray-900 opacity-0 transition-all duration-200 group-hover:translate-x-0 group-hover:translate-y-0 group-hover:scale-100 group-hover:opacity-100" />
-    </span>
-  </>
-);
-
 export const IntegrationsSection = () => (
-  <div className="home-grid home-grid-integrations" data-home-grid>
-    <div className="home-grid-cell">
-      <div className="flex flex-col gap-4">
-        <h3 className="text-heading-16 sm:text-heading-24">
-          Scale with confidence
-        </h3>
-        <p className="text-copy-16 text-gray-900">
-          Plug Chat SDK into an entire ecosystem designed for AI-native chat
-          experiences that scale.
-        </p>
-      </div>
+  <div className="py-10 lg:py-12">
+    {/* Heading left, paragraph right and bottom-aligned, as on vercel.com/ai-sdk. */}
+    <div className="grid grid-cols-12 items-end gap-x-8 gap-y-10 lg:gap-x-12">
+      <h2 className="col-span-12 text-balance text-gray-1000 text-heading-20 sm:text-heading-24 md:text-heading-32 lg:col-span-4 lg:text-heading-40">
+        Scale with confidence
+      </h2>
+      <p className="col-span-12 text-pretty text-copy-16 text-gray-900 lg:col-span-5 lg:col-start-8 lg:text-copy-18">
+        Plug Chat SDK into an entire ecosystem designed for AI-native chat
+        experiences that scale.
+      </p>
     </div>
-    {integrations.map((integration) => (
-      <div className="home-grid-cell group relative" key={integration.href}>
-        <IntegrationCard
-          description={integration.description}
+    <div className="mt-10 grid grid-cols-12 gap-4 lg:gap-x-6">
+      {integrations.map((integration) => (
+        <a
+          className="col-span-12 flex flex-col gap-8 rounded-xs border border-gray-300 border-solid p-8 no-underline outline-none transition-colors hover:border-gray-500 focus-visible:ring-2 focus-visible:ring-blue-700 focus-visible:ring-offset-2 has-[[data-card-snippet]:hover]:border-gray-300 md:col-span-6 lg:col-span-3"
           href={integration.href}
-          title={integration.title}
+          key={integration.href}
+          rel="noopener noreferrer"
+          target="_blank"
         >
-          <Snippet text={integration.pkg} />
-        </IntegrationCard>
-      </div>
-    ))}
-    <div aria-hidden className="home-grid-guides home-grid-guides-sm">
-      <div
-        className="home-grid-guide"
-        style={{ "--guide-x": 1, "--guide-y": 1 } as CSSProperties}
-      />
-      <div
-        className="home-grid-guide"
-        style={{ "--guide-x": 1, "--guide-y": 2 } as CSSProperties}
-      />
-      <div
-        className="home-grid-guide"
-        style={{ "--guide-x": 1, "--guide-y": 3 } as CSSProperties}
-      />
-      <div
-        className="home-grid-guide"
-        style={{ "--guide-x": 1, "--guide-y": 4 } as CSSProperties}
-      />
-      <div
-        className="home-grid-guide"
-        style={{ "--guide-x": 1, "--guide-y": 5 } as CSSProperties}
-      />
-    </div>
-    <div aria-hidden className="home-grid-guides home-grid-guides-lg">
-      <div
-        className="home-grid-guide"
-        style={{ "--guide-x": 1, "--guide-y": 1 } as CSSProperties}
-      />
-      <div
-        className="home-grid-guide"
-        style={{ "--guide-x": 2, "--guide-y": 1 } as CSSProperties}
-      />
-      <div
-        className="home-grid-guide"
-        style={{ "--guide-x": 3, "--guide-y": 1 } as CSSProperties}
-      />
-      <div
-        className="home-grid-guide"
-        style={{ "--guide-x": 1, "--guide-y": 2 } as CSSProperties}
-      />
-      <div
-        className="home-grid-guide"
-        style={{ "--guide-x": 2, "--guide-y": 2 } as CSSProperties}
-      />
-      <div
-        className="home-grid-guide"
-        style={{ "--guide-x": 3, "--guide-y": 2 } as CSSProperties}
-      />
+          <div className="flex h-full flex-col justify-between gap-2 lg:gap-3">
+            <div className="flex flex-col gap-3">
+              <span className="flex items-center gap-2 font-medium! text-gray-1000 text-heading-16 sm:text-heading-20">
+                {integration.title}
+              </span>
+              <span className="max-w-[32ch] text-balance text-copy-16 text-gray-900">
+                {integration.description}
+              </span>
+            </div>
+            <CardSnippet text={integration.pkg} />
+          </div>
+        </a>
+      ))}
     </div>
   </div>
 );

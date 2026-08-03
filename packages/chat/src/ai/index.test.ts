@@ -1,6 +1,7 @@
-import type { ToolExecutionOptions } from "ai";
+import type { Tool } from "ai";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { Chat } from "../chat";
+import { runInConversation } from "../context";
 import {
   createMockAdapter,
   createMockState,
@@ -14,12 +15,17 @@ const REQUIRES_CHAT_INSTANCE_REGEX = /requires a `chat` instance/;
 const NO_FETCH_CHANNEL_MESSAGES_REGEX =
   /does not support fetching channel messages/;
 const NO_LIST_THREADS_REGEX = /does not support listing threads/;
+const OUT_OF_SCOPE_REGEX = /reads are scoped to/;
+const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
-// Minimal ToolExecutionOptions stub used by every test below.
+// Minimal tool execution options stub used by every test below. Derived from
+// `Tool["execute"]` so the same code typechecks against both ai v6 and v7
+// (v7 made the `ToolExecutionOptions` generic parameter required).
+type ToolExecOptions = Parameters<NonNullable<Tool["execute"]>>[1];
 const TOOL_OPTIONS = {
   toolCallId: "t1",
   messages: [],
-} as unknown as ToolExecutionOptions;
+} as unknown as ToolExecOptions;
 
 describe("createChatTools", () => {
   let chat: Chat<{ slack: Adapter }>;
@@ -67,6 +73,7 @@ describe("createChatTools", () => {
     expect(() =>
       createChatTools({
         chat: undefined as unknown as Chat<{ slack: Adapter }>,
+        scope: false,
       })
     ).toThrow(REQUIRES_CHAT_INSTANCE_REGEX);
   });
@@ -128,7 +135,10 @@ describe("createChatTools", () => {
   });
 
   it("disables approval on every write tool when requireApproval is false", () => {
-    const tools = createChatTools({ chat, requireApproval: false });
+    const tools = createChatTools({
+      chat,
+      requireApproval: false,
+    });
     expect(tools.postMessage?.needsApproval).toBe(false);
     expect(tools.postChannelMessage?.needsApproval).toBe(false);
     expect(tools.sendDirectMessage?.needsApproval).toBe(false);
@@ -228,7 +238,10 @@ describe("createChatTools", () => {
   });
 
   it("postMessage dispatches via the adapter's postMessage", async () => {
-    const tools = createChatTools({ chat, requireApproval: false });
+    const tools = createChatTools({
+      chat,
+      requireApproval: false,
+    });
     const result = await tools.postMessage?.execute?.(
       { threadId: "slack:C123:1234.5678", message: "hello" },
       TOOL_OPTIONS
@@ -241,7 +254,10 @@ describe("createChatTools", () => {
   });
 
   it("postChannelMessage dispatches via the adapter's postChannelMessage", async () => {
-    const tools = createChatTools({ chat, requireApproval: false });
+    const tools = createChatTools({
+      chat,
+      requireApproval: false,
+    });
     await tools.postChannelMessage?.execute?.(
       {
         channelId: "slack:C123",
@@ -255,7 +271,10 @@ describe("createChatTools", () => {
   });
 
   it("sendDirectMessage opens a DM and posts in it", async () => {
-    const tools = createChatTools({ chat, requireApproval: false });
+    const tools = createChatTools({
+      chat,
+      requireApproval: false,
+    });
     await tools.sendDirectMessage?.execute?.(
       { userId: "U123456", message: "ping" },
       TOOL_OPTIONS
@@ -265,7 +284,10 @@ describe("createChatTools", () => {
   });
 
   it("addReaction dispatches via the adapter's addReaction", async () => {
-    const tools = createChatTools({ chat, requireApproval: false });
+    const tools = createChatTools({
+      chat,
+      requireApproval: false,
+    });
     await tools.addReaction?.execute?.(
       {
         threadId: "slack:C123:1234.5678",
@@ -282,7 +304,10 @@ describe("createChatTools", () => {
   });
 
   it("deleteMessage dispatches via the adapter's deleteMessage", async () => {
-    const tools = createChatTools({ chat, requireApproval: false });
+    const tools = createChatTools({
+      chat,
+      requireApproval: false,
+    });
     const result = await tools.deleteMessage?.execute?.(
       { threadId: "slack:C123:1234.5678", messageId: "msg-1" },
       TOOL_OPTIONS
@@ -295,7 +320,10 @@ describe("createChatTools", () => {
   });
 
   it("subscribeThread persists the subscription", async () => {
-    const tools = createChatTools({ chat, requireApproval: false });
+    const tools = createChatTools({
+      chat,
+      requireApproval: false,
+    });
     await tools.subscribeThread?.execute?.(
       { threadId: "slack:C123:1234.5678" },
       TOOL_OPTIONS
@@ -349,6 +377,365 @@ describe("createChatTools", () => {
     ]);
   });
 
+  describe("read scope", () => {
+    const CALLER_THREAD = "slack:C123:1234.5678";
+    const OTHER_THREAD = "slack:C999:1111.2222";
+
+    it("blocks reading a thread outside the scoped channel", async () => {
+      const tools = createChatTools({ chat, scope: CALLER_THREAD });
+      await expect(
+        tools.fetchMessages?.execute?.(
+          { threadId: OTHER_THREAD, limit: 5, direction: "backward" },
+          TOOL_OPTIONS
+        )
+      ).rejects.toThrow(OUT_OF_SCOPE_REGEX);
+      expect(mockAdapter.fetchMessages).not.toHaveBeenCalled();
+    });
+
+    it("allows a sibling thread in the scoped channel by default", async () => {
+      const tools = createChatTools({ chat, scope: CALLER_THREAD });
+      await tools.fetchMessages?.execute?.(
+        { threadId: "slack:C123:9999.0000", limit: 5, direction: "backward" },
+        TOOL_OPTIONS
+      );
+      expect(mockAdapter.fetchMessages).toHaveBeenCalled();
+    });
+
+    it("blocks a sibling thread when scoped to a single thread with strictScope", async () => {
+      const tools = createChatTools({
+        chat,
+        scope: CALLER_THREAD,
+        strictScope: true,
+      });
+      await expect(
+        tools.fetchMessages?.execute?.(
+          { threadId: "slack:C123:9999.0000", limit: 5, direction: "backward" },
+          TOOL_OPTIONS
+        )
+      ).rejects.toThrow(OUT_OF_SCOPE_REGEX);
+      expect(mockAdapter.fetchMessages).not.toHaveBeenCalled();
+    });
+
+    it("allows a sibling thread under strictScope when a channel is scoped", async () => {
+      const tools = createChatTools({
+        chat,
+        scope: "slack:C123",
+        strictScope: true,
+      });
+      await tools.fetchMessages?.execute?.(
+        { threadId: "slack:C123:9999.0000", limit: 5, direction: "backward" },
+        TOOL_OPTIONS
+      );
+      expect(mockAdapter.fetchMessages).toHaveBeenCalled();
+    });
+
+    it("allows channel-level reads when scoped to a thread", async () => {
+      const tools = createChatTools({ chat, scope: CALLER_THREAD });
+      await tools.fetchChannelMessages?.execute?.(
+        { channelId: "slack:C123", limit: 5, direction: "backward" },
+        TOOL_OPTIONS
+      );
+      expect(mockAdapter.fetchChannelMessages).toHaveBeenCalled();
+    });
+
+    it("allows sibling threads when scoped to the whole channel", async () => {
+      const tools = createChatTools({ chat, scope: "slack:C123" });
+      await tools.fetchMessages?.execute?.(
+        { threadId: "slack:C123:9999.0000", limit: 5, direction: "backward" },
+        TOOL_OPTIONS
+      );
+      expect(mockAdapter.fetchMessages).toHaveBeenCalled();
+    });
+
+    it("blocks channel-addressed reads outside the scoped channel", async () => {
+      const tools = createChatTools({ chat, scope: CALLER_THREAD });
+      await expect(
+        tools.fetchChannelMessages?.execute?.(
+          { channelId: "slack:C999", limit: 5, direction: "backward" },
+          TOOL_OPTIONS
+        )
+      ).rejects.toThrow(OUT_OF_SCOPE_REGEX);
+      expect(mockAdapter.fetchChannelMessages).not.toHaveBeenCalled();
+    });
+
+    it("scopes every read tool", async () => {
+      const tools = createChatTools({ chat, scope: CALLER_THREAD });
+      await expect(
+        tools.fetchThread?.execute?.({ threadId: OTHER_THREAD }, TOOL_OPTIONS)
+      ).rejects.toThrow(OUT_OF_SCOPE_REGEX);
+      await expect(
+        tools.listThreads?.execute?.(
+          { channelId: "slack:C999", limit: 5 },
+          TOOL_OPTIONS
+        )
+      ).rejects.toThrow(OUT_OF_SCOPE_REGEX);
+      await expect(
+        tools.getThreadParticipants?.execute?.(
+          { threadId: OTHER_THREAD },
+          TOOL_OPTIONS
+        )
+      ).rejects.toThrow(OUT_OF_SCOPE_REGEX);
+      await expect(
+        tools.getChannelInfo?.execute?.(
+          { channelId: "slack:C999" },
+          TOOL_OPTIONS
+        )
+      ).rejects.toThrow(OUT_OF_SCOPE_REGEX);
+    });
+
+    it("accepts a Thread as the scope", async () => {
+      const tools = createChatTools({
+        chat,
+        scope: chat.thread(CALLER_THREAD),
+      });
+      await expect(
+        tools.fetchMessages?.execute?.(
+          { threadId: OTHER_THREAD, limit: 5, direction: "backward" },
+          TOOL_OPTIONS
+        )
+      ).rejects.toThrow(OUT_OF_SCOPE_REGEX);
+    });
+
+    it("blocks reads across adapters", async () => {
+      const tools = createChatTools({ chat, scope: CALLER_THREAD });
+      await expect(
+        tools.fetchMessages?.execute?.(
+          { threadId: "discord:C123:1.2", limit: 5, direction: "backward" },
+          TOOL_OPTIONS
+        )
+      ).rejects.toThrow(OUT_OF_SCOPE_REGEX);
+    });
+
+    it("inherits the conversation being handled when no scope is passed", async () => {
+      const tools = createChatTools({ chat });
+      await expect(
+        runInConversation(CALLER_THREAD, () =>
+          tools.fetchMessages?.execute?.(
+            { threadId: OTHER_THREAD, limit: 5, direction: "backward" },
+            TOOL_OPTIONS
+          )
+        )
+      ).rejects.toThrow(OUT_OF_SCOPE_REGEX);
+      expect(mockAdapter.fetchMessages).not.toHaveBeenCalled();
+    });
+
+    it("still reads its own conversation when inheriting", async () => {
+      const tools = createChatTools({ chat });
+      await runInConversation(CALLER_THREAD, () =>
+        tools.fetchMessages?.execute?.(
+          { threadId: CALLER_THREAD, limit: 5, direction: "backward" },
+          TOOL_OPTIONS
+        )
+      );
+      expect(mockAdapter.fetchMessages).toHaveBeenCalled();
+    });
+
+    it("lets an explicit scope override the handled conversation", async () => {
+      const tools = createChatTools({ chat, scope: OTHER_THREAD });
+      await runInConversation(CALLER_THREAD, () =>
+        tools.fetchMessages?.execute?.(
+          { threadId: OTHER_THREAD, limit: 5, direction: "backward" },
+          TOOL_OPTIONS
+        )
+      );
+      expect(mockAdapter.fetchMessages).toHaveBeenCalled();
+    });
+
+    it("keeps each concurrent conversation's scope separate", async () => {
+      const tools = createChatTools({ chat });
+      const read = (from: string, target: string) =>
+        runInConversation(from, async () => {
+          await sleep(0);
+          try {
+            await tools.fetchMessages?.execute?.(
+              { threadId: target, limit: 5, direction: "backward" },
+              TOOL_OPTIONS
+            );
+            return "allowed";
+          } catch {
+            return "blocked";
+          }
+        });
+
+      const results = await Promise.all([
+        read(CALLER_THREAD, CALLER_THREAD),
+        read(OTHER_THREAD, CALLER_THREAD),
+        read(CALLER_THREAD, OTHER_THREAD),
+        read(OTHER_THREAD, OTHER_THREAD),
+      ]);
+
+      expect(results).toEqual(["allowed", "blocked", "blocked", "allowed"]);
+    });
+
+    it("scopes reads during action dispatch", async () => {
+      let outcome = "not-run";
+      chat.onAction("do-thing", async () => {
+        const tools = createChatTools({ chat });
+        try {
+          await tools.fetchMessages?.execute?.(
+            { threadId: OTHER_THREAD, limit: 5, direction: "backward" },
+            TOOL_OPTIONS
+          );
+          outcome = "allowed";
+        } catch {
+          outcome = "blocked";
+        }
+      });
+
+      await chat.processAction(
+        {
+          actionId: "do-thing",
+          adapter: mockAdapter,
+          messageId: "m1",
+          threadId: CALLER_THREAD,
+          user: {
+            userId: "U1",
+            userName: "alice",
+            fullName: "Alice",
+            isBot: false,
+            isMe: false,
+          },
+          value: undefined,
+        } as unknown as Parameters<typeof chat.processAction>[0],
+        undefined
+      );
+
+      expect(outcome).toBe("blocked");
+    });
+
+    it("scopes reads during slash command dispatch", async () => {
+      let outcome = "not-run";
+      chat.onSlashCommand("/go", async () => {
+        const tools = createChatTools({ chat });
+        try {
+          await tools.fetchMessages?.execute?.(
+            { threadId: OTHER_THREAD, limit: 5, direction: "backward" },
+            TOOL_OPTIONS
+          );
+          outcome = "allowed";
+        } catch {
+          outcome = "blocked";
+        }
+      });
+
+      await chat.processSlashCommand(
+        {
+          adapter: mockAdapter,
+          channelId: "slack:C123",
+          command: "/go",
+          text: "",
+          user: {
+            userId: "U1",
+            userName: "alice",
+            fullName: "Alice",
+            isBot: false,
+            isMe: false,
+          },
+        } as unknown as Parameters<typeof chat.processSlashCommand>[0],
+        undefined
+      );
+
+      expect(outcome).toBe("blocked");
+    });
+
+    it("stays unscoped outside a handler when scope is omitted, but warns", async () => {
+      const warn = mockLogger.warn as ReturnType<typeof vi.fn>;
+      warn.mockClear();
+      const tools = createChatTools({ chat });
+      await tools.fetchMessages?.execute?.(
+        { threadId: OTHER_THREAD, limit: 5, direction: "backward" },
+        TOOL_OPTIONS
+      );
+      expect(mockAdapter.fetchMessages).toHaveBeenCalled();
+      expect(warn).toHaveBeenCalledTimes(1);
+      // A second unscoped read on the same guard must not warn again.
+      await tools.fetchMessages?.execute?.(
+        { threadId: OTHER_THREAD, limit: 5, direction: "backward" },
+        TOOL_OPTIONS
+      );
+      expect(warn).toHaveBeenCalledTimes(1);
+    });
+
+    it("scopes to the conversation, not the channel, across adapters", async () => {
+      // Discord collapses a thread id to `discord:guild:channel`, so sibling
+      // threads share a channel that the coarse gate alone would allow.
+      const discord = createMockAdapter("discord");
+      (
+        discord.channelIdFromThreadId as ReturnType<typeof vi.fn>
+      ).mockImplementation((id: string) => id.split(":").slice(0, 3).join(":"));
+      const discordChat = new Chat({
+        userName: "testbot",
+        adapters: { discord },
+        state: createMockState(),
+        logger: mockLogger,
+      });
+      await discordChat.initialize();
+
+      const tools = createChatTools({
+        chat: discordChat,
+        scope: "discord:g:c:t1",
+        strictScope: true,
+      });
+      // Sibling thread under the same parent channel is blocked.
+      await expect(
+        tools.fetchMessages?.execute?.(
+          { threadId: "discord:g:c:t2", limit: 5, direction: "backward" },
+          TOOL_OPTIONS
+        )
+      ).rejects.toThrow(OUT_OF_SCOPE_REGEX);
+      // The parent channel is rejected too: on a per-thread-ACL platform it is
+      // the widest read available, so allowing it would defeat the point.
+      await expect(
+        tools.fetchChannelMessages?.execute?.(
+          { channelId: "discord:g:c", limit: 5, direction: "backward" },
+          TOOL_OPTIONS
+        )
+      ).rejects.toThrow(OUT_OF_SCOPE_REGEX);
+      expect(discord.fetchChannelMessages).not.toHaveBeenCalled();
+    });
+
+    it("allows a channel-level read under strictScope when a channel is scoped", async () => {
+      const tools = createChatTools({
+        chat,
+        scope: "slack:C123",
+        strictScope: true,
+      });
+      await tools.fetchChannelMessages?.execute?.(
+        { channelId: "slack:C123", limit: 5, direction: "backward" },
+        TOOL_OPTIONS
+      );
+      expect(mockAdapter.fetchChannelMessages).toHaveBeenCalled();
+    });
+
+    it("scopes reads during member-joined dispatch", async () => {
+      let outcome = "not-run";
+      chat.onMemberJoinedChannel(async () => {
+        const tools = createChatTools({ chat });
+        try {
+          await tools.fetchMessages?.execute?.(
+            { threadId: OTHER_THREAD, limit: 5, direction: "backward" },
+            TOOL_OPTIONS
+          );
+          outcome = "allowed";
+        } catch {
+          outcome = "blocked";
+        }
+      });
+
+      chat.processMemberJoinedChannel(
+        {
+          adapter: mockAdapter,
+          channelId: "slack:C123",
+          userId: "U1",
+        },
+        undefined
+      );
+      await sleep(0);
+
+      expect(outcome).toBe("blocked");
+    });
+  });
+
   it("getChannelInfo returns flattened metadata", async () => {
     const tools = createChatTools({ chat });
     const result = await tools.getChannelInfo?.execute?.(
@@ -363,7 +750,10 @@ describe("createChatTools", () => {
   });
 
   it("editMessage dispatches via the adapter's editMessage", async () => {
-    const tools = createChatTools({ chat, requireApproval: false });
+    const tools = createChatTools({
+      chat,
+      requireApproval: false,
+    });
     const result = await tools.editMessage?.execute?.(
       {
         threadId: "slack:C123:1234.5678",
@@ -381,7 +771,10 @@ describe("createChatTools", () => {
   });
 
   it("postMessage forwards a `raw` PostableInput unchanged", async () => {
-    const tools = createChatTools({ chat, requireApproval: false });
+    const tools = createChatTools({
+      chat,
+      requireApproval: false,
+    });
     await tools.postMessage?.execute?.(
       {
         threadId: "slack:C123:1234.5678",
@@ -396,7 +789,10 @@ describe("createChatTools", () => {
   });
 
   it("removeReaction dispatches via the adapter's removeReaction", async () => {
-    const tools = createChatTools({ chat, requireApproval: false });
+    const tools = createChatTools({
+      chat,
+      requireApproval: false,
+    });
     const result = await tools.removeReaction?.execute?.(
       {
         threadId: "slack:C123:1234.5678",
@@ -417,7 +813,10 @@ describe("createChatTools", () => {
     await mockState.subscribe("slack:C123:1234.5678");
     expect(await mockState.isSubscribed("slack:C123:1234.5678")).toBe(true);
 
-    const tools = createChatTools({ chat, requireApproval: false });
+    const tools = createChatTools({
+      chat,
+      requireApproval: false,
+    });
     const result = await tools.unsubscribeThread?.execute?.(
       { threadId: "slack:C123:1234.5678" },
       TOOL_OPTIONS

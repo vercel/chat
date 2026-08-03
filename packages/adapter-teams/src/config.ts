@@ -13,14 +13,15 @@ export function toAppOptions(
   if (config.certificate) {
     throw new Error(
       "Certificate-based authentication is not yet supported by the Teams SDK adapter. " +
-        "Use appPassword (client secret) or federated (workload identity) authentication instead."
+        "Use appPassword (client secret), federated (workload identity), or token (custom token factory) authentication instead."
     );
   }
 
   const clientId = config.appId ?? process.env.TEAMS_APP_ID;
-  const clientSecret = config.federated
-    ? undefined
-    : (config.appPassword ?? process.env.TEAMS_APP_PASSWORD);
+  const clientSecret =
+    config.federated || config.token
+      ? undefined
+      : (config.appPassword ?? process.env.TEAMS_APP_PASSWORD);
 
   // For SingleTenant, tenantId is required. For MultiTenant, omit it.
   const tenantId =
@@ -42,6 +43,7 @@ export function toAppOptions(
     ...(clientSecret ? { clientSecret } : {}),
     ...(tenantId ? { tenantId } : {}),
     ...(managedIdentityClientId ? { managedIdentityClientId } : {}),
+    ...(config.token ? { token: config.token } : {}),
     ...(serviceUrl ? { serviceUrl } : {}),
   };
 }

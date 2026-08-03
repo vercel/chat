@@ -11,7 +11,11 @@ import {
   ValidationError,
 } from "@chat-adapter/shared";
 import { SocketModeClient } from "@slack/socket-mode";
-import { type ChatStopStreamArguments, WebClient } from "@slack/web-api";
+import {
+  type ChatAppendStreamArguments,
+  type ChatStopStreamArguments,
+  WebClient,
+} from "@slack/web-api";
 import type {
   ActionEvent,
   Adapter,
@@ -58,6 +62,11 @@ import {
   toModalElement,
   toPlainText,
 } from "chat";
+import {
+  normalizeAppContextEntities,
+  type SlackAppContext,
+  type SlackAppContextChangedEvent,
+} from "./agent-context";
 import { cardToBlockKit, cardToFallbackText } from "./cards";
 import type { EncryptedTokenData } from "./crypto";
 import {
@@ -77,7 +86,12 @@ import {
 import { verifySlackRequest } from "./webhook/index";
 
 const SLACK_USER_ID_PATTERN = /^[A-Z0-9_]+$/;
-const SLACK_USER_ID_EXACT_PATTERN = /^U[A-Z0-9]+$/;
+// Enterprise Grid users can have W-prefixed IDs anywhere a U-prefixed ID appears
+const SLACK_USER_ID_EXACT_PATTERN = /^[UW][A-Z0-9]+$/;
+
+// Reserved user ID Slack uses for platform-generated messages (e.g.
+// "@user archived the channel") that carry no bot_id or system subtype.
+const SLACK_SYSTEM_USER_ID = "USLACK";
 
 // Slack expects block_suggestion responses within 3s. Leave headroom for
 // network latency so the HTTP response lands before Slack gives up.
@@ -96,6 +110,46 @@ function timingSafeStringEqual(a: string, b: string): boolean {
     return false;
   }
   return timingSafeEqual(aBuf, bBuf);
+}
+
+/**
+ * Surface Slack's per-block validation details on invalid_blocks errors.
+ * The @slack/web-api error message is just "An API error occurred:
+ * invalid_blocks"; the actionable details (which block, which field) live in
+ * `data.errors` and `data.response_metadata.messages`.
+ */
+function enrichInvalidBlocksError(
+  error: unknown,
+  blocks: unknown[],
+  logger: Logger
+): unknown {
+  const slackError = error as {
+    code?: string;
+    data?: {
+      error?: string;
+      errors?: unknown[];
+      response_metadata?: { messages?: string[] };
+    };
+  };
+  if (
+    slackError.code !== "slack_webapi_platform_error" ||
+    slackError.data?.error !== "invalid_blocks"
+  ) {
+    return error;
+  }
+  const details = [
+    ...(slackError.data.errors ?? []),
+    ...(slackError.data.response_metadata?.messages ?? []),
+  ];
+  logger.error("Slack rejected blocks (invalid_blocks)", {
+    details,
+    blocks: JSON.stringify(blocks),
+  });
+  const enriched = new Error(
+    `Slack rejected blocks (invalid_blocks): ${JSON.stringify(details)}`
+  );
+  (enriched as { cause?: unknown }).cause = error;
+  return enriched;
 }
 
 /** Find the next `<@` or `<#` mention in text. */
@@ -134,15 +188,81 @@ import type {
   SlackAdapterConfig,
   SlackAdapterMode,
   SlackBotToken,
+  SlackFeedbackButtonsOptions,
   SlackInstallation,
+  SlackSuggestedPrompts,
+  SlackSuggestedPromptsContext,
 } from "./types";
 
 export type {
   SlackAdapterConfig,
   SlackAdapterMode,
   SlackBotToken,
+  SlackFeedbackButtonsOptions,
   SlackInstallation,
+  SlackSuggestedPrompt,
+  SlackSuggestedPrompts,
+  SlackSuggestedPromptsContext,
+  SlackSuggestedPromptsOptions,
 } from "./types";
+
+/**
+ * Build a `context_actions` block with Slack's native feedback buttons
+ * (thumbs up/down on agent replies). The adapter appends this automatically
+ * to streamed replies when the `feedbackButtons` config is set; use this
+ * helper to attach the same block to non-streamed messages via raw blocks.
+ */
+export function buildFeedbackButtonsBlock(
+  options: SlackFeedbackButtonsOptions = {}
+): Record<string, unknown> {
+  return {
+    type: "context_actions",
+    elements: [
+      {
+        type: "feedback_buttons",
+        action_id: options.actionId ?? "message_feedback",
+        positive_button: {
+          text: {
+            type: "plain_text",
+            text: options.positiveLabel ?? "Good response",
+          },
+          value: options.positiveValue ?? "positive",
+        },
+        negative_button: {
+          text: {
+            type: "plain_text",
+            text: options.negativeLabel ?? "Bad response",
+          },
+          value: options.negativeValue ?? "negative",
+        },
+      },
+    ],
+  };
+}
+
+/** Slack displays at most this many suggested prompts per thread. */
+const MAX_SUGGESTED_PROMPTS = 4;
+
+/**
+ * Slack platform errors indicating the workspace will never accept the native
+ * streaming methods (as opposed to transient/request-specific failures).
+ */
+const NATIVE_STREAMING_UNSUPPORTED_ERRORS = new Set([
+  "feature_not_enabled",
+  "method_deprecated",
+  "unknown_method",
+]);
+
+/**
+ * Extract the Slack platform error code (`data.error`) from a WebClient
+ * error, or undefined for non-platform errors (network failures, timeouts).
+ */
+function slackPlatformErrorCode(error: unknown): string | undefined {
+  const slackError = error as { code?: string; data?: { error?: string } };
+  return slackError?.code === "slack_webapi_platform_error"
+    ? slackError.data?.error
+    : undefined;
+}
 
 /**
  * Normalize a SlackBotToken config value to a resolver function, or undefined
@@ -164,6 +284,8 @@ function normalizeBotTokenProvider(
 interface SlackForwardedSocketEvent {
   body: Record<string, unknown>;
   eventType: string;
+  /** Slack redelivery count for the original socket delivery, used for event dedup */
+  retryNum?: number;
   timestamp: number;
   type: "socket_event";
 }
@@ -292,6 +414,7 @@ interface SlackAssistantContextChangedEvent {
 /** Slack app_home_opened event payload */
 interface SlackAppHomeOpenedEvent {
   channel: string;
+  context?: SlackAppContext;
   event_ts: string;
   tab: string;
   type: "app_home_opened";
@@ -323,7 +446,24 @@ interface SlackUserChangeEvent {
 
 /** Slack webhook payload envelope */
 interface SlackWebhookPayload {
+  /**
+   * Installation the event is delivered for (truncated to one entry).
+   * Slack documents this — not the top-level fields — as the authoritative
+   * location of is_enterprise_install/enterprise_id on event envelopes.
+   */
+  authorizations?: Array<{
+    enterprise_id?: string | null;
+    team_id?: string | null;
+    is_enterprise_install?: boolean;
+  }>;
   challenge?: string;
+  /**
+   * Workspace the event is contextualized to. Delivered at the envelope top
+   * level (not inside `event`); set on Slack Connect events hosted on an
+   * "away" workspace so calls to the originating channel can echo it back as
+   * `client_context_team_id`.
+   */
+  context_team_id?: string;
   /** Enterprise ID for Enterprise Grid org-wide installs */
   enterprise_id?: string;
   event?:
@@ -394,7 +534,14 @@ interface SlackViewSubmissionPayload {
     state: {
       values: Record<
         string,
-        Record<string, { value?: string; selected_option?: { value: string } }>
+        Record<
+          string,
+          {
+            value?: string;
+            selected_date?: string;
+            selected_option?: { value: string };
+          }
+        >
       >;
     };
   };
@@ -472,6 +619,8 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
   protected static readonly USER_CACHE_TTL_MS = 8 * 24 * 60 * 60 * 1000; // 8 days
   protected static readonly CHANNEL_CACHE_TTL_MS = 8 * 24 * 60 * 60 * 1000; // 8 days
   protected static readonly REVERSE_INDEX_TTL_MS = 8 * 24 * 60 * 60 * 1000; // 8 days
+  /** How long delivered event IDs are remembered for retry deduplication. Slack retries at ~1 min and ~5 min, and the opt-in Delayed Events feature redelivers hourly for up to 24 hours. */
+  protected static readonly EVENT_DEDUPE_TTL_MS = 24 * 60 * 60 * 1000; // 24 hours
 
   /**
    * Cache of channel IDs known to be external/shared (Slack Connect).
@@ -481,6 +630,18 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
 
   // Socket mode support
   protected readonly appToken: string | undefined;
+  protected readonly agentView: boolean;
+  protected readonly suggestedPrompts?: SlackSuggestedPrompts;
+  protected readonly loadingMessages?: string[];
+  /** Normalized feedbackButtons config (`true` becomes `{}`). */
+  protected readonly feedbackButtons?: SlackFeedbackButtonsOptions;
+  protected readonly nativeStreaming: boolean;
+  /**
+   * Latched when the workspace rejects native streaming with an error that
+   * won't heal (e.g. `unknown_method` on GovSlack) so later streams skip the
+   * doomed native attempt and go straight to post-and-edit.
+   */
+  protected nativeStreamingBroken = false;
   protected readonly mode: SlackAdapterMode;
   protected readonly socketForwardingSecret: string | undefined;
   private socketClient: SocketModeClient | null = null;
@@ -497,6 +658,14 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
     isExtSharedChannel?: boolean;
     enterpriseId?: string;
     isEnterpriseInstall?: boolean;
+    /** team_id (or enterprise_id for org-wide installs) the current request resolved its token from */
+    installationId?: string;
+    /** Workspace the current event occurred in — required as an explicit team_id on workspace-scoped API calls when using an org-wide token */
+    teamId?: string;
+    /** context_team_id from the incoming event, echoed back as client_context_team_id on channel-addressed calls (away-hosted shared channels) */
+    contextTeamId?: string;
+    /** Channel the context_team_id came from — the echo only applies to calls targeting that channel */
+    contextChannel?: string;
   }>();
 
   /** Bot user ID (e.g., U_BOT_123) used for mention detection */
@@ -641,6 +810,14 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
     this._botUserId = config.botUserId || null;
 
     this.appToken = config.appToken;
+    this.agentView = config.agentView ?? false;
+    this.suggestedPrompts = config.suggestedPrompts;
+    this.loadingMessages = config.loadingMessages;
+    this.nativeStreaming = config.nativeStreaming ?? true;
+    if (config.feedbackButtons) {
+      this.feedbackButtons =
+        config.feedbackButtons === true ? {} : config.feedbackButtons;
+    }
     this.mode = config.mode ?? "webhook";
     this.socketForwardingSecret =
       config.socketForwardingSecret ?? config.appToken;
@@ -684,12 +861,40 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
   /**
    * Add the current token to API call options.
    * Workaround for Slack WebClient types not including `token` in per-method args.
+   *
+   * For Enterprise Grid org-wide installs the token spans every workspace in
+   * the org, so workspace-scoped Web API methods (conversations.list,
+   * users.list, usergroups.*, …) require an explicit `team_id`. Slack
+   * documents always passing it as safe — the field is ignored on
+   * workspace-level tokens and on methods that don't take it.
+   *
+   * When the incoming event carried a `context_team_id` (shared channels
+   * hosted on an "away" workspace), it is echoed back as
+   * `client_context_team_id` on channel-addressed calls, per Slack's
+   * Enterprise Grid guidance.
    */
   protected async withToken<
     // biome-ignore lint/suspicious/noExplicitAny: Slack types don't include token in method args
     T extends Record<string, any>,
   >(options: T): Promise<T & { token: string }> {
-    return { ...options, token: await this.getToken() };
+    const ctx = this.requestContext.getStore();
+    const extras: Record<string, unknown> = {};
+    if (
+      ctx?.isEnterpriseInstall &&
+      ctx.teamId &&
+      options.team_id === undefined
+    ) {
+      extras.team_id = ctx.teamId;
+    }
+    if (
+      ctx?.contextTeamId &&
+      options.channel !== undefined &&
+      options.channel === ctx.contextChannel &&
+      options.client_context_team_id === undefined
+    ) {
+      extras.client_context_team_id = ctx.contextTeamId;
+    }
+    return { ...options, ...extras, token: await this.getToken() };
   }
 
   async initialize(chat: ChatInstance): Promise<void> {
@@ -805,11 +1010,22 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
    * Handle the Slack OAuth V2 callback.
    * Accepts the incoming request, extracts the authorization code,
    * exchanges it for tokens, and saves the installation.
+   *
+   * For Enterprise Grid org-wide installs (`is_enterprise_install`), Slack
+   * returns `team: null` and the installation is keyed by the enterprise ID
+   * instead — the returned `teamId` is always the storage key, so it can be
+   * passed back to `getInstallation` / `deleteInstallation` for both install
+   * types.
    */
   async handleOAuthCallback(
     request: Request,
     options?: SlackOAuthCallbackOptions
-  ): Promise<{ teamId: string; installation: SlackInstallation }> {
+  ): Promise<{
+    teamId: string;
+    enterpriseId?: string;
+    isEnterpriseInstall: boolean;
+    installation: SlackInstallation;
+  }> {
     if (!(this.clientId && this.clientSecret)) {
       throw new ValidationError(
         "slack",
@@ -836,23 +1052,39 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
       ...(redirectUri ? { redirect_uri: redirectUri } : {}),
     });
 
-    if (!(result.ok && result.access_token && result.team?.id)) {
+    // Org-wide installs return `team: null` and identify the org via
+    // `enterprise.id` — key the installation by whichever ID webhook
+    // token resolution will later look up (see resolveTokenForTeam).
+    const isEnterpriseInstall = Boolean(result.is_enterprise_install);
+    const enterpriseId = result.enterprise?.id;
+    const installationId = isEnterpriseInstall ? enterpriseId : result.team?.id;
+
+    if (!(result.ok && result.access_token && installationId)) {
+      const missing = isEnterpriseInstall
+        ? "missing access_token or enterprise.id"
+        : "missing access_token or team.id";
       throw new AuthenticationError(
         "slack",
-        `Slack OAuth failed: ${result.error || "missing access_token or team.id"}`
+        `Slack OAuth failed: ${result.error || missing}`
       );
     }
 
-    const teamId = result.team.id;
     const installation: SlackInstallation = {
       botToken: result.access_token,
       botUserId: result.bot_user_id,
-      teamName: result.team.name,
+      teamName: result.team?.name ?? result.enterprise?.name,
+      ...(enterpriseId ? { enterpriseId } : {}),
+      ...(isEnterpriseInstall ? { isEnterpriseInstall } : {}),
     };
 
-    await this.setInstallation(teamId, installation);
+    await this.setInstallation(installationId, installation);
 
-    return { teamId, installation };
+    return {
+      teamId: installationId,
+      enterpriseId,
+      isEnterpriseInstall,
+      installation,
+    };
   }
 
   /**
@@ -874,9 +1106,24 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
   /**
    * Run a function with a specific bot token in context.
    * Use this for operations outside webhook handling (cron jobs, workflows).
+   *
+   * In multi-workspace deployments, pass `installationId` (the `team_id`, or
+   * `enterprise_id` for org-wide installs — the same key the installation was
+   * stored under) so per-user caches (profile cache and display-name mention
+   * index) are scoped to that installation. Without it these fall back to the
+   * unscoped global key, which can bleed one tenant's cached profiles and
+   * mention resolution into another when the same process posts for multiple
+   * workspaces.
    */
-  withBotToken<T>(token: string, fn: () => T): T {
-    return this.requestContext.run({ token }, fn);
+  withBotToken<T>(
+    token: string,
+    fn: () => T,
+    options?: { installationId?: string }
+  ): T {
+    return this.requestContext.run(
+      { token, installationId: options?.installationId },
+      fn
+    );
   }
 
   // ===========================================================================
@@ -942,6 +1189,7 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
     installationId: string;
     isEnterpriseInstall: boolean;
     enterpriseId?: string;
+    teamId?: string;
   } | null {
     try {
       const params = new URLSearchParams(body);
@@ -949,21 +1197,131 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
       if (!payloadStr) {
         return null;
       }
-      const payload = JSON.parse(payloadStr);
-      const isEnterpriseInstall = Boolean(payload.is_enterprise_install);
-      const enterpriseId: string | undefined =
-        payload.enterprise?.id || payload.enterprise_id || undefined;
-      const teamId: string | undefined =
-        payload.team?.id || payload.team_id || undefined;
-      const installationId = isEnterpriseInstall ? enterpriseId : teamId;
-
-      if (!installationId) {
-        return null;
-      }
-      return { installationId, isEnterpriseInstall, enterpriseId };
+      return this.extractInstallationFromInteractivePayload(
+        JSON.parse(payloadStr)
+      );
     } catch {
       return null;
     }
+  }
+
+  /**
+   * Extract installation info from an already-parsed interactive payload
+   * (socket mode delivers these as objects rather than form-urlencoded).
+   */
+  protected extractInstallationFromInteractivePayload(
+    payload: Record<string, unknown>
+  ): {
+    installationId: string;
+    isEnterpriseInstall: boolean;
+    enterpriseId?: string;
+    teamId?: string;
+  } | null {
+    const isEnterpriseInstall =
+      payload.is_enterprise_install === true ||
+      payload.is_enterprise_install === "true";
+    const enterprise = payload.enterprise as { id?: string } | null | undefined;
+    const team = payload.team as { id?: string } | null | undefined;
+    const enterpriseId: string | undefined =
+      enterprise?.id ||
+      (payload.enterprise_id as string | null | undefined) ||
+      undefined;
+    const teamId: string | undefined =
+      team?.id || (payload.team_id as string | null | undefined) || undefined;
+    const installationId = isEnterpriseInstall ? enterpriseId : teamId;
+
+    if (!installationId) {
+      return null;
+    }
+    return { installationId, isEnterpriseInstall, enterpriseId, teamId };
+  }
+
+  /**
+   * Resolve the multi-workspace request context for an event_callback
+   * payload. Shared by the HTTP webhook path and the socket-mode path so
+   * both resolve per-installation tokens the same way.
+   *
+   * Returns:
+   * - the resolved context to run the event under,
+   * - `"not-applicable"` when no resolution is needed (single-workspace
+   *   mode, or the payload carries no installation ID) — process without
+   *   a request context,
+   * - `"unresolved"` when an installation ID was present but no
+   *   installation was found — drop the event.
+   */
+  protected async resolveEventRequestContext(
+    payload: SlackWebhookPayload
+  ): Promise<
+    | {
+        token: string;
+        botUserId?: string;
+        enterpriseId?: string;
+        isEnterpriseInstall: boolean;
+        installationId: string;
+        teamId?: string;
+        contextTeamId?: string;
+        contextChannel?: string;
+      }
+    | "not-applicable"
+    | "unresolved"
+  > {
+    if (this.defaultBotTokenProvider || payload.type !== "event_callback") {
+      return "not-applicable";
+    }
+
+    // Prefer authorizations[0] — Slack documents it as the authoritative
+    // installation identity for the event; the top-level fields can name a
+    // different (e.g. Slack Connect-ed) workspace. Fall back to top-level
+    // for payloads that omit authorizations (some event types, forwarded
+    // socket events from older listeners).
+    const auth = payload.authorizations?.[0];
+    const isEnterpriseInstall = Boolean(
+      auth?.is_enterprise_install ?? payload.is_enterprise_install
+    );
+    const enterpriseId =
+      (auth?.enterprise_id || payload.enterprise_id) ?? undefined;
+    const teamId = (auth?.team_id || payload.team_id) ?? undefined;
+    const installationId = isEnterpriseInstall ? enterpriseId : teamId;
+    if (!installationId) {
+      return "not-applicable";
+    }
+
+    const ctx = await this.resolveTokenForTeam(
+      installationId,
+      isEnterpriseInstall
+    );
+    if (!ctx) {
+      this.logger.warn("Could not resolve token for installation", {
+        installationId,
+        isEnterpriseInstall,
+      });
+      return "unresolved";
+    }
+
+    const event = payload.event as { channel?: string } | undefined;
+    return {
+      ...ctx,
+      enterpriseId,
+      isEnterpriseInstall,
+      installationId,
+      teamId,
+      // context_team_id is an envelope top-level field, not inside `event`.
+      contextTeamId: payload.context_team_id,
+      contextChannel: event?.channel,
+    };
+  }
+
+  /**
+   * Scope prefix for per-user state keys (profile cache, display-name
+   * reverse index). In multi-workspace deployments these must not be shared
+   * across installations: profiles fetched with one workspace's token would
+   * bleed into another, and display names collide across workspaces, so
+   * mention resolution could pick a user from the wrong org. Single-workspace
+   * mode (and code running outside a webhook context) uses the unscoped key.
+   */
+  protected userCacheScope(): string {
+    const installationId = this.requestContext.getStore()?.installationId;
+    return installationId ? `${installationId}:` : "";
   }
 
   /**
@@ -971,7 +1329,7 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
    * Returns null when the API call fails.
    */
   protected async lookupUser(userId: string): Promise<CachedUser | null> {
-    const cacheKey = `slack:user:${userId}`;
+    const cacheKey = `slack:user:${this.userCacheScope()}${userId}`;
 
     // Check cache first (via state adapter for serverless compatibility)
     if (this.chat) {
@@ -1023,7 +1381,7 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
 
         // Build reverse index: display name → user IDs (skip if already present)
         const normalizedName = displayName.toLowerCase();
-        const reverseKey = `slack:user-by-name:${normalizedName}`;
+        const reverseKey = `slack:user-by-name:${this.userCacheScope()}${normalizedName}`;
         const existing = await this.chat.getState().getList<string>(reverseKey);
         if (!existing.includes(userId)) {
           await this.chat.getState().appendToList(reverseKey, userId, {
@@ -1131,7 +1489,8 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
           event.body,
           event.eventType,
           noopAck,
-          options
+          options,
+          event.retryNum
         );
         return new Response("ok", { status: 200 });
       } catch {
@@ -1162,36 +1521,7 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
     if (contentType.includes("application/x-www-form-urlencoded")) {
       const params = new URLSearchParams(body);
       if (params.has("command") && !params.has("payload")) {
-        if (!this.defaultBotTokenProvider) {
-          // For Enterprise Grid org-wide installs, use enterprise_id; otherwise use team_id
-          const isEnterpriseInstall =
-            params.get("is_enterprise_install") === "true";
-          const installationId = isEnterpriseInstall
-            ? params.get("enterprise_id")
-            : params.get("team_id");
-
-          if (installationId) {
-            const ctx = await this.resolveTokenForTeam(
-              installationId,
-              isEnterpriseInstall
-            );
-            if (ctx) {
-              return this.requestContext.run(
-                {
-                  ...ctx,
-                  enterpriseId: params.get("enterprise_id") ?? undefined,
-                  isEnterpriseInstall,
-                },
-                () => this.handleSlashCommand(params, options)
-              );
-            }
-            this.logger.warn("Could not resolve token for slash command", {
-              installationId,
-              isEnterpriseInstall,
-            });
-          }
-        }
-        return this.handleSlashCommand(params, options);
+        return this.runSlashCommand(params, options);
       }
       // In multi-workspace mode, resolve token before processing interactive payloads
       if (!this.defaultBotTokenProvider) {
@@ -1207,6 +1537,8 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
                 ...ctx,
                 enterpriseId: installationInfo.enterpriseId,
                 isEnterpriseInstall: installationInfo.isEnterpriseInstall,
+                installationId: installationInfo.installationId,
+                teamId: installationInfo.teamId,
               },
               () => this.handleInteractivePayload(body, options)
             );
@@ -1230,13 +1562,45 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
       return Response.json({ challenge: payload.challenge });
     }
 
+    // Drop redeliveries of events that were already dispatched
+    const retryNum = Number(request.headers.get("x-slack-retry-num") ?? "0");
+    if (await this.isDuplicateEventDelivery(payload, retryNum)) {
+      return new Response("ok", { status: 200 });
+    }
+
     // In multi-workspace mode, resolve token before processing events
-    if (!this.defaultBotTokenProvider && payload.type === "event_callback") {
+    const resolved = await this.resolveEventRequestContext(payload);
+    if (resolved === "unresolved") {
+      // Installation ID present but no installation found — drop the event
+      return new Response("ok", { status: 200 });
+    }
+    if (resolved !== "not-applicable") {
+      return this.requestContext.run(resolved, () => {
+        this.processEventPayload(payload, options);
+        return new Response("ok", { status: 200 });
+      });
+    }
+
+    // Single-workspace mode or fallback
+    this.processEventPayload(payload, options);
+    return new Response("ok", { status: 200 });
+  }
+
+  /**
+   * Handle a slash command, resolving the per-installation token first in
+   * multi-workspace mode. Shared by the HTTP webhook and socket-mode paths.
+   */
+  protected async runSlashCommand(
+    params: URLSearchParams,
+    options?: WebhookOptions
+  ): Promise<Response> {
+    if (!this.defaultBotTokenProvider) {
       // For Enterprise Grid org-wide installs, use enterprise_id; otherwise use team_id
-      const isEnterpriseInstall = Boolean(payload.is_enterprise_install);
+      const isEnterpriseInstall =
+        params.get("is_enterprise_install") === "true";
       const installationId = isEnterpriseInstall
-        ? payload.enterprise_id
-        : payload.team_id;
+        ? params.get("enterprise_id")
+        : params.get("team_id");
 
       if (installationId) {
         const ctx = await this.resolveTokenForTeam(
@@ -1247,26 +1611,73 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
           return this.requestContext.run(
             {
               ...ctx,
-              enterpriseId: payload.enterprise_id,
+              enterpriseId: params.get("enterprise_id") ?? undefined,
               isEnterpriseInstall,
+              installationId,
+              teamId: params.get("team_id") ?? undefined,
             },
-            () => {
-              this.processEventPayload(payload, options);
-              return new Response("ok", { status: 200 });
-            }
+            () => this.handleSlashCommand(params, options)
           );
         }
-        this.logger.warn("Could not resolve token for installation", {
+        this.logger.warn("Could not resolve token for slash command", {
           installationId,
           isEnterpriseInstall,
         });
-        return new Response("ok", { status: 200 });
       }
     }
+    return this.handleSlashCommand(params, options);
+  }
 
-    // Single-workspace mode or fallback
-    this.processEventPayload(payload, options);
-    return new Response("ok", { status: 200 });
+  /**
+   * Record that an event delivery was dispatched, so redeliveries
+   * (`x-slack-retry-num` / socket `retry_num`) can be dropped. Fire-and-forget:
+   * a failed write only means a retry gets reprocessed, which downstream
+   * message dedup already tolerates.
+   */
+  protected markEventDelivered(payload: SlackWebhookPayload): void {
+    const eventId = payload.event_id;
+    if (!(eventId && this.chat)) {
+      return;
+    }
+    this.chat
+      .getState()
+      .set(
+        `slack:event-delivered:${eventId}`,
+        true,
+        SlackAdapter.EVENT_DEDUPE_TTL_MS
+      )
+      .catch(() => {});
+  }
+
+  /**
+   * Check whether a retried event delivery was already dispatched. Only
+   * consulted on retries (retryNum > 0), so first deliveries pay no state
+   * read. Events missed entirely (never dispatched, e.g. delivered while
+   * disconnected) have no marker and are still recovered via the retry.
+   */
+  protected async isDuplicateEventDelivery(
+    payload: SlackWebhookPayload,
+    retryNum?: number
+  ): Promise<boolean> {
+    const eventId = payload.event_id;
+    if (!(eventId && this.chat && retryNum && retryNum > 0)) {
+      return false;
+    }
+    try {
+      const seen = await this.chat
+        .getState()
+        .get(`slack:event-delivered:${eventId}`);
+      if (seen) {
+        this.logger.info("Skipping duplicate event delivery", {
+          eventId,
+          retryNum,
+        });
+        return true;
+      }
+    } catch {
+      // State unavailable — process rather than drop
+    }
+    return false;
   }
 
   /** Extract and dispatch events from a validated payload */
@@ -1275,6 +1686,7 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
     options?: WebhookOptions
   ): void {
     if (payload.type === "event_callback" && payload.event) {
+      this.markEventDelivered(payload);
       const event = payload.event;
 
       // Track external/shared channel status from payload-level flag
@@ -1318,11 +1730,16 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
           event as SlackAssistantContextChangedEvent,
           options
         );
-      } else if (
-        event.type === "app_home_opened" &&
-        (event as SlackAppHomeOpenedEvent).tab === "home"
-      ) {
-        this.handleAppHomeOpened(event as SlackAppHomeOpenedEvent, options);
+      } else if (event.type === "app_context_changed") {
+        this.handleAppContextChanged(
+          event as SlackAppContextChangedEvent,
+          options
+        );
+      } else if (event.type === "app_home_opened") {
+        const homeEvent = event as SlackAppHomeOpenedEvent;
+        if (this.agentView || homeEvent.tab === "home") {
+          this.handleAppHomeOpened(homeEvent, options);
+        }
       } else if (event.type === "member_joined_channel") {
         this.handleMemberJoinedChannel(
           event as SlackMemberJoinedChannelEvent,
@@ -1618,7 +2035,11 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
     const values: Record<string, string> = {};
     for (const blockValues of Object.values(payload.view.state.values)) {
       for (const [actionId, input] of Object.entries(blockValues)) {
-        values[actionId] = input.value ?? input.selected_option?.value ?? "";
+        values[actionId] =
+          input.value ??
+          input.selected_date ??
+          input.selected_option?.value ??
+          "";
       }
     }
 
@@ -1784,7 +2205,9 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
         await this.routeSocketEvent(
           body as Record<string, unknown>,
           type as string,
-          ack
+          ack,
+          undefined,
+          retry_num
         );
       }
     );
@@ -1800,7 +2223,8 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
     body: Record<string, unknown>,
     eventType: string,
     ack: (response?: Record<string, unknown>) => Promise<void>,
-    options?: WebhookOptions
+    options?: WebhookOptions,
+    retryNum?: number
   ): Promise<void> {
     const wrapAsync = (promise: Promise<unknown>): void => {
       if (options?.waitUntil) {
@@ -1824,12 +2248,36 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
         const payload: SlackWebhookPayload = {
           type: "event_callback",
           event: body.event as SlackWebhookPayload["event"],
+          authorizations:
+            body.authorizations as SlackWebhookPayload["authorizations"],
           team_id: body.team_id as string | undefined,
+          context_team_id: body.context_team_id as string | undefined,
+          enterprise_id:
+            (body.enterprise_id as string | null | undefined) ?? undefined,
+          is_enterprise_install: Boolean(body.is_enterprise_install),
+          is_ext_shared_channel: body.is_ext_shared_channel as
+            | boolean
+            | undefined,
           event_id: body.event_id as string | undefined,
           event_time: body.event_time as number | undefined,
         };
         try {
-          this.processEventPayload(payload, options);
+          // Drop redeliveries of events that were already dispatched
+          if (await this.isDuplicateEventDelivery(payload, retryNum)) {
+            break;
+          }
+          // Resolve the per-installation token exactly like the HTTP path
+          const resolved = await this.resolveEventRequestContext(payload);
+          if (resolved === "unresolved") {
+            break;
+          }
+          if (resolved === "not-applicable") {
+            this.processEventPayload(payload, options);
+          } else {
+            this.requestContext.run(resolved, () =>
+              this.processEventPayload(payload, options)
+            );
+          }
         } catch (error) {
           this.logger.error("Error processing socket mode events_api", {
             error,
@@ -1844,15 +2292,49 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
         for (const [key, value] of Object.entries(body)) {
           if (typeof value === "string") {
             params.set(key, value);
+          } else if (typeof value === "boolean") {
+            // Socket mode delivers form fields as JSON, so flags like
+            // is_enterprise_install arrive as booleans
+            params.set(key, String(value));
           }
         }
-        wrapAsync(this.handleSlashCommand(params, options));
+        wrapAsync(this.runSlashCommand(params, options));
         break;
       }
 
       case "interactive": {
         const payload = body as unknown as SlackInteractivePayload;
-        const result = this.dispatchInteractivePayload(payload, options);
+        const dispatch = () =>
+          this.dispatchInteractivePayload(payload, options);
+        let result: Response | Promise<Response>;
+        if (this.defaultBotTokenProvider) {
+          result = dispatch();
+        } else {
+          const info = this.extractInstallationFromInteractivePayload(body);
+          const ctx = info
+            ? await this.resolveTokenForTeam(
+                info.installationId,
+                info.isEnterpriseInstall
+              )
+            : null;
+          if (info && ctx) {
+            result = this.requestContext.run(
+              {
+                ...ctx,
+                enterpriseId: info.enterpriseId,
+                isEnterpriseInstall: info.isEnterpriseInstall,
+                installationId: info.installationId,
+                teamId: info.teamId,
+              },
+              dispatch
+            );
+          } else {
+            this.logger.warn(
+              "Could not resolve token for socket interactive payload"
+            );
+            result = dispatch();
+          }
+        }
         const response = result instanceof Promise ? await result : result;
         const responseBody = response.headers
           .get("content-type")
@@ -1962,6 +2444,7 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
             type: "socket_event",
             eventType,
             body: body as Record<string, unknown>,
+            retryNum: retry_num,
             timestamp: Date.now(),
           });
         } else {
@@ -1969,7 +2452,8 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
             body as Record<string, unknown>,
             eventType,
             ack,
-            options
+            options,
+            retry_num
           );
         }
       }
@@ -2127,11 +2611,18 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
       return;
     }
 
-    // For DMs: top-level messages use empty threadTs (matches openDM subscriptions),
-    // thread replies use thread_ts for per-conversation isolation.
+    // For DMs under assistant_view (legacy): top-level messages use empty threadTs
+    // (matches openDM subscriptions); thread replies use thread_ts for per-conversation
+    // isolation.
+    // Under agent_view the Messages-tab conversation is threaded per Slack's model —
+    // each user message is a thread root — so reply in-thread using `thread_ts ?? ts`
+    // (except when the conversation-scoped openDM ID is subscribed; see bridge below).
     // For channels: always use thread_ts or ts for per-thread IDs.
     const isDM = event.channel_type === "im";
-    const threadTs = isDM ? event.thread_ts || "" : event.thread_ts || event.ts;
+    const threadTs =
+      isDM && !this.agentView
+        ? event.thread_ts || ""
+        : event.thread_ts || event.ts;
     const threadId = this.encodeThreadId({
       channel: event.channel,
       threadTs,
@@ -2147,15 +2638,49 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
     // the Promise is created within the run() callback. We call processMessage inside
     // run() so the async task and all its awaits inherit the context.
     const isMention = event.type === "app_mention";
-    const factory = async (): Promise<Message<unknown>> => {
-      const msg = await this.parseSlackMessage(event, threadId);
+    const makeFactory = (id: string) => async (): Promise<Message<unknown>> => {
+      const msg = await this.parseSlackMessage(event, id);
       if (isMention) {
         msg.isMention = true;
       }
       return msg;
     };
 
-    this.chat.processMessage(this, threadId, factory, options);
+    // Under agent_view each top-level DM message is its own thread root, which
+    // would silently bypass subscriptions created on the conversation-scoped
+    // thread ID that openDM() returns (slack:{D…}:). Bridge: when that
+    // conversation-scoped ID is subscribed, route the message to it so
+    // onSubscribedMessage and per-thread state keep working for proactive flows.
+    if (this.agentView && isDM && !event.thread_ts) {
+      const chat = this.chat;
+      const conversationThreadId = this.encodeThreadId({
+        channel: event.channel,
+        threadTs: "",
+      });
+      const task = (async () => {
+        let routedThreadId = threadId;
+        try {
+          if (await chat.getState().isSubscribed(conversationThreadId)) {
+            routedThreadId = conversationThreadId;
+          }
+        } catch (error) {
+          this.logger.warn(
+            "agent_view DM subscription check failed; using per-message thread",
+            { error: String(error), threadId }
+          );
+        }
+        chat.processMessage(
+          this,
+          routedThreadId,
+          makeFactory(routedThreadId),
+          options
+        );
+      })();
+      options?.waitUntil?.(task);
+      return;
+    }
+
+    this.chat.processMessage(this, threadId, makeFactory(threadId), options);
   }
 
   protected handleMessageChanged(
@@ -2335,6 +2860,19 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
       threadTs: thread_ts,
     });
 
+    // Apply configured suggested prompts for the new assistant thread. The
+    // task starts inside the request scope so the multi-workspace token
+    // context propagates; it catches internally, so it is safe without a
+    // waitUntil (fire-and-forget under socket mode).
+    const promptsTask = this.applyConfiguredSuggestedPrompts({
+      channelId: channel_id,
+      enterpriseId: context.enterprise_id,
+      teamId: context.team_id,
+      threadTs: thread_ts,
+      userId: user_id,
+    });
+    options?.waitUntil?.(promptsTask);
+
     this.chat.processAssistantThreadStarted(
       {
         threadId,
@@ -2416,10 +2954,56 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
       return;
     }
 
+    // Under agent_view, a Messages-tab open is the thread-open signal —
+    // apply configured suggested prompts (no thread_ts; they pin at the top
+    // of the agent conversation). Legacy assistant_view prompts flow through
+    // assistant_thread_started instead.
+    if (this.agentView && event.tab === "messages") {
+      const promptsTask = this.applyConfiguredSuggestedPrompts({
+        channelId: event.channel,
+        userId: event.user,
+        ...(event.context
+          ? { entities: normalizeAppContextEntities(event.context) }
+          : {}),
+      });
+      options?.waitUntil?.(promptsTask);
+    }
+
     this.chat.processAppHomeOpened(
       {
         userId: event.user,
         channelId: event.channel,
+        tab: event.tab,
+        adapter: this,
+        ...(event.context
+          ? { entities: normalizeAppContextEntities(event.context) }
+          : {}),
+      },
+      options
+    );
+  }
+
+  /**
+   * Handle app_context_changed events (Slack Agent messaging experience).
+   * Reports the user's current active view via normalized entities.
+   */
+  protected handleAppContextChanged(
+    event: SlackAppContextChangedEvent,
+    options?: WebhookOptions
+  ): void {
+    if (!this.chat) {
+      this.logger.warn(
+        "Chat instance not initialized, ignoring app_context_changed"
+      );
+      return;
+    }
+
+    this.chat.processAppContextChanged(
+      {
+        channelId: event.channel,
+        userId: event.user,
+        entities: normalizeAppContextEntities(event.context),
+        raw: event,
         adapter: this,
       },
       options
@@ -2461,7 +3045,9 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
     }
 
     try {
-      await this.chat.getState().delete(`slack:user:${event.user.id}`);
+      await this.chat
+        .getState()
+        .delete(`slack:user:${this.userCacheScope()}${event.user.id}`);
     } catch (error) {
       this.logger.warn("Failed to invalidate user cache", {
         userId: event.user.id,
@@ -2485,28 +3071,74 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
   }
 
   /**
-   * Set suggested prompts for an assistant thread.
-   * Slack Assistants API: assistant.threads.setSuggestedPrompts
+   * Set suggested prompts for an assistant/agent thread.
+   * Slack Assistants API: assistant.threads.setSuggestedPrompts.
+   * `threadTs` is optional under the Agent messaging experience (agent_view),
+   * where prompts can sit at the top of the agent conversation without a thread.
    */
   async setSuggestedPrompts(
     channelId: string,
-    threadTs: string,
+    threadTs: string | undefined,
     prompts: Array<{ title: string; message: string }>,
     title?: string
   ): Promise<void> {
     await this._client.assistant.threads.setSuggestedPrompts(
       await this.withToken({
         channel_id: channelId,
-        thread_ts: threadTs,
         prompts,
-        title,
+        ...(threadTs ? { thread_ts: threadTs } : {}),
+        ...(title ? { title } : {}),
       })
     );
   }
 
   /**
+   * Resolve and apply the configured `suggestedPrompts` for a newly opened
+   * assistant/agent thread. Errors are logged, never thrown — this runs on
+   * the webhook path where a failure must not turn into a 500.
+   */
+  protected async applyConfiguredSuggestedPrompts(
+    context: SlackSuggestedPromptsContext
+  ): Promise<void> {
+    if (!this.suggestedPrompts) {
+      return;
+    }
+    try {
+      const resolved =
+        typeof this.suggestedPrompts === "function"
+          ? await this.suggestedPrompts(context)
+          : this.suggestedPrompts;
+      if (!resolved || resolved.prompts.length === 0) {
+        return;
+      }
+      let prompts = resolved.prompts;
+      if (prompts.length > MAX_SUGGESTED_PROMPTS) {
+        this.logger.warn(
+          `Slack shows at most ${MAX_SUGGESTED_PROMPTS} suggested prompts; dropping the rest`,
+          { configured: prompts.length }
+        );
+        prompts = prompts.slice(0, MAX_SUGGESTED_PROMPTS);
+      }
+      await this.setSuggestedPrompts(
+        context.channelId,
+        context.threadTs,
+        prompts,
+        resolved.title
+      );
+    } catch (error) {
+      this.logger.warn("Failed to apply configured suggested prompts", {
+        channelId: context.channelId,
+        error,
+      });
+    }
+  }
+
+  /**
    * Set status/thinking indicator for an assistant thread.
    * Slack Assistants API: assistant.threads.setStatus
+   *
+   * When `loadingMessages` is omitted, falls back to the adapter-level
+   * `loadingMessages` config.
    */
   async setAssistantStatus(
     channelId: string,
@@ -2514,12 +3146,15 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
     status: string,
     loadingMessages?: string[]
   ): Promise<void> {
+    const effectiveLoadingMessages = loadingMessages ?? this.loadingMessages;
     await this._client.assistant.threads.setStatus(
       await this.withToken({
         channel_id: channelId,
         thread_ts: threadTs,
         status,
-        ...(loadingMessages && { loading_messages: loadingMessages }),
+        ...(effectiveLoadingMessages && {
+          loading_messages: effectiveLoadingMessages,
+        }),
       })
     );
   }
@@ -2772,12 +3407,14 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
     // since Slack events only include the user ID, not the username
     let userName = event.username || "unknown";
     let fullName = event.username || "unknown";
+    let email: string | undefined;
 
     // If we have a user ID but no username, look up the user info
     if (event.user && !event.username) {
       const userInfo = await this.lookupUser(event.user);
       userName = userInfo?.displayName ?? event.user;
       fullName = userInfo?.realName ?? userName;
+      email = userInfo?.email;
     }
 
     // Track thread participants for outgoing mention resolution (skip dupes)
@@ -2815,7 +3452,9 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
         userId: event.user || event.bot_id || "unknown",
         userName,
         fullName,
+        email,
         isBot: !!event.bot_id,
+        isSystem: event.user === SLACK_SYSTEM_USER_ID,
         isMe,
       },
       metadata: {
@@ -3042,7 +3681,9 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
 
     // Look up user IDs for each mentioned name
     for (const name of mentions.keys()) {
-      const userIds = await state.getList<string>(`slack:user-by-name:${name}`);
+      const userIds = await state.getList<string>(
+        `slack:user-by-name:${this.userCacheScope()}${name}`
+      );
       // Dedup
       const unique = [...new Set(userIds)];
       mentions.set(name, unique);
@@ -3178,16 +3819,21 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
           blockCount: blocks.length,
         });
 
-        const result = await this._client.chat.postMessage(
-          await this.withToken({
-            channel,
-            thread_ts: threadTs,
-            text: fallbackText, // Fallback for notifications
-            blocks,
-            unfurl_links: false,
-            unfurl_media: false,
-          })
-        );
+        let result: Awaited<ReturnType<typeof this._client.chat.postMessage>>;
+        try {
+          result = await this._client.chat.postMessage(
+            await this.withToken({
+              channel,
+              thread_ts: threadTs,
+              text: fallbackText, // Fallback for notifications
+              blocks,
+              unfurl_links: false,
+              unfurl_media: false,
+            })
+          );
+        } catch (error) {
+          throw enrichInvalidBlocksError(error, blocks, this.logger);
+        }
 
         this.logger.debug("Slack API: chat.postMessage response", {
           messageId: result.ts,
@@ -3936,12 +4582,15 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
       status,
     });
     try {
+      const loadingMessages = status
+        ? [status]
+        : (this.loadingMessages ?? ["Typing..."]);
       await this._client.assistant.threads.setStatus(
         await this.withToken({
           channel_id: channel,
           thread_ts: threadTs,
-          status: status ?? "Typing...",
-          loading_messages: [status ?? "Typing..."],
+          status: status ?? this.loadingMessages?.[0] ?? "Typing...",
+          loading_messages: loadingMessages,
         })
       );
     } catch (error) {
@@ -3986,6 +4635,13 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
       this.logger.debug("Slack: using fallback stream - no recipient context");
       return null;
     }
+    if (!this.nativeStreaming || this.nativeStreamingBroken) {
+      this.logger.debug(
+        "Slack: using fallback stream - native streaming disabled",
+        { configured: this.nativeStreaming, broken: this.nativeStreamingBroken }
+      );
+      return null;
+    }
     this.logger.debug("Slack: starting stream", { channel, threadTs });
 
     const token = await this.getToken();
@@ -4008,11 +4664,150 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
       wrapTablesForAppend: false,
     });
 
-    const flushMarkdownDelta = async (delta: string): Promise<void> => {
+    // Outgoing @name mention resolution state for the native streaming path.
+    // The post-and-edit fallback resolves mentions on every postMessage/
+    // editMessage call, so the committed renderer text is resolved here too
+    // before deltas are calculated. `resolvedSourceDone` indexes into the
+    // renderer's committable text; `resolvedCommitted` is its resolved
+    // counterpart and the coordinate space `lastAppended` tracks.
+    let resolvedCommitted = "";
+    let resolvedSourceDone = 0;
+    let insideResolvedFence = false;
+
+    const isFenceLine = (line: string): boolean => {
+      const trimmed = line.trimStart();
+      return trimmed.startsWith("```") || trimmed.startsWith("~~~");
+    };
+
+    /**
+     * Extend `resolvedCommitted` with newly committed renderer text, applying
+     * outgoing @name mention resolution. Works line by line, tracking code
+     * fence state: the renderer only commits partial lines inside fences
+     * (where mentions stay literal, matching resolveOutgoingMentions) or at
+     * inline-marker holdback cuts (which never split a bare mention), so
+     * every bare mention reaches the resolver whole even when it spans
+     * source chunks.
+     */
+    const resolveCommitted = async (committable: string): Promise<void> => {
+      while (resolvedSourceDone < committable.length) {
+        const lineStart =
+          committable.lastIndexOf("\n", resolvedSourceDone - 1) + 1;
+        const newlineAt = committable.indexOf("\n", resolvedSourceDone);
+        const lineEnd = newlineAt === -1 ? committable.length : newlineAt + 1;
+        const segment = committable.slice(resolvedSourceDone, lineEnd);
+        const fenceLine = isFenceLine(committable.slice(lineStart, lineEnd));
+        if (insideResolvedFence || fenceLine) {
+          // Fence delimiters and fenced content are literal.
+          resolvedCommitted += segment;
+        } else {
+          resolvedCommitted += await this.resolveOutgoingMentions(
+            segment,
+            threadId
+          );
+        }
+        if (newlineAt !== -1 && fenceLine) {
+          insideResolvedFence = !insideResolvedFence;
+        }
+        resolvedSourceDone = lineEnd;
+      }
+    };
+
+    // In-stream fallback state. If the very first native call is rejected
+    // (streaming methods unavailable — e.g. GovSlack — or the feature is off
+    // for the workspace), nothing has rendered yet, so the rest of the stream
+    // is delivered via throttled post-and-edit instead. The already-consumed
+    // text lives in the renderer, so nothing is lost. Failures after content
+    // has rendered natively still propagate — mixing the two modes would
+    // duplicate output.
+    // Held in an object because the mode flips inside closures, which
+    // TypeScript's control-flow narrowing can't track on a plain `let`.
+    const fallback: {
+      message: RawMessage<unknown> | null;
+      mode: "fallback" | "native";
+      /**
+       * True once any native append has succeeded (chat.startStream fired and
+       * content is rendering in Slack). Tracked here rather than via the
+       * ChatStreamer `ts` accessor, which has not been public in every
+       * @slack/web-api release.
+       */
+      nativeRendered: boolean;
+    } = { message: null, mode: "native", nativeRendered: false };
+    const updateIntervalMs = options?.updateIntervalMs ?? 1000;
+    let fallbackSent = "";
+    let lastFallbackEditAt = 0;
+
+    const flushFallback = async (force: boolean): Promise<void> => {
+      const committable = renderer.getCommittableText();
+      if (committable.length === 0 || committable === fallbackSent) {
+        return;
+      }
+      const now = Date.now();
+      if (!(force || now - lastFallbackEditAt >= updateIntervalMs)) {
+        return;
+      }
+      if (fallback.message) {
+        await this.editMessage(threadId, fallback.message.id, committable);
+      } else {
+        fallback.message = await this.postMessage(threadId, committable);
+      }
+      fallbackSent = committable;
+      lastFallbackEditAt = now;
+    };
+
+    const switchToFallback = (error: unknown): void => {
+      fallback.mode = "fallback";
+      const platformError = slackPlatformErrorCode(error);
+      if (
+        platformError &&
+        NATIVE_STREAMING_UNSUPPORTED_ERRORS.has(platformError)
+      ) {
+        // The workspace will reject every future attempt too — latch so
+        // later streams skip straight to post-and-edit.
+        this.nativeStreamingBroken = true;
+      }
+      this.logger.warn(
+        "Slack native streaming unavailable, falling back to post-and-edit",
+        { channel, error }
+      );
+    };
+
+    /**
+     * Flush committed renderer text: as a mention-resolved markdown_text
+     * delta on the native stream, or as a throttled post/edit in fallback
+     * mode (postMessage/editMessage resolve mentions themselves). A failure
+     * of the FIRST native flush (chat.startStream) switches to fallback mode.
+     */
+    const flushCommitted = async (force = false): Promise<void> => {
+      if (fallback.mode === "fallback") {
+        await flushFallback(force);
+        return;
+      }
+      await resolveCommitted(renderer.getCommittableText());
+      const delta = resolvedCommitted.slice(lastAppended.length);
       if (delta.length === 0) {
         return;
       }
-      await streamer.append({ markdown_text: delta, token });
+      try {
+        // append() buffers small deltas in memory and returns null until it
+        // actually calls the API — only a non-null response proves content
+        // is rendering natively.
+        const response = await streamer.append({
+          markdown_text: delta,
+          token,
+        });
+        if (response) {
+          fallback.nativeRendered = true;
+        }
+        lastAppended = resolvedCommitted;
+      } catch (error) {
+        if (fallback.nativeRendered) {
+          // A native call succeeded earlier; content is already rendering
+          // natively, so a mid-stream failure can't be recovered here.
+          throw error;
+        }
+        switchToFallback(error);
+        await flushFallback(force);
+      }
     };
 
     /**
@@ -4020,26 +4815,31 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
      * directly to Slack's streaming API. Any buffered markdown text is
      * flushed first to maintain correct ordering.
      *
-     * If the Slack API rejects the chunk (e.g. missing assistant:write scope,
-     * older @slack/web-api version, or Assistant features not enabled in the
-     * app manifest), the error is logged and the chunk is silently skipped.
-     * Text streaming continues unaffected.
+     * If the Slack API rejects the chunk (e.g. missing assistant:write scope
+     * or Assistant features not enabled in the app manifest), the error is
+     * logged and the chunk is silently skipped. Text streaming continues
+     * unaffected. In fallback mode structured chunks are skipped — task
+     * cards only exist on the native streaming surface.
      */
     let structuredChunksSupported = true;
     const sendStructuredChunk = async (chunk: StreamChunk): Promise<void> => {
-      if (!structuredChunksSupported) {
+      // Flush any buffered markdown before sending the structured chunk
+      await flushCommitted();
+
+      if (fallback.mode === "fallback" || !structuredChunksSupported) {
+        this.logger.debug("Slack: structured chunk skipped", {
+          chunkType: chunk.type,
+          mode: fallback.mode,
+        });
         return;
       }
 
-      // Flush any buffered markdown before sending the structured chunk
-      const committable = renderer.getCommittableText();
-      const delta = committable.slice(lastAppended.length);
-      await flushMarkdownDelta(delta);
-      lastAppended = committable;
-
       try {
-        // biome-ignore lint/suspicious/noExplicitAny: chunks not in ChatAppendStreamArguments for older @slack/web-api
-        await streamer.append({ chunks: [chunk], token } as any);
+        await streamer.append({
+          chunks: [chunk] as ChatAppendStreamArguments["chunks"],
+          token,
+        });
+        fallback.nativeRendered = true;
       } catch (error) {
         // Structured chunks may fail if the app doesn't have the required
         // Assistant scopes/features. Disable for the rest of this stream
@@ -4047,26 +4847,20 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
         structuredChunksSupported = false;
         this.logger.warn(
           "Structured streaming chunk failed, falling back to text-only streaming. " +
-            "Ensure your Slack app manifest includes assistant_view, assistant:write scope, " +
-            "and @slack/web-api >= 7.14.0",
+            "Ensure your Slack app manifest includes the agent/assistant feature " +
+            "and the assistant:write scope",
           { chunkType: chunk.type, error }
         );
       }
     };
 
-    const pushTextAndFlush = async (text: string): Promise<void> => {
-      renderer.push(text);
-      const committable = renderer.getCommittableText();
-      const delta = committable.slice(lastAppended.length);
-      await flushMarkdownDelta(delta);
-      lastAppended = committable;
-    };
-
     for await (const chunk of textStream) {
       if (typeof chunk === "string") {
-        await pushTextAndFlush(chunk);
+        renderer.push(chunk);
+        await flushCommitted();
       } else if (chunk.type === "markdown_text") {
-        await pushTextAndFlush(chunk.text);
+        renderer.push(chunk.text);
+        await flushCommitted();
       } else {
         // Structured chunk (task_update, plan_update) — send directly to Slack
         await sendStructuredChunk(chunk);
@@ -4075,18 +4869,52 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
 
     // Flush any remaining buffered content (e.g. held table rows at end of stream).
     renderer.finish();
-    const finalCommittable = renderer.getCommittableText();
-    const finalDelta = finalCommittable.slice(lastAppended.length);
-    await flushMarkdownDelta(finalDelta);
+    await flushCommitted(true);
 
-    const result = await streamer.stop({
-      token,
-      ...(options?.stopBlocks
-        ? {
-            blocks: options.stopBlocks as ChatStopStreamArguments["blocks"],
-          }
-        : {}),
-    });
+    if (fallback.mode === "fallback") {
+      if (options?.stopBlocks || this.feedbackButtons) {
+        this.logger.warn(
+          "Slack: stream-end blocks (stopBlocks/feedbackButtons) skipped - post-and-edit fallback cannot attach stream blocks",
+          { channel }
+        );
+      }
+      this.logger.debug("Slack: fallback stream complete", {
+        messageId: fallback.message?.id,
+      });
+      return fallback.message;
+    }
+
+    // Caller blocks (StreamingPlan endWith) first, then the configured
+    // feedback buttons so they render at the very end of the reply.
+    const stopBlocks = [
+      ...(options?.stopBlocks ?? []),
+      ...(this.feedbackButtons
+        ? [buildFeedbackButtonsBlock(this.feedbackButtons)]
+        : []),
+    ];
+    let result: Awaited<ReturnType<typeof streamer.stop>>;
+    try {
+      result = await streamer.stop({
+        token,
+        ...(stopBlocks.length > 0
+          ? { blocks: stopBlocks as ChatStopStreamArguments["blocks"] }
+          : {}),
+      });
+    } catch (error) {
+      if (fallback.nativeRendered) {
+        throw error;
+      }
+      // Short streams can buffer every delta in the streamer, making stop()
+      // the FIRST real API call — on an unsupported workspace this is where
+      // the failure lands, so the post-and-edit fallback must engage here
+      // too. Stream-end blocks are skipped, as in any fallback.
+      switchToFallback(error);
+      await flushFallback(true);
+      this.logger.debug("Slack: fallback stream complete", {
+        messageId: fallback.message?.id,
+      });
+      return fallback.message;
+    }
     const messageTs = (result.message?.ts ?? result.ts) as string;
 
     this.logger.debug("Slack: stream complete", { messageId: messageTs });
@@ -4471,6 +5299,7 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
         userName,
         fullName,
         isBot: !!event.bot_id,
+        isSystem: event.user === SLACK_SYSTEM_USER_ID,
         isMe,
       },
       metadata: {
@@ -4793,7 +5622,21 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
     // Use the existing postMessage logic but with no threadTs
     // Build a synthetic thread ID with empty threadTs
     const syntheticThreadId = `slack:${channel}:`;
-    return await this.postMessage(syntheticThreadId, message);
+    const result = await this.postMessage(syntheticThreadId, message);
+
+    if (
+      typeof result.raw !== "object" ||
+      result.raw === null ||
+      !("ts" in result.raw) ||
+      typeof result.raw.ts !== "string"
+    ) {
+      return result;
+    }
+
+    return {
+      ...result,
+      threadId: this.encodeThreadId({ channel, threadTs: result.raw.ts }),
+    };
   }
 
   renderFormatted(content: FormattedContent): string {
@@ -4998,30 +5841,46 @@ export function createSlackAdapter(config?: SlackAdapterConfig): SlackAdapter {
     );
   }
 
-  // Auth fields (botToken, clientId, clientSecret) are modal: botToken's
-  // presence selects single-workspace mode, its absence selects multi-workspace
-  // (per-team token lookup via installations). Only fall back to env vars
-  // in zero-config mode (no config provided at all).
-  const zeroConfig = !config;
+  // Auth fields (botToken, clientId, clientSecret, installationProvider) are
+  // modal: botToken's presence selects single-workspace mode, its absence
+  // selects multi-workspace (per-team token lookup via installations). Fall
+  // back to env vars only when the caller passed no auth or verification
+  // field, so an explicit auth setup (including signingSecret-only
+  // multi-workspace configs) can't be silently mixed with ambient env auth —
+  // while non-auth options (agentView, mode, logger, …) keep env auth
+  // detection working.
+  const noAuthConfig = !(
+    config?.botToken ||
+    config?.clientId ||
+    config?.clientSecret ||
+    config?.installationProvider ||
+    config?.signingSecret ||
+    config?.webhookVerifier
+  );
 
   const resolved: SlackAdapterConfig = {
+    agentView: config?.agentView,
     apiUrl: config?.apiUrl,
     appToken,
     mode,
     signingSecret,
     botToken:
       config?.botToken ??
-      (zeroConfig ? process.env.SLACK_BOT_TOKEN : undefined),
+      (noAuthConfig ? process.env.SLACK_BOT_TOKEN : undefined),
     clientId:
       config?.clientId ??
-      (zeroConfig ? process.env.SLACK_CLIENT_ID : undefined),
+      (noAuthConfig ? process.env.SLACK_CLIENT_ID : undefined),
     clientSecret:
       config?.clientSecret ??
-      (zeroConfig ? process.env.SLACK_CLIENT_SECRET : undefined),
+      (noAuthConfig ? process.env.SLACK_CLIENT_SECRET : undefined),
     encryptionKey: config?.encryptionKey ?? process.env.SLACK_ENCRYPTION_KEY,
     installationKeyPrefix: config?.installationKeyPrefix,
+    feedbackButtons: config?.feedbackButtons,
     installationProvider: config?.installationProvider,
+    loadingMessages: config?.loadingMessages,
     logger: config?.logger ?? new ConsoleLogger("info").child("slack"),
+    nativeStreaming: config?.nativeStreaming,
+    suggestedPrompts: config?.suggestedPrompts,
     socketForwardingSecret:
       config?.socketForwardingSecret ??
       process.env.SLACK_SOCKET_FORWARDING_SECRET,
@@ -5033,6 +5892,13 @@ export function createSlackAdapter(config?: SlackAdapterConfig): SlackAdapter {
   return new SlackAdapter(resolved);
 }
 
+export type {
+  SlackAppContext,
+  SlackAppContextChangedEvent,
+  SlackAppContextEntity,
+} from "./agent-context";
+// Re-export agent active-view context helpers for advanced use
+export { getAppContext, normalizeAppContextEntities } from "./agent-context";
 // Re-export card converter for advanced use
 export { cardToBlockKit, cardToFallbackText } from "./cards";
 export type { EncryptedTokenData } from "./crypto";

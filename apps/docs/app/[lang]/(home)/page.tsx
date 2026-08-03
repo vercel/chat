@@ -109,7 +109,9 @@ const jsonLd = {
 };
 
 const HomePage = () => (
-  <div className="w-full pb-24 sm:pb-36">
+  // Single gutter for the whole page; sections are flush so their content lines
+  // up with the navbar's content edges.
+  <div className="mx-auto w-full max-w-[1448px] px-4 pb-12 sm:px-6 sm:pb-16">
     <script
       // biome-ignore lint/security/noDangerouslySetInnerHtml: static JSON-LD, not user input
       dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }}
@@ -139,23 +141,15 @@ const HomePage = () => (
           <CommandPromptCopy />
         </CommandPromptSurface>
       </CommandPromptRoot>
-      <div className="mx-auto mt-12 max-w-4xl px-4 text-left sm:mt-16">
+      <div className="mx-auto mt-12 max-w-4xl text-left sm:mt-16">
         <Demo />
       </div>
     </Hero>
-    <div className="flex w-full justify-center px-4">
-      <div className="home-grid-system-wrapper">
-        <div className="home-grid-system relative sm:border-x-0">
-          <OssStatsSection />
-          <SupportedPlatforms />
-          <CodeSection />
-          <IntegrationsSection />
-          <div className="home-grid-section">
-            <GetStartedSection data={templates} />
-          </div>
-        </div>
-      </div>
-    </div>
+    <OssStatsSection />
+    <SupportedPlatforms />
+    <CodeSection />
+    <IntegrationsSection />
+    <GetStartedSection data={templates} />
   </div>
 );
 

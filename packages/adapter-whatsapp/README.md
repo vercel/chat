@@ -133,6 +133,7 @@ export async function POST(request: Request) {
 | Streaming | Buffered (accumulates then sends) |
 | Mark as read | Yes |
 | Auto-chunking | Yes (splits at 4096 chars) |
+| Template messages | Yes (via `sendTemplate`) |
 
 ### Rich content
 
@@ -151,6 +152,25 @@ export async function POST(request: Request) {
 | Typing indicator | Yes (requires a recent inbound message, marks it as read, and displays for up to 25 seconds) |
 | DMs | Yes |
 | Open DM | Yes |
+
+### Typing indicators
+
+WhatsApp supports typing indicators through `thread.startTyping()` or `adapter.startTyping(threadId)`.
+
+Use it when the bot is about to respond and may take a few seconds. The adapter uses the most recent inbound message ID from thread history, so `startTyping()` only works after the bot has received a message.
+
+```typescript
+await thread.startTyping();
+
+await thread.post({
+  markdown: "Thanks, I am checking that now.",
+});
+```
+
+WhatsApp-specific behavior:
+
+- If there is no inbound message context, `startTyping()` no-ops.
+- The typing indicator is dismissed when the bot sends its reply, or after the WhatsApp platform timeout.
 
 ### Incoming message types
 
@@ -180,6 +200,27 @@ Card elements are automatically converted to WhatsApp interactive messages:
 - **3 or fewer buttons** — rendered as WhatsApp reply buttons (max 20 chars per title)
 - **More than 3 buttons** — falls back to formatted text
 - **Max body text** — 1024 characters
+
+## Template messages
+
+Outside the 24-hour customer service window, WhatsApp only accepts pre-approved [template messages](https://developers.facebook.com/docs/whatsapp/cloud-api/guides/send-message-templates). Use `sendTemplate` to start business-initiated conversations:
+
+```typescript
+const threadId = await adapter.openDM("15551234567");
+
+await adapter.sendTemplate(threadId, {
+  name: "appointment_reminder",
+  language: "en",
+  components: [
+    {
+      type: "body",
+      parameters: [{ type: "text", text: "Tomorrow at 2pm" }],
+    },
+  ],
+});
+```
+
+Templates must be created and approved in [WhatsApp Manager](https://business.facebook.com/wa/manage/message-templates/) before they can be sent. Quick reply button taps on a template arrive as button responses and are dispatched to your `onAction` handlers.
 
 ## Thread ID format
 

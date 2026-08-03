@@ -12,6 +12,8 @@ export type TeamsModalChild =
   | TeamsFieldsModalElement
   | TeamsModalTextElement
   | TeamsModalTextInputElement
+  | TeamsModalDateInputElement
+  | TeamsModalNumberInputElement
   | TeamsModalSelectElement
   | TeamsModalRadioSelectElement;
 
@@ -40,6 +42,26 @@ export interface TeamsModalTextInputElement {
   optional?: boolean;
   placeholder?: string;
   type: "text_input";
+}
+
+export interface TeamsModalDateInputElement {
+  id: string;
+  initialValue?: string;
+  label: string;
+  optional?: boolean;
+  placeholder?: string;
+  type: "date_input";
+}
+
+export interface TeamsModalNumberInputElement {
+  id: string;
+  initialValue?: number;
+  label: string;
+  max?: number;
+  min?: number;
+  optional?: boolean;
+  placeholder?: string;
+  type: "number_input";
 }
 
 export interface TeamsModalSelectElement {

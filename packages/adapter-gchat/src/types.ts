@@ -26,9 +26,24 @@ export interface GoogleChatAdapterBaseConfig {
    */
   disableSignatureVerification?: boolean;
   /**
-   * HTTP endpoint URL for button click actions.
-   * Required for HTTP endpoint apps - button clicks will be routed to this URL.
-   * Should be the full URL of your webhook endpoint (e.g., "https://your-app.vercel.app/api/webhooks/gchat")
+   * HTTP endpoint URL for button click action routing, and an accepted JWT
+   * audience for direct-webhook verification.
+   *
+   * - **Button click routing**: required for HTTP-endpoint Chat apps —
+   *   button clicks are dispatched back to this URL.
+   * - **Webhook verification**: when set, this value is accepted as a valid
+   *   `aud` claim for incoming direct webhooks. Configure this when the Chat
+   *   app's authentication audience is "HTTP endpoint URL" (always the case
+   *   for Workspace Add-on Chat apps, where Google issues OIDC tokens whose
+   *   `aud` is the endpoint URL and whose `email` is
+   *   `service-{projectNumber}@gcp-sa-gsuiteaddons.iam.gserviceaccount.com`).
+   *
+   * One of `endpointUrl`, `googleChatProjectNumber`, `pubsubAudience`, or
+   * `disableSignatureVerification: true` is required. May be combined with
+   * `googleChatProjectNumber` — when both are set, either audience verifies.
+   *
+   * Should be the full URL of your webhook endpoint, e.g.
+   * `https://your-app.vercel.app/api/webhooks/gchat`.
    */
   endpointUrl?: string;
   /**

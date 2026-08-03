@@ -88,11 +88,16 @@ export const OssStatsSection = async () => {
   ];
 
   return (
-    <dl className="home-grid home-grid-stats" data-home-grid>
+    <dl className="grid grid-cols-12 gap-x-8 gap-y-10 py-10 lg:gap-x-12 lg:py-12">
       {stats.map((stat) => (
-        <div className="home-grid-cell text-left" key={stat.label}>
-          <dt className="text-gray-1000 text-heading-32">{stat.value}</dt>
-          <dd className="whitespace-nowrap font-mono text-gray-900 text-sm">
+        <div
+          className="col-span-6 sm:mx-auto min-[768px]:col-span-3"
+          key={stat.label}
+        >
+          <dt className="text-gray-1000 text-heading-40 sm:text-heading-64">
+            {stat.value}
+          </dt>
+          <dd className="whitespace-nowrap text-copy-16 text-gray-1000">
             {stat.label}
           </dd>
         </div>

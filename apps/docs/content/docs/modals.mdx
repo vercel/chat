@@ -13,7 +13,7 @@ Modals open form dialogs in response to button clicks or [slash commands](/docs/
 Modals are opened from [action handlers](/docs/actions) or [slash command handlers](/docs/slash-commands) using `event.openModal()`:
 
 ```tsx title="lib/bot.tsx" lineNumbers
-import { Modal, TextInput, Select, SelectOption } from "chat";
+import { Modal, TextInput, DateInput, Select, SelectOption } from "chat";
 
 bot.onAction("feedback", async (event) => {
   await event.openModal(
@@ -35,6 +35,7 @@ bot.onAction("feedback", async (event) => {
         <SelectOption label="Feature Request" value="feature" />
         <SelectOption label="General" value="general" />
       </Select>
+      <DateInput id="due_date" label="Follow up by" optional />
       <TextInput
         id="email"
         label="Email (optional)"
@@ -75,6 +76,41 @@ A text field for user input.
 | `multiline` | `boolean` (optional) | Render as textarea |
 | `optional` | `boolean` (optional) | Allow empty submission |
 | `maxLength` | `number` (optional) | Maximum character count |
+
+### DateInput
+
+A date picker. Renders a Slack `datepicker` and an Adaptive Card `Input.Date`.
+
+| Prop | Type | Description |
+|------|------|-------------|
+| `id` | `string` | Field identifier (key in `event.values`) |
+| `label` | `string` | Field label |
+| `placeholder` | `string` (optional) | Placeholder text |
+| `initialValue` | `string` (optional) | Pre-filled date as `YYYY-MM-DD` |
+| `optional` | `boolean` (optional) | Allow empty submission |
+
+The submitted value is an ISO `YYYY-MM-DD` string. An `initialValue` that is not a valid `YYYY-MM-DD` date is ignored with a warning, because Slack rejects a malformed `initial_date` by refusing to open the modal at all.
+
+### NumberInput
+
+A numeric field. Renders a Slack `number_input` and an Adaptive Card `Input.Number`.
+
+| Prop | Type | Description |
+|------|------|-------------|
+| `id` | `string` | Field identifier (key in `event.values`) |
+| `label` | `string` | Field label |
+| `placeholder` | `string` (optional) | Placeholder text |
+| `initialValue` | `number` (optional) | Pre-filled value |
+| `min` | `number` (optional) | Minimum accepted value |
+| `max` | `number` (optional) | Maximum accepted value |
+| `decimal` | `boolean` (optional) | Allow decimals — defaults to integers only |
+| `optional` | `boolean` (optional) | Allow empty submission |
+
+Like every other field, the submitted value arrives in `event.values` as a string — parse it with `Number(...)` if you need a number.
+
+<Callout type="info">
+  `decimal` is enforced by Slack. Adaptive Cards has no decimal switch, so `Input.Number` accepts decimals on Teams regardless — validate server-side if the distinction matters.
+</Callout>
 
 ### Select
 

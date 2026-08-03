@@ -28,7 +28,7 @@ const AdaptersPage = () => (
       type="application/ld+json"
     />
     <section className="mt-(--fd-nav-height) space-y-4 px-4 pt-16 pb-8 sm:pt-24">
-      <h1 className="text-balance font-semibold text-4xl leading-[1.1] tracking-tight sm:text-[44px]">
+      <h1 className="text-balance text-heading-40 sm:text-heading-48">
         Adapters
       </h1>
       <p className="max-w-2xl text-[15px] text-muted-foreground leading-[1.55]">

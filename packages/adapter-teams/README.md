@@ -185,12 +185,12 @@ TEAMS_API_URL=...        # Optional, for GCC-High or sovereign-cloud deployments
 |---------|-----------|
 | Slash commands | No |
 | Mentions | Yes |
-| Add reactions | No |
-| Remove reactions | No |
+| Add reactions | Yes |
+| Remove reactions | Yes |
 | Receive reactions | Yes |
 | Typing indicator | Yes |
 | DMs | Yes |
-| Ephemeral messages | No (DM fallback) |
+| Ephemeral messages | Yes (native targeted messages, public preview) |
 | User lookup (`getUser`) | Yes (requires `User.Read.All`) |
 
 ### Message history
@@ -205,6 +205,14 @@ TEAMS_API_URL=...        # Optional, for GCC-High or sovereign-cloud deployments
 | Fetch channel info | Yes (requires Graph permissions) |
 | Post channel message | Yes |
 
+## Conversation routing
+
+Incoming thread IDs preserve the Teams conversation type when the legacy ID-prefix heuristic would route it incorrectly. This keeps correctly classified IDs stable while selecting the buffered fallback for group chats whose IDs begin with `a:`. Thread IDs created by older adapter versions remain supported.
+
+## Incoming attachments
+
+Incoming inline images and files are exposed through `message.attachments` with a lazy `fetchData()` method. The adapter authenticates connector-hosted inline attachments through the configured Teams bot client, while [Teams file download cards](https://learn.microsoft.com/en-us/microsoftteams/platform/bots/how-to/bots-filesv4) use their direct download URL without the bot token.
+
 ## User lookup (`getUser`)
 
 The adapter supports looking up user profiles via the Microsoft Graph API. To enable it:
@@ -218,7 +226,21 @@ console.log(user?.email);    // "alice@contoso.com"
 console.log(user?.fullName); // "Alice Smith"
 ```
 
-The adapter caches each user's Azure AD object ID from incoming activities, so `getUser` only works for users who have previously interacted with the bot. Returns `null` if the user hasn't been seen or the Graph call fails.
+Incoming message authors also include `email` when Graph resolves the sender. The adapter uses the activity's Azure AD object ID first and falls back to its cached ID, so missing permissions or lookup failures leave `message.author.email` undefined without preventing message delivery. This applies to live incoming messages only — authors on edited-message events and messages returned by `fetchMessages` are not hydrated with an email. Resolved profiles are cached in the state adapter for 1 hour (failed lookups for 5 minutes), so busy conversations don't trigger a Graph call per message.
+
+The adapter caches each user's Azure AD object ID from incoming activities for later `getUser` calls. `getUser` returns `null` if the user hasn't been seen or the Graph call fails.
+
+## Targeted / ephemeral messages
+
+Teams targeted messages are available in public preview. Use the standard Chat SDK `postEphemeral` API to send a message that is visible only to a specific Teams conversation member:
+
+```typescript
+await thread.postEphemeral(message.author, "Only you can see this.", {
+  fallbackToDM: false,
+});
+```
+
+The adapter sends these natively with Teams targeted message metadata. `usedFallback` is `false` when the Teams API accepts the message.
 
 ## Message history (`fetchMessages`)
 

@@ -127,10 +127,37 @@ export interface WhatsAppInboundMessage {
     payload: string;
     text: string;
   };
-  /** Context for quoted replies */
+  /**
+   * Context accompanying quoted replies, forwarded messages, and catalog
+   * product inquiries. The shape depends on the message origin: replies (and
+   * interactions with a business message) carry `from` and `id`, forwarded
+   * messages carry only `forwarded` or `frequently_forwarded`, and catalog
+   * product inquiries add `referred_product`. No field is present in every
+   * variant.
+   *
+   * @see https://developers.facebook.com/documentation/business-messaging/whatsapp/webhooks/reference/messages/text
+   */
   context?: {
-    from: string;
-    id: string;
+    /** True when the message was forwarded five or fewer times; forwards only */
+    forwarded?: boolean;
+    /** True when the message was forwarded more than five times; forwards only */
+    frequently_forwarded?: boolean;
+    /**
+     * Sender of the quoted message on a reply, or the business display phone
+     * number when the message came from a "Message business" button. Absent on
+     * forwards.
+     */
+    from?: string;
+    /**
+     * ID of the quoted message on a reply, or of the message the user tapped
+     * "Message business" from. Absent on forwards.
+     */
+    id?: string;
+    /** Product the customer is asking about; catalog inquiries only */
+    referred_product?: {
+      catalog_id: string;
+      product_retailer_id: string;
+    };
   };
   /** Document message content */
   document?: {
@@ -205,7 +232,8 @@ export interface WhatsAppInboundMessage {
     | "button"
     | "reaction"
     | "order"
-    | "system";
+    | "system"
+    | "template";
   /** Video message content */
   video?: {
     caption?: string;
@@ -233,6 +261,15 @@ export interface WhatsAppMediaResponse {
   mime_type: string;
   sha256: string;
   url: string;
+}
+
+/**
+ * Response from uploading media via the Cloud API.
+ *
+ * @see https://developers.facebook.com/docs/whatsapp/cloud-api/reference/media#upload-media
+ */
+export interface WhatsAppMediaUploadResponse {
+  id: string;
 }
 
 /**
@@ -307,6 +344,77 @@ export interface WhatsAppInteractiveMessage {
   footer?: { text: string };
   header?: { text: string; type: "text" };
   type: "button" | "list";
+}
+
+// =============================================================================
+// Template Messages
+// =============================================================================
+
+/**
+ * Parameter for a template header or body component.
+ *
+ * @see https://developers.facebook.com/docs/whatsapp/cloud-api/reference/messages#parameter-object
+ */
+export type WhatsAppTemplateParameter =
+  | { text: string; type: "text" }
+  | {
+      currency: {
+        amount_1000: number;
+        code: string;
+        fallback_value: string;
+      };
+      type: "currency";
+    }
+  | {
+      date_time: { fallback_value: string };
+      type: "date_time";
+    }
+  | { image: { id?: string; link?: string }; type: "image" }
+  | {
+      document: { filename?: string; id?: string; link?: string };
+      type: "document";
+    }
+  | { type: "video"; video: { id?: string; link?: string } };
+
+/**
+ * Parameter for a template button component.
+ *
+ * URL buttons take a text parameter substituted into the button's URL;
+ * quick reply buttons take a payload echoed back in the button response.
+ */
+export type WhatsAppTemplateButtonParameter =
+  | { text: string; type: "text" }
+  | { payload: string; type: "payload" };
+
+/**
+ * A component of a template message carrying variable substitutions.
+ */
+export type WhatsAppTemplateComponent =
+  | { parameters: WhatsAppTemplateParameter[]; type: "header" }
+  | { parameters: WhatsAppTemplateParameter[]; type: "body" }
+  | {
+      index: number;
+      parameters: WhatsAppTemplateButtonParameter[];
+      sub_type: "url" | "quick_reply";
+      type: "button";
+    };
+
+/**
+ * A pre-approved template message.
+ *
+ * Templates are the only message type the Cloud API accepts outside the
+ * 24-hour customer service window, so they are required for
+ * business-initiated conversations.
+ *
+ * @see https://developers.facebook.com/docs/whatsapp/cloud-api/guides/send-message-templates
+ */
+export interface WhatsAppTemplateMessage {
+  /** Variable substitutions for the template's components. Omit for templates without variables. */
+  components?: WhatsAppTemplateComponent[];
+  /** Template language code (e.g. "en", "en_US") */
+  language: string;
+  /** Name of the approved template */
+  name: string;
 }
 
 // =============================================================================

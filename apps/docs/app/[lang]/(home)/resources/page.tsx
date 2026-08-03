@@ -66,7 +66,7 @@ const ResourcesPage = async () => {
         type="application/ld+json"
       />
       <section className="mt-(--fd-nav-height) space-y-4 px-4 pt-16 pb-8 sm:pt-24">
-        <h1 className="text-balance font-semibold text-[40px] leading-[1.1] tracking-tight sm:text-5xl">
+        <h1 className="text-balance text-heading-40 sm:text-heading-48">
           Resources
         </h1>
         <p className="max-w-2xl text-lg text-muted-foreground leading-relaxed">

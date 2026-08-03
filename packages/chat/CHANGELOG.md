@@ -1,5 +1,81 @@
 # chat
 
+## 4.36.0
+
+### Minor Changes
+
+- c5d86b1: confine built-in agent read tools to the conversation being handled, with an optional scope override
+- 0153a39: Add `DateInput` and `NumberInput` modal children. The Slack adapter renders them as a `datepicker` and a `number_input`, the Teams adapter as `Input.Date` and `Input.Number`, and both submitted values arrive in `event.values` as strings.
+
+  Teams submit values that arrive as JSON numbers are now stringified into `event.values` instead of being dropped. This fixes `Input.Number`, but applies to any numeric value a Teams dialog submits — a key that was previously absent from `event.values` will now be present as a string.
+
+### Patch Changes
+
+- 257a32d: Route Teams personal and group conversations using their explicit conversation type so group chats use buffered fallback even when their IDs resemble direct messages.
+- b547f45: Stop treating email addresses as bot mentions. A message containing `jane@acme.com` no longer triggers a bot named `acme`, because the `@` in `detectMention` must not follow a word character. Real mentions are unaffected, including at the start of a message, after punctuation, and suffixed names such as GitHub's `mybot[bot]`.
+- caa6325: Add XChat support to `@chat-adapter/x`, shipped from the new `@chat-adapter/x/chat` subpath so it sits alongside the existing X adapter. The XChat crypto stack (`@xdevplatform/chat-xdk`, `@xdevplatform/xdk`, `juicebox-sdk`) is an optional peer dependency, so existing `@chat-adapter/x` users are unaffected. All cryptography is handled inside the adapter via `@xdevplatform/chat-xdk` (wasm) and all REST goes through the typed `@xdevplatform/xdk` client. Only a bot token and a Juicebox PIN are required: the bot's identity (user id and @handle) is resolved from `GET /2/users/me` at startup.
+
+  - Encrypted send/receive in DMs and groups (webhook push + polling), signature verification on by default; undecryptable or unverified events are dropped
+  - Webhook POSTs must carry a valid `x-twitter-webhooks-signature`, which X sends on every delivery. Set `consumerSecret` (or `X_CONSUMER_SECRET`) to receive webhooks, or `disableWebhookVerification` when an upstream layer already verifies them. Polling deployments are unaffected
+  - Mention detection from structured mention entities, swipe-replies to the bot, and a plain-text `@handle` fallback; group replies sent as quoted replies
+  - `openDM(userId)` starts (or reuses) an encrypted 1:1, running a full key exchange when needed so the bot can message first
+  - Media both ways: inbound attachments with lazy download+decrypt, outbound encrypted uploads
+  - Edit and delete of the bot's own messages; the first edit of a fresh message is age-gated by `editSafetyDelayMs` (default 5000ms) so receiving clients have stored the original
+  - Reactions in and out, read receipts (`sendReadReceipts`, default on), typing keep-alive, configurable group welcome message
+  - Cards degrade to text with tappable URL/mention entities plus a URL preview attachment
+  - Requests carry a `chat-sdk-xchat/<version>` User-Agent product token so Chat SDK traffic is identifiable in X API request logs (a User-Agent set via `apiHeaders` takes precedence)
+  - Registered in the `chat/adapters` catalog and the `create-chat-sdk` CLI scaffold, with a new optional `importPath` catalog field for adapters that ship on a subpath
+
+## 4.35.0
+
+### Minor Changes
+
+- 4cb7e5d: Add a `chat/workflow` subpath with `requestApproval()`: durable human-in-the-loop approvals built on Workflow SDK. It posts an approval card with Approve/Deny buttons, suspends the workflow until a user decides (or an optional timeout elapses), validates approvers, finalizes the card with the outcome, and returns `{ approved, timedOut, user }`. Also exports the `buildApprovalCard` and `buildResolvedCard` builders. Requires the new optional `workflow` peer dependency.
+- 46681f5: Expose Microsoft Graph email addresses on normalized incoming Teams message authors. Resolved user profiles are cached in the state adapter (1 hour, failed lookups 5 minutes) so the lookup doesn't add a Graph call per message.
+
+### Patch Changes
+
+- 80def3a: Add optional `isSystem` field to the normalized message `Author` type to distinguish platform-generated messages from humans and bots. The Slack adapter now sets `isSystem: true` for messages authored by Slack's reserved `USLACK` user (e.g. "@user archived the channel" notifications in DMs), so consumers no longer need to hard-code Slack-specific user IDs.
+- 93a58af: Show explicitly configured progress as a native Teams DM status while preserving native streaming.
+- 25f3099: `toAiMessages` no longer drops messages that have no text. A message with an empty text body is now kept when it has links or attachments the converter can include: images and text files (`text/*`, JSON, XML, YAML, etc.) with a working `fetchData()`. Messages whose only attachments are unsupported (video, audio, other file types, or attachments without `fetchData()`) are still skipped, and `onUnsupportedAttachment` now fires for video/audio attachments on these previously filtered messages.
+
+  Note: multipart `content` no longer always starts with a text part. When a kept message had no text, its `content` array contains only attachment parts.
+
+## 4.34.0
+
+### Minor Changes
+
+- 1721fa0: Add support for Slack's Agent messaging experience (`agent_view`).
+
+  - New core event `onAppContextChanged` with a normalized `AppContextEntity[]` describing the user's active view (channel / canvas / list / message / unknown).
+  - `AppHomeOpenedEvent` now carries the folded active-view context as `entities` and the opened `tab` (Slack: `"home"` / `"messages"`), so handlers can tell a Home-tab open from the DM-open signal under `agent_view`.
+  - Slack adapter: new `agentView` config flag (under `agent_view`, `app_home_opened` is the DM-open signal regardless of tab and folded context is surfaced), routing for the `app_context_changed` event, and a `getAppContext(message)` helper to read the folded context on DM messages.
+  - `setSuggestedPrompts` now accepts an optional thread reference (agent_view lets prompts sit at the top of the agent conversation).
+  - Under `agentView`, DM (Messages-tab) messages are threaded per new Slack's model — each user message is a thread root (`thread_ts ?? ts`). Conversation-scoped threads returned by `openDM()` keep working: when that thread is subscribed, incoming top-level DM messages route to it.
+  - `createSlackAdapter` env auth fallback (`SLACK_BOT_TOKEN` / `SLACK_CLIENT_ID` / `SLACK_CLIENT_SECRET`) is now disabled only when an auth or verification field (`botToken`, `clientId`, `clientSecret`, `installationProvider`, `signingSecret`, `webhookVerifier`) is passed explicitly, instead of by any config object — so `createSlackAdapter({ agentView: true })` still picks up env credentials, while explicit-secret configs stay immune to ambient env vars.
+  - Bumped `@slack/web-api` to `^7.18.0` (adds the optional `thread_ts` typing for `setSuggestedPrompts`).
+
+- 4717a38: Add chart support and richer table rendering, with native Slack data table and data visualization blocks.
+
+  - New core `ChartElement` and `Chart()` builder (JSX supported) with pie, bar, area, and line charts, mirroring Slack's data visualization model: pie charts take `segments`, series charts take named `series` plotted against shared `categories` with optional `xLabel`/`yLabel`.
+  - `TableElement` / `Table()` gain optional `caption` (accessible table description) and `pageSize` (rows per page) fields.
+  - Charts degrade gracefully on platforms without native chart support: the underlying data renders as a text table via the shared card fallback (new `chartElementToFallbackText` helper).
+  - Slack adapter: card tables now render as [data table blocks](https://docs.slack.dev/reference/block-kit/blocks/data-table-block) by default — paginated and sortable — instead of plain table blocks. Header-only tables keep the plain table block; tables exceeding Slack limits (100 data rows, 20 columns, 10,000 characters) fall back to ASCII as before.
+  - Slack adapter: card charts render as [data visualization blocks](https://docs.slack.dev/reference/block-kit/blocks/data-visualization-block). Charts violating Slack constraints (50-character title, 12 segments/series, 20 categories, 20-character labels, one data point per category, max 2 charts per message) fall back to a text rendering instead of being rejected by the API.
+  - The `@chat-adapter/slack/blocks` subpath gets the same treatment: `SlackChartElement` types, `chart` card children, data table rendering, and matching limits.
+  - `postMessage` now surfaces Slack's per-block validation details when the API rejects blocks (`invalid_blocks`), instead of the bare "An API error occurred" message.
+
+- 6714efc: Support AI SDK v7 as a peer dependency.
+
+  - `chat` now accepts `ai@^6.0.182 || ^7.0.0` (`chat/ai` tools work with both majors).
+  - `@chat-adapter/web` now accepts `ai@^6 || ^7`, `@ai-sdk/react@^3 || ^4`, `@ai-sdk/svelte@^4 || ^5`, and `@ai-sdk/vue@^3 || ^4`.
+  - The `chat/ai` tool factories now declare explicit `Tool<Input, Output>` return types instead of relying on inference, so the published declarations no longer depend on `ai` internals that changed in v7. The public type surface is unchanged.
+
+### Patch Changes
+
+- 5c926f1: Preserve markdown structural whitespace when extracting normalized message text.
+- 2531a42: Fix `detectMention` (and the Telegram adapter's `isBotMentioned`) falsely matching `@bot` when `@bot-dev` is mentioned. `\b` (word boundary) matches between a word character and a hyphen, so `/@bot\b/` incorrectly matches `@bot-dev`. Replaced with `(?![\w-])` to exclude hyphens.
+
 ## 4.33.0
 
 ### Minor Changes

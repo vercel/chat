@@ -93,6 +93,7 @@ vi.mock("@octokit/auth-app", () => ({
 
 const WEBHOOK_SECRET = "test-secret";
 const INSTALLATION_ERROR_PATTERN = /installation/i;
+const TEST_BOT_MENTION_WITH_WHITESPACE_REGEX = /@test-bot\s+hi there/;
 const EMPTY_INSTALLATION_TOKEN_PATTERN = /empty installation token/i;
 const WEBHOOK_LOG_SENTINELS = [
   "secret-access-token",
@@ -1592,6 +1593,31 @@ describe("GitHubAdapter", () => {
       expect(message.author.isBot).toBe(false);
     });
 
+    it("should preserve whitespace in newline-separated issue comment mentions", () => {
+      const raw = {
+        type: "issue_comment" as const,
+        comment: {
+          id: 100,
+          body: "@test-bot\nhi there",
+          user: { id: 1, login: "testuser", type: "User" as const },
+          created_at: "2024-01-01T00:00:00Z",
+          updated_at: "2024-01-01T00:00:00Z",
+          html_url: "https://github.com/acme/app/pull/42#issuecomment-100",
+        },
+        repository: {
+          id: 1,
+          name: "app",
+          full_name: "acme/app",
+          owner: { id: 10, login: "acme", type: "User" as const },
+        },
+        prNumber: 42,
+      };
+
+      const message = adapter.parseMessage(raw);
+      expect(message.text).toMatch(TEST_BOT_MENTION_WITH_WHITESPACE_REGEX);
+      expect(message.text).not.toContain("@test-bothi there");
+    });
+
     it("should parse an issue_comment raw message from an issue thread", () => {
       const raw = {
         type: "issue_comment" as const,
@@ -1676,6 +1702,35 @@ describe("GitHubAdapter", () => {
       expect(message.id).toBe("200");
       // Root comment -> reviewCommentId = comment.id
       expect(message.threadId).toBe("github:acme/app:42:rc:200");
+    });
+
+    it("should preserve whitespace in newline-separated review comment mentions", () => {
+      const raw = {
+        type: "review_comment" as const,
+        comment: {
+          id: 200,
+          body: "@test-bot\nhi there",
+          user: { id: 2, login: "reviewer", type: "User" as const },
+          created_at: "2024-01-01T00:00:00Z",
+          updated_at: "2024-01-01T00:00:00Z",
+          html_url: "https://github.com/acme/app/pull/42#discussion_r200",
+          path: "src/index.ts",
+          diff_hunk: "@@",
+          commit_id: "abc",
+          original_commit_id: "abc",
+        },
+        repository: {
+          id: 1,
+          name: "app",
+          full_name: "acme/app",
+          owner: { id: 10, login: "acme", type: "User" as const },
+        },
+        prNumber: 42,
+      };
+
+      const message = adapter.parseMessage(raw);
+      expect(message.text).toMatch(TEST_BOT_MENTION_WITH_WHITESPACE_REGEX);
+      expect(message.text).not.toContain("@test-bothi there");
     });
 
     it("should parse a review_comment raw message (reply)", () => {

@@ -41,6 +41,9 @@ import {
   type CardElement,
   CardLink,
   type CardOptions,
+  Chart,
+  type ChartDefinition,
+  type ChartElement,
   Divider,
   type DividerElement,
   Field,
@@ -63,6 +66,9 @@ import {
 } from "./cards";
 
 import {
+  DateInput,
+  type DateInputElement,
+  type DateInputOptions,
   ExternalSelect,
   type ExternalSelectElement,
   type ExternalSelectOptions,
@@ -72,6 +78,9 @@ import {
   type ModalChild,
   type ModalElement,
   type ModalOptions,
+  NumberInput,
+  type NumberInputElement,
+  type NumberInputOptions,
   RadioSelect,
   type RadioSelectElement,
   type RadioSelectOptions,
@@ -177,6 +186,27 @@ export interface TextInputProps {
   placeholder?: string;
 }
 
+/** Props for DateInput component in JSX */
+export interface DateInputProps {
+  id: string;
+  initialValue?: string;
+  label: string;
+  optional?: boolean;
+  placeholder?: string;
+}
+
+/** Props for NumberInput component in JSX */
+export interface NumberInputProps {
+  decimal?: boolean;
+  id: string;
+  initialValue?: number;
+  label: string;
+  max?: number;
+  min?: number;
+  optional?: boolean;
+  placeholder?: string;
+}
+
 /** Props for Select component in JSX */
 export interface SelectProps {
   children?: unknown;
@@ -206,8 +236,16 @@ export interface SelectOptionProps {
 
 /** Props for Table component in JSX */
 export interface TableProps {
+  caption?: string;
   headers: string[];
+  pageSize?: number;
   rows: string[][];
+}
+
+/** Props for Chart component in JSX */
+export interface ChartProps {
+  chart: ChartDefinition;
+  title: string;
 }
 
 /** Union of all valid JSX props */
@@ -223,10 +261,13 @@ export type CardJSXProps =
   | DividerProps
   | ModalProps
   | TextInputProps
+  | DateInputProps
+  | NumberInputProps
   | SelectProps
   | ExternalSelectProps
   | SelectOptionProps
-  | TableProps;
+  | TableProps
+  | ChartProps;
 
 /** Component function type with proper overloads */
 type CardComponentFunction =
@@ -243,11 +284,14 @@ type CardComponentFunction =
   | typeof Fields
   | typeof Modal
   | typeof TextInput
+  | typeof DateInput
+  | typeof NumberInput
   | typeof Select
   | typeof ExternalSelect
   | typeof RadioSelect
   | typeof SelectOption
-  | typeof Table;
+  | typeof Table
+  | typeof Chart;
 
 /**
  * Represents a JSX element from the chat JSX runtime.
@@ -276,11 +320,14 @@ export type ChatElement =
   | FieldElement
   | ModalElement
   | TextInputElement
+  | DateInputElement
+  | NumberInputElement
   | SelectElement
   | ExternalSelectElement
   | SelectOptionElement
   | RadioSelectElement
-  | TableElement;
+  | TableElement
+  | ChartElement;
 
 // ============================================================================
 // JSX Component Function Types
@@ -358,6 +405,16 @@ export interface TextInputComponent {
   (props: TextInputProps): ChatElement;
 }
 
+export interface DateInputComponent {
+  (options: DateInputOptions): DateInputElement;
+  (props: DateInputProps): ChatElement;
+}
+
+export interface NumberInputComponent {
+  (options: NumberInputOptions): NumberInputElement;
+  (props: NumberInputProps): ChatElement;
+}
+
 export interface SelectComponent {
   (options: SelectOptions): SelectElement;
   (props: SelectProps): ChatElement;
@@ -383,8 +440,18 @@ export interface RadioSelectComponent {
 }
 
 export interface TableComponent {
-  (options: { headers: string[]; rows: string[][] }): TableElement;
+  (options: {
+    caption?: string;
+    headers: string[];
+    pageSize?: number;
+    rows: string[][];
+  }): TableElement;
   (props: TableProps): ChatElement;
+}
+
+export interface ChartComponent {
+  (options: { chart: ChartDefinition; title: string }): ChartElement;
+  (props: ChartProps): ChatElement;
 }
 
 // Internal alias for backwards compatibility
@@ -541,6 +608,29 @@ function isTextInputProps(props: CardJSXProps): props is TextInputProps {
     !("options" in props) &&
     !("value" in props)
   );
+}
+
+/**
+ * DateInput and NumberInput carry no discriminating prop beyond the id/label every input has — they are
+ * told apart by the component identity already matched in `resolveJSXElement`, so both guards share one
+ * predicate and differ only in the type they narrow to.
+ */
+function hasIdAndLabel(props: CardJSXProps): boolean {
+  return "id" in props && "label" in props;
+}
+
+/**
+ * Type guard to check if props match DateInputProps
+ */
+function isDateInputProps(props: CardJSXProps): props is DateInputProps {
+  return hasIdAndLabel(props);
+}
+
+/**
+ * Type guard to check if props match NumberInputProps
+ */
+function isNumberInputProps(props: CardJSXProps): props is NumberInputProps {
+  return hasIdAndLabel(props);
 }
 
 /**
@@ -727,6 +817,35 @@ function resolveJSXElement(element: JSXElement): AnyCardElement {
     });
   }
 
+  if (type === DateInput) {
+    if (!isDateInputProps(props)) {
+      throw new Error("DateInput requires 'id' and 'label' props");
+    }
+    return DateInput({
+      id: props.id,
+      label: props.label,
+      placeholder: props.placeholder,
+      initialValue: props.initialValue,
+      optional: props.optional,
+    });
+  }
+
+  if (type === NumberInput) {
+    if (!isNumberInputProps(props)) {
+      throw new Error("NumberInput requires 'id' and 'label' props");
+    }
+    return NumberInput({
+      id: props.id,
+      label: props.label,
+      placeholder: props.placeholder,
+      initialValue: props.initialValue,
+      optional: props.optional,
+      min: props.min,
+      max: props.max,
+      decimal: props.decimal,
+    });
+  }
+
   if (type === Select) {
     if (!isSelectProps(props)) {
       throw new Error("Select requires 'id' and 'label' props");
@@ -780,10 +899,20 @@ function resolveJSXElement(element: JSXElement): AnyCardElement {
   }
 
   if (type === Table) {
-    const tableProps = props as { headers: string[]; rows: string[][] };
+    const tableProps = props as TableProps;
     return Table({
       headers: tableProps.headers,
       rows: tableProps.rows,
+      caption: tableProps.caption,
+      pageSize: tableProps.pageSize,
+    });
+  }
+
+  if (type === Chart) {
+    const chartProps = props as ChartProps;
+    return Chart({
+      title: chartProps.title,
+      chart: chartProps.chart,
     });
   }
 

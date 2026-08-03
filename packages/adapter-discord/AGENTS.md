@@ -82,7 +82,7 @@ Main exports from `src/index.ts`:
 - `DiscordAdapter` class — implements `Adapter<DiscordThreadId,
   unknown>`. Public methods: `handleWebhook`, `postMessage`,
   `editMessage`, `deleteMessage`, `addReaction`, `removeReaction`,
-  `startTyping`, `openModal`, `fetchThread`, `listThreads`,
+  `startTyping`, `openModal`, `fetchThread`, `setThreadTitle`, `listThreads`,
   `fetchMessages`, `fetchSingleMessage`, `fetchChannelInfo`,
   `postChannelMessage`, `openDM`, `startGatewayListener`.
 - Configuration: `DiscordAdapterConfig`, `DiscordThreadId`.

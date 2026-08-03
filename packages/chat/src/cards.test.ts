@@ -4,6 +4,8 @@ import {
   Button,
   Card,
   CardLink,
+  Chart,
+  cardChildToFallbackText,
   Divider,
   Field,
   Fields,
@@ -11,6 +13,7 @@ import {
   isCardElement,
   LinkButton,
   Section,
+  Table,
   Text,
 } from "./cards";
 import { RadioSelect, Select, SelectOption } from "./modals";
@@ -202,6 +205,136 @@ describe("Card Builder Functions", () => {
       ]);
       expect(fields.type).toBe("fields");
       expect(fields.children).toHaveLength(2);
+    });
+  });
+
+  describe("Table", () => {
+    it("creates a table with caption and pageSize", () => {
+      const table = Table({
+        headers: ["Name", "Score"],
+        rows: [["Ada", "10"]],
+        caption: "Scores",
+        pageSize: 25,
+      });
+      expect(table.type).toBe("table");
+      expect(table.caption).toBe("Scores");
+      expect(table.pageSize).toBe(25);
+    });
+
+    it("leaves caption and pageSize undefined when omitted", () => {
+      const table = Table({ headers: ["A"], rows: [["1"]] });
+      expect(table.caption).toBeUndefined();
+      expect(table.pageSize).toBeUndefined();
+    });
+  });
+
+  describe("Chart", () => {
+    it("creates a pie chart", () => {
+      const chart = Chart({
+        title: "Candy Bars",
+        chart: {
+          type: "pie",
+          segments: [
+            { label: "Kit Kat", value: 45 },
+            { label: "Twix", value: 28 },
+          ],
+        },
+      });
+      expect(chart.type).toBe("chart");
+      expect(chart.title).toBe("Candy Bars");
+      expect(chart.chart.type).toBe("pie");
+    });
+
+    it("creates a line chart with series and categories", () => {
+      const chart = Chart({
+        title: "Weekly Sales",
+        chart: {
+          type: "line",
+          categories: ["Week 1", "Week 2"],
+          xLabel: "Week",
+          yLabel: "Sales",
+          series: [
+            {
+              name: "Scranton",
+              data: [
+                { label: "Week 1", value: 120 },
+                { label: "Week 2", value: 135 },
+              ],
+            },
+          ],
+        },
+      });
+      expect(chart.chart).toEqual({
+        type: "line",
+        categories: ["Week 1", "Week 2"],
+        xLabel: "Week",
+        yLabel: "Sales",
+        series: [
+          {
+            name: "Scranton",
+            data: [
+              { label: "Week 1", value: 120 },
+              { label: "Week 2", value: 135 },
+            ],
+          },
+        ],
+      });
+    });
+  });
+
+  describe("chart fallback text", () => {
+    it("renders pie chart data as a labelled ASCII table", () => {
+      const text = cardChildToFallbackText(
+        Chart({
+          title: "Candy Bars",
+          chart: {
+            type: "pie",
+            segments: [
+              { label: "Kit Kat", value: 45 },
+              { label: "Twix", value: 28 },
+            ],
+          },
+        })
+      );
+      expect(text).toContain("Candy Bars");
+      expect(text).toContain("Kit Kat | 45");
+      expect(text).toContain("Twix");
+    });
+
+    it("renders series chart data with one column per series", () => {
+      const text = cardChildToFallbackText(
+        Chart({
+          title: "DAU",
+          chart: {
+            type: "area",
+            categories: ["Mon", "Tue"],
+            xLabel: "Day",
+            series: [
+              {
+                name: "Web",
+                data: [
+                  { label: "Mon", value: 100 },
+                  { label: "Tue", value: 110 },
+                ],
+              },
+              {
+                name: "Mobile",
+                data: [
+                  { label: "Tue", value: 60 },
+                  { label: "Mon", value: 50 },
+                ],
+              },
+            ],
+          },
+        })
+      );
+      expect(text).toContain("DAU");
+      expect(text).toContain("Day");
+      expect(text).toContain("Web");
+      expect(text).toContain("Mobile");
+      // Values align to categories even when point order differs
+      expect(text).toContain("Mon | 100 | 50");
+      expect(text).toContain("Tue | 110 | 60");
     });
   });
 

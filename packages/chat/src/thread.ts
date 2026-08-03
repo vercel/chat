@@ -132,7 +132,7 @@ export class ThreadImpl<TState = Record<string, unknown>>
   /** Update interval for fallback streaming */
   private readonly _streamingUpdateIntervalMs: number;
   /** Placeholder text for fallback streaming (post + edit) */
-  private readonly _fallbackStreamingPlaceholderText: string | null;
+  private readonly _fallbackStreamingPlaceholderText: string | null | undefined;
   /** Cached channel instance */
   private _channel?: Channel<TState>;
   /** Thread history cache (set only for adapters with persistThreadHistory) */
@@ -149,9 +149,7 @@ export class ThreadImpl<TState = Record<string, unknown>>
     this._logger = config.logger;
     this._streamingUpdateIntervalMs = config.streamingUpdateIntervalMs ?? 500;
     this._fallbackStreamingPlaceholderText =
-      config.fallbackStreamingPlaceholderText !== undefined
-        ? config.fallbackStreamingPlaceholderText
-        : "...";
+      config.fallbackStreamingPlaceholderText;
 
     if (isLazyConfig(config)) {
       // Lazy resolution mode - store adapter name for later lookup
@@ -607,6 +605,12 @@ export class ThreadImpl<TState = Record<string, unknown>>
     const options: StreamOptions = {
       updateIntervalMs: this._streamingUpdateIntervalMs,
       ...callerOptions,
+      ...(this._fallbackStreamingPlaceholderText !== undefined
+        ? {
+            fallbackStreamingPlaceholderText:
+              this._fallbackStreamingPlaceholderText,
+          }
+        : {}),
     };
     if (this._currentMessage) {
       options.recipientUserId = this._currentMessage.author.userId;
@@ -745,7 +749,10 @@ export class ThreadImpl<TState = Record<string, unknown>>
   ): Promise<SentMessage> {
     const intervalMs =
       options?.updateIntervalMs ?? this._streamingUpdateIntervalMs;
-    const placeholderText = this._fallbackStreamingPlaceholderText;
+    const placeholderText =
+      this._fallbackStreamingPlaceholderText === undefined
+        ? "..."
+        : this._fallbackStreamingPlaceholderText;
     let msg: { id: string; threadId: string; raw: unknown } | null =
       placeholderText === null
         ? null

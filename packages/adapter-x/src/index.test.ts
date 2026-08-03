@@ -266,13 +266,14 @@ describe("XAdapter", () => {
   describe("CRC challenge", () => {
     it("answers with the HMAC of crc_token", async () => {
       const adapter = createAdapter();
+      const token = "abcdefghijklmnop";
       const response = await adapter.handleWebhook(
-        new Request(`${WEBHOOK_URL}?crc_token=challenge-me`, { method: "GET" })
+        new Request(`${WEBHOOK_URL}?crc_token=${token}`, { method: "GET" })
       );
       expect(response.status).toBe(200);
       const body = (await response.json()) as { response_token: string };
       const expected = createHmac("sha256", CONSUMER_SECRET)
-        .update("challenge-me", "utf8")
+        .update(token, "utf8")
         .digest("base64");
       expect(body.response_token).toBe(`sha256=${expected}`);
     });
@@ -283,6 +284,44 @@ describe("XAdapter", () => {
         new Request(WEBHOOK_URL, { method: "GET" })
       );
       expect(response.status).toBe(400);
+    });
+
+    it("rejects a webhook-shaped crc_token without signing it", async () => {
+      const adapter = createAdapter();
+      const forgedBody = JSON.stringify(dmEnvelope());
+      const response = await adapter.handleWebhook(
+        new Request(
+          `${WEBHOOK_URL}?crc_token=${encodeURIComponent(forgedBody)}`,
+          { method: "GET" }
+        )
+      );
+      expect(response.status).toBe(400);
+      expect(await response.text()).not.toContain("response_token");
+    });
+
+    it("does not mint a signature replayable on a forged POST", async () => {
+      const { adapter, chat } = await createInitializedAdapter();
+      // The challenge only signs opaque tokens, verbatim. A response_token
+      // therefore verifies only against a POST whose body equals that token,
+      // which is never valid event JSON, so no handler can be reached.
+      const token = "abcdefghijklmnop";
+      const crc = await adapter.handleWebhook(
+        new Request(`${WEBHOOK_URL}?crc_token=${token}`, { method: "GET" })
+      );
+      const { response_token } = (await crc.json()) as {
+        response_token: string;
+      };
+
+      const post = await adapter.handleWebhook(
+        new Request(WEBHOOK_URL, {
+          body: token,
+          headers: { "x-twitter-webhooks-signature": response_token },
+          method: "POST",
+        })
+      );
+      // Signature verifies (body === token) but the body is not event JSON.
+      expect(post.status).toBe(400);
+      expect(chat.processMessage).not.toHaveBeenCalled();
     });
   });
 
@@ -559,6 +598,148 @@ describe("XAdapter", () => {
       expect(JSON.parse(String(init?.body))).toEqual({ text: "hello!" });
     });
 
+    describe("media attachments", () => {
+      const image = () => ({
+        data: Buffer.from("PNGDATA"),
+        filename: "card.png",
+        mimeType: "image/png",
+      });
+
+      function queueMediaUpload(): void {
+        mockFetch
+          .mockResolvedValueOnce(apiOk({ data: { id: "MEDIA1" } })) // INIT
+          .mockResolvedValueOnce(apiOk({})) // APPEND
+          .mockResolvedValueOnce(apiOk({ data: { id: "MEDIA1" } })); // FINALIZE
+      }
+
+      it("uploads an image and attaches the media_id to the reply", async () => {
+        const { adapter } = await createInitializedAdapter();
+        queueMediaUpload();
+        mockFetch.mockResolvedValueOnce(apiOk({ data: { id: "600" } }));
+
+        await adapter.postMessage("x:post:500", {
+          files: [image()],
+          markdown: "here you go",
+        });
+
+        // initialize (JSON body)
+        expect(String(mockFetch.mock.calls[0][0])).toBe(
+          "https://api.x.com/2/media/upload/initialize"
+        );
+        expect(JSON.parse(String(mockFetch.mock.calls[0][1]?.body))).toEqual({
+          media_category: "tweet_image",
+          media_type: "image/png",
+          total_bytes: 7,
+        });
+        expect(mockFetch.mock.calls[0][1]?.headers).toMatchObject({
+          Authorization: `Bearer ${ACCESS_TOKEN}`,
+        });
+
+        // append (multipart to /{id}/append)
+        expect(String(mockFetch.mock.calls[1][0])).toBe(
+          "https://api.x.com/2/media/upload/MEDIA1/append"
+        );
+        const append = mockFetch.mock.calls[1][1]?.body as FormData;
+        expect(append.get("segment_index")).toBe("0");
+        expect(append.get("media")).toBeInstanceOf(Blob);
+
+        // finalize
+        expect(String(mockFetch.mock.calls[2][0])).toBe(
+          "https://api.x.com/2/media/upload/MEDIA1/finalize"
+        );
+
+        const tweetBody = JSON.parse(String(mockFetch.mock.calls[3][1]?.body));
+        expect(tweetBody).toEqual({
+          media: { media_ids: ["MEDIA1"] },
+          reply: { in_reply_to_tweet_id: "500" },
+          text: "here you go",
+        });
+      });
+
+      it("allows a media-only reply with no text", async () => {
+        const { adapter } = await createInitializedAdapter();
+        queueMediaUpload();
+        mockFetch.mockResolvedValueOnce(apiOk({ data: { id: "600" } }));
+
+        await adapter.postMessage("x:post:500", {
+          files: [image()],
+          markdown: "",
+        });
+
+        const tweetBody = JSON.parse(String(mockFetch.mock.calls[3][1]?.body));
+        expect(tweetBody.media).toEqual({ media_ids: ["MEDIA1"] });
+        expect(tweetBody.text).toBeUndefined();
+      });
+
+      it("infers the media type from the filename when mimeType is absent", async () => {
+        const { adapter } = await createInitializedAdapter();
+        queueMediaUpload();
+        mockFetch.mockResolvedValueOnce(apiOk({ data: { id: "600" } }));
+
+        await adapter.postMessage("x:post:500", {
+          files: [{ data: Buffer.from("x"), filename: "draw.png" }],
+          markdown: "",
+        });
+
+        const initBody = JSON.parse(String(mockFetch.mock.calls[0][1]?.body));
+        expect(initBody.media_type).toBe("image/png");
+        expect(initBody.media_category).toBe("tweet_image");
+      });
+
+      it("attaches uploaded media to a DM", async () => {
+        const { adapter } = await createInitializedAdapter();
+        queueMediaUpload();
+        mockFetch.mockResolvedValueOnce(
+          apiOk({
+            data: { dm_conversation_id: "111-999", dm_event_id: "9002" },
+          })
+        );
+
+        await adapter.postMessage("x:dm:111", {
+          files: [image()],
+          markdown: "pic",
+        });
+
+        // DM media must register as dm_image; X rejects a tweet_image media_id
+        // attached to a DM event.
+        const initBody = JSON.parse(String(mockFetch.mock.calls[0][1]?.body));
+        expect(initBody.media_category).toBe("dm_image");
+
+        const dmBody = JSON.parse(String(mockFetch.mock.calls[3][1]?.body));
+        expect(dmBody).toEqual({
+          attachments: [{ media_id: "MEDIA1" }],
+          text: "pic",
+        });
+      });
+
+      it("rejects more than four media attachments", async () => {
+        const { adapter } = await createInitializedAdapter();
+        await expect(
+          adapter.postMessage("x:post:500", {
+            files: Array.from({ length: 5 }, image),
+            markdown: "",
+          })
+        ).rejects.toThrow("at most 4 media");
+        expect(mockFetch).not.toHaveBeenCalled();
+      });
+
+      it("rejects an unsupported media type", async () => {
+        const { adapter } = await createInitializedAdapter();
+        await expect(
+          adapter.postMessage("x:post:500", {
+            files: [
+              {
+                data: Buffer.from("x"),
+                filename: "note.txt",
+                mimeType: "text/plain",
+              },
+            ],
+            markdown: "",
+          })
+        ).rejects.toThrow("supports image uploads");
+      });
+    });
+
     it("flattens markdown before posting", async () => {
       const { adapter } = await createInitializedAdapter();
       mockFetch.mockResolvedValueOnce(apiOk({ data: { id: "600" } }));
@@ -600,16 +781,6 @@ describe("XAdapter", () => {
       await expect(adapter.postMessage("x:post:500", "  ")).rejects.toThrow(
         ValidationError
       );
-    });
-
-    it("rejects messages with attachments", async () => {
-      const { adapter } = await createInitializedAdapter();
-      await expect(
-        adapter.postMessage("x:post:500", {
-          files: [{ data: Buffer.from("x"), filename: "a.png" }],
-          markdown: "with file",
-        })
-      ).rejects.toThrow(ValidationError);
     });
 
     it("resolves the access token from a provider function", async () => {

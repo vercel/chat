@@ -12,6 +12,7 @@ export interface SlackCardElement {
 
 export type SlackCardChild =
   | SlackActionsElement
+  | SlackChartElement
   | SlackDividerElement
   | SlackFieldsElement
   | SlackImageElement
@@ -111,9 +112,63 @@ export interface SlackFieldsElement {
 
 export interface SlackTableElement {
   align?: SlackTableAlignment[];
+  /** Accessible table caption for the data table block */
+  caption?: string;
   headers: string[];
+  /** Rows per page (1-100; Slack defaults to 5) */
+  pageSize?: number;
   rows: string[][];
   type: "table";
+}
+
+export interface SlackChartSegment {
+  /** Legend label (max 20 characters) */
+  label: string;
+  /** Segment value; must be greater than 0 */
+  value: number;
+}
+
+export interface SlackChartDataPoint {
+  /** Category label; must match an entry in the chart's `categories` */
+  label: string;
+  /** Y-axis value (negative values are permitted) */
+  value: number;
+}
+
+export interface SlackChartSeries {
+  /** One data point per category */
+  data: SlackChartDataPoint[];
+  /** Legend label; unique within the chart (max 20 characters) */
+  name: string;
+}
+
+export interface SlackPieChartDefinition {
+  /** Pie segments (1-12) */
+  segments: SlackChartSegment[];
+  type: "pie";
+}
+
+export interface SlackSeriesChartDefinition {
+  /** X-axis category labels in display order (max 20 characters each) */
+  categories: string[];
+  /** Data series (1-12); each series needs one point per category */
+  series: SlackChartSeries[];
+  type: "area" | "bar" | "line";
+  /** X-axis title (max 50 characters) */
+  xLabel?: string;
+  /** Y-axis title (max 50 characters) */
+  yLabel?: string;
+}
+
+export type SlackChartDefinition =
+  | SlackPieChartDefinition
+  | SlackSeriesChartDefinition;
+
+export interface SlackChartElement {
+  chart: SlackChartDefinition;
+  /** Chart title (max 50 characters) */
+  title: string;
+  type: "chart";
 }
 
 export interface SlackTextObject {

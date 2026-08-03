@@ -338,7 +338,7 @@ describe("Slack Block Kit primitives", () => {
       type: "section",
     });
     expect(blocks[1]).toEqual({
-      column_settings: [{ align: "left" }, { align: "right" }],
+      caption: "Table",
       rows: [
         [
           { text: "Name", type: "raw_text" },
@@ -349,8 +349,200 @@ describe("Slack Block Kit primitives", () => {
           { text: "10", type: "raw_text" },
         ],
       ],
+      type: "data_table",
+    });
+  });
+
+  it("passes table caption and clamped page_size through", () => {
+    const blocks = cardToSlackBlocks(
+      card([
+        {
+          caption: "Scores",
+          headers: ["Name"],
+          pageSize: 0,
+          rows: [["Ada"]],
+          type: "table",
+        },
+      ])
+    );
+
+    expect(blocks[0]).toEqual({
+      caption: "Scores",
+      page_size: 1,
+      rows: [
+        [{ text: "Name", type: "raw_text" }],
+        [{ text: "Ada", type: "raw_text" }],
+      ],
+      type: "data_table",
+    });
+  });
+
+  it("renders header-only tables as a plain table block", () => {
+    const blocks = cardToSlackBlocks(
+      card([
+        {
+          align: ["left"],
+          headers: ["Name"],
+          rows: [],
+          type: "table",
+        },
+      ])
+    );
+
+    expect(blocks[0]).toEqual({
+      column_settings: [{ align: "left" }],
+      rows: [[{ text: "Name", type: "raw_text" }]],
       type: "table",
     });
+  });
+
+  it("falls back to ASCII when combined table cells exceed the character limit", () => {
+    const bigCell = "x".repeat(10_001);
+    const blocks = cardToSlackBlocks(
+      card([{ headers: ["A"], rows: [[bigCell]], type: "table" }])
+    );
+
+    expect(blocks[0].type).toBe("section");
+    const text = (blocks[0] as { text: { text: string } }).text.text;
+    expect(text.length).toBeLessThanOrEqual(3000);
+    // Closing code fence survives truncation
+    expect(text.endsWith("\n```")).toBe(true);
+  });
+
+  it("converts pie charts to data_visualization blocks", () => {
+    const blocks = cardToSlackBlocks(
+      card([
+        {
+          chart: {
+            segments: [
+              { label: "Kit Kat", value: 45 },
+              { label: "Twix", value: 28 },
+            ],
+            type: "pie",
+          },
+          title: "Candy Bars",
+          type: "chart",
+        },
+      ])
+    );
+
+    expect(blocks[0]).toEqual({
+      chart: {
+        segments: [
+          { label: "Kit Kat", value: 45 },
+          { label: "Twix", value: 28 },
+        ],
+        type: "pie",
+      },
+      title: "Candy Bars",
+      type: "data_visualization",
+    });
+  });
+
+  it("converts series charts with axis config and normalized point order", () => {
+    const blocks = cardToSlackBlocks(
+      card([
+        {
+          chart: {
+            categories: ["Mon", "Tue"],
+            series: [
+              {
+                data: [
+                  { label: "Tue", value: 60 },
+                  { label: "Mon", value: 50 },
+                ],
+                name: "Mobile",
+              },
+            ],
+            type: "line",
+            xLabel: "Day",
+            yLabel: "Users",
+          },
+          title: "DAU",
+          type: "chart",
+        },
+      ])
+    );
+
+    expect(blocks[0]).toEqual({
+      chart: {
+        axis_config: {
+          categories: ["Mon", "Tue"],
+          x_label: "Day",
+          y_label: "Users",
+        },
+        series: [
+          {
+            data: [
+              { label: "Mon", value: 50 },
+              { label: "Tue", value: 60 },
+            ],
+            name: "Mobile",
+          },
+        ],
+        type: "line",
+      },
+      title: "DAU",
+      type: "data_visualization",
+    });
+  });
+
+  it("falls back to a text section for invalid charts", () => {
+    const blocks = cardToSlackBlocks(
+      card([
+        {
+          chart: {
+            segments: [{ label: "Zero", value: 0 }],
+            type: "pie",
+          },
+          title: "Bad Pie",
+          type: "chart",
+        },
+      ])
+    );
+
+    expect(blocks[0].type).toBe("section");
+    expect((blocks[0] as { text: { text: string } }).text.text).toContain(
+      "Bad Pie"
+    );
+  });
+
+  it("falls back to a text section from the third chart in one message", () => {
+    const pie = (title: string) => ({
+      chart: {
+        segments: [{ label: "A", value: 1 }],
+        type: "pie" as const,
+      },
+      title,
+      type: "chart" as const,
+    });
+    const blocks = cardToSlackBlocks(
+      card([pie("One"), pie("Two"), pie("Three")])
+    );
+
+    expect(blocks.map((b) => b.type)).toEqual([
+      "data_visualization",
+      "data_visualization",
+      "section",
+    ]);
+  });
+
+  it("includes chart data in Slack fallback text", () => {
+    const text = cardToSlackFallbackText(
+      card([
+        {
+          chart: {
+            segments: [{ label: "Kit Kat", value: 45 }],
+            type: "pie",
+          },
+          title: "Candy Bars",
+          type: "chart",
+        },
+      ])
+    );
+
+    expect(text).toContain("Candy Bars");
+    expect(text).toContain("Kit Kat");
   });
 
   it("falls back to ASCII tables after one native table", () => {

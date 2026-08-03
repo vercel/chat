@@ -289,6 +289,7 @@ export function createMockChatInstance(
     processAppHomeOpened: vi.fn(),
     processAssistantThreadStarted: vi.fn(),
     processAssistantContextChanged: vi.fn(),
+    processAppContextChanged: vi.fn(),
     transcripts: { record: vi.fn().mockResolvedValue(undefined) },
     getState: () => state,
     getUserName: () => userName,

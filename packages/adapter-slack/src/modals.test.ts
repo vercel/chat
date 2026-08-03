@@ -1,12 +1,14 @@
 import {
+  DateInput,
   ExternalSelect,
   Modal,
+  NumberInput,
   RadioSelect,
   Select,
   SelectOption,
   TextInput,
 } from "chat";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
   decodeModalMetadata,
   encodeModalMetadata,
@@ -654,6 +656,162 @@ describe("modalToSlackView with select option descriptions", () => {
     expect(element.options[1].description).toEqual({
       type: "mrkdwn",
       text: "For _teams_",
+    });
+  });
+});
+
+describe("date and number inputs", () => {
+  it("converts a date input to a Block Kit datepicker", () => {
+    const modal = Modal({
+      callbackId: "renewal_form",
+      title: "Renewal",
+      children: [
+        DateInput({
+          id: "renewal_date",
+          label: "Renewal Date",
+          placeholder: "Pick a date",
+          initialValue: "2026-08-01",
+        }),
+      ],
+    });
+
+    const view = modalToSlackView(modal);
+
+    expect(view.blocks[0]).toEqual({
+      type: "input",
+      block_id: "renewal_date",
+      optional: false,
+      label: { type: "plain_text", text: "Renewal Date" },
+      element: {
+        type: "datepicker",
+        action_id: "renewal_date",
+        placeholder: { type: "plain_text", text: "Pick a date" },
+        initial_date: "2026-08-01",
+      },
+    });
+  });
+
+  it("omits datepicker fields that were not provided", () => {
+    const modal = Modal({
+      callbackId: "renewal_form",
+      title: "Renewal",
+      children: [
+        DateInput({
+          id: "renewal_date",
+          label: "Renewal Date",
+          optional: true,
+        }),
+      ],
+    });
+
+    const view = modalToSlackView(modal);
+
+    expect(view.blocks[0]).toEqual({
+      type: "input",
+      block_id: "renewal_date",
+      optional: true,
+      label: { type: "plain_text", text: "Renewal Date" },
+      element: { type: "datepicker", action_id: "renewal_date" },
+    });
+  });
+
+  it("drops an initial date that Slack would reject", () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {
+      // silence the expected warning
+    });
+
+    for (const initialValue of [
+      "30 days from signing",
+      "2026-2-1",
+      "2026-02-31",
+      "not a date",
+    ]) {
+      const view = modalToSlackView(
+        Modal({
+          callbackId: "renewal_form",
+          title: "Renewal",
+          children: [
+            DateInput({
+              id: "renewal_date",
+              label: "Renewal Date",
+              initialValue,
+            }),
+          ],
+        })
+      );
+
+      expect(view.blocks[0]).toEqual({
+        type: "input",
+        block_id: "renewal_date",
+        optional: false,
+        label: { type: "plain_text", text: "Renewal Date" },
+        element: { type: "datepicker", action_id: "renewal_date" },
+      });
+    }
+
+    expect(warn).toHaveBeenCalledTimes(4);
+    warn.mockRestore();
+  });
+
+  it("converts a number input to a Block Kit number_input with string bounds", () => {
+    const modal = Modal({
+      callbackId: "order_form",
+      title: "Order",
+      children: [
+        NumberInput({
+          id: "quantity",
+          label: "Quantity",
+          placeholder: "How many?",
+          initialValue: 3,
+          min: 1,
+          max: 10,
+          decimal: true,
+        }),
+      ],
+    });
+
+    const view = modalToSlackView(modal);
+
+    expect(view.blocks[0]).toEqual({
+      type: "input",
+      block_id: "quantity",
+      optional: false,
+      label: { type: "plain_text", text: "Quantity" },
+      element: {
+        type: "number_input",
+        action_id: "quantity",
+        is_decimal_allowed: true,
+        placeholder: { type: "plain_text", text: "How many?" },
+        initial_value: "3",
+        min_value: "1",
+        max_value: "10",
+      },
+    });
+  });
+
+  it("defaults number_input to integers only and keeps zero bounds", () => {
+    const modal = Modal({
+      callbackId: "order_form",
+      title: "Order",
+      children: [
+        NumberInput({
+          id: "quantity",
+          label: "Quantity",
+          initialValue: 0,
+          min: 0,
+        }),
+      ],
+    });
+
+    const view = modalToSlackView(modal);
+
+    expect(view.blocks[0]).toMatchObject({
+      element: {
+        type: "number_input",
+        is_decimal_allowed: false,
+        initial_value: "0",
+        min_value: "0",
+      },
     });
   });
 });

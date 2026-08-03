@@ -21,8 +21,11 @@ covers:
 - Block Kit rendering for cards, modals, ephemeral messages, slash
   commands, scheduled messages, file uploads, and the Slack Assistants
   API.
-- Native streaming via `chat.update` deltas plus a Block Kit fallback
-  for non-streaming Slack flavours (e.g. GovSlack).
+- Native streaming via `chat.startStream` / `chat.appendStream` /
+  `chat.stopStream` (including structured task/plan chunks), with an
+  automatic post-and-edit fallback for threads without streaming
+  context and Slack flavours without the streaming methods (e.g.
+  GovSlack; also `nativeStreaming: false`).
 
 The adapter is the first Chat SDK target and the most fully-featured —
 several conventions in `packages/chat` were originally shaped here.
@@ -239,15 +242,31 @@ JSX or pre-built Slack views. `modals.ts` handles the translation:
 
 ## Streaming
 
-`postMessage` accepts `AsyncIterable<string | StreamChunk>` and pumps
-the deltas onto Slack via incremental `chat.update` calls, with a
-configurable minimum-edit interval to avoid hitting Slack's rate
-limit. The streaming markdown renderer keeps mrkdwn formatting valid as
-the stream progresses (no half-formed tags).
+`stream()` consumes `AsyncIterable<string | StreamChunk>` and uses
+Slack's native streaming API via the `@slack/web-api` `chatStream`
+helper (`chat.startStream` → `chat.appendStream` → `chat.stopStream`).
+Plain strings go through `StreamingMarkdownRenderer` so incremental
+markdown stays valid (no half-formed tags); structured `task_update` /
+`plan_update` chunks are passed through as native chunk payloads
+(`task_display_mode: "plan"` groups them into a plan). `stopBlocks`
+(the `StreamingPlan` `endWith` option) attach Block Kit to the final
+message on `chat.stopStream`.
 
-For Assistants API threads, the adapter additionally drives
-`assistant.threads.setStatus` between deltas so the user sees a
-"thinking…" indicator.
+Fallback to post-and-edit (`chat.update` deltas, throttled by
+`updateIntervalMs`) happens at three levels:
+
+- `stream()` returns `null` before consuming anything (no thread
+  context, no recipient context, `nativeStreaming: false`, or a latched
+  unsupported workspace) — the chat core runs its own post-and-edit.
+- The first native call is rejected (e.g. GovSlack `unknown_method`,
+  feature not enabled) — the adapter switches to internal post-and-edit
+  mid-stream without losing consumed text, and latches native streaming
+  off for permanent platform errors.
+- A structured chunk is rejected (missing scope/feature) — the chunk is
+  skipped and text streaming continues.
+
+Failures after native content has rendered still propagate — mixing the
+two surfaces would duplicate output.
 
 ## Socket Mode
 

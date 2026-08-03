@@ -73,6 +73,8 @@ Copy `.env.example` for the full list. At minimum, set `BOT_USERNAME` and creden
 |----------|-------------|
 | `BOT_USERNAME` | Bot display name |
 | `SLACK_CONNECTOR` | Slack [Vercel Connect](https://vercel.com/docs/connect) connector UID (e.g. `slack/acme-slack`) |
+| `SLACK_AGENT_VIEW` | Set to `true` when your Slack manifest uses `agent_view` (see the commented blocks in `slack-manifest.yml`) — enables the Agent messaging experience with auto-applied suggested prompts |
+| `SLACK_NATIVE_STREAMING` | Set to `false` to stream via post-and-edit (`chat.update`) instead of Slack's native streaming API — useful on Slack flavours without `chat.startStream` (e.g. GovSlack) |
 | `VERCEL_OIDC_TOKEN` | Vercel OIDC token used by Connect (run `vercel env pull`) |
 | `TEAMS_APP_ID` | Teams app ID |
 | `TEAMS_APP_PASSWORD` | Teams app password |

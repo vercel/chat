@@ -7,6 +7,13 @@ features:
   bot_user:
     display_name: Chat SDK Bot
     always_online: true
+  # Optional: Slack Agent messaging experience. Uncomment (with the
+  # assistant:write scope and the agent events below) and set
+  # SLACK_AGENT_VIEW=true so the adapter treats Messages-tab opens as the
+  # thread-open signal. Note: switching an app to agent_view can't be
+  # reverted.
+  # agent_view:
+  #   agent_description: A bot built with chat-sdk
 
 oauth_config:
   scopes:
@@ -27,6 +34,9 @@ oauth_config:
       - reactions:write
       # User info for display names
       - users:read
+      # Agent experience (suggested prompts, thinking status) — uncomment
+      # together with the agent_view / event blocks below.
+      # - assistant:write
 
 settings:
   event_subscriptions:
@@ -39,6 +49,9 @@ settings:
       - message.groups
       - message.im
       - message.mpim
+      # Agent experience events — uncomment together with agent_view above.
+      # - app_home_opened
+      # - app_context_changed
   interactivity:
     is_enabled: false
   org_deploy_enabled: false

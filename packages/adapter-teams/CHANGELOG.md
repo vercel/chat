@@ -1,5 +1,58 @@
 # @chat-adapter/teams
 
+## 4.36.0
+
+### Minor Changes
+
+- 0153a39: Add `DateInput` and `NumberInput` modal children. The Slack adapter renders them as a `datepicker` and a `number_input`, the Teams adapter as `Input.Date` and `Input.Number`, and both submitted values arrive in `event.values` as strings.
+
+  Teams submit values that arrive as JSON numbers are now stringified into `event.values` instead of being dropped. This fixes `Input.Number`, but applies to any numeric value a Teams dialog submits — a key that was previously absent from `event.values` will now be present as a string.
+
+### Patch Changes
+
+- 257a32d: Route Teams personal and group conversations using their explicit conversation type so group chats use buffered fallback even when their IDs resemble direct messages.
+- 3c37cfb: Authenticate connector-hosted inline attachments and parse Teams file download cards.
+- Updated dependencies [257a32d]
+- Updated dependencies [c5d86b1]
+- Updated dependencies [0153a39]
+- Updated dependencies [b547f45]
+- Updated dependencies [caa6325]
+  - chat@4.36.0
+  - @chat-adapter/shared@4.36.0
+
+## 4.35.0
+
+### Minor Changes
+
+- 5eb8b84: Add support for adding and removing reactions from Microsoft Teams messages.
+- 46681f5: Expose Microsoft Graph email addresses on normalized incoming Teams message authors. Resolved user profiles are cached in the state adapter (1 hour, failed lookups 5 minutes) so the lookup doesn't add a Graph call per message.
+- 160140e: Add native Microsoft Teams targeted message support via `thread.postEphemeral()` and `channel.postEphemeral()`.
+- e06b4b6: Add a `token` config option to `TeamsAdapterConfig` for supplying a custom token factory, forwarded to the Teams SDK's `AppOptions.token`. This lets bots authenticate on runtimes that can't reach Azure IMDS (so `federated` managed identity isn't reachable) but can still mint access tokens through an external mechanism, without needing a static client secret.
+
+### Patch Changes
+
+- 3895ab3: Fall back to Microsoft Graph's user principal name when a Teams user has no mail address.
+- 93a58af: Show explicitly configured progress as a native Teams DM status while preserving native streaming.
+- Updated dependencies [80def3a]
+- Updated dependencies [4cb7e5d]
+- Updated dependencies [46681f5]
+- Updated dependencies [93a58af]
+- Updated dependencies [25f3099]
+  - chat@4.35.0
+  - @chat-adapter/shared@4.35.0
+
+## 4.34.0
+
+### Patch Changes
+
+- Updated dependencies [5c926f1]
+- Updated dependencies [2531a42]
+- Updated dependencies [1721fa0]
+- Updated dependencies [4717a38]
+- Updated dependencies [6714efc]
+  - chat@4.34.0
+  - @chat-adapter/shared@4.34.0
+
 ## 4.33.0
 
 ### Patch Changes

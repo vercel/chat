@@ -1,5 +1,52 @@
 # @chat-adapter/discord
 
+## 4.36.0
+
+### Patch Changes
+
+- Updated dependencies [257a32d]
+- Updated dependencies [c5d86b1]
+- Updated dependencies [0153a39]
+- Updated dependencies [b547f45]
+- Updated dependencies [caa6325]
+  - chat@4.36.0
+  - @chat-adapter/shared@4.36.0
+
+## 4.35.0
+
+### Minor Changes
+
+- 26c0522: Add an opt-in channel allowlist for treating non-bot Discord messages as directed to the bot without requiring a mention. Configure via `respondToChannelIds` or the `DISCORD_RESPOND_TO_CHANNEL_IDS` env var (comma-separated).
+
+### Patch Changes
+
+- b605cf6: Preserve Discord's angle-bracket syntax for suppressing link previews when rendering markdown.
+- Updated dependencies [80def3a]
+- Updated dependencies [4cb7e5d]
+- Updated dependencies [46681f5]
+- Updated dependencies [93a58af]
+- Updated dependencies [25f3099]
+  - chat@4.35.0
+  - @chat-adapter/shared@4.35.0
+
+## 4.34.0
+
+### Minor Changes
+
+- 0fdb902: Add opt-in Discord Components v2 rendering for Chat SDK cards via `contentFormat: DiscordContentFormat.ComponentsV2`.
+- 5341f90: Ignore `@everyone`/`@here` pings by default in gateway mode. Previously the legacy gateway listener treated global pings as bot mentions, so the bot responded to announcements. A new `respondToGlobalMentions` config option (default `false`) restores the old behavior when enabled, and also lets forwarded gateway messages opt in via the `mention_everyone` field.
+- 6c2a391: Add support for renaming native Discord thread channels.
+
+### Patch Changes
+
+- Updated dependencies [5c926f1]
+- Updated dependencies [2531a42]
+- Updated dependencies [1721fa0]
+- Updated dependencies [4717a38]
+- Updated dependencies [6714efc]
+  - chat@4.34.0
+  - @chat-adapter/shared@4.34.0
+
 ## 4.33.0
 
 ### Patch Changes

@@ -9,6 +9,7 @@ import {
   hasChatSingleton,
   setChatSingleton,
 } from "./chat-singleton";
+import { runInConversation } from "./context";
 import { isJSX, toModalElement } from "./jsx-runtime";
 import { Message, type SerializedMessage, setMessageAdapter } from "./message";
 import type { ModalElement } from "./modals";
@@ -20,6 +21,8 @@ import type {
   ActionEvent,
   ActionHandler,
   Adapter,
+  AppContextChangedEvent,
+  AppContextChangedHandler,
   AppHomeOpenedEvent,
   AppHomeOpenedHandler,
   AssistantContextChangedEvent,
@@ -241,7 +244,7 @@ export class Chat<
   private readonly userName: string;
   private readonly logger: Logger;
   private readonly _streamingUpdateIntervalMs: number;
-  private readonly _fallbackStreamingPlaceholderText: string | null;
+  private readonly _fallbackStreamingPlaceholderText: string | null | undefined;
   private readonly _dedupeTtlMs: number;
   private readonly _onLockConflict: ChatConfig["onLockConflict"];
   private readonly _threadHistory: ThreadHistoryCache;
@@ -273,6 +276,7 @@ export class Chat<
   private readonly assistantContextChangedHandlers: AssistantContextChangedHandler[] =
     [];
   private readonly appHomeOpenedHandlers: AppHomeOpenedHandler[] = [];
+  private readonly appContextChangedHandlers: AppContextChangedHandler[] = [];
   private readonly memberJoinedChannelHandlers: MemberJoinedChannelHandler[] =
     [];
 
@@ -293,9 +297,7 @@ export class Chat<
     this.adapters = new Map();
     this._streamingUpdateIntervalMs = config.streamingUpdateIntervalMs ?? 500;
     this._fallbackStreamingPlaceholderText =
-      config.fallbackStreamingPlaceholderText !== undefined
-        ? config.fallbackStreamingPlaceholderText
-        : "...";
+      config.fallbackStreamingPlaceholderText;
     this._dedupeTtlMs = config.dedupeTtlMs ?? DEDUPE_TTL_MS;
     this._onLockConflict = config.onLockConflict;
     this._lockScope = config.lockScope;
@@ -875,6 +877,11 @@ export class Chat<
     this.logger.debug("Registered app home opened handler");
   }
 
+  onAppContextChanged(handler: AppContextChangedHandler): void {
+    this.appContextChangedHandlers.push(handler);
+    this.logger.debug("Registered app context changed handler");
+  }
+
   onMemberJoinedChannel(handler: MemberJoinedChannelHandler): void {
     this.memberJoinedChannelHandlers.push(handler);
     this.logger.debug("Registered member joined channel handler");
@@ -956,7 +963,9 @@ export class Chat<
     event: Omit<ReactionEvent, "adapter" | "thread"> & { adapter?: Adapter },
     options?: WebhookOptions
   ): void {
-    const task = this.handleReactionEvent(event).catch((err) => {
+    const task = runInConversation(event.threadId, () =>
+      this.handleReactionEvent(event)
+    ).catch((err) => {
       this.logger.error("Reaction processing error", {
         error: err,
         emoji: event.emoji,
@@ -977,7 +986,9 @@ export class Chat<
     event: Omit<ActionEvent, "thread" | "openModal"> & { adapter: Adapter },
     options: WebhookOptions | undefined
   ): Promise<void> {
-    const task = this.handleActionEvent(event, options).catch((err) => {
+    const task = runInConversation(event.threadId, () =>
+      this.handleActionEvent(event, options)
+    ).catch((err) => {
       this.logger.error("Action processing error", {
         error: err,
         actionId: event.actionId,
@@ -1039,23 +1050,29 @@ export class Chat<
       relatedChannel,
     };
 
-    let result: ModalResponse | undefined;
-    for (const { callbackIds, handler } of this.modalSubmitHandlers) {
-      if (callbackIds.length === 0 || callbackIds.includes(event.callbackId)) {
-        try {
-          const response = await handler(fullEvent);
-          if (response) {
-            result = response;
-            break;
+    const conversationId = relatedThread?.id ?? relatedChannel?.id;
+    const runHandlers = async (): Promise<ModalResponse | undefined> => {
+      for (const { callbackIds, handler } of this.modalSubmitHandlers) {
+        if (
+          callbackIds.length === 0 ||
+          callbackIds.includes(event.callbackId)
+        ) {
+          try {
+            const response = await handler(fullEvent);
+            if (response) {
+              return response;
+            }
+          } catch (err) {
+            this.logger.error("Modal submit handler error", {
+              error: err,
+              callbackId: event.callbackId,
+            });
           }
-        } catch (err) {
-          this.logger.error("Modal submit handler error", {
-            error: err,
-            callbackId: event.callbackId,
-          });
         }
       }
-    }
+      return;
+    };
+    const result = await runInConversation(conversationId, runHandlers);
 
     if (callbackUrl && result?.action !== "errors") {
       const task = postToCallbackUrl(callbackUrl, {
@@ -1106,14 +1123,18 @@ export class Chat<
         relatedChannel,
       };
 
-      for (const { callbackIds, handler } of this.modalCloseHandlers) {
-        if (
-          callbackIds.length === 0 ||
-          callbackIds.includes(event.callbackId)
-        ) {
-          await handler(fullEvent);
+      const conversationId = relatedThread?.id ?? relatedChannel?.id;
+      const runHandlers = async () => {
+        for (const { callbackIds, handler } of this.modalCloseHandlers) {
+          if (
+            callbackIds.length === 0 ||
+            callbackIds.includes(event.callbackId)
+          ) {
+            await handler(fullEvent);
+          }
         }
-      }
+      };
+      await runInConversation(conversationId, runHandlers);
     })().catch((err) => {
       this.logger.error("Modal close handler error", {
         error: err,
@@ -1154,11 +1175,11 @@ export class Chat<
     event: AssistantThreadStartedEvent,
     options?: WebhookOptions
   ): void {
-    const task = (async () => {
+    const task = runInConversation(event.threadId, async () => {
       for (const handler of this.assistantThreadStartedHandlers) {
         await handler(event);
       }
-    })().catch((err) => {
+    }).catch((err) => {
       this.logger.error("Assistant thread started handler error", {
         error: err,
         threadId: event.threadId,
@@ -1174,11 +1195,11 @@ export class Chat<
     event: AssistantContextChangedEvent,
     options?: WebhookOptions
   ): void {
-    const task = (async () => {
+    const task = runInConversation(event.threadId, async () => {
       for (const handler of this.assistantContextChangedHandlers) {
         await handler(event);
       }
-    })().catch((err) => {
+    }).catch((err) => {
       this.logger.error("Assistant context changed handler error", {
         error: err,
         threadId: event.threadId,
@@ -1194,12 +1215,32 @@ export class Chat<
     event: AppHomeOpenedEvent,
     options?: WebhookOptions
   ): void {
-    const task = (async () => {
+    const task = runInConversation(event.channelId, async () => {
       for (const handler of this.appHomeOpenedHandlers) {
         await handler(event);
       }
-    })().catch((err) => {
+    }).catch((err) => {
       this.logger.error("App home opened handler error", {
+        error: err,
+        userId: event.userId,
+      });
+    });
+
+    if (options?.waitUntil) {
+      options.waitUntil(task);
+    }
+  }
+
+  processAppContextChanged(
+    event: AppContextChangedEvent,
+    options?: WebhookOptions
+  ): void {
+    const task = runInConversation(event.channelId, async () => {
+      for (const handler of this.appContextChangedHandlers) {
+        await handler(event);
+      }
+    }).catch((err) => {
+      this.logger.error("App context changed handler error", {
         error: err,
         userId: event.userId,
       });
@@ -1214,11 +1255,11 @@ export class Chat<
     event: MemberJoinedChannelEvent,
     options?: WebhookOptions
   ): void {
-    const task = (async () => {
+    const task = runInConversation(event.channelId, async () => {
       for (const handler of this.memberJoinedChannelHandlers) {
         await handler(event);
       }
-    })().catch((err) => {
+    }).catch((err) => {
       this.logger.error("Member joined channel handler error", {
         error: err,
         channelId: event.channelId,
@@ -1258,6 +1299,18 @@ export class Chat<
       adapter: event.adapter,
       stateAdapter: this._stateAdapter,
     });
+    return runInConversation(event.channelId, () =>
+      this.dispatchSlashCommand(event, channel, options)
+    );
+  }
+
+  private async dispatchSlashCommand(
+    event: Omit<SlashCommandEvent<TState>, "channel" | "openModal"> & {
+      adapter: Adapter;
+    },
+    channel: ChannelImpl<TState>,
+    options: WebhookOptions | undefined
+  ): Promise<void> {
     const fullEvent: SlashCommandEvent<TState> = {
       ...event,
       channel,
@@ -1982,7 +2035,17 @@ export class Chat<
    * - Bot filtering: Messages from the bot itself are skipped
    * - Concurrency: Controlled by `concurrency` config (drop, queue, debounce, burst, concurrent)
    */
-  async handleIncomingMessage(
+  handleIncomingMessage(
+    adapter: Adapter,
+    threadId: string,
+    message: Message
+  ): Promise<void> {
+    return runInConversation(threadId, () =>
+      this.routeIncomingMessage(adapter, threadId, message)
+    );
+  }
+
+  private async routeIncomingMessage(
     adapter: Adapter,
     threadId: string,
     message: Message
@@ -2619,6 +2682,11 @@ export class Chat<
   /**
    * Detect if the bot was mentioned in the message.
    * All adapters normalize mentions to @name format, so we just check for @username.
+   *
+   * The `@` must not follow a word character, so email addresses and URL
+   * userinfo (`jane@acme.com`) are not read as a mention of a bot named
+   * `acme`. The trailing guard keeps `@bot` from matching `@botlong` while
+   * still allowing suffixed names such as GitHub's `mybot[bot]`.
    */
   private detectMention(adapter: Adapter, message: Message): boolean {
     const botUserName = adapter.userName || this.userName;
@@ -2626,7 +2694,7 @@ export class Chat<
 
     // Primary check: @username format (normalized by all adapters)
     const usernamePattern = new RegExp(
-      `@${this.escapeRegex(botUserName)}\\b`,
+      `(?<!\\w)@${this.escapeRegex(botUserName)}(?![\\w-])`,
       "i"
     );
     if (usernamePattern.test(message.text)) {
@@ -2636,7 +2704,7 @@ export class Chat<
     // Fallback: check for user ID mention if available (e.g., @U_BOT_123)
     if (botUserId) {
       const userIdPattern = new RegExp(
-        `@${this.escapeRegex(botUserId)}\\b`,
+        `(?<!\\w)@${this.escapeRegex(botUserId)}(?![\\w-])`,
         "i"
       );
       if (userIdPattern.test(message.text)) {

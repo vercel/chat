@@ -1,5 +1,54 @@
 # @chat-adapter/whatsapp
 
+## 4.36.0
+
+### Patch Changes
+
+- Updated dependencies [257a32d]
+- Updated dependencies [c5d86b1]
+- Updated dependencies [0153a39]
+- Updated dependencies [b547f45]
+- Updated dependencies [caa6325]
+  - chat@4.36.0
+  - @chat-adapter/shared@4.36.0
+
+## 4.35.0
+
+### Patch Changes
+
+- 09b72e9: fix whatsapp card media duplication
+
+  - Prevent card titles and body content from appearing twice when sending cards with files on WhatsApp.
+  - Avoid adding the full card fallback text as an image caption when an interactive message follows.
+  - Keep interactive WhatsApp messages responsible for rendering card titles, bodies, and actions.
+
+- Updated dependencies [80def3a]
+- Updated dependencies [4cb7e5d]
+- Updated dependencies [46681f5]
+- Updated dependencies [93a58af]
+- Updated dependencies [25f3099]
+  - chat@4.35.0
+  - @chat-adapter/shared@4.35.0
+
+## 4.34.0
+
+### Minor Changes
+
+- 2338a66: Add `sendTemplate()` for sending pre-approved template messages, enabling business-initiated conversations outside the 24-hour customer service window
+- 8bd8a57: Implement outbound file and attachment sending for the WhatsApp adapter.
+
+  Supports binary `FileUpload` uploads, typed `Attachment` payloads (binary or HTTPS link passthrough), multi-file sequential sends, smart MIME-to-message-type mapping, caption placement with audio/long-text fallbacks, and card+file sequencing.
+
+### Patch Changes
+
+- Updated dependencies [5c926f1]
+- Updated dependencies [2531a42]
+- Updated dependencies [1721fa0]
+- Updated dependencies [4717a38]
+- Updated dependencies [6714efc]
+  - chat@4.34.0
+  - @chat-adapter/shared@4.34.0
+
 ## 4.33.0
 
 ### Patch Changes

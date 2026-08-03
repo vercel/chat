@@ -7,7 +7,7 @@ interface HeroProps {
 }
 
 export const Hero = ({ title, description, children }: HeroProps) => (
-  <section className="mt-(--fd-nav-height) flex flex-col items-center justify-center gap-y-5 px-4 py-28 sm:py-48">
+  <section className="mt-(--fd-nav-height) flex flex-col items-center justify-center gap-y-5 py-28 sm:py-48">
     <h1 className="max-w-5xl text-center text-heading-40 md:text-heading-48 lg:text-heading-64">
       {title}
     </h1>

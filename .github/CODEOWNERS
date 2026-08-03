@@ -1,4 +1,6 @@
-* @vercel/chat-sdk
+/packages/ @vercel/chat-sdk
+
+**/*.md
 
 /.github/workflows/release.yml @cramforce
 /.changeset/config.json        @cramforce

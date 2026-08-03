@@ -15,7 +15,11 @@ import type {
 import { Message, NotImplementedError } from "chat";
 import type { TeamsFormatConverter } from "./markdown";
 import { decodeThreadId, encodeThreadId, isDM } from "./thread-id";
-import type { TeamsChannelContext, TeamsGraphContext } from "./types";
+import type {
+  TeamsChannelContext,
+  TeamsGraphContext,
+  TeamsThreadId,
+} from "./types";
 
 const MESSAGEID_STRIP_PATTERN = /;messageid=\d+/;
 const SEMICOLON_MESSAGEID_CAPTURE_PATTERN = /;messageid=(\d+)/;
@@ -62,11 +66,21 @@ export class TeamsGraphReader {
     return baseConversationId;
   }
 
+  private async getGraphContext(
+    baseConversationId: string,
+    conversationType: TeamsThreadId["conversationType"]
+  ): Promise<TeamsGraphContext | null> {
+    if (conversationType === "groupChat") {
+      return null;
+    }
+    return this.deps.getGraphContext(baseConversationId);
+  }
+
   async fetchMessages(
     threadId: string,
     options: FetchOptions = {}
   ): Promise<FetchResult<unknown>> {
-    const { conversationId } = decodeThreadId(threadId);
+    const { conversationId, conversationType } = decodeThreadId(threadId);
     const limit = options.limit || 50;
     const cursor = options.cursor;
     const direction = options.direction ?? "backward";
@@ -80,7 +94,10 @@ export class TeamsGraphReader {
       ""
     );
 
-    const graphContext = await this.deps.getGraphContext(baseConversationId);
+    const graphContext = await this.getGraphContext(
+      baseConversationId,
+      conversationType
+    );
 
     try {
       this.deps.logger.debug("Teams Graph API: fetching messages", {
@@ -180,7 +197,7 @@ export class TeamsGraphReader {
     channelId: string,
     options: FetchOptions = {}
   ): Promise<FetchResult<unknown>> {
-    const { conversationId } = decodeThreadId(channelId);
+    const { conversationId, conversationType } = decodeThreadId(channelId);
     const baseConversationId = conversationId.replace(
       MESSAGEID_STRIP_PATTERN,
       ""
@@ -189,7 +206,10 @@ export class TeamsGraphReader {
     const direction = options.direction ?? "backward";
 
     try {
-      const graphContext = await this.deps.getGraphContext(baseConversationId);
+      const graphContext = await this.getGraphContext(
+        baseConversationId,
+        conversationType
+      );
 
       this.deps.logger.debug("Teams Graph API: fetchChannelMessages", {
         conversationId: baseConversationId,
@@ -307,13 +327,16 @@ export class TeamsGraphReader {
   }
 
   async fetchChannelInfo(channelId: string): Promise<ChannelInfo> {
-    const { conversationId } = decodeThreadId(channelId);
+    const { conversationId, conversationType } = decodeThreadId(channelId);
     const baseConversationId = conversationId.replace(
       MESSAGEID_STRIP_PATTERN,
       ""
     );
 
-    const graphContext = await this.deps.getGraphContext(baseConversationId);
+    const graphContext = await this.getGraphContext(
+      baseConversationId,
+      conversationType
+    );
 
     if (graphContext && graphContext.type !== "dm") {
       try {
@@ -368,7 +391,8 @@ export class TeamsGraphReader {
     channelId: string,
     options: ListThreadsOptions = {}
   ): Promise<ListThreadsResult<unknown>> {
-    const { conversationId, serviceUrl } = decodeThreadId(channelId);
+    const { conversationId, conversationType, serviceUrl } =
+      decodeThreadId(channelId);
     const baseConversationId = conversationId.replace(
       MESSAGEID_STRIP_PATTERN,
       ""
@@ -376,7 +400,10 @@ export class TeamsGraphReader {
     const limit = options.limit || 50;
 
     try {
-      const graphContext = await this.deps.getGraphContext(baseConversationId);
+      const graphContext = await this.getGraphContext(
+        baseConversationId,
+        conversationType
+      );
 
       this.deps.logger.debug("Teams Graph API: listThreads", {
         conversationId: baseConversationId,
@@ -403,6 +430,7 @@ export class TeamsGraphReader {
           }
           const threadId = encodeThreadId({
             conversationId: `${baseConversationId};messageid=${msg.id}`,
+            conversationType: "channel",
             serviceUrl,
           });
 
@@ -455,6 +483,9 @@ export class TeamsGraphReader {
           $orderby: ["createdDateTime desc"],
         });
         const messages = response.value || [];
+        const threadConversationType =
+          conversationType ??
+          (graphContext?.type === "dm" ? "personal" : undefined);
 
         for (const msg of messages) {
           if (!msg.id) {
@@ -462,6 +493,7 @@ export class TeamsGraphReader {
           }
           const threadId = encodeThreadId({
             conversationId: `${baseConversationId};messageid=${msg.id}`,
+            conversationType: threadConversationType,
             serviceUrl,
           });
 

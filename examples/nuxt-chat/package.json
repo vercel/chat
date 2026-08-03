@@ -11,12 +11,12 @@
     "typecheck": "nuxt typecheck"
   },
   "dependencies": {
-    "@ai-sdk/vue": "^3.0.182",
+    "@ai-sdk/vue": "^4.0.0",
     "@chat-adapter/slack": "workspace:*",
     "@chat-adapter/state-memory": "workspace:*",
     "@chat-adapter/state-redis": "workspace:*",
     "@chat-adapter/web": "workspace:*",
-    "ai": "^6.0.182",
+    "ai": "^7.0.0",
     "chat": "workspace:*",
     "h3": "2.0.1-rc.22",
     "nuxt": "~4.4.7",

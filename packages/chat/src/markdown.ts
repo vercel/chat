@@ -26,7 +26,7 @@ import remarkGfm from "remark-gfm";
 import remarkParse from "remark-parse";
 import remarkStringify from "remark-stringify";
 import { unified } from "unified";
-import type { CardChild, CardElement } from "./cards";
+import type { CardChild, CardElement, ChartElement } from "./cards";
 import type { AdapterPostableMessage } from "./types";
 
 // Alias for use within this file
@@ -228,6 +228,34 @@ export function tableElementToAscii(
   return lines.join("\n");
 }
 
+/**
+ * Render a chart element as text: the title followed by the underlying
+ * data as a padded ASCII table.
+ * Used for card ChartElement fallback rendering on platforms without
+ * native chart support.
+ */
+export function chartElementToFallbackText(element: ChartElement): string {
+  const { chart, title } = element;
+
+  if (chart.type === "pie") {
+    const table = tableElementToAscii(
+      ["Label", "Value"],
+      chart.segments.map((s) => [s.label, String(s.value)])
+    );
+    return `${title}\n${table}`;
+  }
+
+  const headers = [chart.xLabel ?? "", ...chart.series.map((s) => s.name)];
+  const rows = chart.categories.map((category) => [
+    category,
+    ...chart.series.map((s) => {
+      const point = s.data.find((p) => p.label === category);
+      return point ? String(point.value) : "";
+    }),
+  ]);
+  return `${title}\n${tableElementToAscii(headers, rows)}`;
+}
+
 // ============================================================================
 // Helper functions for accessing node properties type-safely
 // ============================================================================
@@ -285,11 +313,60 @@ export function stringifyMarkdown(
   return processor.stringify(ast);
 }
 
+function nodeValue(node: Content | Root): string | null {
+  if ("value" in node && typeof node.value === "string") {
+    return node.value;
+  }
+  if ("alt" in node && typeof node.alt === "string") {
+    return node.alt;
+  }
+  return null;
+}
+
+function childPlainText(node: Content | Root, separator: string): string {
+  if (!("children" in node && Array.isArray(node.children))) {
+    return "";
+  }
+
+  return (node.children as (Content | Root)[])
+    .map((child) => plainTextNode(child))
+    .filter((text) => text.length > 0)
+    .join(separator);
+}
+
+function plainTextNode(node: Content | Root): string {
+  const value = nodeValue(node);
+  if (value !== null) {
+    return value;
+  }
+
+  switch (node.type) {
+    case "root":
+      return childPlainText(node, "\n\n");
+    case "list":
+    case "table":
+      return childPlainText(node, "\n");
+    case "listItem":
+    case "blockquote":
+      return childPlainText(node, "\n");
+    case "tableRow":
+      return childPlainText(node, "\t");
+    case "break":
+      return "\n";
+    case "thematicBreak":
+      return "";
+    case "tableCell":
+      return childPlainText(node, "");
+    default:
+      return childPlainText(node, "");
+  }
+}
+
 /**
  * Extract plain text from an AST (strips all formatting).
  */
 export function toPlainText(ast: Root): string {
-  return mdastToString(ast);
+  return plainTextNode(ast);
 }
 
 /**
@@ -297,7 +374,7 @@ export function toPlainText(ast: Root): string {
  */
 export function markdownToPlainText(markdown: string): string {
   const ast = parseMarkdown(markdown);
-  return mdastToString(ast);
+  return toPlainText(ast);
 }
 
 /**
@@ -605,6 +682,8 @@ export abstract class BaseFormatConverter implements FormatConverter {
         return null;
       case "table":
         return tableElementToAscii(child.headers, child.rows);
+      case "chart":
+        return chartElementToFallbackText(child);
       case "section":
         return child.children
           .map((c) => this.cardChildToFallbackText(c))

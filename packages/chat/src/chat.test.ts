@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+const ANY_REGEX = /.*/;
 const HELP_REGEX = /help/i;
 const HELLO_REGEX = /hello/i;
 
@@ -222,6 +223,70 @@ describe("Chat", () => {
     expect(handler).toHaveBeenCalled();
     expect(mockState.acquireLock).toHaveBeenCalled();
     expect(mockState.releaseLock).toHaveBeenCalled();
+  });
+
+  it("should call onNewMention for newline-separated GitHub bot mentions", async () => {
+    const githubAdapter = {
+      ...createMockAdapter("github"),
+      userName: "test-bot",
+    };
+    const state = createMockState();
+    const githubChat = new Chat({
+      userName: "fallback-bot",
+      adapters: { github: githubAdapter },
+      state,
+      logger: mockLogger,
+    });
+
+    await githubChat.webhooks.github(
+      new Request("http://test.com", { method: "POST" })
+    );
+
+    const handler = vi.fn().mockResolvedValue(undefined);
+    githubChat.onNewMention(handler);
+
+    const message = createTestMessage("msg-1", "@test-bot\nhi there");
+
+    await githubChat.handleIncomingMessage(
+      githubAdapter,
+      "github:acme/app:42",
+      message
+    );
+
+    expect(handler).toHaveBeenCalled();
+    const [, receivedMessage] = handler.mock.calls[0];
+    expect(receivedMessage.isMention).toBe(true);
+  });
+
+  it("should not call onNewMention for concatenated GitHub bot mention text", async () => {
+    const githubAdapter = {
+      ...createMockAdapter("github"),
+      userName: "test-bot",
+    };
+    const state = createMockState();
+    const githubChat = new Chat({
+      userName: "fallback-bot",
+      adapters: { github: githubAdapter },
+      state,
+      logger: mockLogger,
+    });
+
+    await githubChat.webhooks.github(
+      new Request("http://test.com", { method: "POST" })
+    );
+
+    const handler = vi.fn().mockResolvedValue(undefined);
+    githubChat.onNewMention(handler);
+
+    const message = createTestMessage("msg-1", "@test-bothi there");
+
+    await githubChat.handleIncomingMessage(
+      githubAdapter,
+      "github:acme/app:42",
+      message
+    );
+
+    expect(handler).not.toHaveBeenCalled();
   });
 
   it("should call onSubscribedMessage handler for subscribed threads", async () => {
@@ -453,6 +518,42 @@ describe("Chat", () => {
       expect(mentionHandler).not.toHaveBeenCalled();
       expect(patternHandler).toHaveBeenCalledTimes(1);
     });
+
+    it("should not trigger onNewMention when a bot with a hyphen-suffixed name is mentioned", async () => {
+      // @slack-bot should not react when @slack-bot-dev is mentioned
+      const mentionHandler = vi.fn().mockResolvedValue(undefined);
+      chat.onNewMention(mentionHandler);
+
+      const message = createTestMessage("msg-1", "Hey @slack-bot-dev help me");
+
+      await chat.handleIncomingMessage(
+        mockAdapter,
+        "slack:C123:1234.5678",
+        message
+      );
+
+      expect(mentionHandler).not.toHaveBeenCalled();
+    });
+
+    it("should not trigger onNewMention when a hyphen-suffixed user ID is mentioned", async () => {
+      // Bot with ID UBOT123 should not react when @UBOT123-canary is mentioned
+      const adapterWithId = {
+        ...createMockAdapter("slack"),
+        botUserId: "UBOT123",
+      };
+      const mentionHandler = vi.fn().mockResolvedValue(undefined);
+      chat.onNewMention(mentionHandler);
+
+      const message = createTestMessage("msg-1", "deploy @UBOT123-canary now");
+
+      await chat.handleIncomingMessage(
+        adapterWithId,
+        "slack:C123:1234.5678",
+        message
+      );
+
+      expect(mentionHandler).not.toHaveBeenCalled();
+    });
   });
 
   it("should match message patterns", async () => {
@@ -504,6 +605,47 @@ describe("Chat", () => {
       expect(handler).toHaveBeenCalled();
       const [, receivedMessage] = handler.mock.calls[0];
       expect(receivedMessage.isMention).toBe(false);
+    });
+
+    it.each([
+      ["jane@slack-bot.com", "an email whose domain starts with the bot name"],
+      ["foo.bar@slack-bot.com", "a dotted email local part"],
+      ["foo-bar@slack-bot.com", "a hyphenated email local part"],
+      ["https://user@slack-bot.com", "url userinfo"],
+    ])("should not treat %s as a mention (%s)", async (text) => {
+      const handler = vi.fn().mockResolvedValue(undefined);
+      chat.onNewMessage(ANY_REGEX, handler);
+
+      await chat.handleIncomingMessage(
+        mockAdapter,
+        "slack:C123:1234.5678",
+        createTestMessage("msg-1", text)
+      );
+
+      expect(handler).toHaveBeenCalled();
+      const [, receivedMessage] = handler.mock.calls[0];
+      expect(receivedMessage.isMention).toBe(false);
+    });
+
+    it.each([
+      ["@slack-bot help", "at the start"],
+      ["hey @slack-bot", "after a space"],
+      ["(@slack-bot)", "wrapped in parentheses"],
+      ["cc:@slack-bot", "after a colon"],
+      ["wait...@slack-bot", "after an ellipsis"],
+    ])("should still detect %s as a mention (%s)", async (text) => {
+      const handler = vi.fn().mockResolvedValue(undefined);
+      chat.onNewMention(handler);
+
+      await chat.handleIncomingMessage(
+        mockAdapter,
+        "slack:C123:1234.5678",
+        createTestMessage("msg-1", text)
+      );
+
+      expect(handler).toHaveBeenCalled();
+      const [, receivedMessage] = handler.mock.calls[0];
+      expect(receivedMessage.isMention).toBe(true);
     });
 
     it("should set isMention=true in subscribed thread when mentioned", async () => {
@@ -1891,6 +2033,38 @@ describe("Chat", () => {
       await thread.post(chunks());
 
       expect(mockAdapter.editMessage).toHaveBeenCalled();
+    });
+
+    it.each([
+      [{}, undefined],
+      [{ fallbackStreamingPlaceholderText: "Working..." }, "Working..."],
+      [{ fallbackStreamingPlaceholderText: null }, null],
+    ] as const)("passes only explicit placeholder config to adapter streaming", async (placeholderConfig, expected) => {
+      const adapter = createMockAdapter("teams");
+      const stream = vi.fn().mockResolvedValue({
+        id: "answer-id",
+        threadId: "teams:C123:1234.5678",
+        raw: {},
+      });
+      adapter.stream = stream;
+      const customChat = new Chat({
+        userName: "testbot",
+        adapters: { teams: adapter },
+        state: createMockState(),
+        ...placeholderConfig,
+      });
+
+      await customChat.thread("teams:C123:1234.5678").post(chunks());
+
+      const options = stream.mock.calls[0]?.[2];
+      if (expected !== undefined) {
+        expect(options).toHaveProperty(
+          "fallbackStreamingPlaceholderText",
+          expected
+        );
+      } else {
+        expect(options).not.toHaveProperty("fallbackStreamingPlaceholderText");
+      }
     });
 
     it("should throw for an invalid thread ID", () => {

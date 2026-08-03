@@ -4,6 +4,7 @@ import {
   createMockLogger,
   threadIdContract,
 } from "@chat-adapter/tests";
+import type { CardElement } from "chat";
 import {
   afterEach,
   beforeEach,
@@ -15,6 +16,7 @@ import {
 } from "vitest";
 import {
   createWhatsAppAdapter,
+  getWhatsAppMediaType,
   splitMessage,
   WhatsAppAdapter,
   type WhatsAppThreadId,
@@ -23,6 +25,8 @@ import {
 const NOT_SUPPORTED_PATTERN = /not support/i;
 const ACCESS_TOKEN_PATTERN = /accessToken/i;
 const APP_SECRET_PATTERN = /appSecret/i;
+const WHATSAPP_IMAGE_SIZE_LIMIT_PATTERN = /exceeds WhatsApp image limit/;
+const NO_MESSAGE_ID_PATTERN = /did not return a message ID/i;
 
 /**
  * Create a minimal WhatsAppAdapter for testing thread ID methods.
@@ -827,6 +831,799 @@ describe("postMessage", () => {
     });
 
     expect(fetchSpy).toHaveBeenCalledTimes(2);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// postMessage - file uploads
+// ---------------------------------------------------------------------------
+
+describe("postMessage - file uploads", () => {
+  const THREAD_ID = "whatsapp:123456789:15551234567";
+
+  let fetchSpy: MockInstance;
+  let messageCounter: number;
+
+  function createMediaFetchMock() {
+    let mediaCounter = 0;
+    messageCounter = 0;
+
+    return (url: string | URL | Request) => {
+      const urlStr = String(url);
+
+      if (urlStr.includes("/media")) {
+        mediaCounter += 1;
+
+        return Promise.resolve(
+          new Response(JSON.stringify({ id: `media-${mediaCounter}` }), {
+            status: 200,
+            headers: { "Content-Type": "application/json" },
+          })
+        );
+      }
+
+      messageCounter += 1;
+
+      return Promise.resolve(
+        new Response(
+          JSON.stringify({ messages: [{ id: `wamid.msg${messageCounter}` }] }),
+          { status: 200, headers: { "Content-Type": "application/json" } }
+        )
+      );
+    };
+  }
+
+  function getMessageCalls(): [unknown, RequestInit | undefined][] {
+    return fetchSpy.mock.calls.filter(([url]) =>
+      String(url).includes("/messages")
+    ) as [unknown, RequestInit | undefined][];
+  }
+
+  function getMediaCalls(): [unknown, RequestInit | undefined][] {
+    return fetchSpy.mock.calls.filter(([url]) =>
+      String(url).includes("/media")
+    ) as [unknown, RequestInit | undefined][];
+  }
+
+  function parseMessageBody(index: number): Record<string, unknown> {
+    const [, init] = getMessageCalls()[index] ?? [];
+    return JSON.parse(init?.body as string) as Record<string, unknown>;
+  }
+
+  beforeEach(() => {
+    fetchSpy = vi
+      .spyOn(global, "fetch")
+      .mockImplementation(createMediaFetchMock() as never);
+  });
+
+  afterEach(() => {
+    fetchSpy.mockRestore();
+  });
+
+  it("single PDF with markdown caption uploads then sends document", async () => {
+    const adapter = createTestAdapter();
+    const result = await adapter.postMessage(THREAD_ID, {
+      markdown: "Here is the report",
+      files: [
+        {
+          data: Buffer.from("pdf-content"),
+          filename: "report.pdf",
+          mimeType: "application/pdf",
+        },
+      ],
+    });
+
+    expect(getMediaCalls()).toHaveLength(1);
+    expect(getMessageCalls()).toHaveLength(1);
+
+    const sent = parseMessageBody(0);
+    expect(sent.type).toBe("document");
+    expect((sent.document as { id: string }).id).toBe("media-1");
+    expect((sent.document as { caption: string }).caption).toBe(
+      "Here is the report"
+    );
+    expect((sent.document as { filename: string }).filename).toBe("report.pdf");
+    expect(result.id).toBe("wamid.msg1");
+  });
+
+  it("single JPEG maps to image message type", async () => {
+    const adapter = createTestAdapter();
+    await adapter.postMessage(THREAD_ID, {
+      markdown: "Photo",
+      files: [
+        {
+          data: Buffer.from("jpeg"),
+          filename: "photo.jpg",
+          mimeType: "image/jpeg",
+        },
+      ],
+    });
+
+    const sent = parseMessageBody(0);
+    expect(sent.type).toBe("image");
+    expect((sent.image as { id: string }).id).toBe("media-1");
+  });
+
+  it("audio with text sends leading text message without audio caption", async () => {
+    const adapter = createTestAdapter();
+    await adapter.postMessage(THREAD_ID, {
+      markdown: "Listen to this",
+      files: [
+        {
+          data: Buffer.from("audio"),
+          filename: "clip.mp3",
+          mimeType: "audio/mpeg",
+        },
+      ],
+    });
+
+    expect(getMessageCalls()).toHaveLength(2);
+
+    const textMessage = parseMessageBody(0);
+    const audioMessage = parseMessageBody(1);
+
+    expect(textMessage.type).toBe("text");
+    expect((textMessage.text as { body: string }).body).toBe("Listen to this");
+    expect(audioMessage.type).toBe("audio");
+    expect(
+      (audioMessage.audio as { caption?: string }).caption
+    ).toBeUndefined();
+  });
+
+  it("long text with image sends text first then image without caption", async () => {
+    const adapter = createTestAdapter();
+    const longText = "a".repeat(1025);
+
+    await adapter.postMessage(THREAD_ID, {
+      markdown: longText,
+      files: [
+        {
+          data: Buffer.from("jpeg"),
+          filename: "photo.jpg",
+          mimeType: "image/jpeg",
+        },
+      ],
+    });
+
+    expect(getMessageCalls()).toHaveLength(2);
+
+    const textMessage = parseMessageBody(0);
+    const imageMessage = parseMessageBody(1);
+
+    expect(textMessage.type).toBe("text");
+    expect(imageMessage.type).toBe("image");
+    expect(
+      (imageMessage.image as { caption?: string }).caption
+    ).toBeUndefined();
+  });
+
+  it("multiple files send sequentially with caption only on first", async () => {
+    const adapter = createTestAdapter();
+    const result = await adapter.postMessage(THREAD_ID, {
+      markdown: "Two files",
+      files: [
+        {
+          data: Buffer.from("a"),
+          filename: "first.pdf",
+          mimeType: "application/pdf",
+        },
+        {
+          data: Buffer.from("b"),
+          filename: "second.pdf",
+          mimeType: "application/pdf",
+        },
+      ],
+    });
+
+    expect(getMediaCalls()).toHaveLength(2);
+    expect(getMessageCalls()).toHaveLength(2);
+
+    const first = parseMessageBody(0);
+    const second = parseMessageBody(1);
+
+    expect((first.document as { caption: string }).caption).toBe("Two files");
+    expect((second.document as { caption?: string }).caption).toBeUndefined();
+    expect(result.id).toBe("wamid.msg2");
+  });
+
+  it("attachment with HTTPS url uses link passthrough without upload", async () => {
+    const adapter = createTestAdapter();
+
+    await adapter.postMessage(THREAD_ID, {
+      markdown: "Remote doc",
+      attachments: [
+        {
+          type: "file",
+          url: "https://example.com/report.pdf",
+          mimeType: "application/pdf",
+        },
+      ],
+    });
+
+    expect(getMediaCalls()).toHaveLength(0);
+    expect(getMessageCalls()).toHaveLength(1);
+
+    const sent = parseMessageBody(0);
+    expect((sent.document as { link: string }).link).toBe(
+      "https://example.com/report.pdf"
+    );
+    expect((sent.document as { id?: string }).id).toBeUndefined();
+  });
+
+  it("attachment with fetchData uploads binary", async () => {
+    const adapter = createTestAdapter();
+    const fetchData = vi.fn().mockResolvedValue(Buffer.from("png-bytes"));
+
+    await adapter.postMessage(THREAD_ID, {
+      markdown: "",
+      attachments: [
+        {
+          type: "image",
+          mimeType: "image/png",
+          fetchData,
+        },
+      ],
+    });
+
+    expect(fetchData).toHaveBeenCalledOnce();
+    expect(getMediaCalls()).toHaveLength(1);
+
+    const sent = parseMessageBody(0);
+    expect(sent.type).toBe("image");
+    expect((sent.image as { id: string }).id).toBe("media-1");
+  });
+
+  it("card with files sends media then interactive message", async () => {
+    const adapter = createTestAdapter();
+    const card: CardElement = {
+      type: "card",
+      title: "Approve?",
+      children: [
+        {
+          type: "actions",
+          children: [
+            { type: "button", id: "yes", label: "Yes" },
+            { type: "button", id: "no", label: "No" },
+          ],
+        },
+      ],
+    };
+
+    await adapter.postMessage(THREAD_ID, {
+      card,
+      files: [
+        {
+          data: Buffer.from("png"),
+          filename: "proof.png",
+          mimeType: "image/png",
+        },
+      ],
+    });
+
+    expect(getMediaCalls()).toHaveLength(1);
+    expect(getMessageCalls()).toHaveLength(2);
+
+    const mediaMessage = parseMessageBody(0);
+    const interactiveMessage = parseMessageBody(1);
+
+    expect(mediaMessage.type).toBe("image");
+    expect(
+      (mediaMessage.image as { caption?: string }).caption
+    ).toBeUndefined();
+    expect(interactiveMessage.type).toBe("interactive");
+
+    const interactive = interactiveMessage.interactive as {
+      header?: { text: string };
+      body: { text: string };
+      action: { buttons: Array<{ reply: { title: string } }> };
+    };
+    expect(interactive.header?.text).toBe("Approve?");
+    expect(interactive.action.buttons).toHaveLength(2);
+  });
+
+  it("interactive card + file does not duplicate title across caption and header", async () => {
+    const adapter = createTestAdapter();
+    const title = "Demo image card";
+
+    await adapter.postMessage(THREAD_ID, {
+      card: {
+        type: "card",
+        title,
+        children: [
+          {
+            type: "actions",
+            children: [{ type: "button", id: "ok", label: "OK" }],
+          },
+        ],
+      },
+      files: [
+        {
+          data: Buffer.from("png"),
+          filename: "demo.png",
+          mimeType: "image/png",
+        },
+      ],
+    });
+
+    expect(getMessageCalls()).toHaveLength(2);
+
+    const mediaMessage = parseMessageBody(0);
+    const interactiveMessage = parseMessageBody(1);
+    const caption = (mediaMessage.image as { caption?: string }).caption;
+    const header = (
+      interactiveMessage.interactive as { header?: { text: string } }
+    ).header?.text;
+
+    expect(caption).toBeUndefined();
+    expect(header).toBe(title);
+
+    const serialized = JSON.stringify([mediaMessage, interactiveMessage]);
+    expect(serialized.split(title).length - 1).toBe(1);
+  });
+
+  it("interactive card + file does not duplicate CardText/Fields in caption", async () => {
+    const adapter = createTestAdapter();
+    const bodyLine = "Your order has shipped";
+    const fieldLabel = "Tracking code";
+    const fieldValue = "SHIP-UNIQUE-VALUE";
+
+    await adapter.postMessage(THREAD_ID, {
+      card: {
+        type: "card",
+        title: "Shipment",
+        subtitle: "Status update",
+        children: [
+          { type: "text", content: bodyLine },
+          {
+            type: "fields",
+            children: [{ type: "field", label: fieldLabel, value: fieldValue }],
+          },
+          {
+            type: "actions",
+            children: [
+              { type: "button", id: "track", label: "Track" },
+              { type: "button", id: "help", label: "Help" },
+            ],
+          },
+        ],
+      },
+      files: [
+        {
+          data: Buffer.from("png"),
+          filename: "box.png",
+          mimeType: "image/png",
+        },
+      ],
+    });
+
+    expect(getMessageCalls()).toHaveLength(2);
+
+    const mediaMessage = parseMessageBody(0);
+    const interactiveMessage = parseMessageBody(1);
+    const caption = (mediaMessage.image as { caption?: string }).caption;
+    const interactive = interactiveMessage.interactive as {
+      header?: { text: string };
+      body: { text: string };
+    };
+
+    expect(caption).toBeUndefined();
+    expect(interactive.header?.text).toBe("Shipment");
+    expect(interactive.body.text).toContain("Status update");
+    expect(interactive.body.text).toContain(bodyLine);
+    expect(interactive.body.text).toContain(`${fieldLabel}: ${fieldValue}`);
+  });
+
+  it("interactive card + multiple files leaves all media uncaptioned", async () => {
+    const adapter = createTestAdapter();
+
+    await adapter.postMessage(THREAD_ID, {
+      card: {
+        type: "card",
+        title: "Review docs",
+        children: [
+          {
+            type: "actions",
+            children: [
+              { type: "button", id: "approve", label: "Approve" },
+              { type: "button", id: "reject", label: "Reject" },
+            ],
+          },
+        ],
+      },
+      files: [
+        {
+          data: Buffer.from("a"),
+          filename: "a.pdf",
+          mimeType: "application/pdf",
+        },
+        {
+          data: Buffer.from("b"),
+          filename: "b.pdf",
+          mimeType: "application/pdf",
+        },
+      ],
+    });
+
+    expect(getMediaCalls()).toHaveLength(2);
+    expect(getMessageCalls()).toHaveLength(3);
+
+    const first = parseMessageBody(0);
+    const second = parseMessageBody(1);
+    const interactiveMessage = parseMessageBody(2);
+
+    expect(first.type).toBe("document");
+    expect(second.type).toBe("document");
+    expect((first.document as { caption?: string }).caption).toBeUndefined();
+    expect((second.document as { caption?: string }).caption).toBeUndefined();
+    expect(interactiveMessage.type).toBe("interactive");
+    expect(
+      (interactiveMessage.interactive as { header?: { text: string } }).header
+        ?.text
+    ).toBe("Review docs");
+  });
+
+  it("interactive card + audio sends audio then interactive with no leading text", async () => {
+    const adapter = createTestAdapter();
+
+    await adapter.postMessage(THREAD_ID, {
+      card: {
+        type: "card",
+        title: "Voice note",
+        children: [
+          {
+            type: "actions",
+            children: [{ type: "button", id: "ack", label: "Got it" }],
+          },
+        ],
+      },
+      files: [
+        {
+          data: Buffer.from("audio"),
+          filename: "note.mp3",
+          mimeType: "audio/mpeg",
+        },
+      ],
+    });
+
+    // Audio cannot take a caption; interactive path also skips card fallback
+    // text, so there must be no leading text message with the title.
+    expect(getMessageCalls()).toHaveLength(2);
+
+    const audioMessage = parseMessageBody(0);
+    const interactiveMessage = parseMessageBody(1);
+
+    expect(audioMessage.type).toBe("audio");
+    expect(
+      (audioMessage.audio as { caption?: string }).caption
+    ).toBeUndefined();
+    expect(interactiveMessage.type).toBe("interactive");
+    expect(
+      (interactiveMessage.interactive as { header?: { text: string } }).header
+        ?.text
+    ).toBe("Voice note");
+
+    for (const message of [audioMessage, interactiveMessage]) {
+      if (message.type === "text") {
+        throw new Error("unexpected leading text message for interactive card");
+      }
+    }
+  });
+
+  it("interactive card + HTTPS attachment does not caption with card title", async () => {
+    const adapter = createTestAdapter();
+
+    await adapter.postMessage(THREAD_ID, {
+      card: {
+        type: "card",
+        title: "Remote image card",
+        children: [
+          {
+            type: "actions",
+            children: [{ type: "button", id: "open", label: "Open" }],
+          },
+        ],
+      },
+      attachments: [
+        {
+          type: "image",
+          url: "https://example.com/photo.jpg",
+          mimeType: "image/jpeg",
+        },
+      ],
+    });
+
+    expect(getMediaCalls()).toHaveLength(0);
+    expect(getMessageCalls()).toHaveLength(2);
+
+    const mediaMessage = parseMessageBody(0);
+    const interactiveMessage = parseMessageBody(1);
+
+    expect(mediaMessage.type).toBe("image");
+    expect(
+      (mediaMessage.image as { caption?: string }).caption
+    ).toBeUndefined();
+    expect((mediaMessage.image as { link: string }).link).toBe(
+      "https://example.com/photo.jpg"
+    );
+    expect(
+      (interactiveMessage.interactive as { header?: { text: string } }).header
+        ?.text
+    ).toBe("Remote image card");
+  });
+
+  it("card with text fallback and file does not send duplicate text", async () => {
+    const adapter = createTestAdapter();
+    const card: CardElement = {
+      type: "card",
+      title: "Order update",
+      children: [
+        {
+          type: "actions",
+          children: [
+            {
+              type: "link-button",
+              url: "https://example.com/track",
+              label: "Track",
+            },
+          ],
+        },
+      ],
+    };
+
+    await adapter.postMessage(THREAD_ID, {
+      card,
+      files: [
+        {
+          data: Buffer.from("png"),
+          filename: "receipt.png",
+          mimeType: "image/png",
+        },
+      ],
+    });
+
+    expect(getMediaCalls()).toHaveLength(1);
+    expect(getMessageCalls()).toHaveLength(1);
+
+    const mediaMessage = parseMessageBody(0);
+    expect(mediaMessage.type).toBe("image");
+    expect((mediaMessage.image as { caption: string }).caption).toContain(
+      "Order update"
+    );
+  });
+
+  it("text-fallback card + file puts title and body only in the caption once", async () => {
+    const adapter = createTestAdapter();
+    const title = "Receipt details";
+    const bodyLine = "Thanks for your purchase";
+
+    await adapter.postMessage(THREAD_ID, {
+      card: {
+        type: "card",
+        title,
+        children: [
+          { type: "text", content: bodyLine },
+          {
+            type: "actions",
+            children: [
+              {
+                type: "link-button",
+                url: "https://example.com/receipt",
+                label: "View",
+              },
+            ],
+          },
+        ],
+      },
+      files: [
+        {
+          data: Buffer.from("png"),
+          filename: "receipt.png",
+          mimeType: "image/png",
+        },
+      ],
+    });
+
+    expect(getMessageCalls()).toHaveLength(1);
+
+    const mediaMessage = parseMessageBody(0);
+    const caption = (mediaMessage.image as { caption: string }).caption;
+
+    expect(caption).toContain(title);
+    expect(caption).toContain(bodyLine);
+    expect(caption.split(title).length - 1).toBe(1);
+    expect(caption.split(bodyLine).length - 1).toBe(1);
+  });
+
+  it("oversize image throws ValidationError before upload", async () => {
+    const adapter = createTestAdapter();
+    const oversized = Buffer.alloc(6 * 1024 * 1024);
+
+    await expect(
+      adapter.postMessage(THREAD_ID, {
+        markdown: "",
+        files: [
+          {
+            data: oversized,
+            filename: "huge.png",
+            mimeType: "image/png",
+          },
+        ],
+      })
+    ).rejects.toThrow(WHATSAPP_IMAGE_SIZE_LIMIT_PATTERN);
+
+    expect(getMediaCalls()).toHaveLength(0);
+    expect(getMessageCalls()).toHaveLength(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// sendTemplate
+// ---------------------------------------------------------------------------
+
+describe("sendTemplate", () => {
+  let fetchSpy: MockInstance;
+
+  const makeGraphApiResponse = () =>
+    new Response(JSON.stringify({ messages: [{ id: "wamid.template123" }] }), {
+      status: 200,
+      headers: { "Content-Type": "application/json" },
+    });
+
+  beforeEach(() => {
+    fetchSpy = vi
+      .spyOn(global, "fetch")
+      .mockImplementation(() => Promise.resolve(makeGraphApiResponse()));
+  });
+
+  afterEach(() => {
+    fetchSpy.mockRestore();
+  });
+
+  it("sends a template with name and language", async () => {
+    const adapter = createTestAdapter();
+    const result = await adapter.sendTemplate(
+      "whatsapp:123456789:15551234567",
+      {
+        name: "appointment_reminder",
+        language: "en",
+      }
+    );
+
+    expect(fetchSpy).toHaveBeenCalledOnce();
+    const [url, init] = fetchSpy.mock.calls[0];
+    expect(String(url)).toContain("/123456789/messages");
+    const sent = JSON.parse(init?.body as string);
+    expect(sent.type).toBe("template");
+    expect(sent.to).toBe("15551234567");
+    expect(sent.template).toEqual({
+      name: "appointment_reminder",
+      language: { code: "en" },
+    });
+    expect(result.id).toBe("wamid.template123");
+  });
+
+  it("includes components when provided", async () => {
+    const adapter = createTestAdapter();
+    await adapter.sendTemplate("whatsapp:123456789:15551234567", {
+      name: "order_shipped",
+      language: "en_US",
+      components: [
+        {
+          type: "body",
+          parameters: [
+            { type: "text", text: "Ada" },
+            { type: "text", text: "#12345" },
+          ],
+        },
+        {
+          type: "button",
+          sub_type: "url",
+          index: 0,
+          parameters: [{ type: "text", text: "12345" }],
+        },
+      ],
+    });
+
+    expect(fetchSpy).toHaveBeenCalledOnce();
+    const sent = JSON.parse(fetchSpy.mock.calls[0][1]?.body as string);
+    expect(sent.template.name).toBe("order_shipped");
+    expect(sent.template.language).toEqual({ code: "en_US" });
+    expect(sent.template.components).toHaveLength(2);
+    expect(sent.template.components[0].parameters[0].text).toBe("Ada");
+  });
+
+  it("converts emoji placeholders in text parameters", async () => {
+    const adapter = createTestAdapter();
+    await adapter.sendTemplate("whatsapp:123456789:15551234567", {
+      name: "order_shipped",
+      language: "en_US",
+      components: [
+        {
+          type: "body",
+          parameters: [{ type: "text", text: "Shipped! {{emoji:thumbs_up}}" }],
+        },
+      ],
+    });
+
+    const sent = JSON.parse(fetchSpy.mock.calls[0][1]?.body as string);
+    expect(sent.template.components[0].parameters[0].text).toBe("Shipped! 👍");
+  });
+
+  it("does not emoji-convert quick reply payloads", async () => {
+    const adapter = createTestAdapter();
+    await adapter.sendTemplate("whatsapp:123456789:15551234567", {
+      name: "order_shipped",
+      language: "en_US",
+      components: [
+        {
+          type: "button",
+          sub_type: "quick_reply",
+          index: 0,
+          parameters: [{ type: "payload", payload: "{{emoji:thumbs_up}}:1" }],
+        },
+      ],
+    });
+
+    const sent = JSON.parse(fetchSpy.mock.calls[0][1]?.body as string);
+    expect(sent.template.components[0].parameters[0].payload).toBe(
+      "{{emoji:thumbs_up}}:1"
+    );
+  });
+
+  it("omits components when the array is empty", async () => {
+    const adapter = createTestAdapter();
+    await adapter.sendTemplate("whatsapp:123456789:15551234567", {
+      name: "hello_world",
+      language: "en_US",
+      components: [],
+    });
+
+    const sent = JSON.parse(fetchSpy.mock.calls[0][1]?.body as string);
+    expect(sent.template).not.toHaveProperty("components");
+  });
+
+  it("throws when the API returns no message ID", async () => {
+    fetchSpy.mockImplementation(() =>
+      Promise.resolve(
+        new Response(JSON.stringify({ messages: [] }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        })
+      )
+    );
+
+    const adapter = createTestAdapter();
+    await expect(
+      adapter.sendTemplate("whatsapp:123456789:15551234567", {
+        name: "hello_world",
+        language: "en_US",
+      })
+    ).rejects.toThrow(NO_MESSAGE_ID_PATTERN);
+  });
+
+  it("throws on invalid thread ID", async () => {
+    const adapter = createTestAdapter();
+    await expect(
+      adapter.sendTemplate("slack:C123:ts123", {
+        name: "hello_world",
+        language: "en_US",
+      })
+    ).rejects.toThrow("Invalid WhatsApp thread ID");
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+});
+
+describe("getWhatsAppMediaType", () => {
+  it.each([
+    ["image/png", "image"],
+    ["image/jpeg", "image"],
+    ["image/gif", "document"],
+    ["video/mp4", "video"],
+    ["video/3gpp", "video"],
+    ["audio/mpeg", "audio"],
+    ["application/pdf", "document"],
+  ] as const)("maps %s to %s", (mimeType, expected) => {
+    expect(getWhatsAppMediaType(mimeType)).toBe(expected);
   });
 });
 
