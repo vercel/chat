@@ -208,9 +208,11 @@ export interface ChatToolsOptions {
    *
    * By default a read is in scope when it resolves to the same channel as the
    * scoped conversation, so a thread scope still permits reading sibling
-   * threads in that channel. Set `true` to reject sibling threads: a thread
-   * scope then confines reads to that thread and its parent channel only. A
-   * channel scope is unaffected; it still allows any thread within the channel.
+   * threads in that channel. Set `true` to confine a thread scope to that
+   * thread alone: sibling threads and the parent channel are both rejected,
+   * which matters on platforms where a channel is the widest read available
+   * (a GitHub channel is an entire repo). A channel scope is unaffected; it
+   * still allows any thread within the channel.
    *
    * @default false
    */

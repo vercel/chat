@@ -26,8 +26,9 @@ function channelOf(chat: ChatBinding, id: string): string {
  *
  * By default a read is allowed when it resolves to the same channel as the
  * scoped conversation, so a thread scope still permits sibling threads in its
- * channel. Pass `strict` to confine a thread scope to that thread and its
- * parent channel; a channel scope still allows any thread within it.
+ * channel. Pass `strict` to confine a thread scope to that thread alone,
+ * rejecting sibling threads and the parent channel; a channel scope is
+ * unaffected and still allows any thread within it.
  *
  * When no scope resolves (no explicit scope and no conversation being handled,
  * e.g. a cron job or queued work), reads run workspace-wide but warn once.
@@ -65,15 +66,15 @@ export function createScopeGuard(
     const activeChannel = channelOf(chat, active);
     const targetChannel = channelOf(chat, id);
 
-    // Same channel is always required. In strict mode also require the exact
-    // scoped conversation, a channel-level read, or a channel-wide scope, so a
-    // sibling thread is rejected.
+    // Same channel is always required. Under strict a thread scope additionally
+    // requires the exact scoped conversation, so both sibling threads and the
+    // parent channel are rejected: on per-thread-ACL platforms the channel is
+    // the widest read available (a GitHub channel is the whole repo), so
+    // allowing it would defeat the point of confining to one thread. A channel
+    // scope is unaffected and still permits anything within it.
     const sameChannel = targetChannel === activeChannel;
     const scopeIsChannel = active === activeChannel;
-    const targetIsChannel = id === targetChannel;
-    const inScope =
-      sameChannel &&
-      (!strict || id === active || targetIsChannel || scopeIsChannel);
+    const inScope = sameChannel && (!strict || scopeIsChannel || id === active);
 
     if (!inScope) {
       throw new Error(

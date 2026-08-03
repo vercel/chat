@@ -683,12 +683,28 @@ describe("createChatTools", () => {
           TOOL_OPTIONS
         )
       ).rejects.toThrow(OUT_OF_SCOPE_REGEX);
-      // The parent channel itself stays readable.
+      // The parent channel is rejected too: on a per-thread-ACL platform it is
+      // the widest read available, so allowing it would defeat the point.
+      await expect(
+        tools.fetchChannelMessages?.execute?.(
+          { channelId: "discord:g:c", limit: 5, direction: "backward" },
+          TOOL_OPTIONS
+        )
+      ).rejects.toThrow(OUT_OF_SCOPE_REGEX);
+      expect(discord.fetchChannelMessages).not.toHaveBeenCalled();
+    });
+
+    it("allows a channel-level read under strictScope when a channel is scoped", async () => {
+      const tools = createChatTools({
+        chat,
+        scope: "slack:C123",
+        strictScope: true,
+      });
       await tools.fetchChannelMessages?.execute?.(
-        { channelId: "discord:g:c", limit: 5, direction: "backward" },
+        { channelId: "slack:C123", limit: 5, direction: "backward" },
         TOOL_OPTIONS
       );
-      expect(discord.fetchChannelMessages).toHaveBeenCalled();
+      expect(mockAdapter.fetchChannelMessages).toHaveBeenCalled();
     });
 
     it("scopes reads during member-joined dispatch", async () => {
