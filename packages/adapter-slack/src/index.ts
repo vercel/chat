@@ -3308,7 +3308,7 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
 
     // Fallback: parse <url> and <url|label> from text
     if (urls.size === 0 && event.text) {
-      const urlPattern = /<(https?:\/\/[^>]+)>/g;
+      const urlPattern = /<(https?:\/\/[^>]{1,2048})>/g;
       for (const match of event.text.matchAll(urlPattern)) {
         const raw = match[1] as string;
         const pipeIdx = raw.indexOf("|");

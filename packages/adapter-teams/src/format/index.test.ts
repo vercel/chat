@@ -4,10 +4,13 @@ import {
   escapeTeamsText,
   formatTeamsMention,
   markdownToTeamsHtml,
+  stripHtmlTags,
   teamsHtmlToMarkdown,
   teamsMentionToPlainText,
   unescapeTeamsText,
 } from "./index";
+
+const HTML_TAG = /<[^>]+>/;
 
 describe("Teams format primitives", () => {
   it("escapes and unescapes Teams text", () => {
@@ -21,6 +24,13 @@ describe("Teams format primitives", () => {
     expect(teamsMentionToPlainText("<at>Ada &amp; Ben</at> hi")).toBe(
       "@Ada & Ben hi"
     );
+  });
+
+  it("strips tags and leaves no complete tag on nested input", () => {
+    expect(stripHtmlTags("<b>hi</b>")).toBe("hi");
+    expect(stripHtmlTags("a<img src=x>b")).toBe("ab");
+    expect(stripHtmlTags("plain")).toBe("plain");
+    expect(HTML_TAG.test(stripHtmlTags("<<script>>"))).toBe(false);
   });
 
   it("converts Teams HTML to Markdown-ish text", () => {

@@ -9926,6 +9926,42 @@ describe("link unfurl enrichment", () => {
     expect(msg.links[0].title).toBeUndefined();
   });
 
+  it("parses bracketed links from text and bounds their length", async () => {
+    const state = createMockState();
+    const chatInstance = createMockChatInstance({ state });
+    const adapter = createSlackAdapter({
+      botToken: "xoxb-test-token",
+      signingSecret: secret,
+      logger: mockLogger,
+    });
+    await adapter.initialize(chatInstance);
+
+    const overLong = `https://example.com/${"a".repeat(4000)}`;
+    const body = JSON.stringify({
+      type: "event_callback",
+      event: {
+        type: "message",
+        channel: "C123",
+        ts: "1234567890.123456",
+        text: `ok <https://example.com/x> and <${overLong}>`,
+        user: "U_USER",
+      },
+    });
+
+    const request = createWebhookRequest(body, secret);
+    await adapter.handleWebhook(request);
+
+    const factory = (chatInstance.processMessage as ReturnType<typeof vi.fn>)
+      .mock.calls[0][2] as () => Promise<{
+      links: Array<{ url: string }>;
+    }>;
+    const msg = await factory();
+
+    const urls = msg.links.map((l) => l.url);
+    expect(urls).toContain("https://example.com/x");
+    expect(urls).not.toContain(overLong);
+  });
+
   it("should match unfurl metadata with trailing slash differences", async () => {
     const state = createMockState();
     const chatInstance = createMockChatInstance({ state });

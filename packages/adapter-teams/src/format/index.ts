@@ -1,4 +1,5 @@
 const HTML_ESCAPE_PATTERN = /[&<>"]/g;
+const HTML_TAG_PATTERN = /<[^>]+>/g;
 const MARKDOWN_LINK_PATTERN = /\[([^\]]+)\]\(([^)]+)\)/g;
 const TEAMS_MENTION_PATTERN = /<at\b[^>]*>(.*?)<\/at>/gis;
 
@@ -38,12 +39,12 @@ export function formatTeamsMention(name: string): string {
 
 export function teamsMentionToPlainText(text: string): string {
   return text.replace(TEAMS_MENTION_PATTERN, (_match, name: string) => {
-    return `@${unescapeTeamsText(stripTags(name).trim())}`;
+    return `@${unescapeTeamsText(stripHtmlTags(name).trim())}`;
   });
 }
 
 export function teamsHtmlToMarkdown(html: string): string {
-  return unescapeTeamsText(
+  const withoutTags = stripHtmlTags(
     teamsMentionToPlainText(html)
       .replace(/<strong\b[^>]*>(.*?)<\/strong>/gis, "**$1**")
       .replace(/<b\b[^>]*>(.*?)<\/b>/gis, "**$1**")
@@ -55,9 +56,8 @@ export function teamsHtmlToMarkdown(html: string): string {
       .replace(/<a\b[^>]*href=["']([^"']+)["'][^>]*>(.*?)<\/a>/gis, "[$2]($1)")
       .replace(/<br\s*\/?>/gi, "\n")
       .replace(/<\/p>\s*<p[^>]*>/gi, "\n\n")
-      .replace(/<[^>]+>/g, "")
-      .replace(/\u00a0/g, " ")
-  ).trim();
+  );
+  return unescapeTeamsText(withoutTags.replace(/\u00a0/g, " ")).trim();
 }
 
 export function markdownToTeamsHtml(markdown: string): string {
@@ -80,8 +80,14 @@ export function convertTeamsEmojiPlaceholders(text: string): string {
   return converted;
 }
 
-function stripTags(text: string): string {
-  return text.replace(/<[^>]+>/g, "");
+export function stripHtmlTags(text: string): string {
+  let current = text;
+  let previous: string;
+  do {
+    previous = current;
+    current = current.replace(HTML_TAG_PATTERN, "");
+  } while (current !== previous);
+  return current;
 }
 
 function safeLinkHref(href: string): boolean {
