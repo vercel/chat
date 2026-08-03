@@ -1,5 +1,6 @@
 const HTML_ESCAPE_PATTERN = /[&<>"]/g;
-const HTML_TAG_PATTERN = /<[^>]+>/g;
+// Tag body length-bounded to keep the scan linear.
+const HTML_TAG_PATTERN = /<[^>]{1,2048}>/g;
 const MARKDOWN_LINK_PATTERN = /\[([^\]]+)\]\(([^)]+)\)/g;
 const TEAMS_MENTION_PATTERN = /<at\b[^>]*>(.*?)<\/at>/gis;
 

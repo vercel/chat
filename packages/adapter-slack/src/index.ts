@@ -183,6 +183,8 @@ interface SlackUnfurl {
 }
 const SLACK_MESSAGE_URL_PATTERN =
   /^https?:\/\/[^/]+\.slack\.com\/archives\/([A-Z0-9]+)\/p(\d+)(?:\?.*)?$/;
+// Bracketed URL in message text; length-bounded to keep the scan linear.
+const BRACKETED_URL_PATTERN = /<(https?:\/\/[^>]{1,2048})>/g;
 
 import type {
   SlackAdapterConfig,
@@ -3308,8 +3310,7 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
 
     // Fallback: parse <url> and <url|label> from text
     if (urls.size === 0 && event.text) {
-      const urlPattern = /<(https?:\/\/[^>]{1,2048})>/g;
-      for (const match of event.text.matchAll(urlPattern)) {
+      for (const match of event.text.matchAll(BRACKETED_URL_PATTERN)) {
         const raw = match[1] as string;
         const pipeIdx = raw.indexOf("|");
         urls.add(pipeIdx >= 0 ? raw.slice(0, pipeIdx) : raw);
