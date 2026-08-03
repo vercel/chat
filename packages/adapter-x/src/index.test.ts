@@ -301,10 +301,9 @@ describe("XAdapter", () => {
 
     it("does not mint a signature replayable on a forged POST", async () => {
       const { adapter, chat } = await createInitializedAdapter();
-      // The oracle only signs opaque tokens, and it signs the token bytes
-      // verbatim. A response_token therefore verifies only against a POST whose
-      // body equals that token, which is never valid event JSON, so no handler
-      // can be reached with an oracle-minted signature.
+      // The challenge only signs opaque tokens, verbatim. A response_token
+      // therefore verifies only against a POST whose body equals that token,
+      // which is never valid event JSON, so no handler can be reached.
       const token = "abcdefghijklmnop";
       const crc = await adapter.handleWebhook(
         new Request(`${WEBHOOK_URL}?crc_token=${token}`, { method: "GET" })
