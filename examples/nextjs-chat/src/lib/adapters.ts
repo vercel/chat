@@ -13,7 +13,6 @@ import {
   type MessengerAdapter,
 } from "@chat-adapter/messenger";
 import { createNotionAdapter, type NotionAdapter } from "@chat-adapter/notion";
-import { createSlackAdapter, type SlackAdapter } from "@chat-adapter/slack";
 import {
   createSlackAdapter,
   type SlackAdapter,
