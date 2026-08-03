@@ -15,6 +15,7 @@ import {
   web,
   whatsapp,
   x,
+  xchat,
 } from "@/lib/logos";
 
 const ICON_MAP: Record<
@@ -37,6 +38,7 @@ const ICON_MAP: Record<
   twilio,
   messenger,
   x,
+  xchat,
 };
 
 interface AdapterHeroProps {

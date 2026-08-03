@@ -101,6 +101,25 @@ export async function POST(request: Request) {
 }
 ```
 
+## X Adapter vs XChat Adapter
+
+Both adapters ship from [`@chat-adapter/x`](https://www.npmjs.com/package/@chat-adapter/x), but they target different X surfaces and use different factories.
+
+Use this **X** adapter (`createXAdapter` from `@chat-adapter/x`) when you want:
+
+- Public timeline mentions and replies (`post.mention.create`)
+- Classic (unencrypted) direct messages
+- Posting from the bot account to the public timeline (`x:public`)
+- Likes as reactions
+
+Use the [**XChat** adapter](/adapters/official/xchat) (`createXchatAdapter` from `@chat-adapter/x/chat`) when you want:
+
+- Encrypted XChat 1:1 and group conversations
+- Typing indicators, read receipts, and emoji reactions
+- Crypto handled inside the adapter (Juicebox PIN, key exchange, signed messages)
+
+You can register both adapters on the same `Chat` instance if your bot needs public posts/DMs and encrypted XChat.
+
 ## Configuration
 
 <TypeTable

@@ -248,7 +248,7 @@ export async function POST(request: Request) {
 
 When using `createXchatAdapter()` without arguments, credentials are auto-detected from environment variables. The bot's @handle is resolved from `GET /2/users/me` at startup, so mention detection works without any hardcoding.
 
-### X Chat setup
+### XChat setup
 
 ### 1. Register encryption keys
 
@@ -369,7 +369,7 @@ X_VERIFY_SIGNATURES=true           # Optional; set false to accept unverifiable 
 | Post cards | Yes (first `x.com/.../status/...` URL in outgoing text auto-attaches) |
 | Media out | Yes (files encrypt-streamed and uploaded via the 3-step media upload flow) |
 | Media in | Yes (attachments exposed with lazy download + decrypt via `fetchData()`) |
-| Cards / buttons / modals | No (X Chat has no interactive message surface) |
+| Cards / buttons / modals | No (XChat has no interactive message surface) |
 | Tables | ASCII code blocks |
 
 ### Conversations

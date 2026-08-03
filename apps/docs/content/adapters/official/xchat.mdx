@@ -4,7 +4,7 @@ description: XChat (encrypted messaging) adapter using the X API v2 chat endpoin
 packageName: "@chat-adapter/x"
 slug: xchat
 type: platform
-logo: x
+logo: xchat
 tagline: Hold encrypted 1:1 and group conversations on XChat, with all cryptography handled inside the adapter.
 beta: true
 features:
@@ -107,6 +107,25 @@ export async function POST(request: Request) {
   return bot.webhooks.xchat(request);
 }
 ```
+
+## XChat Adapter vs X Adapter
+
+Both adapters ship from [`@chat-adapter/x`](https://www.npmjs.com/package/@chat-adapter/x), but they target different X surfaces and use different factories.
+
+Use this **XChat** adapter (`createXchatAdapter` from `@chat-adapter/x/chat`) when you want:
+
+- Encrypted XChat 1:1 and group conversations
+- Typing indicators, read receipts, and emoji reactions
+- Crypto handled inside the adapter (Juicebox PIN, key exchange, signed messages)
+
+Use the [**X** adapter](/adapters/official/x) (`createXAdapter` from `@chat-adapter/x`) when you want:
+
+- Public timeline mentions and replies (`post.mention.create`)
+- Classic (unencrypted) direct messages
+- Posting from the bot account to the public timeline (`x:public`)
+- Likes as reactions
+
+You can register both adapters on the same `Chat` instance if your bot needs encrypted XChat and public posts/DMs.
 
 ## Configuration
 
