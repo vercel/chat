@@ -1,9 +1,10 @@
 /**
  * Convert CardElement to WhatsApp interactive messages or text fallback.
  *
- * WhatsApp supports two types of interactive messages:
+ * WhatsApp supports interactive messages including:
  * - Reply buttons: up to 3 buttons (title max 20 chars)
  * - List messages: up to 10 rows across sections (title max 24 chars)
+ * - CTA URL: a single link button mapped to interactive.type "cta_url"
  *
  * Cards that exceed these limits fall back to formatted text messages.
  *
@@ -17,6 +18,7 @@ import type {
   CardElement,
   FieldsElement,
   TextElement,
+  LinkButtonElement,
 } from "chat";
 import type { WhatsAppInteractiveMessage } from "./types";
 
@@ -35,6 +37,9 @@ const MAX_BUTTON_TITLE_LENGTH = 20;
 
 /** Maximum character length for the body text */
 const MAX_BODY_LENGTH = 1024;
+
+/** Maximum character length for a text header */
+const MAX_HEADER_LENGTH = 60;
 
 /**
  * Result of converting a CardElement. Either an interactive message
@@ -106,6 +111,41 @@ export function decodeWhatsAppCallbackData(data?: string): {
 export function cardToWhatsApp(card: CardElement): WhatsAppCardResult {
   const actions = findActions(card.children);
   const actionButtons = actions ? extractReplyButtons(actions) : null;
+  const linkButtons = actions ? extractLinkButtons(actions) : [];
+
+  // Meta CTA URL messages support exactly one URL button and cannot mix
+  // with reply buttons — only promote a lone LinkButton to cta_url.
+  if (
+    linkButtons.length === 1 &&
+    (!actionButtons || actionButtons.length === 0)
+  ) {
+    const link = linkButtons[0];
+
+    return {
+      type: "interactive",
+      interactive: {
+        type: "cta_url",
+        ...(card.title
+          ? {
+              header: {
+                type: "text",
+                text: truncate(card.title, MAX_HEADER_LENGTH),
+              },
+            }
+          : {}),
+        body: {
+          text: truncate(buildBodyText(card) || "Open link", MAX_BODY_LENGTH),
+        },
+        action: {
+          name: "cta_url",
+          parameters: {
+            display_text: truncate(link.label, MAX_BUTTON_TITLE_LENGTH),
+            url: link.url,
+          },
+        },
+      },
+    };
+  }
 
   // If we have valid buttons, produce an interactive message
   if (actionButtons && actionButtons.length > 0) {
@@ -116,7 +156,12 @@ export function cardToWhatsApp(card: CardElement): WhatsAppCardResult {
       interactive: {
         type: "button",
         ...(card.title
-          ? { header: { type: "text", text: truncate(card.title, 60) } }
+          ? {
+              header: {
+                type: "text",
+                text: truncate(card.title, MAX_HEADER_LENGTH),
+              },
+            }
           : {}),
         body: {
           text: truncate(
@@ -324,6 +369,20 @@ function extractReplyButtons(actions: ActionsElement): ButtonElement[] | null {
 
   // WhatsApp allows max 3 reply buttons — take the first 3
   return buttons.slice(0, MAX_REPLY_BUTTONS);
+}
+
+/**
+ * Extract CTA link buttons from an ActionsElement.
+ */
+function extractLinkButtons(actions: ActionsElement): LinkButtonElement[] {
+  const buttons: LinkButtonElement[] = [];
+
+  for (const child of actions.children) {
+    if (child.type === "link-button") {
+      buttons.push(child);
+    }
+  }
+  return buttons;
 }
 
 /**
