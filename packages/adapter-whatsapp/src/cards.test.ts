@@ -237,7 +237,7 @@ describe("cardToWhatsApp", () => {
     expect(interactive.interactive.action.buttons).toHaveLength(3);
   });
 
-  it("should fall back to text for link-only buttons", () => {
+  it("should produce CTA URL interactive for a single link button", () => {
     const card: CardElement = {
       type: "card",
       title: "Links only",
@@ -255,7 +255,149 @@ describe("cardToWhatsApp", () => {
       ],
     };
     const result = cardToWhatsApp(card);
+    expect(result.type).toBe("interactive");
+    if (result.type === "interactive") {
+      expect(result.interactive.type).toBe("cta_url");
+      expect(result.interactive.header).toEqual({
+        type: "text",
+        text: "Links only",
+      });
+      expect(result.interactive.body.text).toBe("Open link");
+      expect(result.interactive.action).toEqual({
+        name: "cta_url",
+        parameters: {
+          display_text: "Visit",
+          url: "https://example.com",
+        },
+      });
+    }
+  });
+
+  it("should include body text from card content for CTA URL messages", () => {
+    const card: CardElement = {
+      type: "card",
+      title: "Workshop dates",
+      subtitle: "Dates subject to change",
+      children: [
+        { type: "text", content: "Tap the button below to see available dates." },
+        {
+          type: "actions",
+          children: [
+            {
+              type: "link-button",
+              url: "https://example.com/dates",
+              label: "See Dates",
+            },
+          ],
+        },
+      ],
+    };
+    const result = cardToWhatsApp(card);
+    expect(result.type).toBe("interactive");
+    if (result.type === "interactive") {
+      expect(result.interactive.type).toBe("cta_url");
+      expect(result.interactive.body.text).toContain(
+        "Dates subject to change"
+      );
+      expect(result.interactive.body.text).toContain(
+        "Tap the button below to see available dates."
+      );
+      if ("name" in result.interactive.action) {
+        expect(result.interactive.action.parameters.display_text).toBe(
+          "See Dates"
+        );
+        expect(result.interactive.action.parameters.url).toBe(
+          "https://example.com/dates"
+        );
+      }
+    }
+  });
+
+  it("should truncate long CTA URL button labels to 20 chars", () => {
+    const card: CardElement = {
+      type: "card",
+      children: [
+        {
+          type: "actions",
+          children: [
+            {
+              type: "link-button",
+              url: "https://example.com",
+              label: "This is a very long CTA button label",
+            },
+          ],
+        },
+      ],
+    };
+    const result = cardToWhatsApp(card);
+    expect(result.type).toBe("interactive");
+    if (
+      result.type === "interactive" &&
+      "name" in result.interactive.action
+    ) {
+      expect(
+        result.interactive.action.parameters.display_text.length
+      ).toBeLessThanOrEqual(20);
+    }
+  });
+
+  it("should fall back to text for multiple link buttons", () => {
+    const card: CardElement = {
+      type: "card",
+      title: "Links only",
+      children: [
+        {
+          type: "actions",
+          children: [
+            {
+              type: "link-button",
+              url: "https://example.com",
+              label: "Visit",
+            },
+            {
+              type: "link-button",
+              url: "https://example.com/help",
+              label: "Help",
+            },
+          ],
+        },
+      ],
+    };
+    const result = cardToWhatsApp(card);
     expect(result.type).toBe("text");
+  });
+
+  it("should keep reply-button path when mixed with a link button", () => {
+    const card: CardElement = {
+      type: "card",
+      title: "Choose",
+      children: [
+        { type: "text", content: "Pick one" },
+        {
+          type: "actions",
+          children: [
+            { type: "button", id: "approve", label: "Approve" },
+            {
+              type: "link-button",
+              url: "https://example.com/docs",
+              label: "Docs",
+            },
+          ],
+        },
+      ],
+    };
+    const result = cardToWhatsApp(card);
+    expect(result.type).toBe("interactive");
+    if (result.type === "interactive") {
+      expect(result.interactive.type).toBe("button");
+      expect("buttons" in result.interactive.action).toBe(true);
+      if ("buttons" in result.interactive.action) {
+        expect(result.interactive.action.buttons).toHaveLength(1);
+        expect(result.interactive.action.buttons[0].reply.id).toBe(
+          encodeWhatsAppCallbackData("approve", undefined)
+        );
+      }
+    }
   });
 
   it("should fall back to text for cards without actions", () => {
