@@ -339,11 +339,40 @@ export interface WhatsAppInteractiveMessage {
           }>;
           title: string;
         }>;
+      }
+    | {
+        name: "cta_url";
+        parameters: {
+          display_text: string;
+          url: string;
+        };
       };
   body: { text: string };
   footer?: { text: string };
-  header?: { text: string; type: "text" };
-  type: "button" | "list";
+  header?:
+    | {
+        type: "text";
+        text: string;
+      }
+    | {
+        type: "image";
+        image: {
+          link: string;
+        };
+      }
+    | {
+        type: "video";
+        video: {
+          link: string;
+        };
+      }
+    | {
+        type: "document";
+        document: {
+          link: string;
+        };
+      };
+  type: "button" | "list" | "cta_url";
 }
 
 // =============================================================================
