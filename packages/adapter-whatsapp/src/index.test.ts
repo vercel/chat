@@ -1392,9 +1392,9 @@ describe("postMessage - file uploads", () => {
       (mediaMessage.image as { caption?: string }).caption
     ).toBeUndefined();
     expect(interactiveMessage.type).toBe("interactive");
-    expect(
-      (interactiveMessage.interactive as { type: string }).type
-    ).toBe("cta_url");
+    expect((interactiveMessage.interactive as { type: string }).type).toBe(
+      "cta_url"
+    );
     expect(
       (
         interactiveMessage.interactive as {

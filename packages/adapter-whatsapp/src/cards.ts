@@ -17,8 +17,8 @@ import type {
   CardChild,
   CardElement,
   FieldsElement,
-  TextElement,
   LinkButtonElement,
+  TextElement,
 } from "chat";
 import type { WhatsAppInteractiveMessage } from "./types";
 

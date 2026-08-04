@@ -279,7 +279,10 @@ describe("cardToWhatsApp", () => {
       title: "Workshop dates",
       subtitle: "Dates subject to change",
       children: [
-        { type: "text", content: "Tap the button below to see available dates." },
+        {
+          type: "text",
+          content: "Tap the button below to see available dates.",
+        },
         {
           type: "actions",
           children: [
@@ -296,9 +299,7 @@ describe("cardToWhatsApp", () => {
     expect(result.type).toBe("interactive");
     if (result.type === "interactive") {
       expect(result.interactive.type).toBe("cta_url");
-      expect(result.interactive.body.text).toContain(
-        "Dates subject to change"
-      );
+      expect(result.interactive.body.text).toContain("Dates subject to change");
       expect(result.interactive.body.text).toContain(
         "Tap the button below to see available dates."
       );
@@ -331,10 +332,7 @@ describe("cardToWhatsApp", () => {
     };
     const result = cardToWhatsApp(card);
     expect(result.type).toBe("interactive");
-    if (
-      result.type === "interactive" &&
-      "name" in result.interactive.action
-    ) {
+    if (result.type === "interactive" && "name" in result.interactive.action) {
       expect(
         result.interactive.action.parameters.display_text.length
       ).toBeLessThanOrEqual(20);
