@@ -1595,75 +1595,6 @@ describe("formatted text extraction", () => {
 });
 
 // ============================================================================
-// Multi-workspace Test Helpers
-// ============================================================================
-
-function createMockState(): StateAdapter & { cache: Map<string, unknown> } {
-  const cache = new Map<string, unknown>();
-  return {
-    cache,
-    connect: vi.fn().mockResolvedValue(undefined),
-    disconnect: vi.fn().mockResolvedValue(undefined),
-    subscribe: vi.fn().mockResolvedValue(undefined),
-    unsubscribe: vi.fn().mockResolvedValue(undefined),
-    isSubscribed: vi.fn().mockResolvedValue(false),
-    acquireLock: vi.fn().mockResolvedValue(null),
-    releaseLock: vi.fn().mockResolvedValue(undefined),
-    extendLock: vi.fn().mockResolvedValue(true),
-    get: vi.fn().mockImplementation((key: string) => {
-      return Promise.resolve(cache.get(key) ?? null);
-    }),
-    set: vi.fn().mockImplementation((key: string, value: unknown) => {
-      cache.set(key, value);
-      return Promise.resolve();
-    }),
-    delete: vi.fn().mockImplementation((key: string) => {
-      cache.delete(key);
-      return Promise.resolve();
-    }),
-    appendToList: vi
-      .fn()
-      .mockImplementation(
-        (
-          key: string,
-          value: unknown,
-          options?: { maxLength?: number; ttlMs?: number }
-        ) => {
-          let list = (cache.get(key) as unknown[]) ?? [];
-          list.push(value);
-          if (options?.maxLength && list.length > options.maxLength) {
-            list = list.slice(list.length - options.maxLength);
-          }
-          cache.set(key, list);
-          return Promise.resolve();
-        }
-      ),
-    getList: vi.fn().mockImplementation((key: string) => {
-      return Promise.resolve((cache.get(key) as unknown[]) ?? []);
-    }),
-  };
-}
-
-function createMockChatInstance(state: StateAdapter): ChatInstance {
-  return {
-    processMessage: vi.fn(),
-    handleIncomingMessage: vi.fn().mockResolvedValue(undefined),
-    processReaction: vi.fn(),
-    processAction: vi.fn(),
-    processOptionsLoad: vi.fn().mockResolvedValue(undefined),
-    processMessageUpdated: vi.fn(),
-    processMessageDeleted: vi.fn(),
-    processModalSubmit: vi.fn().mockResolvedValue(undefined),
-    processModalClose: vi.fn(),
-    processSlashCommand: vi.fn(),
-    processMemberJoinedChannel: vi.fn(),
-    getState: () => state,
-    getUserName: () => "test-bot",
-    getLogger: () => mockLogger,
-  };
-}
-
-// ============================================================================
 // Multi-workspace Mode Tests
 // ============================================================================
 
@@ -3572,7 +3503,7 @@ describe("message subtype handling", () => {
 
   it("dispatches hidden message_changed edits as message updates", async () => {
     const state = createMockState();
-    const chatInstance = createMockChatInstance(state);
+    const chatInstance = createMockChatInstance({ state });
     const adapter = createSlackAdapter({
       botToken: "xoxb-test-token",
       signingSecret: secret,
@@ -3623,7 +3554,7 @@ describe("message subtype handling", () => {
 
   it("ignores hidden message_changed thread metadata updates after deletes", async () => {
     const state = createMockState();
-    const chatInstance = createMockChatInstance(state);
+    const chatInstance = createMockChatInstance({ state });
     const adapter = createSlackAdapter({
       botToken: "xoxb-test-token",
       signingSecret: secret,
@@ -3720,7 +3651,7 @@ describe("message subtype handling", () => {
 
   it("dispatches message_changed tombstone subtypes as message deletes", async () => {
     const state = createMockState();
-    const chatInstance = createMockChatInstance(state);
+    const chatInstance = createMockChatInstance({ state });
     const adapter = createSlackAdapter({
       botToken: "xoxb-test-token",
       signingSecret: secret,
