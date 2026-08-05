@@ -1799,12 +1799,16 @@ export type MessageHandler<TState = Record<string, unknown>> = (
  * receives a platform edit event and can provide the updated message.
  *
  * Message updates are lifecycle events: they do not route through
- * `onNewMessage`, `onNewMention`, or `onSubscribedMessage`.
+ * `onNewMessage`, `onNewMention`, or `onSubscribedMessage`, and they are not
+ * subject to the concurrency strategies. There is no `MessageContext` here
+ * because nothing coalesces edits, every edit dispatches on its own.
+ *
+ * The bot's own edits are filtered out, so post-and-edit streaming does not
+ * call this handler back once per delta.
  */
 export type MessageUpdatedHandler<TState = Record<string, unknown>> = (
   thread: Thread<TState>,
-  message: Message,
-  context?: MessageContext
+  message: Message
 ) => void | Promise<void>;
 
 /**
@@ -2104,6 +2108,13 @@ export interface MessageDeletedEvent<TRawMessage = unknown> {
  *
  * Registered via `chat.onMessageDeleted(handler)`. This is a lifecycle event
  * and does not route through normal message handlers.
+ *
+ * Unlike every other handler this receives an event rather than
+ * `(thread, message)`. A delete has no message: platforms usually report only
+ * the id of what was removed, and `previousMessage` is best-effort. Handing
+ * over a `Thread` built from nothing would imply context that is not there.
+ * Call `chat.thread(event.threadId)` when you need one, for example to post a
+ * notice in the conversation the message was removed from.
  */
 export type MessageDeletedHandler = (
   event: MessageDeletedEvent
