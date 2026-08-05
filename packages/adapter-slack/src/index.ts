@@ -2766,6 +2766,15 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
       return;
     }
 
+    // Slack also dispatches message_changed for its own automatic language
+    // detection, which updates locale metadata without touching the message.
+    // When a previous snapshot is present and nothing differs, there is no
+    // edit to report.
+    if (previousMessage && !isHiddenMessageEdit) {
+      this.logger.debug("Ignoring message_changed with no content change");
+      return;
+    }
+
     if (!(this.chat && normalized.channel && normalized.ts)) {
       return;
     }

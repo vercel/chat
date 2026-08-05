@@ -3622,6 +3622,47 @@ describe("message subtype handling", () => {
     expect((event?.previousMessage as Message).text).toBe("before");
   });
 
+  it("ignores a message_changed where nothing actually changed", async () => {
+    const chatInstance = createMockChatInstance({ state: createMockState() });
+    const adapter = createSlackAdapter({
+      botToken: "xoxb-test-token",
+      signingSecret: secret,
+      logger: mockLogger,
+      botUserId: "U_BOT",
+    });
+    await adapter.initialize(chatInstance);
+
+    // Slack's automatic language detection updates locale metadata and
+    // dispatches message_changed without the message itself changing.
+    const unchanged = {
+      type: "message",
+      user: "U_USER",
+      channel: "C_CHAN",
+      text: "same text",
+      ts: "1234567890.111111",
+    };
+    await adapter.handleWebhook(
+      createWebhookRequest(
+        JSON.stringify({
+          type: "event_callback",
+          team_id: "T123",
+          event: {
+            type: "message",
+            subtype: "message_changed",
+            channel: "C_CHAN",
+            ts: "1234567891.111111",
+            message: { ...unchanged },
+            previous_message: { ...unchanged },
+          },
+        }),
+        secret
+      )
+    );
+
+    expect(chatInstance.processMessageUpdated).not.toHaveBeenCalled();
+    expect(chatInstance.processMessage).not.toHaveBeenCalled();
+  });
+
   it("leaves previousMessage undefined when Slack omits it", async () => {
     const chatInstance = createMockChatInstance({ state: createMockState() });
     const adapter = createSlackAdapter({
