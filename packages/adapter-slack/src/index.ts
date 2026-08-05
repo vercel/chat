@@ -2700,8 +2700,12 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
       type: inner.type ?? "message",
     };
 
+    // Slack does not document `tombstone`, and we have no captured payload for
+    // it, so we do not claim to know whether it means "deleted". Ignore it
+    // rather than reporting it as an edit: it arrives with a `previous_message`
+    // and changed text, so it would otherwise pass the hidden-edit check below.
     if (inner.subtype === "tombstone") {
-      this.handleMessageDeleted(event, options);
+      this.logger.debug("Ignoring tombstone message_changed");
       return;
     }
 

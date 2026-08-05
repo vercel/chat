@@ -3811,7 +3811,7 @@ describe("message subtype handling", () => {
     );
   });
 
-  it("dispatches message_changed tombstone subtypes as message deletes", async () => {
+  it("ignores message_changed tombstone subtypes", async () => {
     const state = createMockState();
     const chatInstance = createMockChatInstance({ state });
     const adapter = createSlackAdapter({
@@ -3855,17 +3855,12 @@ describe("message subtype handling", () => {
     const request = createWebhookRequest(body, secret);
     await adapter.handleWebhook(request);
 
+    // `tombstone` is undocumented by Slack, so the adapter does not interpret
+    // it. It must not surface as an edit either, which is what would happen if
+    // it fell through to the hidden-edit check.
     expect(chatInstance.processMessage).not.toHaveBeenCalled();
     expect(chatInstance.processMessageUpdated).not.toHaveBeenCalled();
-    expect(chatInstance.processMessageDeleted).toHaveBeenCalledWith(
-      expect.objectContaining({
-        adapter,
-        channelId: "C_CHAN",
-        messageId: "1778050260.824689",
-        threadId: "slack:C_CHAN:1778050260.824689",
-      }),
-      undefined
-    );
+    expect(chatInstance.processMessageDeleted).not.toHaveBeenCalled();
   });
 
   it("ignores channel_join subtypes", async () => {
