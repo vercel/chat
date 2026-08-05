@@ -293,8 +293,11 @@ bot.onReaction(["bookmark"], async (event) => {
 `onMessageUpdated` fires when a user edits a message, and `onMessageDeleted` when one is removed. Both are lifecycle events: they never route through `onNewMessage`, `onNewMention`, or `onSubscribedMessage`, and the concurrency strategies do not apply to them.
 
 ```typescript title="lib/bot.ts" lineNumbers
-bot.onMessageUpdated(async (thread, message) => {
+bot.onMessageUpdated(async (thread, message, previousMessage) => {
   await mirror.update(message.id, message.text);
+  if (previousMessage) {
+    await audit.record(`"${previousMessage.text}" became "${message.text}"`);
+  }
 });
 
 bot.onMessageDeleted(async (event) => {
@@ -302,11 +305,13 @@ bot.onMessageDeleted(async (event) => {
 });
 ```
 
+`previousMessage` is the message as it read before the edit, supplied when the platform sends it. Slack does, so you can diff the change rather than only seeing the result. Treat it as optional: a platform that reports edits without the prior text leaves it `undefined`.
+
 The bot's own edits are filtered out, so a streamed reply that renders through post-and-edit does not call `onMessageUpdated` back once per delta.
 
 ### Why the two shapes differ
 
-`onMessageUpdated` receives `(thread, message)` like the other message handlers, because an edit carries a full replacement message.
+`onMessageUpdated` receives `(thread, message, previousMessage?)` like the other message handlers, because an edit carries a full replacement message.
 
 `onMessageDeleted` receives a single event instead. A delete has no message: platforms usually report only the id of what was removed, and `previousMessage` is best-effort. Use `chat.thread(event.threadId)` when you need a `Thread`, for example to post a notice in the conversation:
 

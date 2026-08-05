@@ -381,15 +381,22 @@ describe("Chat", () => {
     message.metadata.edited = true;
     message.metadata.editedAt = new Date("2026-05-21T12:00:00.000Z");
 
-    await chat.processMessageUpdated(
-      mockAdapter,
-      "slack:C123:update.1",
-      message
+    const previousMessage = createTestMessage(
+      "msg-update-1",
+      "Original @slack-bot"
     );
+
+    await chat.processMessageUpdated({
+      adapter: mockAdapter,
+      message,
+      previousMessage,
+      threadId: "slack:C123:update.1",
+    });
 
     expect(updateHandler).toHaveBeenCalledTimes(1);
     expect(updateHandler.mock.calls[0][0].id).toBe("slack:C123:update.1");
     expect(updateHandler.mock.calls[0][1]).toBe(message);
+    expect(updateHandler.mock.calls[0][2]).toBe(previousMessage);
     expect(mentionHandler).not.toHaveBeenCalled();
   });
 

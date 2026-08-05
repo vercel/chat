@@ -2768,10 +2768,26 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
 
     const threadId = this.threadIdForMessageEvent(normalized);
 
+    // Slack sends the pre-edit message alongside the new one. Forward it so
+    // handlers can diff the change instead of only seeing the result.
+    const before = event.previous_message;
     this.chat.processMessageUpdated(
-      this,
-      threadId,
-      () => this.parseSlackMessage(normalized, threadId),
+      {
+        adapter: this,
+        message: () => this.parseSlackMessage(normalized, threadId),
+        previousMessage: before
+          ? this.parseSlackMessageSync(
+              {
+                ...before,
+                channel: before.channel ?? normalized.channel,
+                channel_type: before.channel_type ?? normalized.channel_type,
+                type: before.type ?? "message",
+              },
+              threadId
+            )
+          : undefined,
+        threadId,
+      },
       options
     );
   }

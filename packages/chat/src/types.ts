@@ -699,9 +699,13 @@ export interface ChatInstance {
    * @param options - Webhook options including waitUntil
    */
   processMessageUpdated(
-    adapter: Adapter,
-    threadId: string,
-    message: Message | (() => Promise<Message>),
+    event: {
+      adapter: Adapter;
+      message: Message | (() => Promise<Message>);
+      /** The message as it read before the edit, when the platform sends it. */
+      previousMessage?: Message | (() => Promise<Message>);
+      threadId: string;
+    },
     options?: WebhookOptions
   ): Promise<void>;
 
@@ -1805,10 +1809,15 @@ export type MessageHandler<TState = Record<string, unknown>> = (
  *
  * The bot's own edits are filtered out, so post-and-edit streaming does not
  * call this handler back once per delta.
+ *
+ * `previousMessage` is the message as it read before the edit, present when
+ * the platform sends it (Slack does). Use it to diff the change rather than
+ * only seeing the result.
  */
 export type MessageUpdatedHandler<TState = Record<string, unknown>> = (
   thread: Thread<TState>,
-  message: Message
+  message: Message,
+  previousMessage?: Message
 ) => void | Promise<void>;
 
 /**

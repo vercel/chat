@@ -987,17 +987,29 @@ export class Chat<
    * Handles waitUntil registration and error catching internally.
    */
   processMessageUpdated(
-    adapter: Adapter,
-    threadId: string,
-    messageOrFactory: Message | (() => Promise<Message>),
+    event: {
+      adapter: Adapter;
+      message: Message | (() => Promise<Message>);
+      previousMessage?: Message | (() => Promise<Message>);
+      threadId: string;
+    },
     options?: WebhookOptions
   ): Promise<void> {
+    const { adapter, threadId } = event;
+    const resolve = async (
+      value: Message | (() => Promise<Message>) | undefined
+    ): Promise<Message | undefined> =>
+      typeof value === "function" ? await value() : value;
+
     const task = (async () => {
-      const message =
-        typeof messageOrFactory === "function"
-          ? await messageOrFactory()
-          : messageOrFactory;
-      await this.handleMessageUpdated(adapter, threadId, message);
+      const message = (await resolve(event.message)) as Message;
+      const previousMessage = await resolve(event.previousMessage);
+      await this.handleMessageUpdated(
+        adapter,
+        threadId,
+        message,
+        previousMessage
+      );
     })();
 
     const tracked = task.catch((err) => {
@@ -2227,7 +2239,8 @@ export class Chat<
   private async handleMessageUpdated(
     adapter: Adapter,
     threadId: string,
-    message: Message
+    message: Message,
+    previousMessage?: Message
   ): Promise<void> {
     setMessageAdapter(message, adapter);
 
@@ -2260,7 +2273,7 @@ export class Chat<
 
     await runInConversation(threadId, async () => {
       for (const handler of this.messageUpdatedHandlers) {
-        await handler(thread, message);
+        await handler(thread, message, previousMessage);
       }
     });
   }

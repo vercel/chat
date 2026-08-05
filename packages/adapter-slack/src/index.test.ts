@@ -12,7 +12,12 @@ import {
   threadIdContract,
 } from "@chat-adapter/tests";
 import { WebClient } from "@slack/web-api";
-import type { AdapterPostableMessage, ChatInstance, StateAdapter } from "chat";
+import type {
+  AdapterPostableMessage,
+  ChatInstance,
+  Message,
+  StateAdapter,
+} from "chat";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type {
   SlackAdapterConfig,
@@ -3522,7 +3527,7 @@ describe("message subtype handling", () => {
       expected
     );
     expect(
-      vi.mocked(chatInstance.processMessageUpdated).mock.calls[0]?.[1]
+      vi.mocked(chatInstance.processMessageUpdated).mock.calls[0]?.[0].threadId
     ).toBe(expected);
     expect(
       vi.mocked(chatInstance.processMessageDeleted).mock.calls[0]?.[0].threadId
@@ -3563,11 +3568,97 @@ describe("message subtype handling", () => {
 
     expect(chatInstance).not.toHaveDispatched("processMessage");
     expect(chatInstance.processMessageUpdated).toHaveBeenCalledWith(
-      adapter,
-      "slack:C_CHAN:1234567890.111111",
-      expect.any(Function),
+      expect.objectContaining({
+        adapter,
+        message: expect.any(Function),
+        threadId: "slack:C_CHAN:1234567890.111111",
+      }),
       undefined
     );
+  });
+
+  it("forwards the pre-edit message so handlers can diff the change", async () => {
+    const chatInstance = createMockChatInstance({ state: createMockState() });
+    const adapter = createSlackAdapter({
+      botToken: "xoxb-test-token",
+      signingSecret: secret,
+      logger: mockLogger,
+      botUserId: "U_BOT",
+    });
+    await adapter.initialize(chatInstance);
+
+    const before = {
+      type: "message",
+      user: "U_USER",
+      channel: "C_CHAN",
+      text: "before",
+      ts: "1234567890.111111",
+    };
+    await adapter.handleWebhook(
+      createWebhookRequest(
+        JSON.stringify({
+          type: "event_callback",
+          team_id: "T123",
+          event: {
+            type: "message",
+            subtype: "message_changed",
+            channel: "C_CHAN",
+            ts: "1234567891.111111",
+            message: {
+              ...before,
+              text: "after",
+              edited: { ts: "1234567891.111111" },
+            },
+            previous_message: before,
+          },
+        }),
+        secret
+      )
+    );
+
+    const event = vi.mocked(chatInstance.processMessageUpdated).mock
+      .calls[0]?.[0];
+    expect(event?.previousMessage).toBeDefined();
+    expect((event?.previousMessage as Message).text).toBe("before");
+  });
+
+  it("leaves previousMessage undefined when Slack omits it", async () => {
+    const chatInstance = createMockChatInstance({ state: createMockState() });
+    const adapter = createSlackAdapter({
+      botToken: "xoxb-test-token",
+      signingSecret: secret,
+      logger: mockLogger,
+      botUserId: "U_BOT",
+    });
+    await adapter.initialize(chatInstance);
+
+    await adapter.handleWebhook(
+      createWebhookRequest(
+        JSON.stringify({
+          type: "event_callback",
+          team_id: "T123",
+          event: {
+            type: "message",
+            subtype: "message_changed",
+            channel: "C_CHAN",
+            ts: "1234567891.111111",
+            message: {
+              type: "message",
+              user: "U_USER",
+              channel: "C_CHAN",
+              text: "after",
+              ts: "1234567890.111111",
+              edited: { ts: "1234567891.111111" },
+            },
+          },
+        }),
+        secret
+      )
+    );
+
+    const event = vi.mocked(chatInstance.processMessageUpdated).mock
+      .calls[0]?.[0];
+    expect(event?.previousMessage).toBeUndefined();
   });
 
   it("dispatches hidden message_changed edits as message updates", async () => {
@@ -3614,9 +3705,11 @@ describe("message subtype handling", () => {
 
     expect(chatInstance.processMessage).not.toHaveBeenCalled();
     expect(chatInstance.processMessageUpdated).toHaveBeenCalledWith(
-      adapter,
-      "slack:D_DM:1779271794.544339",
-      expect.any(Function),
+      expect.objectContaining({
+        adapter,
+        message: expect.any(Function),
+        threadId: "slack:D_DM:1779271794.544339",
+      }),
       undefined
     );
   });
