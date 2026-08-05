@@ -50,7 +50,7 @@ const CodePreview = async ({ code }: { code: string }) => {
 
   return (
     <pre
-      className="overflow-hidden bg-background p-3 text-xs leading-relaxed"
+      className="overflow-hidden p-3 text-xs leading-relaxed"
       style={{ "--sdm-bg": "#fff", ...preStyle } as CSSProperties}
     >
       <code className="grid min-w-max">
