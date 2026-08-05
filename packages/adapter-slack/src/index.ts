@@ -2622,22 +2622,10 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
       return;
     }
 
-    // For DMs under assistant_view (legacy): top-level messages use empty threadTs
-    // (matches openDM subscriptions); thread replies use thread_ts for per-conversation
-    // isolation.
-    // Under agent_view the Messages-tab conversation is threaded per Slack's model —
-    // each user message is a thread root — so reply in-thread using `thread_ts ?? ts`
-    // (except when the conversation-scoped openDM ID is subscribed; see bridge below).
-    // For channels: always use thread_ts or ts for per-thread IDs.
+    // See threadIdForMessageEvent for the DM/channel rule. Under agent_view a
+    // subscribed conversation-scoped openDM ID takes over; see the bridge below.
     const isDM = event.channel_type === "im";
-    const threadTs =
-      isDM && !this.agentView
-        ? event.thread_ts || ""
-        : event.thread_ts || event.ts;
-    const threadId = this.encodeThreadId({
-      channel: event.channel,
-      threadTs,
-    });
+    const threadId = this.threadIdForMessageEvent(event);
 
     // Let Chat class handle async processing, waitUntil, and isMe filtering
     // Use factory function since parseSlackMessage is async (user lookup)
@@ -2778,14 +2766,7 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
       return;
     }
 
-    const isDM = normalized.channel_type === "im";
-    const threadTs = isDM
-      ? normalized.thread_ts || ""
-      : normalized.thread_ts || normalized.ts;
-    const threadId = this.encodeThreadId({
-      channel: normalized.channel,
-      threadTs,
-    });
+    const threadId = this.threadIdForMessageEvent(normalized);
 
     this.chat.processMessageUpdated(
       this,
@@ -2816,13 +2797,11 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
           type: event.previous_message.type ?? "message",
         }
       : undefined;
-    const isDM = (previous?.channel_type ?? event.channel_type) === "im";
-    const threadTs = isDM
-      ? previous?.thread_ts || ""
-      : previous?.thread_ts || previous?.ts || deletedTs;
-    const threadId = this.encodeThreadId({
+    const threadId = this.threadIdForMessageEvent({
       channel: event.channel,
-      threadTs,
+      channel_type: previous?.channel_type ?? event.channel_type,
+      thread_ts: previous?.thread_ts,
+      ts: previous?.ts ?? deletedTs,
     });
     const deletedAt = this.parseSlackTimestamp(event.event_ts ?? event.ts);
 
@@ -5319,6 +5298,33 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
 
   encodeThreadId(platformData: SlackThreadId): string {
     return `slack:${platformData.channel}:${platformData.threadTs}`;
+  }
+
+  /**
+   * Thread ID for a message-shaped event. Single source of truth for how
+   * message, edit, and delete events map onto a thread: they must agree, or
+   * an edit dispatches to a different thread than the message it edits.
+   *
+   * For DMs under assistant_view (legacy): top-level messages use empty
+   * threadTs (matches openDM subscriptions); thread replies use thread_ts for
+   * per-conversation isolation.
+   * Under agent_view the Messages-tab conversation is threaded per Slack's
+   * model, each user message being a thread root, so reply in-thread using
+   * `thread_ts ?? ts`.
+   * For channels: always use thread_ts or ts for per-thread IDs.
+   */
+  protected threadIdForMessageEvent(event: {
+    channel?: string;
+    channel_type?: string;
+    thread_ts?: string;
+    ts?: string;
+  }): string {
+    const isDM = event.channel_type === "im";
+    const threadTs =
+      isDM && !this.agentView
+        ? event.thread_ts || ""
+        : event.thread_ts || event.ts || "";
+    return this.encodeThreadId({ channel: event.channel ?? "", threadTs });
   }
 
   /**
