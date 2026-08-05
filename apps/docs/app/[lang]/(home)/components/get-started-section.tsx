@@ -143,7 +143,7 @@ export const GetStartedSection = ({ data }: { data: Template[] }) => (
           </p>
           <div
             className={cn(
-              "mt-4 -mr-8 -mb-8 ml-4 aspect-video -rotate-3 overflow-hidden rounded-md border",
+              "mt-4 -mr-8 -mb-8 ml-4 aspect-video -rotate-3 overflow-hidden rounded-md border bg-background",
               "transition-transform duration-300 group-hover:-rotate-1 group-hover:scale-105"
             )}
           >
