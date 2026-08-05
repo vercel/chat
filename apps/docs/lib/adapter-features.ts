@@ -55,6 +55,8 @@ export const PLATFORM_FEATURE_CATEGORIES: AdapterFeatureCategory[] = [
       { key: "addReactions", label: "Add reactions" },
       { key: "removeReactions", label: "Remove reactions" },
       { key: "typingIndicator", label: "Typing indicator" },
+      { key: "messageUpdatedEvents", label: "Message edit events" },
+      { key: "messageDeletedEvents", label: "Message delete events" },
       { key: "directMessages", label: "DMs" },
       { key: "ephemeralMessages", label: "Ephemeral messages" },
       { key: "userLookup", label: "User lookup" },
