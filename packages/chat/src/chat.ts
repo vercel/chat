@@ -2241,13 +2241,28 @@ export class Chat<
       isMe: message.author.isMe,
     });
 
+    // Skip the bot's own edits, matching processMessage. Post-and-edit
+    // streaming drives chat.update repeatedly, and Slack emits a
+    // message_changed for each one, so without this a single streamed reply
+    // fires this handler once per delta on the bot's own message.
+    if (message.author.isMe) {
+      this.logger.debug("Skipping message update from self (isMe=true)", {
+        adapter: adapter.name,
+        threadId,
+        author: message.author.userName,
+      });
+      return;
+    }
+
     const isSubscribed = await this._stateAdapter.isSubscribed(threadId);
     const thread = this.createThread(adapter, threadId, message, isSubscribed);
     await this.resolveMessageIdentity(adapter, threadId, message);
 
-    for (const handler of this.messageUpdatedHandlers) {
-      await handler(thread, message);
-    }
+    await runInConversation(threadId, async () => {
+      for (const handler of this.messageUpdatedHandlers) {
+        await handler(thread, message);
+      }
+    });
   }
 
   /**
@@ -2278,9 +2293,11 @@ export class Chat<
       platform: event.platform ?? event.adapter.name,
     };
 
-    for (const handler of this.messageDeletedHandlers) {
-      await handler(normalized);
-    }
+    await runInConversation(event.threadId, async () => {
+      for (const handler of this.messageDeletedHandlers) {
+        await handler(normalized);
+      }
+    });
   }
 
   /**
