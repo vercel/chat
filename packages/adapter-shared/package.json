@@ -19,7 +19,6 @@
   ],
   "scripts": {
     "build": "tsup",
-    "prepare": "tsup",
     "test": "vitest run --coverage"
   },
   "dependencies": {
