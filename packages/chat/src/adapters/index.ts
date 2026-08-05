@@ -362,6 +362,10 @@ export const ADAPTERS = {
           "Audience used for Workspace Events push verification."
         ),
         env(
+          "GOOGLE_CHAT_WORKSPACE_ADDON_SERVICE_ACCOUNT_EMAIL",
+          "Your Workspace Add-on service account identity. Required to accept add-on webhooks."
+        ),
+        env(
           "GOOGLE_CHAT_DISABLE_SIGNATURE_VERIFICATION",
           "Set to true to disable signature verification for local fixtures."
         ),

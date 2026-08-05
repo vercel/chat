@@ -288,6 +288,60 @@ bot.onReaction(["bookmark"], async (event) => {
 });
 ```
 
+## Handling edits and deletes
+
+`onMessageUpdated` fires when a user edits a message, and `onMessageDeleted` when one is removed. Both are lifecycle events: they never route through `onNewMessage`, `onNewMention`, or `onSubscribedMessage`, and the concurrency strategies do not apply to them.
+
+```typescript title="lib/bot.ts" lineNumbers
+bot.onMessageUpdated(async (thread, message, previousMessage) => {
+  await mirror.update(message.id, message.text);
+  if (previousMessage) {
+    await audit.record(`"${previousMessage.text}" became "${message.text}"`);
+  }
+});
+
+bot.onMessageDeleted(async (event) => {
+  await mirror.remove(event.messageId);
+});
+```
+
+`previousMessage` is the message as it read before the edit, supplied when the platform sends it. Slack does, so you can diff the change rather than only seeing the result. Treat it as optional: a platform that reports edits without the prior text leaves it `undefined`.
+
+The bot's own edits are filtered out, so a streamed reply that renders through post-and-edit does not call `onMessageUpdated` back once per delta.
+
+### Why the two shapes differ
+
+`onMessageUpdated` receives `(thread, message, previousMessage?)` like the other message handlers, because an edit carries a full replacement message.
+
+`onMessageDeleted` receives a single event instead. A delete has no message: platforms usually report only the id of what was removed, and `previousMessage` is best-effort. Use `chat.thread(event.threadId)` when you need a `Thread`, for example to post a notice in the conversation:
+
+```typescript title="lib/bot.ts" lineNumbers
+bot.onMessageDeleted(async (event) => {
+  if (!event.previousMessage) {
+    return;
+  }
+  await chat
+    .thread(event.threadId)
+    .post(`A message from ${event.previousMessage.author.userName} was deleted`);
+});
+```
+
+### MessageDeletedEvent
+
+| Property | Type | Description |
+|---|---|---|
+| `messageId` | `string` | Platform-native id of the deleted message |
+| `threadId` | `string` | Thread the message was in |
+| `channelId` | `string` | Channel the message was in |
+| `platform` | `string` | Adapter name, e.g. `"slack"` |
+| `previousMessage` | `Message \| undefined` | Snapshot, when the platform supplied enough to parse one |
+| `deletedAt` | `Date \| undefined` | When the delete happened, when reported |
+| `raw` | `unknown` | Platform-specific delete event |
+
+<Callout type="warn">
+Only the Slack adapter emits these events today. Registering the handlers on another platform is harmless but nothing will call them. Check the **Message edit events** and **Message delete events** rows on each [adapter page](/adapters) before relying on them.
+</Callout>
+
 ## Handling interactions
 
 For button clicks, slash commands, and modal forms, see the dedicated guides:

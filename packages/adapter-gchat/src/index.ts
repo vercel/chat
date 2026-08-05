@@ -251,6 +251,8 @@ export class GoogleChatAdapter implements Adapter<GoogleChatThreadId, unknown> {
   protected readonly googleChatProjectNumber?: string;
   /** Expected audience for Pub/Sub push message JWT verification */
   protected readonly pubsubAudience?: string;
+  /** Exact service account identity of this app's Workspace Add-on, if any */
+  protected readonly workspaceAddOnServiceAccountEmail?: string;
   /** Explicit opt-in to skip JWT verification (fail-open). */
   protected readonly disableSignatureVerification: boolean;
   /** OAuth2 client for verifying Google-signed JWTs */
@@ -277,6 +279,9 @@ export class GoogleChatAdapter implements Adapter<GoogleChatThreadId, unknown> {
       config.googleChatProjectNumber ?? process.env.GOOGLE_CHAT_PROJECT_NUMBER;
     this.pubsubAudience =
       config.pubsubAudience ?? process.env.GOOGLE_CHAT_PUBSUB_AUDIENCE;
+    this.workspaceAddOnServiceAccountEmail =
+      config.workspaceAddOnServiceAccountEmail ??
+      process.env.GOOGLE_CHAT_WORKSPACE_ADDON_SERVICE_ACCOUNT_EMAIL;
     this.disableSignatureVerification =
       config.disableSignatureVerification ??
       process.env.GOOGLE_CHAT_DISABLE_SIGNATURE_VERIFICATION === "true";
@@ -713,19 +718,35 @@ export class GoogleChatAdapter implements Adapter<GoogleChatThreadId, unknown> {
    * Google OIDC ID tokens, so anyone can mint one with `aud` set to our
    * public endpoint URL — the token is only trustworthy if it was issued
    * to Google Chat itself: `email` must be the Chat system service
-   * account (or the Workspace Add-on service identity) and verified.
+   * account (or this app's own Workspace Add-on identity) and verified.
+   *
+   * Add-on identities are compared exactly, never by shape. Every Workspace
+   * Add-on project produces a `service-{projectNumber}@gcp-sa-gsuiteaddons`
+   * email, so matching the pattern alone would accept an attacker's own
+   * add-on pointed at our public endpoint. When no add-on identity is
+   * configured, add-on tokens are rejected rather than trusted by shape.
    */
   private validateEndpointUrlTokenPayload(payload: {
     email?: string;
     email_verified?: boolean;
   }): boolean {
-    return (
-      payload.email_verified === true &&
-      (payload.email === GOOGLE_CHAT_SERVICE_ACCOUNT_EMAIL ||
-        GOOGLE_WORKSPACE_ADD_ON_SERVICE_ACCOUNT_PATTERN.test(
-          payload.email ?? ""
-        ))
-    );
+    if (payload.email_verified !== true || !payload.email) {
+      return false;
+    }
+    if (payload.email === GOOGLE_CHAT_SERVICE_ACCOUNT_EMAIL) {
+      return true;
+    }
+    if (!GOOGLE_WORKSPACE_ADD_ON_SERVICE_ACCOUNT_PATTERN.test(payload.email)) {
+      return false;
+    }
+    if (!this.workspaceAddOnServiceAccountEmail) {
+      this.logger.warn(
+        "Rejected a Workspace Add-on token because no add-on identity is configured. Set `workspaceAddOnServiceAccountEmail` (or GOOGLE_CHAT_WORKSPACE_ADDON_SERVICE_ACCOUNT_EMAIL) to your own service-{projectNumber}@gcp-sa-gsuiteaddons.iam.gserviceaccount.com address.",
+        { email: payload.email }
+      );
+      return false;
+    }
+    return payload.email === this.workspaceAddOnServiceAccountEmail;
   }
 
   private async getChatIssuerCerts(): Promise<Record<string, string>> {

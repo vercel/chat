@@ -66,6 +66,8 @@ pnpm check && pnpm konsistent
 
 ## Resources
 
+- Human guide (vendor-official): `apps/docs/content/docs/contributing/vendor-official.mdx`
+- Human guide (community listing): `apps/docs/content/docs/contributing/publishing.mdx`
 - MDX template: [assets/adapter.mdx](assets/adapter.mdx)
 - Catalog conventions: `packages/chat/src/adapters/AGENTS.md`
 - Examples to copy: `apps/docs/content/adapters/vendor-official/` and `apps/docs/content/adapters/community/`

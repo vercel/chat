@@ -8,13 +8,20 @@ prerequisites:
 
 Adapters connect Chat SDK to messaging platforms and state backends. Install only the adapters you need, then register them on your `Chat` instance.
 
+### Adapter tiers
+
+| Tier | Who maintains it |
+|------|------------------|
+| Official | Vercel (`@chat-adapter/*`) |
+| Vendor-official | The platform vendor |
+| Community | Third-party developers |
+
+Browse all three on the [Adapters](/adapters) listing page. To ship your own, start with [Building an adapter](/docs/contributing/building), then list as [community](/docs/contributing/publishing#listing-on-chat-sdkdev) or [vendor-official](/docs/contributing/vendor-official).
+
 Use the dedicated guides for adapter-specific concepts:
 
 - [Platform Adapters](/docs/platform-adapters) cover webhook verification, message parsing, API calls, feature support, and multi-platform bots.
 - [State Adapters](/docs/state-adapters) cover subscriptions, distributed locking, and caching.
-- Browse all official, vendor-official, and community adapters on the [Adapters](/adapters) listing page.
-
-Ready to build your own? Follow the [building](/docs/contributing/building) guide.
 
 ## Adapter catalog (`chat/adapters`)
 

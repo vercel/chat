@@ -181,6 +181,7 @@ Most options are auto-detected from environment variables when not provided.
 | `pubsubAudience` | No† | Expected JWT audience for Pub/Sub webhook verification. Auto-detected from `GOOGLE_CHAT_PUBSUB_AUDIENCE` |
 | `googleChatProjectNumber` | No† | GCP project number for direct webhook JWT verification when the Chat app's authentication audience is "Project number". Auto-detected from `GOOGLE_CHAT_PROJECT_NUMBER` |
 | `endpointUrl` | No† | Public webhook URL for button click routing and direct webhook JWT verification when the Chat app's authentication audience is "HTTP endpoint URL". Must be passed in config |
+| `workspaceAddOnServiceAccountEmail` | No‡ | Your own `service-{projectNumber}@gcp-sa-gsuiteaddons.iam.gserviceaccount.com` identity. Required to accept Workspace Add-on Chat app webhooks. Auto-detected from `GOOGLE_CHAT_WORKSPACE_ADDON_SERVICE_ACCOUNT_EMAIL` |
 | `disableSignatureVerification` | No† | Disable JWT verification entirely (development only). Auto-detected from `GOOGLE_CHAT_DISABLE_SIGNATURE_VERIFICATION=true` |
 | `impersonateUser` | No | User email for domain-wide delegation. Auto-detected from `GOOGLE_CHAT_IMPERSONATE_USER` |
 | `auth` | No | Custom auth object (advanced) |
@@ -190,6 +191,8 @@ Most options are auto-detected from environment variables when not provided.
 *Either `credentials`, `GOOGLE_CHAT_CREDENTIALS` env var, `useApplicationDefaultCredentials`, or `GOOGLE_CHAT_USE_ADC=true` is required.
 
 †One of `googleChatProjectNumber`, `endpointUrl`, `pubsubAudience`, or `disableSignatureVerification: true` is required — the constructor throws otherwise. Configure the verifier(s) for each transport you actually receive; requests of a shape whose verifier is unconfigured are rejected with HTTP 401.
+
+‡Only Workspace Add-on Chat apps need this. Their webhooks are signed by an add-on service identity rather than `chat@system.gserviceaccount.com`, and every add-on project shares the same `service-{projectNumber}@gcp-sa-gsuiteaddons` email shape — so the identity is only meaningful compared exactly. Without it, add-on tokens are rejected with HTTP 401 rather than trusted by shape. Standalone Chat apps are unaffected.
 
 ## Environment variables
 
@@ -203,6 +206,8 @@ GOOGLE_CHAT_IMPERSONATE_USER=admin@yourdomain.com
 # Webhook verification — at least one verifier or the explicit opt-out is required
 GOOGLE_CHAT_PROJECT_NUMBER=123456789          # Direct webhooks with project-number audience
 GOOGLE_CHAT_PUBSUB_AUDIENCE=https://your-domain.com/api/webhooks/gchat  # For Pub/Sub JWT verification
+# Workspace Add-on Chat apps only — your own add-on service identity
+GOOGLE_CHAT_WORKSPACE_ADDON_SERVICE_ACCOUNT_EMAIL=service-123456789@gcp-sa-gsuiteaddons.iam.gserviceaccount.com
 # GOOGLE_CHAT_DISABLE_SIGNATURE_VERIFICATION=true  # Escape hatch for local dev only
 
 # Optional: override the Google Chat API base URL
@@ -216,7 +221,7 @@ The adapter supports JWT verification for both webhook types. When configured, t
 Verification is required. The constructor throws `ValidationError` unless one of the following is set:
 
 - `googleChatProjectNumber` (or `GOOGLE_CHAT_PROJECT_NUMBER`) — direct webhooks when the Chat app's authentication audience is "Project number"
-- `endpointUrl` — direct webhooks when the Chat app's authentication audience is "HTTP endpoint URL"; also required for routing card button clicks in HTTP endpoint apps
+- `endpointUrl` — direct webhooks when the Chat app's authentication audience is "HTTP endpoint URL"; also required for routing card button clicks in HTTP endpoint apps. Workspace Add-on Chat apps additionally need `workspaceAddOnServiceAccountEmail`, since their tokens are signed by an add-on identity instead of `chat@system.gserviceaccount.com`
 - `pubsubAudience` (or `GOOGLE_CHAT_PUBSUB_AUDIENCE`) — Pub/Sub push deliveries
 - `disableSignatureVerification: true` (or `GOOGLE_CHAT_DISABLE_SIGNATURE_VERIFICATION=true`) — explicit opt-out, intended for local development only
 

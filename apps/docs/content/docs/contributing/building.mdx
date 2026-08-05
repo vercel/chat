@@ -1,12 +1,14 @@
 ---
-title: Building a community adapter
-description: Learn how to build, package, and publish your own Chat SDK adapter for any messaging platform.
+title: Building an adapter
+description: Learn how to build your own Chat SDK adapter for any messaging platform.
 type: guide
 prerequisites:
   - /docs/getting-started
   - /docs/adapters
 related:
   - /docs/contributing/testing
+  - /docs/contributing/publishing
+  - /docs/contributing/vendor-official
   - /docs/cards
   - /docs/actions
 ---
@@ -15,29 +17,23 @@ related:
 
 Adapters are the bridge between Chat SDK and a messaging platform. Each adapter handles webhook verification, message parsing, and API calls for one platform so your handler code stays platform-agnostic.
 
-Chat SDK ships with Vercel-maintained adapters for Slack, Teams, Google Chat, Discord, Telegram, GitHub, and Linear. Community developers can build adapters for any other platform using the same `Adapter` interface.
+Chat SDK ships with Vercel-maintained [official adapters](/adapters). Anyone can build adapters for other platforms using the same `Adapter` interface, whether you publish as [community](/docs/contributing/publishing#listing-on-chat-sdkdev) or [vendor-official](/docs/contributing/vendor-official).
 
 ### Adapter tiers
 
 | Tier | Description | Examples |
 |------|-------------|---------|
 | Official | Published under `@chat-adapter/*` by Vercel | Slack, Teams, Discord |
-| Vendor official | Built and maintained by the platform company itself | Resend building a Resend adapter |
+| Vendor-official | Built and maintained by the platform company | Resend, Liveblocks, Photon |
 | Community | Built by third-party developers | Any open-source adapter |
+
+This guide covers implementing the adapter. After you publish:
+
+- **Community:** [list on chat-sdk.dev](/docs/contributing/publishing#listing-on-chat-sdkdev)
+- **Vendor-official:** follow the [vendor-official guide](/docs/contributing/vendor-official)
 
 <Callout type="warn">
   The `@chat-adapter/` npm scope is reserved for official adapters. Publish your adapter under your own scope or as an unscoped package.
-</Callout>
-
-#### Qualifications for vendor official tier
-
-- Commitment for continued maintenance of the adapter.
-- GitHub hosting in official vendor-owned org.
-- Documentation of the adapter in primary vendor docs.
-- Announcement of the adapter in blog post or changelog and social media.
-
-<Callout type="info">
-  Vendor-official adapters should include a Chat SDK docs PR that adds the adapter to the vendor-official listing and the [`chat/adapters` catalog](/docs/adapters#adapter-catalog-chatadapters). Include the package name, peer dependencies, environment variables, credential modes, and any constructor-only config so setup UIs and onboarding tools can discover the adapter without importing its package.
 </Callout>
 
 ## Project setup

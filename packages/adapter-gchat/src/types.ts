@@ -78,6 +78,20 @@ export interface GoogleChatAdapterBaseConfig {
   pubsubTopic?: string;
   /** Override bot username (optional) */
   userName?: string;
+  /**
+   * Service account identity of your Workspace Add-on Chat app, in the form
+   * `service-{projectNumber}@gcp-sa-gsuiteaddons.iam.gserviceaccount.com`,
+   * where `projectNumber` is your own Google Cloud project number.
+   *
+   * Workspace Add-on Chat apps sign endpoint-URL webhooks with this identity
+   * instead of `chat@system.gserviceaccount.com`. Every add-on project shares
+   * the same email shape, so the identity is only meaningful compared exactly:
+   * without this option the adapter rejects add-on tokens rather than trusting
+   * any project's add-on. Ordinary Chat apps are unaffected.
+   *
+   * Defaults to GOOGLE_CHAT_WORKSPACE_ADDON_SERVICE_ACCOUNT_EMAIL env var.
+   */
+  workspaceAddOnServiceAccountEmail?: string;
 }
 
 /** Config using service account credentials (JSON key file) */
