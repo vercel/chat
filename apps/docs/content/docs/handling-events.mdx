@@ -210,7 +210,7 @@ bot.onNewMessage(/\b(outage|down|incident|p[01])\b/i, async (thread, message) =>
 
 ## Handling reactions
 
-`onReaction` fires when users add or remove emoji reactions to messages. You can handle all reactions or filter by specific emoji. The [`emoji` helper](/docs/emoji) provides type-safe, cross-platform emoji names for filtering and reacting.
+`onReaction` fires when users add or remove [emoji](/docs/emoji) reactions to messages. You can handle all reactions or filter by specific emoji.
 
 ```typescript title="lib/bot.ts" lineNumbers
 import { emoji } from "chat";

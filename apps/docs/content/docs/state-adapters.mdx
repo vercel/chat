@@ -39,8 +39,6 @@ onLockConflict: (threadId, message) => {
 
 Note that force-releasing a lock does not cancel the previous handler — it continues running. Only the lock is released, so two handlers may briefly run concurrently on the same thread.
 
-See [Overlapping Messages](/docs/concurrency) for strategies beyond dropping — queueing, debouncing, bursting, or processing messages concurrently.
-
 ### Caching
 
 State adapters provide key-value storage with TTL for thread state (`thread.setState()`), message deduplication, and other internal caching.
