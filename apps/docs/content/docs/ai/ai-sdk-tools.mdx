@@ -98,7 +98,7 @@ Omit `preset` entirely to get every tool (same as `'moderator'`).
 
 Read tools take a thread or channel id chosen by the model, and they run with your bot's platform access. A bot is usually a member of channels a given user is not, so an agent handling untrusted input can be talked into fetching a conversation the user could never open themselves, then repeating it back.
 
-Pass `scope` with the conversation the agent is handling. Reads that resolve to a different channel are rejected before the platform is called:
+Pass `scope` with the conversation the agent is handling. Reads that resolve outside it are rejected before the platform is called:
 
 ```typescript title="lib/bot.ts" lineNumbers
 bot.onNewMention(async (thread, message) => {
@@ -116,7 +116,7 @@ bot.onNewMention(async (thread, message) => {
 });
 ```
 
-`scope` accepts a `Thread`, a `Channel`, or a raw id. Scoping is per channel, so the agent can still follow other threads in the conversation it was invited to, but not reach into another one.
+`scope` accepts a `Thread`, a `Channel`, or a raw id. By default scoping is **channel-level**: a read is allowed when it resolves to the same channel as the scoped conversation. That blocks the cross-channel read above, and — matching a channel-membership model — still lets the agent read sibling threads within the channel.
 
 Tools built inside a handler pick this up automatically, so the common case needs no extra argument:
 
@@ -133,11 +133,47 @@ bot.onNewMention(async (thread, message) => {
 });
 ```
 
-Pass `scope` explicitly when the agent runs outside a handler, such as a queued job that still answers on a user's behalf. Scoping is per channel, so an agent can still follow other threads in its own conversation.
+Pass `scope` explicitly when the agent runs outside a handler, such as a queued job that still answers on a user's behalf. Pass a channel id there if the agent legitimately needs to read across the threads in a channel.
 
 <Callout type="warn">
-  Agents created outside a handler have no conversation to inherit, so their reads are unrestricted. Pass `scope` there, or `scope: false` to say workspace-wide reads are intended.
+  Agents created outside a handler have no conversation to inherit, so their reads are unrestricted and a warning is logged. Pass `scope` there, or `scope: false` to say workspace-wide reads are intended.
 </Callout>
+
+### What `scope` does not do
+
+`scope` confines reads to a conversation using your bot's own access; it is **not** a per-user access check. It does not verify that the end user the agent is answering for is themselves a member of the target — that would require per-platform membership calls the SDK does not make.
+
+So within the scope you grant, reads follow the bot's access, not the user's:
+
+- A **thread** scope still allows reading the parent channel and its sibling threads, matching Slack's channel-membership model (a user who can see a thread can see the channel around it).
+- A **channel** scope allows any thread in that channel, including independently permissioned threads on Discord or GitHub that the end user may not have access to.
+
+This channel-level default is coarser than the per-thread ACLs on platforms like Discord and GitHub, where one channel or repo holds independently permissioned threads. `scope` alone will not enforce per-user permissions there.
+
+### Tightening to a single thread
+
+Set `strictScope` to confine a **thread** scope to that thread alone. Sibling threads and the parent channel are both rejected. Recommended when the agent handles untrusted input on a per-thread-ACL platform:
+
+```typescript title="lib/bot.ts" lineNumbers
+bot.onNewMention(async (thread, message) => {
+  const tools = createChatTools({
+    chat,
+    preset: "reader",
+    scope: thread,
+    strictScope: true, // sibling threads and the parent channel are rejected
+  });
+
+  const result = await generateText({
+    model: "openai/gpt-5",
+    tools,
+    prompt: message.text,
+  });
+});
+```
+
+Rejecting the parent channel matters most on the platforms this is aimed at, because a channel there is the widest read available. A GitHub channel is an entire repository, so a channel-level read would list every issue and pull request in it: broader than any sibling thread the option blocks.
+
+A **channel** scope is unaffected by `strictScope`. It still allows any thread within the channel, and the channel itself. This is opt-in rather than the default so existing channel-membership-style behavior is preserved; enable it when you want reads confined to the exact thread.
 
 ## Approval control
 
@@ -164,6 +200,15 @@ createChatTools({
 ```
 
 Read tools (`fetchMessages`, `fetchThread`, `getChannelInfo`, …) and the `startTyping` indicator never require approval.
+
+<Callout>
+  `createChatTools` only marks a tool as needing approval — capturing the
+  decision, and (optionally) signing it so a resumed approval can't be forged,
+  is handled by the AI SDK itself. If you round-trip approvals through an
+  untrusted client and enable the AI SDK's `experimental_toolApprovalSecret`,
+  use a version of `ai` that includes the injective-payload signing fix
+  ([vercel/ai#17493](https://github.com/vercel/ai/pull/17493)).
+</Callout>
 
 ## Cherry-picking tools
 
@@ -260,6 +305,7 @@ type ChatToolsOptions = {
   preset?: ChatToolPreset | ChatToolPreset[];
   overrides?: Partial<Record<ChatToolName, ToolOverrides>>;
   scope?: ReadScope | false;
+  strictScope?: boolean;
 };
 
 type ChatToolPreset = "reader" | "messenger" | "moderator";
@@ -272,4 +318,5 @@ type ReadScope = string | { id: string };
 | `preset` | Preset (or array of presets) restricting which tools are returned. Omit to get every tool. |
 | `requireApproval` | `true` (default), `false`, or per-tool overrides. Read tools and `startTyping` are never gated. |
 | `overrides` | Per-tool customization of any AI SDK `tool()` property except `execute`, `inputSchema`, and `outputSchema`. |
-| `scope` | Conversation the read tools are confined to. Defaults to the conversation being handled. Pass a `Thread`, `Channel`, or `false` to read across every conversation the bot can see. |
+| `scope` | Conversation the read tools are confined to. Defaults to the conversation being handled. Pass a `Thread`, `Channel`, or `false` to read across every conversation the bot can see. Channel-level by default. |
+| `strictScope` | `false` (default). Set `true` to tighten a thread `scope` to that thread alone, rejecting both sibling threads and the parent channel. A channel scope is unaffected. |

@@ -244,6 +244,9 @@ export const CLI_SCAFFOLD_SPEC = {
   messenger: {
     invocation: { kind: "zero-arg" },
   },
+  notion: {
+    invocation: { kind: "zero-arg" },
+  },
   novu: {
     invocation: { kind: "zero-arg" },
   },

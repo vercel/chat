@@ -7,6 +7,7 @@ import {
   linear,
   memory,
   messenger,
+  notion,
   postgres,
   redis,
   slack,
@@ -16,6 +17,7 @@ import {
   web,
   whatsapp,
   x,
+  xchat,
 } from "@/lib/logos";
 
 const ICON_MAP: Record<
@@ -30,6 +32,7 @@ const ICON_MAP: Record<
   instagram,
   web,
   linear,
+  notion,
   telegram,
   redis,
   ioredis,
@@ -39,6 +42,7 @@ const ICON_MAP: Record<
   twilio,
   messenger,
   x,
+  xchat,
 };
 
 interface AdapterHeroProps {

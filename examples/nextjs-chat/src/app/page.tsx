@@ -27,6 +27,9 @@ export default function Home() {
         <li>
           <code>/api/webhooks/linear</code> - Linear issue comment events
         </li>
+        <li>
+          <code>/api/webhooks/notion</code> - Notion page/block comment events
+        </li>
       </ul>
 
       <h2>Features</h2>
@@ -89,6 +92,18 @@ TELEGRAM_WEBHOOK_SECRET_TOKEN=...`}
         {`LINEAR_CONNECTOR=linear/your-connector
 # plus VERCEL_OIDC_TOKEN (run \`vercel env pull\`)`}
       </pre>
+
+      <h3>Notion</h3>
+      <pre>
+        {`NOTION_TOKEN=ntn_...
+NOTION_VERIFICATION_TOKEN=secret_...
+# optional (default mention); use all-comments for easy local testing
+# NOTION_MENTION_MODE=all-comments`}
+      </pre>
+      <p>
+        Comment exactly <code>SUBJECT</code> on a connected page to demo{" "}
+        <code>message.subject</code> (page title, id, url).
+      </p>
     </main>
   );
 }

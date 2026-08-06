@@ -145,6 +145,7 @@ async function createInitializedAdapter(opts?: {
   endpointUrl?: string;
   googleChatProjectNumber?: string;
   pubsubAudience?: string;
+  workspaceAddOnServiceAccountEmail?: string;
 }) {
   const adapter = createGoogleChatAdapter({
     credentials: TEST_CREDENTIALS,
@@ -154,6 +155,7 @@ async function createInitializedAdapter(opts?: {
     endpointUrl: opts?.endpointUrl,
     googleChatProjectNumber: opts?.googleChatProjectNumber,
     pubsubAudience: opts?.pubsubAudience,
+    workspaceAddOnServiceAccountEmail: opts?.workspaceAddOnServiceAccountEmail,
   });
   const mockState = createMockStateAdapter();
   const mockChat = createMockChatInstance({ state: mockState });
@@ -2954,33 +2956,116 @@ describe("GoogleChatAdapter", () => {
       });
     });
 
-    it("should allow direct webhook with Workspace Add-on service account email when endpointUrl is configured", async () => {
+    async function addOnWebhook(
+      tokenEmail: string,
+      workspaceAddOnServiceAccountEmail?: string
+    ) {
       verifyIdTokenSpy.mockResolvedValue({
         getPayload: () => ({
           iss: "https://accounts.google.com",
           aud: "https://example.com/webhook",
-          email:
-            "service-123456789@gcp-sa-gsuiteaddons.iam.gserviceaccount.com",
+          email: tokenEmail,
           email_verified: true,
         }),
       });
 
       const { adapter } = await createInitializedAdapter({
         endpointUrl: "https://example.com/webhook",
+        workspaceAddOnServiceAccountEmail,
       });
 
-      const event = makeMessageEvent({ messageText: "Hello" });
       const request = new Request("https://example.com/webhook", {
         method: "POST",
         headers: {
           "content-type": "application/json",
           authorization: "Bearer valid-google-jwt",
         },
-        body: JSON.stringify(event),
+        body: JSON.stringify(makeMessageEvent({ messageText: "Hello" })),
       });
 
-      const response = await adapter.handleWebhook(request);
+      return adapter.handleWebhook(request);
+    }
+
+    it("should allow a Workspace Add-on token matching the configured service account", async () => {
+      const response = await addOnWebhook(
+        "service-111@gcp-sa-gsuiteaddons.iam.gserviceaccount.com",
+        "service-111@gcp-sa-gsuiteaddons.iam.gserviceaccount.com"
+      );
       expect(response.status).toBe(200);
+    });
+
+    it("should reject a Workspace Add-on token from a different project", async () => {
+      // The generic `service-<number>@gcp-sa-gsuiteaddons` shape matches every
+      // Workspace Add-on project, so an attacker's own add-on must not pass.
+      const response = await addOnWebhook(
+        "service-999@gcp-sa-gsuiteaddons.iam.gserviceaccount.com",
+        "service-111@gcp-sa-gsuiteaddons.iam.gserviceaccount.com"
+      );
+      expect(response.status).toBe(401);
+    });
+
+    it("should reject a Workspace Add-on token when no service account is configured", async () => {
+      const response = await addOnWebhook(
+        "service-111@gcp-sa-gsuiteaddons.iam.gserviceaccount.com"
+      );
+      expect(response.status).toBe(401);
+    });
+
+    it("should still allow the Chat system service account without add-on config", async () => {
+      const response = await addOnWebhook("chat@system.gserviceaccount.com");
+      expect(response.status).toBe(200);
+    });
+
+    it.each([
+      [
+        "a suffixed lookalike domain",
+        "service-111@gcp-sa-gsuiteaddons.iam.gserviceaccount.com.evil.test",
+      ],
+      [
+        "a prefixed lookalike domain",
+        "service-111@evil.test/gcp-sa-gsuiteaddons.iam.gserviceaccount.com",
+      ],
+      [
+        "an uppercase variant",
+        "SERVICE-111@GCP-SA-GSUITEADDONS.IAM.GSERVICEACCOUNT.COM",
+      ],
+      [
+        "trailing whitespace",
+        "service-111@gcp-sa-gsuiteaddons.iam.gserviceaccount.com ",
+      ],
+    ])("should reject %s of the configured add-on identity", async (_, email) => {
+      const response = await addOnWebhook(
+        email,
+        "service-111@gcp-sa-gsuiteaddons.iam.gserviceaccount.com"
+      );
+      expect(response.status).toBe(401);
+    });
+
+    it("should reject the configured add-on identity when email_verified is false", async () => {
+      verifyIdTokenSpy.mockResolvedValue({
+        getPayload: () => ({
+          iss: "https://accounts.google.com",
+          aud: "https://example.com/webhook",
+          email: "service-111@gcp-sa-gsuiteaddons.iam.gserviceaccount.com",
+          email_verified: false,
+        }),
+      });
+      const { adapter } = await createInitializedAdapter({
+        endpointUrl: "https://example.com/webhook",
+        workspaceAddOnServiceAccountEmail:
+          "service-111@gcp-sa-gsuiteaddons.iam.gserviceaccount.com",
+      });
+      const response = await adapter.handleWebhook(
+        new Request("https://example.com/webhook", {
+          method: "POST",
+          headers: {
+            "content-type": "application/json",
+            authorization: "Bearer valid-google-jwt",
+          },
+          body: JSON.stringify(makeMessageEvent({ messageText: "Hello" })),
+        })
+      );
+      expect(response.status).toBe(401);
     });
 
     it("should reject endpointUrl direct webhook when token email is not Google Chat", async () => {

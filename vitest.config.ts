@@ -8,6 +8,7 @@ export default defineConfig({
       "packages/adapter-gchat",
       "packages/adapter-github",
       "packages/adapter-linear",
+      "packages/adapter-notion",
       "packages/adapter-shared",
       "packages/adapter-slack",
       "packages/adapter-teams",

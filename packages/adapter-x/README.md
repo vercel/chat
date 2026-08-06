@@ -248,7 +248,7 @@ export async function POST(request: Request) {
 
 When using `createXchatAdapter()` without arguments, credentials are auto-detected from environment variables. The bot's @handle is resolved from `GET /2/users/me` at startup, so mention detection works without any hardcoding.
 
-### X Chat setup
+### XChat setup
 
 ### 1. Register encryption keys
 
@@ -297,29 +297,22 @@ Subscribe to `chat.conversation_join` as well if you want the bot to post a welc
 
 X sends two kinds of requests:
 
-1. **CRC challenge** (GET) — `?crc_token=...` must be answered with an HMAC-SHA256 of the token, keyed by your app's consumer secret. Handle this at the route level; it needs no adapter state.
+1. **CRC challenge** (GET) — `?crc_token=...` answered with an HMAC-SHA256 of the token, keyed by your app's consumer secret. The adapter answers this, so route GET to it too.
 2. **Event delivery** (POST) — chat events, verified by the adapter via the `x-twitter-webhooks-signature` header.
 
 ```typescript
-import { createHmac } from "node:crypto";
 import { bot } from "@/lib/bot";
 
 export async function GET(request: Request) {
-  const url = new URL(request.url);
-  const crcToken = url.searchParams.get("crc_token");
-  if (!crcToken) {
-    return new Response("Missing crc_token", { status: 400 });
-  }
-  const hash = createHmac("sha256", process.env.X_CONSUMER_SECRET!)
-    .update(crcToken)
-    .digest("base64");
-  return Response.json({ response_token: `sha256=${hash}` });
+  return bot.webhooks.xchat(request);
 }
 
 export async function POST(request: Request) {
   return bot.webhooks.xchat(request);
 }
 ```
+
+Do not sign the token in your own handler. The challenge and the POST signature use the same key, algorithm, and `sha256=` prefix, so a handler that HMACs an arbitrary `crc_token` becomes a signing oracle: a caller can pass a forged event body as the token and replay the response as `x-twitter-webhooks-signature`. The adapter constrains the token before signing it.
 
 ### Configuration
 
@@ -376,7 +369,7 @@ X_VERIFY_SIGNATURES=true           # Optional; set false to accept unverifiable 
 | Post cards | Yes (first `x.com/.../status/...` URL in outgoing text auto-attaches) |
 | Media out | Yes (files encrypt-streamed and uploaded via the 3-step media upload flow) |
 | Media in | Yes (attachments exposed with lazy download + decrypt via `fetchData()`) |
-| Cards / buttons / modals | No (X Chat has no interactive message surface) |
+| Cards / buttons / modals | No (XChat has no interactive message surface) |
 | Tables | ASCII code blocks |
 
 ### Conversations

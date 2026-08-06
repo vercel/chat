@@ -12,7 +12,12 @@ import {
   threadIdContract,
 } from "@chat-adapter/tests";
 import { WebClient } from "@slack/web-api";
-import type { AdapterPostableMessage, ChatInstance, StateAdapter } from "chat";
+import type {
+  AdapterPostableMessage,
+  ChatInstance,
+  Message,
+  StateAdapter,
+} from "chat";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type {
   SlackAdapterConfig,
@@ -862,6 +867,7 @@ describe("handleWebhook - interactive payloads", () => {
       botToken: "xoxb-test-token",
       signingSecret: secret,
       logger: mockLogger,
+      botUserId: "U_BOT",
     });
     await adapter.initialize(chatInstance);
 
@@ -3459,7 +3465,76 @@ describe("message subtype handling", () => {
     );
   });
 
-  it("ignores message_changed subtypes", async () => {
+  it.each([
+    ["a flat DM", { agentView: false }, "slack:D_DM:"],
+    ["a threaded agent_view DM", { agentView: true }, "slack:D_DM:1111.0001"],
+  ])("routes the message, its edit, and its delete to one thread id in %s", async (_, config, expected) => {
+    const adapter = createSlackAdapter({
+      botToken: "xoxb-test-token",
+      signingSecret: secret,
+      logger: mockLogger,
+      botUserId: "U_BOT",
+      ...config,
+    });
+    const chatInstance = createMockChatInstance({ state: createMockState() });
+    await adapter.initialize(chatInstance);
+
+    const dm = {
+      type: "message",
+      user: "U_USER",
+      channel: "D_DM",
+      channel_type: "im",
+      text: "hello",
+      ts: "1111.0001",
+    };
+    const send = async (event: Record<string, unknown>) => {
+      const tasks: Promise<unknown>[] = [];
+      await adapter.handleWebhook(
+        createWebhookRequest(
+          JSON.stringify({ type: "event_callback", team_id: "T123", event }),
+          secret
+        ),
+        {
+          waitUntil: (p) => {
+            tasks.push(p);
+          },
+        }
+      );
+      await Promise.all(tasks);
+    };
+
+    await send(dm);
+    await send({
+      type: "message",
+      subtype: "message_changed",
+      channel: "D_DM",
+      channel_type: "im",
+      ts: "1111.0002",
+      message: { ...dm, text: "edited", edited: { ts: "1111.0002" } },
+      previous_message: dm,
+    });
+    await send({
+      type: "message",
+      subtype: "message_deleted",
+      channel: "D_DM",
+      channel_type: "im",
+      ts: "1111.0003",
+      deleted_ts: "1111.0001",
+      previous_message: dm,
+    });
+
+    expect(vi.mocked(chatInstance.processMessage).mock.calls[0]?.[1]).toBe(
+      expected
+    );
+    expect(
+      vi.mocked(chatInstance.processMessageUpdated).mock.calls[0]?.[0].threadId
+    ).toBe(expected);
+    expect(
+      vi.mocked(chatInstance.processMessageDeleted).mock.calls[0]?.[0].threadId
+    ).toBe(expected);
+  });
+
+  it("dispatches message_changed subtypes as message updates", async () => {
     const state = createMockState();
     const chatInstance = createMockChatInstance({ state });
     const adapter = createSlackAdapter({
@@ -3477,16 +3552,263 @@ describe("message subtype handling", () => {
         type: "message",
         subtype: "message_changed",
         channel: "C_CHAN",
-        ts: "1234567890.111111",
+        ts: "1234567891.111111",
+        message: {
+          type: "message",
+          user: "U_USER",
+          channel: "C_CHAN",
+          text: "edited text",
+          ts: "1234567890.111111",
+          edited: { ts: "1234567891.111111" },
+        },
       },
     });
     const request = createWebhookRequest(body, secret);
     await adapter.handleWebhook(request);
 
     expect(chatInstance).not.toHaveDispatched("processMessage");
+    expect(chatInstance.processMessageUpdated).toHaveBeenCalledWith(
+      expect.objectContaining({
+        adapter,
+        message: expect.any(Function),
+        threadId: "slack:C_CHAN:1234567890.111111",
+      }),
+      undefined
+    );
   });
 
-  it("ignores message_deleted subtypes", async () => {
+  it("forwards the pre-edit message so handlers can diff the change", async () => {
+    const chatInstance = createMockChatInstance({ state: createMockState() });
+    const adapter = createSlackAdapter({
+      botToken: "xoxb-test-token",
+      signingSecret: secret,
+      logger: mockLogger,
+      botUserId: "U_BOT",
+    });
+    await adapter.initialize(chatInstance);
+
+    const before = {
+      type: "message",
+      user: "U_USER",
+      channel: "C_CHAN",
+      text: "before",
+      ts: "1234567890.111111",
+    };
+    await adapter.handleWebhook(
+      createWebhookRequest(
+        JSON.stringify({
+          type: "event_callback",
+          team_id: "T123",
+          event: {
+            type: "message",
+            subtype: "message_changed",
+            channel: "C_CHAN",
+            ts: "1234567891.111111",
+            message: {
+              ...before,
+              text: "after",
+              edited: { ts: "1234567891.111111" },
+            },
+            previous_message: before,
+          },
+        }),
+        secret
+      )
+    );
+
+    const event = vi.mocked(chatInstance.processMessageUpdated).mock
+      .calls[0]?.[0];
+    expect(event?.previousMessage).toBeDefined();
+    expect((event?.previousMessage as Message).text).toBe("before");
+  });
+
+  it("ignores a message_changed where nothing actually changed", async () => {
+    const chatInstance = createMockChatInstance({ state: createMockState() });
+    const adapter = createSlackAdapter({
+      botToken: "xoxb-test-token",
+      signingSecret: secret,
+      logger: mockLogger,
+      botUserId: "U_BOT",
+    });
+    await adapter.initialize(chatInstance);
+
+    // Slack's automatic language detection updates locale metadata and
+    // dispatches message_changed without the message itself changing.
+    const unchanged = {
+      type: "message",
+      user: "U_USER",
+      channel: "C_CHAN",
+      text: "same text",
+      ts: "1234567890.111111",
+    };
+    await adapter.handleWebhook(
+      createWebhookRequest(
+        JSON.stringify({
+          type: "event_callback",
+          team_id: "T123",
+          event: {
+            type: "message",
+            subtype: "message_changed",
+            channel: "C_CHAN",
+            ts: "1234567891.111111",
+            message: { ...unchanged },
+            previous_message: { ...unchanged },
+          },
+        }),
+        secret
+      )
+    );
+
+    expect(chatInstance.processMessageUpdated).not.toHaveBeenCalled();
+    expect(chatInstance.processMessage).not.toHaveBeenCalled();
+  });
+
+  it("leaves previousMessage undefined when Slack omits it", async () => {
+    const chatInstance = createMockChatInstance({ state: createMockState() });
+    const adapter = createSlackAdapter({
+      botToken: "xoxb-test-token",
+      signingSecret: secret,
+      logger: mockLogger,
+      botUserId: "U_BOT",
+    });
+    await adapter.initialize(chatInstance);
+
+    await adapter.handleWebhook(
+      createWebhookRequest(
+        JSON.stringify({
+          type: "event_callback",
+          team_id: "T123",
+          event: {
+            type: "message",
+            subtype: "message_changed",
+            channel: "C_CHAN",
+            ts: "1234567891.111111",
+            message: {
+              type: "message",
+              user: "U_USER",
+              channel: "C_CHAN",
+              text: "after",
+              ts: "1234567890.111111",
+              edited: { ts: "1234567891.111111" },
+            },
+          },
+        }),
+        secret
+      )
+    );
+
+    const event = vi.mocked(chatInstance.processMessageUpdated).mock
+      .calls[0]?.[0];
+    expect(event?.previousMessage).toBeUndefined();
+  });
+
+  it("dispatches hidden message_changed edits as message updates", async () => {
+    const state = createMockState();
+    const chatInstance = createMockChatInstance({ state });
+    const adapter = createSlackAdapter({
+      botToken: "xoxb-test-token",
+      signingSecret: secret,
+      logger: mockLogger,
+      botUserId: "U_BOT",
+    });
+    await adapter.initialize(chatInstance);
+
+    const body = JSON.stringify({
+      type: "event_callback",
+      team_id: "T123",
+      event: {
+        type: "message",
+        subtype: "message_changed",
+        hidden: true,
+        channel: "D_DM",
+        channel_type: "im",
+        ts: "1779425554.000100",
+        event_ts: "1779425554.000100",
+        message: {
+          type: "message",
+          user: "U_USER",
+          text: "What do you see in this attachment? Test",
+          ts: "1779271807.493869",
+          thread_ts: "1779271794.544339",
+          edited: { user: "U_USER", ts: "1779425554.000000" },
+        },
+        previous_message: {
+          type: "message",
+          user: "U_USER",
+          text: "What do you see in this attachment?",
+          ts: "1779271807.493869",
+          thread_ts: "1779271794.544339",
+        },
+      },
+    });
+    const request = createWebhookRequest(body, secret);
+    await adapter.handleWebhook(request);
+
+    expect(chatInstance.processMessage).not.toHaveBeenCalled();
+    expect(chatInstance.processMessageUpdated).toHaveBeenCalledWith(
+      expect.objectContaining({
+        adapter,
+        message: expect.any(Function),
+        threadId: "slack:D_DM:1779271794.544339",
+      }),
+      undefined
+    );
+  });
+
+  it("ignores hidden message_changed thread metadata updates after deletes", async () => {
+    const state = createMockState();
+    const chatInstance = createMockChatInstance({ state });
+    const adapter = createSlackAdapter({
+      botToken: "xoxb-test-token",
+      signingSecret: secret,
+      logger: mockLogger,
+      botUserId: "U_BOT",
+    });
+    await adapter.initialize(chatInstance);
+
+    const body = JSON.stringify({
+      type: "event_callback",
+      team_id: "T123",
+      event: {
+        type: "message",
+        subtype: "message_changed",
+        hidden: true,
+        channel: "D_DM",
+        channel_type: "im",
+        ts: "1779425682.000300",
+        event_ts: "1779425682.000300",
+        message: {
+          type: "message",
+          subtype: "assistant_app_thread",
+          user: "U_BOT",
+          text: "New Assistant Thread",
+          ts: "1778127887.294739",
+          thread_ts: "1778127887.294739",
+          edited: { user: "U_BOT", ts: "1778128187.000000" },
+          reply_count: 41,
+          latest_reply: "1779271265.010909",
+        },
+        previous_message: {
+          type: "message",
+          subtype: "assistant_app_thread",
+          user: "U_BOT",
+          text: "New Assistant Thread",
+          ts: "1778127887.294739",
+          thread_ts: "1778127887.294739",
+          edited: { user: "U_BOT", ts: "1778128187.000000" },
+          reply_count: 41,
+          latest_reply: "1779271265.010909",
+        },
+      },
+    });
+    const request = createWebhookRequest(body, secret);
+    await adapter.handleWebhook(request);
+
+    expect(chatInstance.processMessage).not.toHaveBeenCalled();
+    expect(chatInstance.processMessageUpdated).not.toHaveBeenCalled();
+  });
+
+  it("dispatches message_deleted subtypes as message deletes", async () => {
     const state = createMockState();
     const chatInstance = createMockChatInstance({ state });
     const adapter = createSlackAdapter({
@@ -3504,13 +3826,82 @@ describe("message subtype handling", () => {
         type: "message",
         subtype: "message_deleted",
         channel: "C_CHAN",
-        ts: "1234567890.111111",
+        deleted_ts: "1234567890.111111",
+        event_ts: "1234567891.111111",
+        previous_message: {
+          type: "message",
+          user: "U_USER",
+          channel: "C_CHAN",
+          text: "deleted text",
+          ts: "1234567890.111111",
+        },
       },
     });
     const request = createWebhookRequest(body, secret);
     await adapter.handleWebhook(request);
 
     expect(chatInstance).not.toHaveDispatched("processMessage");
+    expect(chatInstance.processMessageDeleted).toHaveBeenCalledWith(
+      expect.objectContaining({
+        adapter,
+        channelId: "C_CHAN",
+        messageId: "1234567890.111111",
+        threadId: "slack:C_CHAN:1234567890.111111",
+      }),
+      undefined
+    );
+  });
+
+  it("ignores message_changed tombstone subtypes", async () => {
+    const state = createMockState();
+    const chatInstance = createMockChatInstance({ state });
+    const adapter = createSlackAdapter({
+      botToken: "xoxb-test-token",
+      signingSecret: secret,
+      logger: mockLogger,
+      botUserId: "U_BOT",
+    });
+    await adapter.initialize(chatInstance);
+
+    const body = JSON.stringify({
+      type: "event_callback",
+      team_id: "T123",
+      event: {
+        type: "message",
+        subtype: "message_changed",
+        channel: "C_CHAN",
+        channel_type: "channel",
+        hidden: true,
+        ts: "1779426065.000200",
+        event_ts: "1779426065.000200",
+        message: {
+          type: "message",
+          subtype: "tombstone",
+          user: "USLACKBOT",
+          text: "This message was deleted.",
+          hidden: true,
+          ts: "1778050260.824689",
+          thread_ts: "1778050260.824689",
+        },
+        previous_message: {
+          type: "message",
+          user: "U_USER",
+          channel: "C_CHAN",
+          text: "<@U_BOT> deleted message",
+          ts: "1778050260.824689",
+          thread_ts: "1778050260.824689",
+        },
+      },
+    });
+    const request = createWebhookRequest(body, secret);
+    await adapter.handleWebhook(request);
+
+    // `tombstone` is undocumented by Slack, so the adapter does not interpret
+    // it. It must not surface as an edit either, which is what would happen if
+    // it fell through to the hidden-edit check.
+    expect(chatInstance.processMessage).not.toHaveBeenCalled();
+    expect(chatInstance.processMessageUpdated).not.toHaveBeenCalled();
+    expect(chatInstance.processMessageDeleted).not.toHaveBeenCalled();
   });
 
   it("ignores channel_join subtypes", async () => {
@@ -4068,6 +4459,7 @@ describe("postMessage", () => {
       botToken: "xoxb-test-token",
       signingSecret: secret,
       logger: mockLogger,
+      botUserId: "U_BOT",
     });
 
     mockClientMethod(
@@ -4100,6 +4492,7 @@ describe("postMessage", () => {
       botToken: "xoxb-test-token",
       signingSecret: secret,
       logger: mockLogger,
+      botUserId: "U_BOT",
     });
 
     mockClientMethod(
@@ -4125,6 +4518,7 @@ describe("postMessage", () => {
       botToken: "xoxb-test-token",
       signingSecret: secret,
       logger: mockLogger,
+      botUserId: "U_BOT",
     });
 
     mockClientMethod(
@@ -9240,6 +9634,128 @@ describe("native streaming fallback", () => {
   });
 });
 
+describe("native streaming outgoing mention resolution", () => {
+  function createMentionStreamAdapter() {
+    const state = createMockState();
+    const adapter = createSlackAdapter({
+      botToken: "xoxb-test-token",
+      signingSecret: "test-signing-secret",
+      logger: mockLogger,
+    });
+    (adapter as unknown as { chat: ChatInstance | null }).chat =
+      createMockChatInstance({ state });
+    const append = vi.fn().mockResolvedValue({ ok: true });
+    const stop = vi.fn().mockResolvedValue({
+      ok: true,
+      ts: "1234567890.111111",
+    });
+    mockClientMethod(
+      adapter,
+      "chatStream",
+      vi.fn().mockReturnValue({ append, stop })
+    );
+    return { adapter, append, state };
+  }
+
+  function appendedText(append: ReturnType<typeof vi.fn>): string {
+    return append.mock.calls
+      .map(
+        (call) => (call[0] as { markdown_text?: string }).markdown_text ?? ""
+      )
+      .join("");
+  }
+
+  it("resolves cached @name mentions on the native streaming path", async () => {
+    const { adapter, append, state } = createMentionStreamAdapter();
+    await state.appendToList("slack:user-by-name:alice", "U_ALICE_1");
+
+    async function* stream() {
+      yield "Thanks, @alice";
+    }
+
+    await adapter.stream("slack:D123:1234567890.000000", stream());
+
+    expect(appendedText(append)).toBe("Thanks, <@U_ALICE_1>");
+  });
+
+  it("resolves mentions that span source chunks", async () => {
+    const { adapter, append, state } = createMentionStreamAdapter();
+    await state.appendToList("slack:user-by-name:alice", "U_ALICE_1");
+
+    async function* stream() {
+      yield "Thanks, @ali";
+      yield "ce";
+    }
+
+    await adapter.stream("slack:D123:1234567890.000000", stream());
+
+    expect(appendedText(append)).toBe("Thanks, <@U_ALICE_1>");
+  });
+
+  it("resolves mentions on lines committed mid-stream", async () => {
+    const { adapter, append, state } = createMentionStreamAdapter();
+    await state.appendToList("slack:user-by-name:alice", "U_ALICE_1");
+
+    async function* stream() {
+      yield "Hi @alice\nmore ";
+      yield "text";
+    }
+
+    await adapter.stream("slack:D123:1234567890.000000", stream());
+
+    // The completed line flushes before the stream ends, already resolved.
+    expect(
+      (append.mock.calls[0][0] as { markdown_text?: string }).markdown_text
+    ).toBe("Hi <@U_ALICE_1>\n");
+    expect(appendedText(append)).toBe("Hi <@U_ALICE_1>\nmore text");
+  });
+
+  it("leaves ambiguous mentions as plain text", async () => {
+    const { adapter, append, state } = createMentionStreamAdapter();
+    await state.appendToList("slack:user-by-name:alice", "U_ALICE_1");
+    await state.appendToList("slack:user-by-name:alice", "U_ALICE_2");
+
+    async function* stream() {
+      yield "hey @alice";
+    }
+
+    await adapter.stream("slack:D123:1234567890.000000", stream());
+
+    expect(appendedText(append)).toBe("hey @alice");
+  });
+
+  it("disambiguates ambiguous mentions using thread participants", async () => {
+    const { adapter, append, state } = createMentionStreamAdapter();
+    await state.appendToList("slack:user-by-name:alice", "U_ALICE_1");
+    await state.appendToList("slack:user-by-name:alice", "U_ALICE_2");
+    await state.appendToList(
+      "slack:thread-participants:slack:D123:1234567890.000000",
+      "U_ALICE_2"
+    );
+
+    async function* stream() {
+      yield "hey @alice";
+    }
+
+    await adapter.stream("slack:D123:1234567890.000000", stream());
+
+    expect(appendedText(append)).toBe("hey <@U_ALICE_2>");
+  });
+
+  it("keeps mentions literal inside code fences", async () => {
+    const { adapter, append, state } = createMentionStreamAdapter();
+    await state.appendToList("slack:user-by-name:alice", "U_ALICE_1");
+
+    async function* stream() {
+      yield "```\n@alice\n```\nping @alice";
+    }
+
+    await adapter.stream("slack:D123:1234567890.000000", stream());
+
+    expect(appendedText(append)).toBe("```\n@alice\n```\nping <@U_ALICE_1>");
+  });
+});
+
 describe("feedbackButtons", () => {
   function createStreamAdapter(
     feedbackButtons?: SlackAdapterConfig["feedbackButtons"]
@@ -9804,6 +10320,42 @@ describe("link unfurl enrichment", () => {
     expect(msg.links[0].title).toBeUndefined();
   });
 
+  it("parses bracketed links from text and bounds their length", async () => {
+    const state = createMockState();
+    const chatInstance = createMockChatInstance({ state });
+    const adapter = createSlackAdapter({
+      botToken: "xoxb-test-token",
+      signingSecret: secret,
+      logger: mockLogger,
+    });
+    await adapter.initialize(chatInstance);
+
+    const overLong = `https://example.com/${"a".repeat(4000)}`;
+    const body = JSON.stringify({
+      type: "event_callback",
+      event: {
+        type: "message",
+        channel: "C123",
+        ts: "1234567890.123456",
+        text: `ok <https://example.com/x> and <${overLong}>`,
+        user: "U_USER",
+      },
+    });
+
+    const request = createWebhookRequest(body, secret);
+    await adapter.handleWebhook(request);
+
+    const factory = (chatInstance.processMessage as ReturnType<typeof vi.fn>)
+      .mock.calls[0][2] as () => Promise<{
+      links: Array<{ url: string }>;
+    }>;
+    const msg = await factory();
+
+    const urls = msg.links.map((l) => l.url);
+    expect(urls).toContain("https://example.com/x");
+    expect(urls).not.toContain(overLong);
+  });
+
   it("should match unfurl metadata with trailing slash differences", async () => {
     const state = createMockState();
     const chatInstance = createMockChatInstance({ state });
@@ -9865,6 +10417,7 @@ describe("link unfurl enrichment", () => {
       botToken: "xoxb-test-token",
       signingSecret: secret,
       logger: mockLogger,
+      botUserId: "U_BOT",
     });
     await adapter.initialize(chatInstance);
 
@@ -9896,15 +10449,17 @@ describe("link unfurl enrichment", () => {
     await adapter.handleWebhook(request);
 
     expect(chatInstance).not.toHaveDispatched("processMessage");
+    expect(chatInstance.processMessageUpdated).not.toHaveBeenCalled();
   });
 
-  it("should ignore message_changed without unfurl attachments", async () => {
+  it("should ignore hidden message_changed without unfurl attachments", async () => {
     const state = createMockState();
     const chatInstance = createMockChatInstance({ state });
     const adapter = createSlackAdapter({
       botToken: "xoxb-test-token",
       signingSecret: secret,
       logger: mockLogger,
+      botUserId: "U_BOT",
     });
     await adapter.initialize(chatInstance);
 
@@ -9930,6 +10485,7 @@ describe("link unfurl enrichment", () => {
     await adapter.handleWebhook(request);
 
     expect(chatInstance).not.toHaveDispatched("processMessage");
+    expect(chatInstance.processMessageUpdated).not.toHaveBeenCalled();
   });
 });
 

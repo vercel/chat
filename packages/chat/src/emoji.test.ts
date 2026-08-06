@@ -376,6 +376,12 @@ describe("convertEmojiPlaceholders", () => {
     expect(result).toBe("Thanks! 👍 Great work! 🔥");
   });
 
+  it("should convert placeholders to Notion format (unicode)", () => {
+    const text = `Thanks! ${emoji.thumbs_up} Great work! ${emoji.wave}`;
+    const result = convertEmojiPlaceholders(text, "notion");
+    expect(result).toBe("Thanks! 👍 Great work! 👋");
+  });
+
   it("should convert multiple Messenger emoji in a message", () => {
     const text = `${emoji.wave} Hello! ${emoji.smile} How are you? ${emoji.rocket}`;
     const result = convertEmojiPlaceholders(text, "messenger");

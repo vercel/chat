@@ -183,6 +183,8 @@ interface SlackUnfurl {
 }
 const SLACK_MESSAGE_URL_PATTERN =
   /^https?:\/\/[^/]+\.slack\.com\/archives\/([A-Z0-9]+)\/p(\d+)(?:\?.*)?$/;
+// Bracketed URL in message text; length-bounded to keep the scan linear.
+const BRACKETED_URL_PATTERN = /<(https?:\/\/[^>]{1,2048})>/g;
 
 import type {
   SlackAdapterConfig,
@@ -332,7 +334,10 @@ export interface SlackEvent {
   channel?: string;
   /** Channel type: "channel", "group", "mpim", or "im" (DM) */
   channel_type?: string;
+  /** Deleted message timestamp on message_deleted events */
+  deleted_ts?: string;
   edited?: { ts: string };
+  event_ts?: string;
   files?: Array<{
     id?: string;
     mimetype?: string;
@@ -348,6 +353,8 @@ export interface SlackEvent {
   latest_reply?: string;
   /** Inner message on message_changed events */
   message?: SlackEvent;
+  /** Previous message snapshot on message_deleted events */
+  previous_message?: SlackEvent;
   /** Number of replies in the thread (present on thread parent messages) */
   reply_count?: number;
   subtype?: string;
@@ -2567,11 +2574,10 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
       return;
     }
 
-    // Skip message subtypes that are system/meta events (edits, deletes, joins, etc.)
+    // Skip message subtypes that are system/meta events (joins, topic changes, etc.)
     // Allow through: bot_message, file_share, thread_broadcast, me_message, and
     // any other content-carrying subtypes. Chat class handles isMe filtering.
     const ignoredSubtypes = new Set([
-      "message_deleted",
       "message_replied",
       "channel_join",
       "channel_leave",
@@ -2596,6 +2602,11 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
       return;
     }
 
+    if (event.subtype === "message_deleted") {
+      this.handleMessageDeleted(event, options);
+      return;
+    }
+
     if (event.subtype && ignoredSubtypes.has(event.subtype)) {
       this.logger.debug("Ignoring message subtype", {
         subtype: event.subtype,
@@ -2611,22 +2622,10 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
       return;
     }
 
-    // For DMs under assistant_view (legacy): top-level messages use empty threadTs
-    // (matches openDM subscriptions); thread replies use thread_ts for per-conversation
-    // isolation.
-    // Under agent_view the Messages-tab conversation is threaded per Slack's model —
-    // each user message is a thread root — so reply in-thread using `thread_ts ?? ts`
-    // (except when the conversation-scoped openDM ID is subscribed; see bridge below).
-    // For channels: always use thread_ts or ts for per-thread IDs.
+    // See threadIdForMessageEvent for the DM/channel rule. Under agent_view a
+    // subscribed conversation-scoped openDM ID takes over; see the bridge below.
     const isDM = event.channel_type === "im";
-    const threadTs =
-      isDM && !this.agentView
-        ? event.thread_ts || ""
-        : event.thread_ts || event.ts;
-    const threadId = this.encodeThreadId({
-      channel: event.channel,
-      threadTs,
-    });
+    const threadId = this.threadIdForMessageEvent(event);
 
     // Let Chat class handle async processing, waitUntil, and isMe filtering
     // Use factory function since parseSlackMessage is async (user lookup)
@@ -2685,60 +2684,170 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
 
   protected handleMessageChanged(
     event: SlackEvent,
-    _options?: WebhookOptions
+    options?: WebhookOptions
   ): void {
     const inner = event.message;
     if (!(inner && event.channel)) {
       return;
     }
 
+    const normalized: SlackEvent = {
+      ...inner,
+      channel: inner.channel ?? event.channel,
+      channel_type: inner.channel_type ?? event.channel_type,
+      team: inner.team ?? event.team,
+      team_id: inner.team_id ?? event.team_id,
+      type: inner.type ?? "message",
+    };
+
+    // Slack does not document `tombstone`, and we have no captured payload for
+    // it, so we do not claim to know whether it means "deleted". Ignore it
+    // rather than reporting it as an edit: it arrives with a `previous_message`
+    // and changed text, so it would otherwise pass the hidden-edit check below.
+    if (inner.subtype === "tombstone") {
+      this.logger.debug("Ignoring tombstone message_changed");
+      return;
+    }
+
     const hasUnfurlAttachments = inner.attachments?.some(
       (att) => att.from_url || att.original_url
     );
-    if (!hasUnfurlAttachments) {
-      this.logger.debug("Ignoring message_changed without unfurl data");
+    if (hasUnfurlAttachments && this.chat && inner.ts && inner.attachments) {
+      this.logger.debug("Processing message_changed for link unfurls", {
+        channel: event.channel,
+        ts: inner.ts,
+        attachmentCount: inner.attachments?.length,
+      });
+
+      const unfurls: Record<
+        string,
+        {
+          title?: string;
+          description?: string;
+          imageUrl?: string;
+          siteName?: string;
+        }
+      > = {};
+      for (const att of inner.attachments) {
+        const attUrl = att.from_url || att.original_url;
+        if (attUrl && (att.title || att.text)) {
+          unfurls[attUrl] = {
+            title: att.title,
+            description: att.text,
+            imageUrl: att.image_url || att.thumb_url,
+            siteName: att.service_name,
+          };
+        }
+      }
+
+      if (Object.keys(unfurls).length > 0) {
+        this.chat
+          .getState()
+          .set(`slack:unfurls:${inner.ts}`, unfurls, 60 * 60 * 1000)
+          .catch((error) => {
+            this.logger.error("Failed to cache unfurl metadata", { error });
+          });
+      }
+    }
+
+    const previousMessage = event.previous_message;
+    const isHiddenMessageEdit = Boolean(
+      previousMessage &&
+        (inner.edited?.ts !== previousMessage.edited?.ts ||
+          inner.text !== previousMessage.text)
+    );
+
+    // Slack link unfurls arrive as hidden message_changed events. Preserve the
+    // existing unfurl cache behavior without surfacing unfurl-only updates as
+    // user edits. Some real message edits are also hidden, but they include a
+    // previous message snapshot and changed content/edit metadata. Slack can
+    // also send hidden thread metadata updates after deletes; ignore those.
+    if (event.hidden === true && !isHiddenMessageEdit) {
       return;
     }
 
-    this.logger.debug("Processing message_changed for link unfurls", {
-      channel: event.channel,
-      ts: inner.ts,
-      attachmentCount: inner.attachments?.length,
-    });
-
-    if (!(this.chat && inner.ts && inner.attachments)) {
+    // Slack also dispatches message_changed for its own automatic language
+    // detection, which updates locale metadata without touching the message.
+    // When a previous snapshot is present and nothing differs, there is no
+    // edit to report.
+    if (previousMessage && !isHiddenMessageEdit) {
+      this.logger.debug("Ignoring message_changed with no content change");
       return;
     }
 
-    const unfurls: Record<
-      string,
+    if (!(this.chat && normalized.channel && normalized.ts)) {
+      return;
+    }
+
+    const threadId = this.threadIdForMessageEvent(normalized);
+
+    // Slack sends the pre-edit message alongside the new one. Forward it so
+    // handlers can diff the change instead of only seeing the result.
+    const before = event.previous_message;
+    this.chat.processMessageUpdated(
       {
-        title?: string;
-        description?: string;
-        imageUrl?: string;
-        siteName?: string;
-      }
-    > = {};
-    for (const att of inner.attachments) {
-      const attUrl = att.from_url || att.original_url;
-      if (attUrl && (att.title || att.text)) {
-        unfurls[attUrl] = {
-          title: att.title,
-          description: att.text,
-          imageUrl: att.image_url || att.thumb_url,
-          siteName: att.service_name,
-        };
-      }
+        adapter: this,
+        message: () => this.parseSlackMessage(normalized, threadId),
+        previousMessage: before
+          ? this.parseSlackMessageSync(
+              {
+                ...before,
+                channel: before.channel ?? normalized.channel,
+                channel_type: before.channel_type ?? normalized.channel_type,
+                type: before.type ?? "message",
+              },
+              threadId
+            )
+          : undefined,
+        threadId,
+      },
+      options
+    );
+  }
+
+  protected handleMessageDeleted(
+    event: SlackEvent,
+    options?: WebhookOptions
+  ): void {
+    const deletedTs =
+      event.deleted_ts ?? event.message?.ts ?? event.previous_message?.ts;
+    if (!(this.chat && event.channel && deletedTs)) {
+      return;
     }
 
-    if (Object.keys(unfurls).length > 0) {
-      this.chat
-        .getState()
-        .set(`slack:unfurls:${inner.ts}`, unfurls, 60 * 60 * 1000)
-        .catch((error) => {
-          this.logger.error("Failed to cache unfurl metadata", { error });
-        });
-    }
+    const previous = event.previous_message
+      ? {
+          ...event.previous_message,
+          channel: event.previous_message.channel ?? event.channel,
+          channel_type:
+            event.previous_message.channel_type ?? event.channel_type,
+          team: event.previous_message.team ?? event.team,
+          team_id: event.previous_message.team_id ?? event.team_id,
+          type: event.previous_message.type ?? "message",
+        }
+      : undefined;
+    const threadId = this.threadIdForMessageEvent({
+      channel: event.channel,
+      channel_type: previous?.channel_type ?? event.channel_type,
+      thread_ts: previous?.thread_ts,
+      ts: previous?.ts ?? deletedTs,
+    });
+    const deletedAt = this.parseSlackTimestamp(event.event_ts ?? event.ts);
+
+    this.chat.processMessageDeleted(
+      {
+        adapter: this,
+        channelId: event.channel,
+        deletedAt,
+        messageId: deletedTs,
+        previousMessage: previous
+          ? this.parseSlackMessageSync(previous, threadId)
+          : undefined,
+        raw: event,
+        threadId,
+      },
+      options
+    );
   }
 
   /**
@@ -3308,8 +3417,7 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
 
     // Fallback: parse <url> and <url|label> from text
     if (urls.size === 0 && event.text) {
-      const urlPattern = /<(https?:\/\/[^>]+)>/g;
-      for (const match of event.text.matchAll(urlPattern)) {
+      for (const match of event.text.matchAll(BRACKETED_URL_PATTERN)) {
         const raw = match[1] as string;
         const pipeIdx = raw.indexOf("|");
         urls.add(pipeIdx >= 0 ? raw.slice(0, pipeIdx) : raw);
@@ -3469,6 +3577,17 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
       ),
       links: await this.enrichLinks(this.extractLinks(event), event.ts),
     });
+  }
+
+  protected parseSlackTimestamp(ts: string | undefined): Date | undefined {
+    if (!ts) {
+      return undefined;
+    }
+    const value = Number.parseFloat(ts);
+    if (Number.isNaN(value)) {
+      return undefined;
+    }
+    return new Date(value * 1000);
   }
 
   protected async enrichLinks(
@@ -4664,6 +4783,54 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
       wrapTablesForAppend: false,
     });
 
+    // Outgoing @name mention resolution state for the native streaming path.
+    // The post-and-edit fallback resolves mentions on every postMessage/
+    // editMessage call, so the committed renderer text is resolved here too
+    // before deltas are calculated. `resolvedSourceDone` indexes into the
+    // renderer's committable text; `resolvedCommitted` is its resolved
+    // counterpart and the coordinate space `lastAppended` tracks.
+    let resolvedCommitted = "";
+    let resolvedSourceDone = 0;
+    let insideResolvedFence = false;
+
+    const isFenceLine = (line: string): boolean => {
+      const trimmed = line.trimStart();
+      return trimmed.startsWith("```") || trimmed.startsWith("~~~");
+    };
+
+    /**
+     * Extend `resolvedCommitted` with newly committed renderer text, applying
+     * outgoing @name mention resolution. Works line by line, tracking code
+     * fence state: the renderer only commits partial lines inside fences
+     * (where mentions stay literal, matching resolveOutgoingMentions) or at
+     * inline-marker holdback cuts (which never split a bare mention), so
+     * every bare mention reaches the resolver whole even when it spans
+     * source chunks.
+     */
+    const resolveCommitted = async (committable: string): Promise<void> => {
+      while (resolvedSourceDone < committable.length) {
+        const lineStart =
+          committable.lastIndexOf("\n", resolvedSourceDone - 1) + 1;
+        const newlineAt = committable.indexOf("\n", resolvedSourceDone);
+        const lineEnd = newlineAt === -1 ? committable.length : newlineAt + 1;
+        const segment = committable.slice(resolvedSourceDone, lineEnd);
+        const fenceLine = isFenceLine(committable.slice(lineStart, lineEnd));
+        if (insideResolvedFence || fenceLine) {
+          // Fence delimiters and fenced content are literal.
+          resolvedCommitted += segment;
+        } else {
+          resolvedCommitted += await this.resolveOutgoingMentions(
+            segment,
+            threadId
+          );
+        }
+        if (newlineAt !== -1 && fenceLine) {
+          insideResolvedFence = !insideResolvedFence;
+        }
+        resolvedSourceDone = lineEnd;
+      }
+    };
+
     // In-stream fallback state. If the very first native call is rejected
     // (streaming methods unavailable — e.g. GovSlack — or the feature is off
     // for the workspace), nothing has rendered yet, so the rest of the stream
@@ -4724,17 +4891,18 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
     };
 
     /**
-     * Flush committed renderer text: as a markdown_text delta on the native
-     * stream, or as a throttled post/edit in fallback mode. A failure of the
-     * FIRST native flush (chat.startStream) switches to fallback mode.
+     * Flush committed renderer text: as a mention-resolved markdown_text
+     * delta on the native stream, or as a throttled post/edit in fallback
+     * mode (postMessage/editMessage resolve mentions themselves). A failure
+     * of the FIRST native flush (chat.startStream) switches to fallback mode.
      */
     const flushCommitted = async (force = false): Promise<void> => {
       if (fallback.mode === "fallback") {
         await flushFallback(force);
         return;
       }
-      const committable = renderer.getCommittableText();
-      const delta = committable.slice(lastAppended.length);
+      await resolveCommitted(renderer.getCommittableText());
+      const delta = resolvedCommitted.slice(lastAppended.length);
       if (delta.length === 0) {
         return;
       }
@@ -4749,7 +4917,7 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
         if (response) {
           fallback.nativeRendered = true;
         }
-        lastAppended = committable;
+        lastAppended = resolvedCommitted;
       } catch (error) {
         if (fallback.nativeRendered) {
           // A native call succeeded earlier; content is already rendering
@@ -5159,6 +5327,33 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
 
   encodeThreadId(platformData: SlackThreadId): string {
     return `slack:${platformData.channel}:${platformData.threadTs}`;
+  }
+
+  /**
+   * Thread ID for a message-shaped event. Single source of truth for how
+   * message, edit, and delete events map onto a thread: they must agree, or
+   * an edit dispatches to a different thread than the message it edits.
+   *
+   * For DMs under assistant_view (legacy): top-level messages use empty
+   * threadTs (matches openDM subscriptions); thread replies use thread_ts for
+   * per-conversation isolation.
+   * Under agent_view the Messages-tab conversation is threaded per Slack's
+   * model, each user message being a thread root, so reply in-thread using
+   * `thread_ts ?? ts`.
+   * For channels: always use thread_ts or ts for per-thread IDs.
+   */
+  protected threadIdForMessageEvent(event: {
+    channel?: string;
+    channel_type?: string;
+    thread_ts?: string;
+    ts?: string;
+  }): string {
+    const isDM = event.channel_type === "im";
+    const threadTs =
+      isDM && !this.agentView
+        ? event.thread_ts || ""
+        : event.thread_ts || event.ts || "";
+    return this.encodeThreadId({ channel: event.channel ?? "", threadTs });
   }
 
   /**

@@ -113,8 +113,12 @@ export function slackMrkdwnToMarkdown(mrkdwn: string): string {
   let markdown = mrkdwn;
   markdown = markdown.replace(/<@([A-Z0-9_]+)\|([^<>]+)>/g, "@$2");
   markdown = markdown.replace(/<@([A-Z0-9_]+)>/g, "@$1");
-  markdown = markdown.replace(/<#[A-Z0-9_]+\|([^<>]+)>/g, "#$1");
+  markdown = markdown.replace(/<#([A-Z0-9_]+)\|([^<>]+)>/g, "#$2 ($1)");
   markdown = markdown.replace(/<#([A-Z0-9_]+)>/g, "#$1");
+  markdown = markdown.replace(
+    /<(?!https?:\/\/)([^<>|]+)\|(https?:\/\/[^|<>]+)>/g,
+    "<$2|$1>"
+  );
   markdown = markdown.replace(/<(https?:\/\/[^|<>]+)\|([^<>]+)>/g, "[$2]($1)");
   markdown = markdown.replace(/<(https?:\/\/[^<>]+)>/g, "$1");
   markdown = markdown.replace(/(?<![_*\\])\*([^*\n]+)\*(?![_*])/g, "**$1**");

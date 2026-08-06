@@ -25,6 +25,16 @@ const config: NextConfig = {
         permanent: true,
       },
       {
+        source: "/docs/slack-primitives",
+        destination: "/adapters/official/slack#low-level-apis",
+        permanent: true,
+      },
+      {
+        source: "/docs/teams-primitives",
+        destination: "/adapters/official/teams#low-level-apis",
+        permanent: true,
+      },
+      {
         source: "/marketplace",
         destination: "/adapters",
         permanent: true,

@@ -1955,7 +1955,7 @@ export class XchatAdapter implements Adapter<XchatThreadId, XchatRawMessage> {
       );
     }
 
-    // Resolve to a unicode emoji (X Chat reactions are unicode). The shared
+    // Resolve to a unicode emoji (XChat reactions are unicode). The shared
     // resolver's Google Chat profile is its plain-unicode output, so it is
     // the right conversion here despite the name.
     const unicodeEmoji = defaultEmojiResolver.toGChat(emoji);
@@ -2146,7 +2146,7 @@ export class XchatAdapter implements Adapter<XchatThreadId, XchatRawMessage> {
 
   /**
    * Send a typing indicator and keep re-sending it every few seconds until
-   * the next postMessage in this conversation (or a safety timeout). X Chat
+   * the next postMessage in this conversation (or a safety timeout). XChat
    * typing pills expire quickly, so a single POST is invisible during a
    * longer generation.
    */

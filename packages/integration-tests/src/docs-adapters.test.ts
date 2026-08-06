@@ -301,6 +301,7 @@ describe("Official platform adapter OG images", () => {
         "instagram",
         "linear",
         "messenger",
+        "notion",
         "slack",
         "teams",
         "telegram",

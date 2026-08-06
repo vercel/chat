@@ -266,13 +266,14 @@ describe("XAdapter", () => {
   describe("CRC challenge", () => {
     it("answers with the HMAC of crc_token", async () => {
       const adapter = createAdapter();
+      const token = "abcdefghijklmnop";
       const response = await adapter.handleWebhook(
-        new Request(`${WEBHOOK_URL}?crc_token=challenge-me`, { method: "GET" })
+        new Request(`${WEBHOOK_URL}?crc_token=${token}`, { method: "GET" })
       );
       expect(response.status).toBe(200);
       const body = (await response.json()) as { response_token: string };
       const expected = createHmac("sha256", CONSUMER_SECRET)
-        .update("challenge-me", "utf8")
+        .update(token, "utf8")
         .digest("base64");
       expect(body.response_token).toBe(`sha256=${expected}`);
     });
@@ -283,6 +284,44 @@ describe("XAdapter", () => {
         new Request(WEBHOOK_URL, { method: "GET" })
       );
       expect(response.status).toBe(400);
+    });
+
+    it("rejects a webhook-shaped crc_token without signing it", async () => {
+      const adapter = createAdapter();
+      const forgedBody = JSON.stringify(dmEnvelope());
+      const response = await adapter.handleWebhook(
+        new Request(
+          `${WEBHOOK_URL}?crc_token=${encodeURIComponent(forgedBody)}`,
+          { method: "GET" }
+        )
+      );
+      expect(response.status).toBe(400);
+      expect(await response.text()).not.toContain("response_token");
+    });
+
+    it("does not mint a signature replayable on a forged POST", async () => {
+      const { adapter, chat } = await createInitializedAdapter();
+      // The challenge only signs opaque tokens, verbatim. A response_token
+      // therefore verifies only against a POST whose body equals that token,
+      // which is never valid event JSON, so no handler can be reached.
+      const token = "abcdefghijklmnop";
+      const crc = await adapter.handleWebhook(
+        new Request(`${WEBHOOK_URL}?crc_token=${token}`, { method: "GET" })
+      );
+      const { response_token } = (await crc.json()) as {
+        response_token: string;
+      };
+
+      const post = await adapter.handleWebhook(
+        new Request(WEBHOOK_URL, {
+          body: token,
+          headers: { "x-twitter-webhooks-signature": response_token },
+          method: "POST",
+        })
+      );
+      // Signature verifies (body === token) but the body is not event JSON.
+      expect(post.status).toBe(400);
+      expect(chat.processMessage).not.toHaveBeenCalled();
     });
   });
 

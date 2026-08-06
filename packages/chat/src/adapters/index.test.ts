@@ -24,6 +24,7 @@ const OFFICIAL_ENV_PACKAGE_DIRS = [
   "adapter-instagram",
   "adapter-linear",
   "adapter-messenger",
+  "adapter-notion",
   "adapter-slack",
   "adapter-teams",
   "adapter-telegram",

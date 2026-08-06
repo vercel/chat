@@ -135,7 +135,10 @@ export const AdaptersGrid = ({ adapters }: AdaptersGridProps) => {
                     {...adapter}
                   />
                 ))}
-                <BuildYourOwnCard />
+                <BuildYourOwnCard
+                  href="/docs/contributing/vendor-official"
+                  label="List a vendor-official adapter"
+                />
               </div>
             </section>
           ) : null}

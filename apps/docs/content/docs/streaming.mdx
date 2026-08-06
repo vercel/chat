@@ -65,6 +65,7 @@ await thread.post(stream);
 | Discord | Post + Edit | Posts a message then edits it as chunks arrive |
 | GitHub | Buffered | Accumulates chunks and posts one final comment |
 | Linear | Agent sessions / Post + Edit | Uses agent session activities in agent-session threads; falls back to post+edit comments in issue threads |
+| Notion | Post + Edit | Posts a comment then edits it as chunks arrive (throttled for ~3 req/s) |
 | WhatsApp | Buffered | Accumulates chunks and sends one final message |
 | Messenger | Buffered | Accumulates chunks and sends one final message |
 

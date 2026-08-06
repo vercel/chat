@@ -26,6 +26,7 @@ import {
   web,
   whatsapp,
   x,
+  xchat,
 } from "@/lib/logos";
 
 const iconMap: Record<
@@ -49,6 +50,7 @@ const iconMap: Record<
   twilio,
   messenger,
   x,
+  xchat,
 };
 
 interface AdapterCardProps {
