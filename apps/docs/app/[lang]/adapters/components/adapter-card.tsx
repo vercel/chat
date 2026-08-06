@@ -17,6 +17,7 @@ import {
   linear,
   memory,
   messenger,
+  notion,
   postgres,
   redis,
   slack,
@@ -49,6 +50,7 @@ const iconMap: Record<
   whatsapp,
   twilio,
   messenger,
+  notion,
   x,
   xchat,
 };

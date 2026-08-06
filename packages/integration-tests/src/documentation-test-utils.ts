@@ -317,6 +317,7 @@ export function createTempProject(codeBlocks: string[]): string {
         ],
         "@chat-adapter/instagram": [
           join(import.meta.dirname, "../../adapter-instagram/src/index.ts"),
+        ],
         "@chat-adapter/notion": [
           join(import.meta.dirname, "../../adapter-notion/src/index.ts"),
         ],
