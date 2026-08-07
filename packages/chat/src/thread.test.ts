@@ -12,7 +12,7 @@ import { Plan } from "./plan";
 import { StreamingPlan } from "./streaming-plan";
 import { ThreadImpl } from "./thread";
 import type { Adapter, ScheduledMessage, StreamChunk } from "./types";
-import { NotImplementedError } from "./types";
+import { NotImplementedError, STREAM_HANDLED_NO_MESSAGE } from "./types";
 
 describe("ThreadImpl", () => {
   describe("Per-thread state", () => {
@@ -237,6 +237,47 @@ describe("ThreadImpl", () => {
         "msg-1",
         { markdown: "Hello World" }
       );
+    });
+
+    it("should allow StreamingPlan to finish without creating a message", async () => {
+      const taskUpdate = {
+        type: "task_update" as const,
+        id: "task-1",
+        title: "Background task",
+        status: "complete" as const,
+      };
+      const consumed: StreamChunk[] = [];
+      mockAdapter.stream = vi.fn().mockImplementation(async (_id, stream) => {
+        for await (const chunk of stream) {
+          consumed.push(chunk);
+        }
+        return STREAM_HANDLED_NO_MESSAGE;
+      });
+
+      const stream = (async function* () {
+        yield taskUpdate;
+      })();
+      const plan = new StreamingPlan(stream);
+
+      await expect(thread.post(plan)).resolves.toBe(plan);
+      expect(consumed).toEqual([taskUpdate]);
+      expect(mockAdapter.postMessage).not.toHaveBeenCalled();
+      expect(mockAdapter.editMessage).not.toHaveBeenCalled();
+    });
+
+    it("should reject handled-without-message for a bare async iterable", async () => {
+      mockAdapter.stream = vi.fn().mockImplementation(async (_id, stream) => {
+        for await (const _chunk of stream) {
+          // Consume the stream before reporting that no message was created.
+        }
+        return STREAM_HANDLED_NO_MESSAGE;
+      });
+
+      await expect(thread.post(createTextStream(["Hello"]))).rejects.toThrow(
+        "STREAM_HANDLED_NO_MESSAGE is only valid for StreamingPlan streams"
+      );
+      expect(mockAdapter.postMessage).not.toHaveBeenCalled();
+      expect(mockAdapter.editMessage).not.toHaveBeenCalled();
     });
 
     it("should fall back to post+edit when adapter has no native streaming", async () => {
