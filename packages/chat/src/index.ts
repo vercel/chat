@@ -456,5 +456,6 @@ export {
   LockError,
   NotImplementedError,
   RateLimitError,
+  STREAM_HANDLED_NO_MESSAGE,
   THREAD_STATE_TTL_MS,
 } from "./types";
