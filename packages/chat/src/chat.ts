@@ -49,7 +49,10 @@ import type {
   MemberJoinedChannelHandler,
   MentionHandler,
   MessageContext,
+  MessageDeletedEvent,
+  MessageDeletedHandler,
   MessageHandler,
+  MessageUpdatedHandler,
   ModalCloseEvent,
   ModalCloseHandler,
   ModalResponse,
@@ -263,6 +266,8 @@ export class Chat<
   private readonly mentionHandlers: MentionHandler<TState>[] = [];
   private readonly directMessageHandlers: DirectMessageHandler<TState>[] = [];
   private readonly messagePatterns: MessagePattern<TState>[] = [];
+  private readonly messageUpdatedHandlers: MessageUpdatedHandler<TState>[] = [];
+  private readonly messageDeletedHandlers: MessageDeletedHandler[] = [];
   private readonly subscribedMessageHandlers: SubscribedMessageHandler<TState>[] =
     [];
   private readonly reactionHandlers: ReactionPattern[] = [];
@@ -563,6 +568,28 @@ export class Chat<
     this.logger.debug("Registered message pattern handler", {
       pattern: pattern.toString(),
     });
+  }
+
+  /**
+   * Register a handler for message edit/update events.
+   *
+   * These lifecycle events are dispatched directly by adapters and do not
+   * route through `onNewMessage`, `onNewMention`, or `onSubscribedMessage`.
+   */
+  onMessageUpdated(handler: MessageUpdatedHandler<TState>): void {
+    this.messageUpdatedHandlers.push(handler);
+    this.logger.debug("Registered message updated handler");
+  }
+
+  /**
+   * Register a handler for message delete events.
+   *
+   * Delete events usually do not include the deleted message body. Handlers get
+   * the normalized platform IDs needed to update external storage.
+   */
+  onMessageDeleted(handler: MessageDeletedHandler): void {
+    this.messageDeletedHandlers.push(handler);
+    this.logger.debug("Registered message deleted handler");
   }
 
   /**
@@ -946,6 +973,78 @@ export class Chat<
     // surface failures to the client.
     const tracked = task.catch((err) => {
       this.logger.error("Message processing error", { error: err, threadId });
+    });
+
+    if (options?.waitUntil) {
+      options.waitUntil(tracked);
+    }
+
+    return task;
+  }
+
+  /**
+   * Process an incoming message update from an adapter.
+   * Handles waitUntil registration and error catching internally.
+   */
+  processMessageUpdated(
+    event: {
+      adapter: Adapter;
+      message: Message | (() => Promise<Message>);
+      previousMessage?: Message | (() => Promise<Message>);
+      threadId: string;
+    },
+    options?: WebhookOptions
+  ): Promise<void> {
+    const { adapter, threadId } = event;
+    const resolve = async (
+      value: Message | (() => Promise<Message>) | undefined
+    ): Promise<Message | undefined> =>
+      typeof value === "function" ? await value() : value;
+
+    const task = (async () => {
+      const message = (await resolve(event.message)) as Message;
+      const previousMessage = await resolve(event.previousMessage);
+      await this.handleMessageUpdated(
+        adapter,
+        threadId,
+        message,
+        previousMessage
+      );
+    })();
+
+    const tracked = task.catch((err) => {
+      this.logger.error("Message update processing error", {
+        error: err,
+        threadId,
+      });
+    });
+
+    if (options?.waitUntil) {
+      options.waitUntil(tracked);
+    }
+
+    return task;
+  }
+
+  /**
+   * Process an incoming message delete from an adapter.
+   * Handles waitUntil registration and error catching internally.
+   */
+  processMessageDeleted(
+    event: Omit<MessageDeletedEvent, "adapter" | "platform"> & {
+      adapter: Adapter;
+      platform?: string;
+    },
+    options?: WebhookOptions
+  ): Promise<void> {
+    const task = this.handleMessageDeleted(event);
+
+    const tracked = task.catch((err) => {
+      this.logger.error("Message delete processing error", {
+        error: err,
+        threadId: event.threadId,
+        messageId: event.messageId,
+      });
     });
 
     if (options?.waitUntil) {
@@ -2132,6 +2231,89 @@ export class Chat<
   }
 
   /**
+   * Handle a normalized message update from an adapter.
+   *
+   * Updates are lifecycle notifications, so they bypass subscription, mention,
+   * pattern, dedupe, and lock routing used for newly-created messages.
+   */
+  private async handleMessageUpdated(
+    adapter: Adapter,
+    threadId: string,
+    message: Message,
+    previousMessage?: Message
+  ): Promise<void> {
+    setMessageAdapter(message, adapter);
+
+    this.logger.debug("Incoming message update", {
+      adapter: adapter.name,
+      threadId,
+      messageId: message.id,
+      author: message.author.userName,
+      authorUserId: message.author.userId,
+      isBot: message.author.isBot,
+      isMe: message.author.isMe,
+    });
+
+    // Skip the bot's own edits, matching processMessage. Post-and-edit
+    // streaming drives chat.update repeatedly, and Slack emits a
+    // message_changed for each one, so without this a single streamed reply
+    // fires this handler once per delta on the bot's own message.
+    if (message.author.isMe) {
+      this.logger.debug("Skipping message update from self (isMe=true)", {
+        adapter: adapter.name,
+        threadId,
+        author: message.author.userName,
+      });
+      return;
+    }
+
+    const isSubscribed = await this._stateAdapter.isSubscribed(threadId);
+    const thread = this.createThread(adapter, threadId, message, isSubscribed);
+    await this.resolveMessageIdentity(adapter, threadId, message);
+
+    await runInConversation(threadId, async () => {
+      for (const handler of this.messageUpdatedHandlers) {
+        await handler(thread, message, previousMessage);
+      }
+    });
+  }
+
+  /**
+   * Handle a normalized message delete from an adapter.
+   *
+   * Deletes often do not include a message body, so the event carries platform
+   * IDs directly and does not construct a Thread unless the app chooses to.
+   */
+  private async handleMessageDeleted(
+    event: Omit<MessageDeletedEvent, "adapter" | "platform"> & {
+      adapter: Adapter;
+      platform?: string;
+    }
+  ): Promise<void> {
+    if (event.previousMessage) {
+      setMessageAdapter(event.previousMessage, event.adapter);
+    }
+
+    this.logger.debug("Incoming message delete", {
+      adapter: event.adapter.name,
+      threadId: event.threadId,
+      messageId: event.messageId,
+      channelId: event.channelId,
+    });
+
+    const normalized: MessageDeletedEvent = {
+      ...event,
+      platform: event.platform ?? event.adapter.name,
+    };
+
+    await runInConversation(event.threadId, async () => {
+      for (const handler of this.messageDeletedHandlers) {
+        await handler(normalized);
+      }
+    });
+  }
+
+  /**
    * Drop strategy: acquire lock or fail. Original behavior.
    */
   private async handleDrop(
@@ -2526,28 +2708,7 @@ export class Chat<
       isSubscribed
     );
 
-    // Resolve cross-platform user key (Transcripts API). Cached on the Message
-    // instance so handlers and the Transcripts API see the same value without
-    // re-invoking the resolver.
-    if (this._identity && message.userKey === undefined) {
-      try {
-        const resolved = await this._identity({
-          adapter: adapter.name,
-          author: message.author,
-          message,
-        });
-        if (resolved) {
-          message.userKey = resolved;
-        }
-      } catch (err) {
-        this.logger.warn("Identity resolver threw; skipping userKey", {
-          error: err,
-          adapter: adapter.name,
-          threadId,
-          authorUserId: message.author.userId,
-        });
-      }
-    }
+    await this.resolveMessageIdentity(adapter, threadId, message);
 
     // Check for DM first - always route to direct message handlers
     const isDM = adapter.isDM?.(threadId) ?? false;
@@ -2641,6 +2802,37 @@ export class Chat<
     }
 
     return hasMention;
+  }
+
+  private async resolveMessageIdentity(
+    adapter: Adapter,
+    threadId: string,
+    message: Message
+  ): Promise<void> {
+    // Resolve cross-platform user key (Transcripts API). Cached on the Message
+    // instance so handlers and the Transcripts API see the same value without
+    // re-invoking the resolver.
+    if (!this._identity || message.userKey !== undefined) {
+      return;
+    }
+
+    try {
+      const resolved = await this._identity({
+        adapter: adapter.name,
+        author: message.author,
+        message,
+      });
+      if (resolved) {
+        message.userKey = resolved;
+      }
+    } catch (err) {
+      this.logger.warn("Identity resolver threw; skipping userKey", {
+        error: err,
+        adapter: adapter.name,
+        threadId,
+        authorUserId: message.author.userId,
+      });
+    }
   }
 
   private createThread(

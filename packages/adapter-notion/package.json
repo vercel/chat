@@ -1,0 +1,70 @@
+{
+  "name": "@chat-adapter/notion",
+  "version": "0.1.0",
+  "description": "Notion adapter for Chat SDK — participate in page and block comment discussions",
+  "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
+  "main": "./dist/index.js",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./testing": {
+      "types": "./dist/testing.d.ts",
+      "import": "./dist/testing.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsup",
+    "dev": "tsup --watch",
+    "test": "vitest run --coverage",
+    "test:watch": "vitest",
+    "typecheck": "tsc --noEmit",
+    "clean": "rm -rf dist"
+  },
+  "dependencies": {
+    "@chat-adapter/shared": "workspace:*",
+    "chat": "workspace:*"
+  },
+  "devDependencies": {
+    "@chat-adapter/tests": "workspace:*",
+    "@types/node": "^25.3.2",
+    "tsup": "^8.3.5",
+    "typescript": "^5.7.2",
+    "vitest": "^4.0.18"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/vercel/chat.git",
+    "directory": "packages/adapter-notion"
+  },
+  "homepage": "https://chat-sdk.dev/adapters/official/notion",
+  "bugs": {
+    "url": "https://github.com/vercel/chat/issues"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "keywords": [
+    "chat",
+    "chat-sdk",
+    "chatbot",
+    "notion",
+    "notion-bot",
+    "bot",
+    "adapter",
+    "comments",
+    "ai-agent",
+    "ai-sdk",
+    "vercel"
+  ],
+  "license": "MIT"
+}

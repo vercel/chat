@@ -1,3 +1,4 @@
+import { stripHtmlTags } from "../format";
 import { callTeamsGraphApi } from "./client";
 import type {
   TeamsGraphListOptions,
@@ -121,11 +122,13 @@ export function extractTextFromGraphMessage(message: GraphChatMessage): string {
   if (!content) {
     return "";
   }
-  return content
-    .replace(/<at\b[^>]*>(.*?)<\/at>/gis, "@$1")
-    .replace(/<br\s*\/?>/gi, "\n")
-    .replace(/<\/p>\s*<p[^>]*>/gi, "\n\n")
-    .replace(/<[^>]+>/g, "")
+  const withoutTags = stripHtmlTags(
+    content
+      .replace(/<at\b[^>]*>(.*?)<\/at>/gis, "@$1")
+      .replace(/<br\s*\/?>/gi, "\n")
+      .replace(/<\/p>\s*<p[^>]*>/gi, "\n\n")
+  );
+  return withoutTags
     .replace(/&nbsp;/g, " ")
     .replace(/&lt;/g, "<")
     .replace(/&gt;/g, ">")

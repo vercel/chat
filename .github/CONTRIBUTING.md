@@ -8,7 +8,9 @@ For questions and getting help, see [SUPPORT.md](./SUPPORT.md). Security vulnera
 
 ## Building your own adapter
 
-Want to add Chat SDK support for a platform that isn't covered by the official adapters? See [Building a community adapter](https://chat-sdk.dev/docs/contributing/building) for a walkthrough of the `Adapter` interface, testing, packaging, and getting your adapter listed on chat-sdk.dev.
+Want to add Chat SDK support for a platform that isn't covered by the official adapters? See [Building an adapter](https://chat-sdk.dev/docs/contributing/building) for a walkthrough of the `Adapter` interface, testing, and packaging. List as [community](https://chat-sdk.dev/docs/contributing/publishing#listing-on-chat-sdkdev) or [vendor-official](https://chat-sdk.dev/docs/contributing/vendor-official).
+
+When opening a listing PR from a clone of this repo, use the [`add-adapter` skill](../.agents/skills/add-adapter/SKILL.md) (Cursor / Claude Code) so the registry, docs page, catalog, and tests stay in sync.
 
 ### Package conventions
 
