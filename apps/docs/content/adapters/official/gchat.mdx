@@ -110,6 +110,11 @@ bot.onNewMention(async (thread, message) => {
       description:
         "Expected JWT audience for Pub/Sub webhook verification.",
     },
+    pubsubServiceAccountEmail: {
+      type: "string",
+      description:
+        "Service account your Pub/Sub push subscription authenticates as. Required to accept Pub/Sub pushes, since the audience alone does not identify the caller. Without it, pushes are rejected.",
+    },
     googleChatProjectNumber: {
       type: "string",
       description:
@@ -187,7 +192,7 @@ createGoogleChatAdapter({
 
 1. Under **Pub/Sub** then **Topics**, create a topic (e.g. `chat-events`) and copy its full name to `GOOGLE_CHAT_PUBSUB_TOPIC`.
 2. Add `chat-api-push@system.gserviceaccount.com` as a Pub/Sub Publisher.
-3. Create a Push subscription with endpoint `https://your-domain.com/api/webhooks/gchat`.
+3. Create a Push subscription with endpoint `https://your-domain.com/api/webhooks/gchat`. Enable authentication on it and pick a service account, then set that account's email as `GOOGLE_CHAT_PUBSUB_SERVICE_ACCOUNT_EMAIL`.
 
 **Domain-wide delegation:**
 
@@ -209,7 +214,11 @@ Required for Workspace Events subscriptions and initiating DMs.
 The two transports share one HTTP endpoint, so each verifier only covers its own request shape:
 
 - **Direct webhooks** — Google Chat sends a signed JWT in the `Authorization: Bearer …` header. The expected `aud` claim depends on how the Chat app is configured (see [Verify requests from Google Chat](https://developers.google.com/workspace/chat/verify-requests-from-chat)).
-- **Pub/Sub push** — Cloud Pub/Sub sends a signed OIDC JWT whose audience is whatever you configured on the push subscription. Configure with `pubsubAudience`.
+- **Pub/Sub push** — Cloud Pub/Sub sends a signed OIDC JWT whose audience is whatever you configured on the push subscription. Configure with `pubsubAudience` **and** `pubsubServiceAccountEmail`.
+
+<Callout type="warn">
+Your push audience is a public URL, so anyone can point a Pub/Sub subscription in their own Google Cloud project at your endpoint and have Google mint a validly signed token naming it. Signature and `aud` therefore say nothing about who sent the push. Set `pubsubServiceAccountEmail` to the identity in your subscription's push auth settings and the adapter compares it exactly, as [Google requires](https://docs.cloud.google.com/pubsub/docs/authenticate-push-subscriptions). Leave it unset and Pub/Sub pushes are rejected with HTTP 401.
+</Callout>
 
 If you only configure a direct-webhook verifier, incoming Pub/Sub-shaped requests are rejected with HTTP 401 — and vice versa. Configure both transports if you receive both.
 
