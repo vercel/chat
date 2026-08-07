@@ -179,6 +179,24 @@ await thread.post(planned);
 
 Adapters without structured chunk support extract text from `markdown_text` chunks and ignore other types. Slack-only options are silently ignored on other platforms.
 
+### Consuming a stream without creating a message
+
+A custom adapter can fully consume a `StreamingPlan` without creating a platform message. This is useful when every structured chunk is intentionally ignored or handled out of band. Return `STREAM_HANDLED_NO_MESSAGE` to tell Chat SDK that the stream is complete and core fallback must not run:
+
+```typescript
+import { STREAM_HANDLED_NO_MESSAGE } from "chat";
+
+async function stream(threadId, chunks, options) {
+  for await (const chunk of chunks) {
+    // Handle supported chunks and intentionally ignore the rest.
+  }
+
+  return STREAM_HANDLED_NO_MESSAGE;
+}
+```
+
+This result is valid only for streams wrapped in `StreamingPlan`, whose `thread.post()` result is the plan itself. A bare async iterable must create and return a message. Return `null` only before consuming any chunks when delegating the untouched stream to Chat SDK's post+edit fallback.
+
 ## Stop blocks (Slack only)
 
 Use `endWith` on `StreamingPlan` to attach Block Kit elements to the final message. This is useful for adding action buttons after a streamed response completes:
