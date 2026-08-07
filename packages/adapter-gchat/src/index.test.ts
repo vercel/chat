@@ -146,6 +146,7 @@ async function createInitializedAdapter(opts?: {
   googleChatProjectNumber?: string;
   pubsubAudience?: string;
   workspaceAddOnServiceAccountEmail?: string;
+  pubsubServiceAccountEmail?: string;
 }) {
   const adapter = createGoogleChatAdapter({
     credentials: TEST_CREDENTIALS,
@@ -156,6 +157,7 @@ async function createInitializedAdapter(opts?: {
     googleChatProjectNumber: opts?.googleChatProjectNumber,
     pubsubAudience: opts?.pubsubAudience,
     workspaceAddOnServiceAccountEmail: opts?.workspaceAddOnServiceAccountEmail,
+    pubsubServiceAccountEmail: opts?.pubsubServiceAccountEmail,
   });
   const mockState = createMockStateAdapter();
   const mockChat = createMockChatInstance({ state: mockState });
@@ -3455,11 +3457,13 @@ describe("GoogleChatAdapter", () => {
           iss: "accounts.google.com",
           aud: "https://example.com/webhook/pubsub",
           email: "pubsub@my-project.iam.gserviceaccount.com",
+          email_verified: true,
         }),
       });
 
       const { adapter } = await createInitializedAdapter({
         pubsubAudience: "https://example.com/webhook/pubsub",
+        pubsubServiceAccountEmail: "pubsub@my-project.iam.gserviceaccount.com",
       });
 
       const pubsubMessage = makePubSubPushMessage({
@@ -3482,6 +3486,83 @@ describe("GoogleChatAdapter", () => {
 
       const response = await adapter.handleWebhook(request);
       expect(response.status).toBe(200);
+    });
+
+    async function pubsubWebhook(
+      payload: Record<string, unknown>,
+      pubsubServiceAccountEmail?: string
+    ) {
+      verifyIdTokenSpy.mockResolvedValue({
+        getPayload: () => ({
+          iss: "accounts.google.com",
+          aud: "https://example.com/webhook/pubsub",
+          ...payload,
+        }),
+      });
+      const { adapter } = await createInitializedAdapter({
+        pubsubAudience: "https://example.com/webhook/pubsub",
+        pubsubServiceAccountEmail,
+      });
+      return adapter.handleWebhook(
+        new Request("https://example.com/webhook", {
+          method: "POST",
+          headers: {
+            "content-type": "application/json",
+            authorization: "Bearer valid-pubsub-jwt",
+          },
+          body: JSON.stringify(
+            makePubSubPushMessage({
+              message: {
+                name: "spaces/ABC123/messages/msg1",
+                text: "Hello",
+                sender: {
+                  name: "users/100",
+                  displayName: "User",
+                  type: "HUMAN",
+                },
+                createTime: new Date().toISOString(),
+              },
+            })
+          ),
+        })
+      );
+    }
+
+    const PUSH_SA = "pubsub@my-project.iam.gserviceaccount.com";
+
+    it("should reject a Pub/Sub token from a different service account", async () => {
+      // The audience is the victim's public push URL, so anyone can mint a
+      // Google-signed token for it from their own project. Only the email
+      // claim identifies the caller.
+      const response = await pubsubWebhook(
+        {
+          email: "attacker@evil-project.iam.gserviceaccount.com",
+          email_verified: true,
+        },
+        PUSH_SA
+      );
+      expect(response.status).toBe(401);
+    });
+
+    it("should reject a Pub/Sub token when no service account is configured", async () => {
+      const response = await pubsubWebhook({
+        email: PUSH_SA,
+        email_verified: true,
+      });
+      expect(response.status).toBe(401);
+    });
+
+    it("should reject a Pub/Sub token when email_verified is not true", async () => {
+      const response = await pubsubWebhook(
+        { email: PUSH_SA, email_verified: false },
+        PUSH_SA
+      );
+      expect(response.status).toBe(401);
+    });
+
+    it("should reject a Pub/Sub token with no email claim", async () => {
+      const response = await pubsubWebhook({ email_verified: true }, PUSH_SA);
+      expect(response.status).toBe(401);
     });
 
     it("should reject request with non-Bearer Authorization scheme", async () => {
