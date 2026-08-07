@@ -213,6 +213,18 @@ export interface WebhookOptions {
 // =============================================================================
 
 /**
+ * Indicates that an adapter fully consumed a `StreamingPlan` without
+ * creating a platform message.
+ *
+ * Return this from {@link Adapter.stream} only after consuming the stream and
+ * only when the stream was posted through a `StreamingPlan`. Returning `null`
+ * means the adapter did not consume the stream and delegates to core fallback.
+ */
+export const STREAM_HANDLED_NO_MESSAGE = Symbol.for(
+  "chat.stream.handled-no-message"
+);
+
+/**
  * Adapter interface with generics for platform-specific types.
  * @template TThreadId - Platform-specific thread ID data type
  * @template TRawMessage - Platform-specific raw message type
@@ -530,7 +542,9 @@ export interface Adapter<TThreadId = unknown, TRawMessage = unknown> {
    * The adapter consumes the async iterable and handles the entire streaming lifecycle.
    * Available on platforms with native streaming or preview APIs.
    * Adapters may return `null` before consuming any chunks to delegate back to
-   * Chat SDK's built-in post+edit fallback for the current thread.
+   * Chat SDK's built-in post+edit fallback for the current thread. After fully
+   * consuming a `StreamingPlan`, adapters may return
+   * {@link STREAM_HANDLED_NO_MESSAGE} when no platform message was created.
    *
    * The stream can yield plain strings (text chunks) or {@link StreamChunk} objects
    * for rich content like task progress cards. Adapters that don't support structured
@@ -539,13 +553,15 @@ export interface Adapter<TThreadId = unknown, TRawMessage = unknown> {
    * @param threadId - The thread to stream to
    * @param textStream - Async iterable of text chunks or structured StreamChunk objects
    * @param options - Platform-specific streaming options
-   * @returns The raw message after streaming completes, or `null` to use core fallback
+   * @returns The raw message after streaming completes, `null` to use core
+   * fallback before consuming chunks, or {@link STREAM_HANDLED_NO_MESSAGE} after
+   * consuming a `StreamingPlan` without creating a message
    */
   stream?(
     threadId: string,
     textStream: AsyncIterable<string | StreamChunk>,
     options?: StreamOptions
-  ): Promise<RawMessage<TRawMessage> | null>;
+  ): Promise<RawMessage<TRawMessage> | null | typeof STREAM_HANDLED_NO_MESSAGE>;
   /** Bot username (can override global userName) */
   readonly userName: string;
 }
