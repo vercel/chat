@@ -253,6 +253,8 @@ export class GoogleChatAdapter implements Adapter<GoogleChatThreadId, unknown> {
   protected readonly pubsubAudience?: string;
   /** Exact service account identity of this app's Workspace Add-on, if any */
   protected readonly workspaceAddOnServiceAccountEmail?: string;
+  /** Service account the Pub/Sub push subscription authenticates as */
+  protected readonly pubsubServiceAccountEmail?: string;
   /** Explicit opt-in to skip JWT verification (fail-open). */
   protected readonly disableSignatureVerification: boolean;
   /** OAuth2 client for verifying Google-signed JWTs */
@@ -282,6 +284,9 @@ export class GoogleChatAdapter implements Adapter<GoogleChatThreadId, unknown> {
     this.workspaceAddOnServiceAccountEmail =
       config.workspaceAddOnServiceAccountEmail ??
       process.env.GOOGLE_CHAT_WORKSPACE_ADDON_SERVICE_ACCOUNT_EMAIL;
+    this.pubsubServiceAccountEmail =
+      config.pubsubServiceAccountEmail ??
+      process.env.GOOGLE_CHAT_PUBSUB_SERVICE_ACCOUNT_EMAIL;
     this.disableSignatureVerification =
       config.disableSignatureVerification ??
       process.env.GOOGLE_CHAT_DISABLE_SIGNATURE_VERIFICATION === "true";
@@ -662,7 +667,10 @@ export class GoogleChatAdapter implements Adapter<GoogleChatThreadId, unknown> {
   protected async verifyBearerToken(
     request: Request,
     expectedAudience: string,
-    validatePayload?: (payload: {
+    // Required, not optional: a Google-signed token with the right `aud`
+    // proves nothing about who sent it, since our audiences are public. Every
+    // caller must say which identity it expects.
+    validatePayload: (payload: {
       aud?: string | string[];
       email?: string;
       email_verified?: boolean;
@@ -690,7 +698,7 @@ export class GoogleChatAdapter implements Adapter<GoogleChatThreadId, unknown> {
         aud: payload.aud,
         email: payload.email,
       });
-      if (validatePayload && !validatePayload(payload)) {
+      if (!validatePayload(payload)) {
         this.logger.warn("JWT payload failed claim validation", {
           iss: payload.iss,
           aud: payload.aud,
@@ -747,6 +755,35 @@ export class GoogleChatAdapter implements Adapter<GoogleChatThreadId, unknown> {
       return false;
     }
     return payload.email === this.workspaceAddOnServiceAccountEmail;
+  }
+
+  /**
+   * Claim validation for Pub/Sub push tokens. The audience is our public push
+   * endpoint, so anyone can have Google mint a validly signed token for it
+   * from their own project. Signature and `aud` therefore say nothing about
+   * who sent the push: only `email` identifies the caller, which is why
+   * Google requires checking it alongside `aud`.
+   *
+   * Fail-closed when no identity is configured, rather than trusting any
+   * Google-signed token that happens to name our audience.
+   *
+   * @see https://docs.cloud.google.com/pubsub/docs/authenticate-push-subscriptions
+   */
+  private validatePubsubTokenPayload(payload: {
+    email?: string;
+    email_verified?: boolean;
+  }): boolean {
+    if (payload.email_verified !== true || !payload.email) {
+      return false;
+    }
+    if (!this.pubsubServiceAccountEmail) {
+      this.logger.warn(
+        "Rejected a Pub/Sub push because no push identity is configured. Set `pubsubServiceAccountEmail` (or GOOGLE_CHAT_PUBSUB_SERVICE_ACCOUNT_EMAIL) to the service account in your subscription's push auth settings.",
+        { email: payload.email }
+      );
+      return false;
+    }
+    return payload.email === this.pubsubServiceAccountEmail;
   }
 
   private async getChatIssuerCerts(): Promise<Record<string, string>> {
@@ -885,7 +922,8 @@ export class GoogleChatAdapter implements Adapter<GoogleChatThreadId, unknown> {
       if (this.pubsubAudience) {
         const valid = await this.verifyBearerToken(
           request,
-          this.pubsubAudience
+          this.pubsubAudience,
+          (payload) => this.validatePubsubTokenPayload(payload)
         );
         if (!valid) {
           return new Response("Unauthorized", { status: 401 });

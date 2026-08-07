@@ -70,6 +70,21 @@ export interface GoogleChatAdapterBaseConfig {
    */
   pubsubAudience?: string;
   /**
+   * Service account your Pub/Sub push subscription authenticates as, the
+   * identity set in the subscription's push auth settings.
+   *
+   * The audience is your public push endpoint, so anyone can have Google mint
+   * a validly signed token for it from their own project. Only the `email`
+   * claim identifies the caller, which is why Google requires checking it in
+   * addition to `aud`. Without this option Pub/Sub pushes are rejected rather
+   * than trusted on their audience alone.
+   *
+   * Defaults to GOOGLE_CHAT_PUBSUB_SERVICE_ACCOUNT_EMAIL env var.
+   *
+   * @see https://docs.cloud.google.com/pubsub/docs/authenticate-push-subscriptions
+   */
+  pubsubServiceAccountEmail?: string;
+  /**
    * Pub/Sub topic for receiving all messages via Workspace Events.
    * When set, the adapter will automatically create subscriptions when added to a space.
    * Format: "projects/my-project/topics/my-topic"
