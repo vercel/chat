@@ -313,12 +313,27 @@ export interface WhatsAppTypingIndicatorResponse {
 }
 
 /**
- * Interactive message payload for sending buttons or lists.
+ * Fields shared by every interactive message shape.
  */
-export interface WhatsAppInteractiveMessage {
-  action:
-    | {
-        button?: never;
+interface WhatsAppInteractiveBase {
+  body: { text: string };
+  footer?: { text: string };
+  header?: {
+    text: string;
+    type: "text";
+  };
+}
+
+/**
+ * Interactive message payload for sending buttons, lists, or CTA URLs.
+ *
+ * Discriminated on `type` so each interactive shape can only carry its
+ * legal action — a `button` message with a `cta_url` action is a Cloud
+ * API 400, and this union makes it a compile error instead.
+ */
+export type WhatsAppInteractiveMessage =
+  | (WhatsAppInteractiveBase & {
+      action: {
         buttons: Array<{
           reply: {
             id: string;
@@ -326,11 +341,12 @@ export interface WhatsAppInteractiveMessage {
           };
           type: "reply";
         }>;
-        sections?: never;
-      }
-    | {
+      };
+      type: "button";
+    })
+  | (WhatsAppInteractiveBase & {
+      action: {
         button: string;
-        buttons?: never;
         sections: Array<{
           rows: Array<{
             description?: string;
@@ -339,41 +355,19 @@ export interface WhatsAppInteractiveMessage {
           }>;
           title: string;
         }>;
-      }
-    | {
+      };
+      type: "list";
+    })
+  | (WhatsAppInteractiveBase & {
+      action: {
         name: "cta_url";
         parameters: {
           display_text: string;
           url: string;
         };
       };
-  body: { text: string };
-  footer?: { text: string };
-  header?:
-    | {
-        type: "text";
-        text: string;
-      }
-    | {
-        type: "image";
-        image: {
-          link: string;
-        };
-      }
-    | {
-        type: "video";
-        video: {
-          link: string;
-        };
-      }
-    | {
-        type: "document";
-        document: {
-          link: string;
-        };
-      };
-  type: "button" | "list" | "cta_url";
-}
+      type: "cta_url";
+    });
 
 // =============================================================================
 // Template Messages

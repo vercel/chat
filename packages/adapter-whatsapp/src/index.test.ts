@@ -1351,7 +1351,7 @@ describe("postMessage - file uploads", () => {
     ).toBe("Remote image card");
   });
 
-  it("card with single link button and file sends media then CTA URL", async () => {
+  it("card with single link button and file sends one captioned media message", async () => {
     const adapter = createTestAdapter();
     const card: CardElement = {
       type: "card",
@@ -1381,27 +1381,17 @@ describe("postMessage - file uploads", () => {
       ],
     });
 
+    // Media posts keep the pre-existing single captioned send; the
+    // caption carries the link URL instead of a second cta_url message.
     expect(getMediaCalls()).toHaveLength(1);
-    expect(getMessageCalls()).toHaveLength(2);
+    expect(getMessageCalls()).toHaveLength(1);
 
     const mediaMessage = parseMessageBody(0);
-    const interactiveMessage = parseMessageBody(1);
 
     expect(mediaMessage.type).toBe("image");
-    expect(
-      (mediaMessage.image as { caption?: string }).caption
-    ).toBeUndefined();
-    expect(interactiveMessage.type).toBe("interactive");
-    expect((interactiveMessage.interactive as { type: string }).type).toBe(
-      "cta_url"
-    );
-    expect(
-      (
-        interactiveMessage.interactive as {
-          action: { name: string; parameters: { url: string } };
-        }
-      ).action.parameters.url
-    ).toBe("https://example.com/track");
+    const caption = (mediaMessage.image as { caption?: string }).caption;
+    expect(caption).toContain("Order update");
+    expect(caption).toContain("Track: https://example.com/track");
   });
 
   it("text-fallback card + file puts title and body only in the caption once", async () => {
@@ -1450,6 +1440,8 @@ describe("postMessage - file uploads", () => {
     expect(caption).toContain(bodyLine);
     expect(caption.split(title).length - 1).toBe(1);
     expect(caption.split(bodyLine).length - 1).toBe(1);
+    expect(caption).toContain("View: https://example.com/receipt");
+    expect(caption).toContain("Help: https://example.com/help");
   });
 
   it("single link-button card posts CTA URL interactive payload", async () => {

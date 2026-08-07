@@ -140,6 +140,7 @@ export async function POST(request: Request) {
 | Feature | Supported |
 |---------|-----------|
 | Interactive buttons | Yes (up to 3) |
+| Link buttons | Partial (single link button becomes a native CTA URL message) |
 | Button title limit | 20 characters |
 | List messages | Yes |
 | Text fallback | Yes (for >3 buttons) |
@@ -200,6 +201,19 @@ Card elements are automatically converted to WhatsApp interactive messages:
 - **3 or fewer buttons** — rendered as WhatsApp reply buttons (max 20 chars per title)
 - **More than 3 buttons** — falls back to formatted text
 - **Max body text** — 1024 characters
+
+When a card with reply buttons also contains link buttons, each link button is appended to the interactive message body as a `Label: url` line, since WhatsApp reply buttons cannot open URLs.
+
+### Link buttons (CTA URL)
+
+A card whose only interactive element is a single link button is sent as a native CTA URL message with a tappable link button. The card is promoted only when all of these hold:
+
+- The link button is the card's only action across every actions row, including rows nested in sections. Reply buttons, selects, radio selects, or a second populated actions row keep the text fallback.
+- The URL starts with `http://` or `https://` and the label is non-empty. Other schemes (`mailto:`, `tel:`, relative paths) keep the text fallback because the Cloud API rejects them.
+- The card has no header image and no image, table, chart, or inline link children. Text, fields, sections, and dividers are fine.
+- The post has no files or attachments. When media accompanies the card, the adapter keeps the single captioned media send, and the caption includes a `Label: url` line for each link button.
+
+The button label is truncated to 20 characters, the header (card title) to 60, and the body to 1024. Cards that do not match these rules fall back to formatted text, where link buttons render as `Label: url`.
 
 ## Template messages
 

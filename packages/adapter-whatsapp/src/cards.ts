@@ -24,6 +24,9 @@ import type { WhatsAppInteractiveMessage } from "./types";
 
 const CALLBACK_DATA_PREFIX = "chat:";
 
+/** cta_url URLs must be web links — Meta rejects other schemes. */
+const HTTP_URL_REGEX = /^https?:\/\//i;
+
 interface WhatsAppCardActionPayload {
   a: string;
   v?: string;
@@ -101,74 +104,49 @@ export function decodeWhatsAppCallbackData(data?: string): {
   return { actionId: data, value: data };
 }
 
+/** Options for {@link cardToWhatsApp}. */
+export interface CardToWhatsAppOptions {
+  /**
+   * Allow promoting a lone LinkButton to a native cta_url message.
+   * Disabled when media accompanies the card, where the text fallback
+   * doubles as the media caption and an extra interactive send would
+   * change the delivery shape. Defaults to true.
+   */
+  allowCtaUrl?: boolean;
+}
+
 /**
  * Convert a CardElement to a WhatsApp message payload.
  *
  * If the card has action buttons that fit WhatsApp's constraints
  * (max 3 buttons, titles max 20 chars), produces an interactive
- * button message. Otherwise, produces a text fallback.
+ * button message. A card whose only interactive element is a single
+ * LinkButton with an http(s) URL — and whose content the interactive
+ * body can carry without loss — becomes a native cta_url message.
+ * Otherwise, produces a text fallback.
  */
-export function cardToWhatsApp(card: CardElement): WhatsAppCardResult {
+export function cardToWhatsApp(
+  card: CardElement,
+  options?: CardToWhatsAppOptions
+): WhatsAppCardResult {
   const actions = findActions(card.children);
   const actionButtons = actions ? extractReplyButtons(actions) : null;
-  const linkButtons = actions ? extractLinkButtons(actions) : [];
 
-  // Meta CTA URL messages support exactly one URL button and cannot mix
-  // with reply buttons — only promote a lone LinkButton to cta_url.
-  if (
-    linkButtons.length === 1 &&
-    (!actionButtons || actionButtons.length === 0)
-  ) {
-    const link = linkButtons[0];
-
-    return {
-      type: "interactive",
-      interactive: {
-        type: "cta_url",
-        ...(card.title
-          ? {
-              header: {
-                type: "text",
-                text: truncate(card.title, MAX_HEADER_LENGTH),
-              },
-            }
-          : {}),
-        body: {
-          text: truncate(buildBodyText(card) || "Open link", MAX_BODY_LENGTH),
-        },
-        action: {
-          name: "cta_url",
-          parameters: {
-            display_text: truncate(link.label, MAX_BUTTON_TITLE_LENGTH),
-            url: link.url,
-          },
-        },
-      },
-    };
-  }
-
-  // If we have valid buttons, produce an interactive message
-  if (actionButtons && actionButtons.length > 0) {
-    const bodyText = buildBodyText(card);
+  if (actionButtons) {
+    // Link buttons can't be WhatsApp reply buttons and cta_url can't mix
+    // with them — keep their URLs reachable by appending them to the body.
+    const bodyText = [buildBodyText(card), ...cardLinkButtonLines(card)]
+      .filter(Boolean)
+      .join("\n");
 
     return {
       type: "interactive",
       interactive: {
         type: "button",
-        ...(card.title
-          ? {
-              header: {
-                type: "text",
-                text: truncate(card.title, MAX_HEADER_LENGTH),
-              },
-            }
-          : {}),
-        body: {
-          text: truncate(
-            bodyText || "Please choose an option",
-            MAX_BODY_LENGTH
-          ),
-        },
+        ...buildInteractiveEnvelope(
+          card,
+          bodyText || "Please choose an option"
+        ),
         action: {
           buttons: actionButtons.map((btn) => ({
             type: "reply" as const,
@@ -180,6 +158,26 @@ export function cardToWhatsApp(card: CardElement): WhatsAppCardResult {
         },
       },
     };
+  }
+
+  if (options?.allowCtaUrl !== false) {
+    const ctaLink = findPromotableCtaLink(card);
+    if (ctaLink) {
+      return {
+        type: "interactive",
+        interactive: {
+          type: "cta_url",
+          ...buildInteractiveEnvelope(card, buildBodyText(card) || "Open link"),
+          action: {
+            name: "cta_url",
+            parameters: {
+              display_text: truncate(ctaLink.label, MAX_BUTTON_TITLE_LENGTH),
+              url: ctaLink.url,
+            },
+          },
+        },
+      };
+    }
   }
 
   // Fallback to text
@@ -229,6 +227,17 @@ export function cardToWhatsAppText(card: CardElement): string {
   }
 
   return lines.join("\n");
+}
+
+/**
+ * Render "Label: url" lines for every LinkButton in a card, including
+ * those nested inside sections. Caption/fallback text excludes action
+ * elements, so these lines keep link URLs reachable.
+ */
+export function cardLinkButtonLines(card: CardElement): string[] {
+  return collectLinkButtons(card.children).map(
+    (link) => `${link.label}: ${link.url}`
+  );
 }
 
 /**
@@ -372,17 +381,114 @@ function extractReplyButtons(actions: ActionsElement): ButtonElement[] | null {
 }
 
 /**
- * Extract CTA link buttons from an ActionsElement.
+ * Build the header/body envelope shared by all interactive messages.
  */
-function extractLinkButtons(actions: ActionsElement): LinkButtonElement[] {
-  const buttons: LinkButtonElement[] = [];
+function buildInteractiveEnvelope(
+  card: CardElement,
+  bodyText: string
+): {
+  body: { text: string };
+  header?: { text: string; type: "text" };
+} {
+  return {
+    ...(card.title
+      ? {
+          header: {
+            type: "text" as const,
+            text: truncate(card.title, MAX_HEADER_LENGTH),
+          },
+        }
+      : {}),
+    body: {
+      text: truncate(bodyText, MAX_BODY_LENGTH),
+    },
+  };
+}
 
-  for (const child of actions.children) {
-    if (child.type === "link-button") {
-      buttons.push(child);
+/**
+ * Find a LinkButton that can be promoted to a native cta_url message.
+ *
+ * Meta CTA URL messages support exactly one URL button and cannot mix
+ * with reply buttons, selects, or radio selects, so promotion requires
+ * the card's only interactive element (across every actions row) to be
+ * a single LinkButton. The URL must be http(s) and the label non-empty,
+ * or the Cloud API rejects the send with a 400 — anything else keeps
+ * the always-deliverable text fallback.
+ */
+function findPromotableCtaLink(card: CardElement): LinkButtonElement | null {
+  if (card.imageUrl) {
+    return null;
+  }
+
+  const interactiveChildren = collectActions(card.children).flatMap(
+    (actions) => actions.children
+  );
+  if (interactiveChildren.length !== 1) {
+    return null;
+  }
+
+  const candidate = interactiveChildren[0];
+  if (candidate.type !== "link-button") {
+    return null;
+  }
+
+  if (!(HTTP_URL_REGEX.test(candidate.url) && candidate.label.trim())) {
+    return null;
+  }
+
+  if (!childrenFitCtaBody(card.children)) {
+    return null;
+  }
+
+  return candidate;
+}
+
+/**
+ * Whether buildBodyText can carry every child without loss. Images,
+ * tables, charts, and inline links would be silently dropped from an
+ * interactive body, so cards containing them keep the text fallback.
+ */
+function childrenFitCtaBody(children: CardChild[]): boolean {
+  return children.every((child) => {
+    switch (child.type) {
+      case "actions":
+      case "divider":
+      case "fields":
+      case "text":
+        return true;
+      case "section":
+        return childrenFitCtaBody(child.children);
+      default:
+        return false;
+    }
+  });
+}
+
+/**
+ * Collect every ActionsElement in a list of card children, including
+ * those nested inside sections.
+ */
+function collectActions(children: CardChild[]): ActionsElement[] {
+  const found: ActionsElement[] = [];
+  for (const child of children) {
+    if (child.type === "actions") {
+      found.push(child);
+    } else if (child.type === "section") {
+      found.push(...collectActions(child.children));
     }
   }
-  return buttons;
+  return found;
+}
+
+/**
+ * Collect every LinkButton across all actions rows in a card.
+ */
+function collectLinkButtons(children: CardChild[]): LinkButtonElement[] {
+  return collectActions(children).flatMap((actions) =>
+    actions.children.filter(
+      (child): child is LinkButtonElement => child.type === "link-button"
+    )
+  );
 }
 
 /**

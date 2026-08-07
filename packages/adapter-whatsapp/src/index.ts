@@ -36,7 +36,11 @@ import {
   Message,
   MessageHistoryCache,
 } from "chat";
-import { cardToWhatsApp, decodeWhatsAppCallbackData } from "./cards";
+import {
+  cardLinkButtonLines,
+  cardToWhatsApp,
+  decodeWhatsAppCallbackData,
+} from "./cards";
 import { WhatsAppFormatConverter } from "./markdown";
 import type {
   WhatsAppAdapterConfig,
@@ -950,13 +954,26 @@ export class WhatsAppAdapter
     mediaItems: Array<FileUpload | Attachment>
   ): Promise<RawMessage<WhatsAppRawMessage>> {
     const card = extractCard(message);
-    const cardResult = card ? cardToWhatsApp(card) : null;
+    // cta_url promotion is disabled alongside media: the text fallback
+    // captions the media in a single send, whereas an interactive
+    // message would strip the caption and cost a second API send.
+    const cardResult = card
+      ? cardToWhatsApp(card, { allowCtaUrl: false })
+      : null;
 
     let text = "";
 
     if (card) {
       if (cardResult && cardResult.type !== "interactive") {
-        text = convertEmojiPlaceholders(cardToFallbackText(card), "whatsapp");
+        // The shared fallback excludes action elements, so append link
+        // button URLs to keep them reachable from the caption.
+        const fallback = [
+          cardToFallbackText(card),
+          ...cardLinkButtonLines(card),
+        ]
+          .filter(Boolean)
+          .join("\n");
+        text = convertEmojiPlaceholders(fallback, "whatsapp");
       }
     } else {
       text = convertEmojiPlaceholders(

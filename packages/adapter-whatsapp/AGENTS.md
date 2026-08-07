@@ -155,11 +155,23 @@ cards:
   `<Button>` children with no `<Select>`.
 - **List messages** — up to 10 sections, each with up to 10 rows.
   Used when the card has more than 3 actions or any `<Select>`.
+- **CTA URL messages** — `interactive.type: "cta_url"` when the
+  card's only interactive element, across every actions row
+  including rows nested in sections, is a single `LinkButton` with
+  a non-empty label and an `http://` or `https://` URL. Promotion
+  is skipped when the card has a header `imageUrl` or any image,
+  table, chart, or inline link children (the interactive body
+  cannot carry them), or when the post includes files or
+  attachments (the captioned media send wins). Text, fields,
+  sections, and dividers are fine. `display_text` truncates to 20
+  chars, the header to 60, the body to 1024.
 
 Outside those shapes, cards fall back to plain text built from
-`cardToFallbackText`. LinkButton becomes plain text with the URL
-appended; WhatsApp interactive buttons cannot open links directly,
-so the adapter inlines the URL into the body.
+`cardToFallbackText`, where link buttons render as `Label: url`.
+When a card does render as an interactive button message, any
+`LinkButton` URLs are appended to the body as `Label: url` lines so
+they stay reachable. The same lines are added to media captions,
+since the shared fallback text excludes action elements.
 
 ## Templates
 
@@ -210,8 +222,10 @@ else maps to `document`. Pre-flight size checks throw
 **Cards + files.** When the card renders as an interactive message
 (reply buttons or a list), media is sent without a caption and the
 interactive message that follows carries the title, body, and
-buttons. Text-fallback cards (e.g. only link buttons) caption the
-first media with the fallback text. Card validation runs before
+buttons. Text-fallback cards caption the first media with the
+fallback text plus a `Label: url` line per link button. A card
+with only a link button is never promoted to a CTA URL message
+when media is attached; it takes this captioned path. Card validation runs before
 media upload, so `ValidationError` is thrown before any media is
 sent.
 
