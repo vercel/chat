@@ -1,5 +1,23 @@
 # @chat-adapter/slack
 
+## 4.37.0
+
+### Minor Changes
+
+- 4ac0455: Add message update and delete lifecycle callbacks, with Slack message_changed and message_deleted dispatch support.
+
+### Patch Changes
+
+- 6f0d2f0: Resolve outgoing @name mentions on the Slack native streaming path so streamed responses mention users consistently with the post-and-edit fallback. Committed renderer text is resolved incrementally, keeping fenced code literal and preserving the existing ambiguity semantics.
+- 4cc3445: Bound the length of bracketed URLs parsed from message text in the link-unfurl fallback, avoiding a quadratic scan on adversarial input. Valid links are unaffected.
+- c311827: Preserve the Slack channel ID when converting labeled channel tokens (`<#C123|general>` now becomes `#general (C123)`) so agents can pass the ID to channel tools, and normalize the commonly hallucinated `<label|url>` link order before Markdown conversion
+- Updated dependencies [2a2b2c5]
+- Updated dependencies [4ac0455]
+- Updated dependencies [0ec6a73]
+- Updated dependencies [85e3d22]
+  - chat@4.37.0
+  - @chat-adapter/shared@4.37.0
+
 ## 4.36.0
 
 ### Minor Changes

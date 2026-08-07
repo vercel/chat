@@ -1,5 +1,26 @@
 # @chat-adapter/whatsapp
 
+## 4.37.0
+
+### Minor Changes
+
+- 6abf480: Add native WhatsApp LinkButton support
+
+  - A card whose only interactive element is a single `LinkButton` with a non-empty label and an `http://` or `https://` URL is now sent as a native `cta_url` interactive message, as long as the card has no header image or image, table, chart, or inline link children and the post carries no files or attachments.
+  - Link button URLs are now appended as `Label: url` lines to interactive button message bodies and to media captions, instead of being dropped.
+  - Everything else is unchanged: non-matching cards keep the formatted text fallback, and card + media posts keep the single captioned media send.
+
+- 16879fd: Fix the `WhatsAppInboundMessage.context` type to model all documented webhook variants. The type previously declared `context?: { from: string; id: string }`, but Meta's Cloud API sends mutually exclusive context shapes: quoted replies carry `from`/`id`, forwarded messages carry only `forwarded` or `frequently_forwarded` (no `id`), and catalog product inquiries add `referred_product`. Code narrowed by the old type could dereference `context.id` and crash at runtime on forwarded messages. All context fields are now optional and the forwarded/product-inquiry fields are included. Consumers that dereference `context.from` or `context.id` without a guard will now see a type error, surfacing what was already a latent crash on forwarded messages.
+
+### Patch Changes
+
+- Updated dependencies [2a2b2c5]
+- Updated dependencies [4ac0455]
+- Updated dependencies [0ec6a73]
+- Updated dependencies [85e3d22]
+  - chat@4.37.0
+  - @chat-adapter/shared@4.37.0
+
 ## 4.36.0
 
 ### Patch Changes

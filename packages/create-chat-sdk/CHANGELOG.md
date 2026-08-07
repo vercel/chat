@@ -1,5 +1,12 @@
 # create-chat-sdk
 
+## 0.3.0
+
+### Minor Changes
+
+- 2a2b2c5: Add a native Instagram Direct Messages adapter with signed webhooks, media, quick replies, story context, reactions, and typed Meta API errors.
+- 0ec6a73: Add `@chat-adapter/notion` for Notion page and block comment discussions: webhook HMAC verification, Post+Edit streaming, conversation history, `message.subject` page metadata, plain-text `@userName`/`@botUserId` mention detection, and File Uploads (up to 3 native attachments). Registers the adapter in the `chat/adapters` catalog and `create-chat-sdk` CLI scaffold, and adds Notion emoji platform support.
+
 ## 0.2.1
 
 ### Patch Changes

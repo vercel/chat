@@ -1,0 +1,16 @@
+# @chat-adapter/notion
+
+## 4.37.0
+
+### Minor Changes
+
+- 0ec6a73: Add `@chat-adapter/notion` for Notion page and block comment discussions: webhook HMAC verification, Post+Edit streaming, conversation history, `message.subject` page metadata, plain-text `@userName`/`@botUserId` mention detection, and File Uploads (up to 3 native attachments). Registers the adapter in the `chat/adapters` catalog and `create-chat-sdk` CLI scaffold, and adds Notion emoji platform support.
+
+### Patch Changes
+
+- Updated dependencies [2a2b2c5]
+- Updated dependencies [4ac0455]
+- Updated dependencies [0ec6a73]
+- Updated dependencies [85e3d22]
+  - chat@4.37.0
+  - @chat-adapter/shared@4.37.0

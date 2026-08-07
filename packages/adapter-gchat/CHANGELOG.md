@@ -1,5 +1,21 @@
 # @chat-adapter/gchat
 
+## 4.37.0
+
+### Minor Changes
+
+- c3b5a08: Bind Pub/Sub push verification to a specific identity with the new pubsubServiceAccountEmail option, alongside the existing audience check. Pushes are rejected unless the token email matches it. Direct webhooks are unaffected.
+- 7a19223: Bind Workspace Add-on webhook verification to a specific identity with the new `workspaceAddOnServiceAccountEmail` option, replacing a pattern match on the add-on service account email. Workspace Add-on Chat apps must set it; standalone Chat apps are unaffected.
+
+### Patch Changes
+
+- Updated dependencies [2a2b2c5]
+- Updated dependencies [4ac0455]
+- Updated dependencies [0ec6a73]
+- Updated dependencies [85e3d22]
+  - chat@4.37.0
+  - @chat-adapter/shared@4.37.0
+
 ## 4.36.0
 
 ### Patch Changes
