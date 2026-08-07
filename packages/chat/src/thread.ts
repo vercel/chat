@@ -37,7 +37,11 @@ import type {
   StreamOptions,
   Thread,
 } from "./types";
-import { NotImplementedError, THREAD_STATE_TTL_MS } from "./types";
+import {
+  NotImplementedError,
+  STREAM_HANDLED_NO_MESSAGE,
+  THREAD_STATE_TTL_MS,
+} from "./types";
 
 /**
  * Serialized thread data for passing to external systems (e.g., workflow engines).
@@ -433,7 +437,7 @@ export class ThreadImpl<TState = Record<string, unknown>>
             : {}),
           ...(data.options.endWith ? { stopBlocks: data.options.endWith } : {}),
         };
-        await this.handleStream(data.stream, streamOptions);
+        await this.handleStream(data.stream, streamOptions, true);
         return message;
       }
       await this.handlePostableObject(message);
@@ -597,8 +601,19 @@ export class ThreadImpl<TState = Record<string, unknown>>
    */
   private async handleStream(
     rawStream: AsyncIterable<string | StreamChunk | StreamEvent>,
-    callerOptions?: StreamOptions
-  ): Promise<SentMessage> {
+    callerOptions: StreamOptions | undefined,
+    allowHandledNoMessage: true
+  ): Promise<SentMessage | null>;
+  private async handleStream(
+    rawStream: AsyncIterable<string | StreamChunk | StreamEvent>,
+    callerOptions?: StreamOptions,
+    allowHandledNoMessage?: false
+  ): Promise<SentMessage>;
+  private async handleStream(
+    rawStream: AsyncIterable<string | StreamChunk | StreamEvent>,
+    callerOptions?: StreamOptions,
+    allowHandledNoMessage = false
+  ): Promise<SentMessage | null> {
     // Normalize: handles plain strings, AI SDK fullStream events, and StreamChunk objects
     const textStream = fromFullStream(rawStream);
     // Build streaming options from current message context + caller options
@@ -649,6 +664,14 @@ export class ThreadImpl<TState = Record<string, unknown>>
       };
 
       const raw = await this.adapter.stream(this.id, wrappedStream, options);
+      if (raw === STREAM_HANDLED_NO_MESSAGE) {
+        if (!allowHandledNoMessage) {
+          throw new Error(
+            "STREAM_HANDLED_NO_MESSAGE is only valid for StreamingPlan streams"
+          );
+        }
+        return null;
+      }
       if (raw) {
         const sent = this.createSentMessage(
           raw.id,
