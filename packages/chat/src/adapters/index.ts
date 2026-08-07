@@ -362,6 +362,10 @@ export const ADAPTERS = {
           "Audience used for Workspace Events push verification."
         ),
         env(
+          "GOOGLE_CHAT_PUBSUB_SERVICE_ACCOUNT_EMAIL",
+          "Service account your Pub/Sub push subscription authenticates as. Required to accept Pub/Sub pushes."
+        ),
+        env(
           "GOOGLE_CHAT_WORKSPACE_ADDON_SERVICE_ACCOUNT_EMAIL",
           "Your Workspace Add-on service account identity. Required to accept add-on webhooks."
         ),
