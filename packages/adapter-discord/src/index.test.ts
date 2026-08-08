@@ -1055,6 +1055,7 @@ describe("parseMessage", () => {
     expect(message.attachments?.[0].mimeType).toBe("image/png");
     expect(message.attachments?.[0].width).toBe(800);
     expect(message.attachments?.[0].height).toBe(600);
+    expect(message.attachments?.[0].fetchData).toEqual(expect.any(Function));
   });
 
   it("handles different attachment types", () => {
@@ -3707,7 +3708,14 @@ describe("legacy gateway interactions", () => {
       channel: { isThread: () => false },
       createdAt: new Date("2021-01-01T00:00:00.000Z"),
       editedAt: null,
-      attachments: [],
+      attachments: [
+        {
+          contentType: "audio/ogg",
+          url: "https://cdn.discordapp.com/attachments/1/2/voice.ogg",
+          name: "voice.ogg",
+          size: 1234,
+        },
+      ],
     });
     await waitForGatewayHandlers();
 
@@ -3719,7 +3727,12 @@ describe("legacy gateway interactions", () => {
     expect(chat.handleIncomingMessage).toHaveBeenCalledWith(
       adapter,
       "discord:guild1:channel456:thread789",
-      expect.objectContaining({ isMention: true })
+      expect.objectContaining({
+        isMention: true,
+        attachments: [
+          expect.objectContaining({ fetchData: expect.any(Function) }),
+        ],
+      })
     );
   });
 
@@ -3952,7 +3965,15 @@ describe("handleWebhook - forwarded gateway events", () => {
           bot: false,
         },
         mentions: [],
-        attachments: [],
+        attachments: [
+          {
+            id: "attachment123",
+            filename: "voice.ogg",
+            size: 1234,
+            url: "https://cdn.discordapp.com/attachments/1/2/voice.ogg",
+            content_type: "audio/ogg",
+          },
+        ],
       },
     });
 
@@ -3967,7 +3988,15 @@ describe("handleWebhook - forwarded gateway events", () => {
 
     const response = await adapter.handleWebhook(request);
     expect(response.status).toBe(200);
-    expect(chat.handleIncomingMessage).toHaveBeenCalled();
+    expect(chat.handleIncomingMessage).toHaveBeenCalledWith(
+      adapter,
+      expect.any(String),
+      expect.objectContaining({
+        attachments: [
+          expect.objectContaining({ fetchData: expect.any(Function) }),
+        ],
+      })
+    );
   });
 
   it("handles GATEWAY_MESSAGE_REACTION_ADD event", async () => {
