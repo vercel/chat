@@ -503,7 +503,7 @@ describe("GoogleChatAdapter", () => {
       const data = await msg.attachments[0].fetchData?.();
       expect(data).toBeInstanceOf(Buffer);
       expect(mockDownload).toHaveBeenCalledWith(
-        { resourceName: "spaces/ABC123/attachments/att1" },
+        { resourceName: "spaces/ABC123/attachments/att1", alt: "media" },
         { responseType: "arraybuffer" }
       );
     });
@@ -536,7 +536,7 @@ describe("GoogleChatAdapter", () => {
       const data = await msg.attachments[0].fetchData?.();
       expect(data).toBeInstanceOf(Buffer);
       expect(mockDownload).toHaveBeenCalledWith(
-        { resourceName: "spaces/ABC123/attachments/att1" },
+        { resourceName: "spaces/ABC123/attachments/att1", alt: "media" },
         { responseType: "arraybuffer" }
       );
     });
