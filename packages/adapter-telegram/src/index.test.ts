@@ -393,6 +393,148 @@ describe("TelegramAdapter", () => {
     ).toBe(false);
   });
 
+  it("deduplicates sequential and concurrent webhook updates", async () => {
+    mockFetch.mockResolvedValue(
+      telegramOk({
+        id: 999,
+        is_bot: true,
+        first_name: "Bot",
+        username: "mybot",
+      })
+    );
+
+    const state = createMockState();
+    const adapters = [0, 1].map(() =>
+      createTelegramAdapter({
+        botToken: "token",
+        mode: "webhook",
+        logger: mockLogger,
+        userName: "mybot",
+      })
+    );
+    const chats = [0, 1].map(() =>
+      createMockChatInstance({ logger: mockLogger, state, userName: "mybot" })
+    );
+    await Promise.all(
+      adapters.map((adapter, index) => adapter.initialize(chats[index]))
+    );
+
+    const request = (updateId: number) =>
+      new Request("https://example.com/webhook", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ update_id: updateId, message: sampleMessage() }),
+      });
+    const dispatchCount = () =>
+      chats.reduce(
+        (count, chat) =>
+          count +
+          (chat.processMessage as ReturnType<typeof vi.fn>).mock.calls.length,
+        0
+      );
+
+    const firstResponse = await adapters[0]?.handleWebhook(request(1));
+    const duplicateResponse = await adapters[1]?.handleWebhook(request(1));
+    expect(firstResponse?.status).toBe(200);
+    expect(duplicateResponse?.status).toBe(200);
+    expect(dispatchCount()).toBe(1);
+
+    const concurrentResponses = await Promise.all(
+      adapters.map((adapter) => adapter.handleWebhook(request(2)))
+    );
+    expect(concurrentResponses.map(({ status }) => status)).toEqual([200, 200]);
+    expect(dispatchCount()).toBe(2);
+  });
+
+  it("dispatches distinct and missing webhook update IDs", async () => {
+    mockFetch.mockResolvedValue(
+      telegramOk({
+        id: 999,
+        is_bot: true,
+        first_name: "Bot",
+        username: "mybot",
+      })
+    );
+
+    const adapter = createTelegramAdapter({
+      botToken: "token",
+      mode: "webhook",
+      logger: mockLogger,
+      userName: "mybot",
+    });
+    const state = createMockState();
+    const chat = createMockChatInstance({
+      logger: mockLogger,
+      state,
+      userName: "mybot",
+    });
+    await adapter.initialize(chat);
+
+    const updates = [
+      { update_id: 1, message: sampleMessage() },
+      { update_id: 2, message: sampleMessage() },
+      { message: sampleMessage() },
+    ];
+    await Promise.all(
+      updates.map((update) =>
+        adapter.handleWebhook(
+          new Request("https://example.com/webhook", {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify(update),
+          })
+        )
+      )
+    );
+
+    expect(chat.processMessage).toHaveBeenCalledTimes(3);
+    expect(state.setIfNotExists).toHaveBeenCalledTimes(2);
+    expect(state.setIfNotExists).toHaveBeenCalledWith(
+      "telegram:webhook-update:1",
+      true,
+      86_400_000
+    );
+  });
+
+  it("returns 503 without dispatch when the deduplication state fails", async () => {
+    mockFetch.mockResolvedValue(
+      telegramOk({
+        id: 999,
+        is_bot: true,
+        first_name: "Bot",
+        username: "mybot",
+      })
+    );
+
+    const state = createMockState();
+    vi.spyOn(state, "setIfNotExists").mockRejectedValue(
+      new Error("state unavailable")
+    );
+    const adapter = createTelegramAdapter({
+      botToken: "token",
+      mode: "webhook",
+      logger: mockLogger,
+      userName: "mybot",
+    });
+    const chat = createMockChatInstance({
+      logger: mockLogger,
+      state,
+      userName: "mybot",
+    });
+    await adapter.initialize(chat);
+
+    const response = await adapter.handleWebhook(
+      new Request("https://example.com/webhook", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ update_id: 1, message: sampleMessage() }),
+      })
+    );
+
+    expect(response.status).toBe(503);
+    expect(chat.processMessage).not.toHaveBeenCalled();
+  });
+
   it("combines an incoming media group into one ordered message", async () => {
     vi.useFakeTimers();
     mockFetch.mockResolvedValue(
