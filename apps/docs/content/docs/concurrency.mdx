@@ -7,6 +7,7 @@ prerequisites:
 related:
   - /docs/state-adapters
   - /docs/streaming
+  - /docs/error-handling
 ---
 
 When multiple messages arrive on the same thread while a handler is still processing, the SDK needs a strategy. By default, the incoming message is dropped. The `concurrency` option on `ChatConfig` lets you choose what happens instead.

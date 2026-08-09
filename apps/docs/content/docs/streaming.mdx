@@ -4,6 +4,10 @@ description: Stream real-time text responses from AI models and other async sour
 type: guide
 prerequisites:
   - /docs/usage
+related:
+  - /docs/api/markdown
+  - /docs/concurrency
+  - /docs/ai
 ---
 
 Chat SDK accepts any `AsyncIterable<string>` as a message, enabling real-time streaming of AI responses and other incremental content to chat platforms. For platforms with native or structured streaming support, you can also stream `StreamChunk` objects for rich content like task progress cards and plan updates.
