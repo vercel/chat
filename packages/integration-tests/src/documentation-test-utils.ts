@@ -147,6 +147,7 @@ export const VALID_DOC_PACKAGES = [
   "chat",
   "chat/ai",
   "chat/adapters",
+  "chat/serialization",
   "chat/workflow",
   "workflow",
   "workflow/api",

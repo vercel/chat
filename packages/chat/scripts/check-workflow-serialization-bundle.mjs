@@ -1,17 +1,12 @@
 import { spawnSync } from "node:child_process";
 import { copyFile, mkdtemp, readdir, readFile, rm } from "node:fs/promises";
-import { builtinModules } from "node:module";
+import { isBuiltin } from "node:module";
 import { basename, dirname, extname, join, resolve } from "node:path";
+import { init, parse } from "es-module-lexer";
 
 const packageDirectory = resolve(import.meta.dirname, "..");
 const distDirectory = join(packageDirectory, "dist");
-const builtinSpecifiers = new Set([
-  ...builtinModules,
-  ...builtinModules.map((moduleName) => `node:${moduleName}`),
-]);
 const serializerRegistrationPattern = /static \[WORKFLOW_SERIALIZE\d*\]/u;
-const staticImportPattern =
-  /(?:import|export)\s+(?:[^"']*?\s+from\s+)?["']([^"']+)["']/gu;
 
 const files = await readdir(distDirectory, { recursive: true });
 const javascriptFiles = files
@@ -33,6 +28,8 @@ if (serializerFiles.length === 0) {
   );
 }
 
+await init;
+
 const visited = new Set();
 const queue = [...serializerFiles];
 while (queue.length > 0) {
@@ -49,12 +46,12 @@ while (queue.length > 0) {
     );
   }
 
-  for (const match of source.matchAll(staticImportPattern)) {
-    const specifier = match[1];
-    if (!specifier) {
+  const [imports] = parse(source);
+  for (const { d: dynamicImportStart, n: specifier } of imports) {
+    if (dynamicImportStart !== -1 || !specifier) {
       continue;
     }
-    if (builtinSpecifiers.has(specifier)) {
+    if (isBuiltin(specifier)) {
       throw new Error(
         `Workflow serializer bundle imports Node.js builtin "${specifier}" from ${basename(file)}`
       );

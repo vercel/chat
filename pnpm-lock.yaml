@@ -821,6 +821,9 @@ importers:
       ai:
         specifier: ^7.0.0
         version: 7.0.17(zod@4.3.6)
+      es-module-lexer:
+        specifier: ^2.3.0
+        version: 2.3.0
       tsup:
         specifier: ^8.3.5
         version: 8.5.1(@swc/core@1.15.3)(jiti@2.7.0)(postcss@8.5.25)(tsx@4.22.3)(typescript@5.9.3)(yaml@2.9.0)
