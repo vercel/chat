@@ -1,8 +1,10 @@
-import { readdir, readFile } from "node:fs/promises";
+import { spawnSync } from "node:child_process";
+import { copyFile, mkdtemp, readdir, readFile, rm } from "node:fs/promises";
 import { builtinModules } from "node:module";
 import { basename, dirname, extname, join, resolve } from "node:path";
 
-const distDirectory = resolve(import.meta.dirname, "../dist");
+const packageDirectory = resolve(import.meta.dirname, "..");
+const distDirectory = join(packageDirectory, "dist");
 const builtinSpecifiers = new Set([
   ...builtinModules,
   ...builtinModules.map((moduleName) => `node:${moduleName}`),
@@ -66,4 +68,34 @@ while (queue.length > 0) {
       queue.push(importedFile);
     }
   }
+}
+
+const fixtureDirectory = await mkdtemp(
+  join(packageDirectory, ".workflow-serialization-repro-")
+);
+try {
+  await copyFile(
+    join(packageDirectory, "fixtures/workflow-serialization.ts"),
+    join(fixtureDirectory, "workflow.ts")
+  );
+
+  const workflowExecutable = join(
+    packageDirectory,
+    "node_modules/.bin/workflow"
+  );
+  const result = spawnSync(workflowExecutable, ["build"], {
+    cwd: fixtureDirectory,
+    encoding: "utf8",
+  });
+  const output = `${result.stdout ?? ""}${result.stderr ?? ""}`;
+  if (result.status !== 0) {
+    throw new Error(`Workflow serialization reproduction failed:\n${output}`);
+  }
+  if (/async_hooks|Serde warning/u.test(output)) {
+    throw new Error(
+      `Workflow serialization reproduction emitted a Node builtin warning:\n${output}`
+    );
+  }
+} finally {
+  await rm(fixtureDirectory, { recursive: true, force: true });
 }
