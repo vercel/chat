@@ -44,8 +44,9 @@ export interface ProjectConfig extends AdapterSelection {
    */
   shouldInstall: boolean;
   /**
-   * Authenticate Connect-capable adapters (Slack, GitHub, Linear) with Vercel
-   * Connect instead of native provider secrets. Defaults to `false`.
+   * Authenticate Connect-capable adapters (Slack, Discord, GitHub, Linear)
+   * with Vercel Connect instead of native provider secrets. Defaults to
+   * `false`.
    */
   useConnect?: boolean;
 }

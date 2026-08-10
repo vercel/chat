@@ -1,10 +1,11 @@
 ---
 title: Vercel Connect
-description: Authenticate Slack, GitHub, and Linear adapters with Vercel Connect — short-lived runtime tokens for outbound calls and OIDC-verified inbound webhooks, with no stored provider secrets.
+description: Authenticate Slack, Discord, GitHub, and Linear adapters with Vercel Connect — short-lived runtime tokens for outbound calls and OIDC-verified inbound webhooks, with no stored provider secrets.
 type: overview
 related:
   - /docs/usage
   - /adapters/official/slack
+  - /adapters/official/discord
   - /adapters/official/github
   - /adapters/official/linear
 ---
@@ -14,6 +15,7 @@ related:
 The `@vercel/connect/chat` subpath ships a helper per platform that you spread into the matching `create*Adapter` factory:
 
 - `connectSlackAdapter`
+- `connectDiscordAdapter`
 - `connectGitHubAdapter`
 - `connectLinearAdapter`
 
@@ -39,6 +41,7 @@ pnpm add @vercel/connect
 | Adapter | Helper | Outbound field |
 |---------|--------|----------------|
 | [Slack](/adapters/official/slack) | `connectSlackAdapter` | `botToken` |
+| [Discord](/adapters/official/discord) | `connectDiscordAdapter` | `botToken`, `applicationId` |
 | [GitHub](/adapters/official/github) | `connectGitHubAdapter` | `installationToken` |
 | [Linear](/adapters/official/linear) | `connectLinearAdapter` | `accessToken` |
 
@@ -89,6 +92,22 @@ export const bot = new Chat({
 ```
 
 Replace `slack/acme-slack` with your connector UID from the Connect dashboard or `vercel connect list`. Omit `signingSecret` / `SLACK_SIGNING_SECRET` when using the helper — the OIDC `webhookVerifier` is the freshness boundary.
+
+### Discord
+
+```typescript title="lib/bot.ts" lineNumbers
+import { createDiscordAdapter } from "@chat-adapter/discord";
+import { connectDiscordAdapter } from "@vercel/connect/chat";
+
+createDiscordAdapter({
+  ...connectDiscordAdapter("discord/acme-discord"),
+});
+```
+
+The helper resolves `botToken` and `applicationId` from one Connect token
+response. Omit `DISCORD_BOT_TOKEN`, `DISCORD_PUBLIC_KEY`, and
+`DISCORD_APPLICATION_ID` — Connect OIDC verification replaces Discord's
+Ed25519 public-key check for trigger-forwarded interactions.
 
 ### GitHub
 

@@ -20,13 +20,24 @@ export enum DiscordContentFormat {
   Embeds = "embeds",
 }
 
+/**
+ * Custom webhook verifier used in place of Discord's Ed25519 public key.
+ *
+ * Receives the incoming request and its raw body. Return a truthy value
+ * to accept the request; throw or return a falsy value to reject it.
+ */
+export type DiscordWebhookVerifier = (
+  request: Request,
+  body: string
+) => Promise<unknown> | unknown;
+
 export interface DiscordAdapterConfig {
   /** Override the Discord API base URL. Defaults to DISCORD_API_URL env var or "https://discord.com/api/v10". */
   apiUrl?: string;
-  /** Discord application ID. Defaults to DISCORD_APPLICATION_ID env var. */
-  applicationId?: string;
-  /** Discord bot token. Defaults to DISCORD_BOT_TOKEN env var. */
-  botToken?: string;
+  /** Discord application ID or resolver. Defaults to DISCORD_APPLICATION_ID env var. */
+  applicationId?: string | (() => string | Promise<string>);
+  /** Discord bot token or resolver invoked per API call. Defaults to DISCORD_BOT_TOKEN env var. */
+  botToken?: string | (() => string | Promise<string>);
   /** Render Discord card content as embeds or Components v2. Defaults to DiscordContentFormat.Embeds. */
   contentFormat?: DiscordContentFormat;
   /** Return interaction flags for the initial deferred slash command response. */
@@ -45,6 +56,8 @@ export interface DiscordAdapterConfig {
   respondToGlobalMentions?: boolean;
   /** Override bot username (optional) */
   userName?: string;
+  /** Custom webhook verifier used instead of Discord's Ed25519 public key. */
+  webhookVerifier?: DiscordWebhookVerifier;
 }
 
 /**

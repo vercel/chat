@@ -116,6 +116,45 @@ describe("CLI Vercel Connect mode", () => {
     expect(envExample).toContain("SLACK_CONNECTOR=");
     expect(envExample).not.toContain("SLACK_SIGNING_SECRET=");
   });
+
+  it("scaffolds Discord with Vercel Connect when --connect is passed", async () => {
+    process.exitCode = undefined;
+    const program = createProgram();
+    await program.parseAsync([
+      "node",
+      "create-chat-sdk",
+      "connect-discord-bot",
+      "--adapter",
+      "discord",
+      "memory",
+      "--connect",
+      "-yq",
+      "--skip-install",
+      "--no-git",
+    ]);
+
+    expect(process.exitCode).toBeUndefined();
+
+    const botTs = readProjectFile("connect-discord-bot", "src/lib/bot.ts");
+    expect(botTs).toContain(
+      'import { connectDiscordAdapter } from "@vercel/connect/chat";'
+    );
+    expect(botTs).toContain(
+      '...connectDiscordAdapter(requireEnv("DISCORD_CONNECTOR")),'
+    );
+
+    const packageJson = JSON.parse(
+      readProjectFile("connect-discord-bot", "package.json")
+    ) as { dependencies?: Record<string, string> };
+    expect(packageJson.dependencies?.["@vercel/connect"]).toBe("latest");
+
+    const envExample = readProjectFile("connect-discord-bot", ".env.example");
+    expect(envExample).toContain("DISCORD_CONNECTOR=");
+    expect(envExample).toContain("CRON_SECRET=");
+    expect(envExample).not.toContain("DISCORD_BOT_TOKEN=");
+    expect(envExample).not.toContain("DISCORD_PUBLIC_KEY=");
+    expect(envExample).not.toContain("DISCORD_APPLICATION_ID=");
+  });
 });
 
 describe("CLI agent mode", () => {

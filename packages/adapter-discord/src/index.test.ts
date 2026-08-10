@@ -143,8 +143,48 @@ describe("constructor env var resolution", () => {
 
   it("should throw when publicKey is missing and env var not set", () => {
     expect(() => new DiscordAdapter({ botToken: "test" })).toThrow(
-      "publicKey is required"
+      "publicKey or webhookVerifier is required"
     );
+  });
+
+  it("accepts resolver credentials with a custom webhook verifier", async () => {
+    const botToken = vi.fn().mockResolvedValue("resolved-token");
+    const applicationId = vi.fn().mockResolvedValue("resolved-app-id");
+    const adapter = new DiscordAdapter({
+      botToken,
+      applicationId,
+      webhookVerifier: () => true,
+      logger: mockLogger,
+    });
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          id: "user-id",
+          username: "test-user",
+          global_name: "Test User",
+        }),
+        { status: 200, headers: { "Content-Type": "application/json" } }
+      )
+    );
+
+    try {
+      await adapter.initialize(createMockChatInstance());
+      await adapter.getUser("user-id");
+
+      expect(adapter.botUserId).toBe("resolved-app-id");
+      expect(applicationId).toHaveBeenCalledTimes(1);
+      expect(botToken).toHaveBeenCalledTimes(1);
+      expect(fetchSpy).toHaveBeenCalledWith(
+        "https://discord.com/api/v10/users/user-id",
+        expect.objectContaining({
+          headers: expect.objectContaining({
+            Authorization: "Bot resolved-token",
+          }),
+        })
+      );
+    } finally {
+      fetchSpy.mockRestore();
+    }
   });
 
   it("should throw when applicationId is missing and env var not set", () => {
@@ -355,6 +395,66 @@ describe("handleWebhook - signature verification", () => {
 
     const response = await adapter.handleWebhook(request);
     expect(response.status).toBe(200);
+  });
+});
+
+describe("handleWebhook - custom webhook verifier", () => {
+  it("uses the custom verifier without Discord signature headers", async () => {
+    const verifier = vi.fn().mockResolvedValue(true);
+    const adapter = createDiscordAdapter({
+      botToken: "test-token",
+      applicationId: async () => "test-app-id",
+      webhookVerifier: verifier,
+      logger: mockLogger,
+    });
+    const body = JSON.stringify({ type: InteractionType.Ping });
+    const request = new Request("https://example.com/webhook", {
+      method: "POST",
+      headers: { authorization: "Bearer connect-token" },
+      body,
+    });
+
+    const response = await adapter.handleWebhook(request);
+
+    expect(response.status).toBe(200);
+    expect(verifier).toHaveBeenCalledWith(request, body);
+    expect(adapter.botUserId).toBe("test-app-id");
+  });
+
+  it("rejects requests when the custom verifier returns a falsy value", async () => {
+    const adapter = createDiscordAdapter({
+      botToken: "test-token",
+      applicationId: "test-app-id",
+      webhookVerifier: () => false,
+      logger: mockLogger,
+    });
+    const request = new Request("https://example.com/webhook", {
+      method: "POST",
+      body: JSON.stringify({ type: InteractionType.Ping }),
+    });
+
+    const response = await adapter.handleWebhook(request);
+
+    expect(response.status).toBe(401);
+  });
+
+  it("rejects requests when the custom verifier throws", async () => {
+    const adapter = createDiscordAdapter({
+      botToken: "test-token",
+      applicationId: "test-app-id",
+      webhookVerifier: () => {
+        throw new Error("invalid OIDC token");
+      },
+      logger: mockLogger,
+    });
+    const request = new Request("https://example.com/webhook", {
+      method: "POST",
+      body: JSON.stringify({ type: InteractionType.Ping }),
+    });
+
+    const response = await adapter.handleWebhook(request);
+
+    expect(response.status).toBe(401);
   });
 });
 
@@ -747,6 +847,57 @@ describe("handleWebhook - APPLICATION_COMMAND", () => {
         expect.objectContaining({
           method: "PATCH",
         })
+      );
+    } finally {
+      fetchSpy.mockRestore();
+    }
+  });
+
+  it("uses a resolved application ID for interaction webhook responses", async () => {
+    const applicationId = vi.fn().mockResolvedValue("resolved-app-id");
+    const resolverAdapter = createDiscordAdapter({
+      botToken: "test-token",
+      applicationId,
+      webhookVerifier: () => true,
+      logger: mockLogger,
+    });
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(JSON.stringify({ id: "msg123" }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      })
+    );
+
+    try {
+      await resolverAdapter.initialize(createMockChatInstance());
+      await (
+        resolverAdapter as unknown as {
+          postSlashCommandResponse: (
+            context: {
+              channelId: string;
+              initialResponseSent: boolean;
+              interactionToken: string;
+            },
+            threadId: string,
+            payload: { content: string },
+            files: []
+          ) => Promise<unknown>;
+        }
+      ).postSlashCommandResponse(
+        {
+          channelId: "discord:guild123:channel456",
+          initialResponseSent: false,
+          interactionToken: "interaction-token",
+        },
+        "discord:guild123:channel456",
+        { content: "Pong!" },
+        []
+      );
+
+      expect(applicationId).toHaveBeenCalledTimes(1);
+      expect(fetchSpy).toHaveBeenCalledWith(
+        "https://discord.com/api/v10/webhooks/resolved-app-id/interaction-token/messages/@original",
+        expect.objectContaining({ method: "PATCH" })
       );
     } finally {
       fetchSpy.mockRestore();
@@ -3917,6 +4068,35 @@ describe("handleWebhook - forwarded gateway events", () => {
 
     const response = await adapter.handleWebhook(request);
     expect(response.status).toBe(200);
+  });
+
+  it("validates forwarded events with resolved credentials", async () => {
+    const botToken = vi.fn().mockResolvedValue("resolved-token");
+    const applicationId = vi.fn().mockResolvedValue("resolved-app-id");
+    const resolverAdapter = createDiscordAdapter({
+      botToken,
+      applicationId,
+      webhookVerifier: () => true,
+      logger: mockLogger,
+    });
+    const request = new Request("https://example.com/webhook", {
+      method: "POST",
+      headers: {
+        "x-discord-gateway-token": "resolved-token",
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({
+        type: "GATEWAY_UNKNOWN_EVENT",
+        timestamp: Date.now(),
+        data: {},
+      }),
+    });
+
+    const response = await resolverAdapter.handleWebhook(request);
+
+    expect(response.status).toBe(200);
+    expect(botToken).toHaveBeenCalledTimes(1);
+    expect(applicationId).toHaveBeenCalledTimes(1);
   });
 
   it("returns 400 for invalid JSON in forwarded events", async () => {

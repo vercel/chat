@@ -2,7 +2,8 @@
  * Discord adapter for chat-sdk.
  *
  * Uses Discord's HTTP Interactions API (not Gateway WebSocket) for
- * serverless compatibility. Webhook signature verification uses Ed25519.
+ * serverless compatibility. Webhooks use Ed25519 verification by default,
+ * or a custom verifier for services such as Vercel Connect.
  */
 
 import { AsyncLocalStorage } from "node:async_hooks";
@@ -90,6 +91,7 @@ import {
   type DiscordSlashCommandContext,
   type DiscordThreadId,
   type DiscordUser,
+  type DiscordWebhookVerifier,
   InteractionResponseType,
 } from "./types";
 
@@ -111,15 +113,26 @@ interface DiscordFileUpload {
   mimeType?: string;
 }
 
+function normalizeCredentialProvider(
+  value: string | (() => string | Promise<string>)
+): () => Promise<string> {
+  if (typeof value === "function") {
+    return async () => await value();
+  }
+  return () => Promise.resolve(value);
+}
+
 export class DiscordAdapter implements Adapter<DiscordThreadId, unknown> {
   readonly name = "discord";
   readonly userName: string;
-  readonly botUserId?: string;
 
   protected readonly apiBaseUrl: string;
-  protected readonly botToken: string;
-  protected readonly publicKey: string;
-  protected readonly applicationId: string;
+  protected readonly botTokenProvider: () => Promise<string>;
+  protected readonly applicationIdProvider: () => Promise<string>;
+  protected readonly publicKey?: string;
+  protected readonly webhookVerifier?: DiscordWebhookVerifier;
+  protected resolvedApplicationId?: string;
+  protected pendingApplicationId?: Promise<string>;
   protected readonly mentionRoleIds: string[];
   protected readonly contentFormat: DiscordContentFormat;
   protected readonly respondToChannelIds: string[];
@@ -136,6 +149,20 @@ export class DiscordAdapter implements Adapter<DiscordThreadId, unknown> {
   >();
   protected static readonly THREAD_PARENT_CACHE_TTL = 5 * 60 * 1000;
 
+  get botUserId(): string | undefined {
+    return this.resolvedApplicationId;
+  }
+
+  protected get applicationId(): string {
+    if (!this.resolvedApplicationId) {
+      throw new ValidationError(
+        "discord",
+        "applicationId has not been resolved. Ensure chat.initialize() has completed."
+      );
+    }
+    return this.resolvedApplicationId;
+  }
+
   constructor(config: DiscordAdapterConfig = {}) {
     const botToken = config.botToken ?? process.env.DISCORD_BOT_TOKEN;
     if (!botToken) {
@@ -144,11 +171,14 @@ export class DiscordAdapter implements Adapter<DiscordThreadId, unknown> {
         "botToken is required. Set DISCORD_BOT_TOKEN or provide it in config."
       );
     }
-    const publicKey = config.publicKey ?? process.env.DISCORD_PUBLIC_KEY;
-    if (!publicKey) {
+    const webhookVerifier = config.webhookVerifier;
+    const publicKey = webhookVerifier
+      ? undefined
+      : (config.publicKey ?? process.env.DISCORD_PUBLIC_KEY);
+    if (!(publicKey || webhookVerifier)) {
       throw new ValidationError(
         "discord",
-        "publicKey is required. Set DISCORD_PUBLIC_KEY or provide it in config."
+        "publicKey or webhookVerifier is required. Set DISCORD_PUBLIC_KEY, provide publicKey in config, or provide a webhookVerifier."
       );
     }
     const applicationId =
@@ -162,9 +192,12 @@ export class DiscordAdapter implements Adapter<DiscordThreadId, unknown> {
 
     this.apiBaseUrl =
       config.apiUrl ?? process.env.DISCORD_API_URL ?? DISCORD_API_BASE;
-    this.botToken = botToken;
-    this.publicKey = publicKey.trim().toLowerCase();
-    this.applicationId = applicationId;
+    this.botTokenProvider = normalizeCredentialProvider(botToken);
+    this.applicationIdProvider = normalizeCredentialProvider(applicationId);
+    this.resolvedApplicationId =
+      typeof applicationId === "string" ? applicationId : undefined;
+    this.publicKey = publicKey?.trim().toLowerCase();
+    this.webhookVerifier = webhookVerifier;
     this.mentionRoleIds =
       config.mentionRoleIds ??
       (process.env.DISCORD_MENTION_ROLE_IDS
@@ -189,14 +222,13 @@ export class DiscordAdapter implements Adapter<DiscordThreadId, unknown> {
           )
         : []);
     this.respondToGlobalMentions = config.respondToGlobalMentions ?? false;
-    this.botUserId = applicationId; // Discord app ID is the bot's user ID
     this.contentFormat = contentFormat;
     this.interactionFlags = config.interactionFlags;
     this.logger = config.logger ?? new ConsoleLogger("info").child("discord");
     this.userName = config.userName ?? "bot";
 
     // Validate public key format
-    if (!HEX_64_PATTERN.test(this.publicKey)) {
+    if (this.publicKey && !HEX_64_PATTERN.test(this.publicKey)) {
       this.logger.error("Invalid Discord public key format", {
         length: this.publicKey.length,
         isHex: HEX_PATTERN.test(this.publicKey),
@@ -205,8 +237,43 @@ export class DiscordAdapter implements Adapter<DiscordThreadId, unknown> {
   }
 
   async initialize(chat: ChatInstance): Promise<void> {
+    await this.resolveApplicationId();
     this.chat = chat;
     this.logger.info("Discord adapter initialized");
+  }
+
+  protected async resolveBotToken(): Promise<string> {
+    const botToken = await this.botTokenProvider();
+    if (!botToken) {
+      throw new ValidationError(
+        "discord",
+        "botToken resolver returned an empty token."
+      );
+    }
+    return botToken;
+  }
+
+  protected async resolveApplicationId(): Promise<string> {
+    if (this.resolvedApplicationId) {
+      return this.resolvedApplicationId;
+    }
+    if (!this.pendingApplicationId) {
+      this.pendingApplicationId = this.applicationIdProvider()
+        .then((applicationId) => {
+          if (!applicationId) {
+            throw new ValidationError(
+              "discord",
+              "applicationId resolver returned an empty application ID."
+            );
+          }
+          this.resolvedApplicationId = applicationId;
+          return applicationId;
+        })
+        .finally(() => {
+          this.pendingApplicationId = undefined;
+        });
+    }
+    return this.pendingApplicationId;
   }
 
   async getUser(userId: string): Promise<UserInfo | null> {
@@ -243,7 +310,11 @@ export class DiscordAdapter implements Adapter<DiscordThreadId, unknown> {
     // Check if this is a forwarded Gateway event (uses bot token for auth)
     const gatewayToken = request.headers.get("x-discord-gateway-token");
     if (gatewayToken) {
-      if (gatewayToken !== this.botToken) {
+      const [, botToken] = await Promise.all([
+        this.resolveApplicationId(),
+        this.resolveBotToken(),
+      ]);
+      if (gatewayToken !== botToken) {
         this.logger.warn("Invalid gateway token");
         return new Response("Invalid gateway token", { status: 401 });
       }
@@ -256,6 +327,8 @@ export class DiscordAdapter implements Adapter<DiscordThreadId, unknown> {
       }
     }
 
+    await this.resolveApplicationId();
+
     this.logger.info("Discord webhook received", {
       bodyLength: body.length,
       bodyBytesLength: bodyBytes.length,
@@ -263,20 +336,35 @@ export class DiscordAdapter implements Adapter<DiscordThreadId, unknown> {
       hasTimestamp: !!request.headers.get("x-signature-timestamp"),
     });
 
-    // Verify Ed25519 signature using raw bytes
-    const signature = request.headers.get("x-signature-ed25519");
-    const timestamp = request.headers.get("x-signature-timestamp");
-
-    const signatureValid = await this.verifySignature(
-      bodyBytes,
-      signature,
-      timestamp
-    );
-    if (!signatureValid) {
-      this.logger.warn("Discord signature verification failed, returning 401");
-      return new Response("Invalid signature", { status: 401 });
+    if (this.webhookVerifier) {
+      let verified: unknown;
+      try {
+        verified = await this.webhookVerifier(request, body);
+      } catch (error) {
+        this.logger.warn("Discord webhook verifier rejected the request", {
+          error,
+        });
+        return new Response("Invalid signature", { status: 401 });
+      }
+      if (!verified) {
+        return new Response("Invalid signature", { status: 401 });
+      }
+    } else {
+      const signature = request.headers.get("x-signature-ed25519");
+      const timestamp = request.headers.get("x-signature-timestamp");
+      const signatureValid = await this.verifySignature(
+        bodyBytes,
+        signature,
+        timestamp
+      );
+      if (!signatureValid) {
+        this.logger.warn(
+          "Discord signature verification failed, returning 401"
+        );
+        return new Response("Invalid signature", { status: 401 });
+      }
+      this.logger.info("Discord signature verification passed");
     }
-    this.logger.info("Discord signature verification passed");
 
     let interaction: DiscordInteraction;
     try {
@@ -339,6 +427,9 @@ export class DiscordAdapter implements Adapter<DiscordThreadId, unknown> {
     signature: string | null,
     timestamp: string | null
   ): Promise<boolean> {
+    if (!this.publicKey) {
+      return false;
+    }
     if (!(signature && timestamp)) {
       this.logger.warn(
         "Discord signature verification failed: missing headers",
@@ -1348,6 +1439,7 @@ export class DiscordAdapter implements Adapter<DiscordThreadId, unknown> {
     payload: DiscordMessagePayload,
     files: DiscordFileUpload[]
   ): Promise<RawMessage<unknown>> {
+    const botToken = await this.resolveBotToken();
     const formData = new FormData();
 
     // Add JSON payload
@@ -1376,7 +1468,7 @@ export class DiscordAdapter implements Adapter<DiscordThreadId, unknown> {
       {
         method: "POST",
         headers: {
-          Authorization: `Bot ${this.botToken}`,
+          Authorization: `Bot ${botToken}`,
         },
         body: formData,
       }
@@ -1924,9 +2016,10 @@ export class DiscordAdapter implements Adapter<DiscordThreadId, unknown> {
     method: string,
     body?: unknown
   ): Promise<Response> {
+    const botToken = await this.resolveBotToken();
     const url = `${this.apiBaseUrl}${path}`;
     const headers: Record<string, string> = {
-      Authorization: `Bot ${this.botToken}`,
+      Authorization: `Bot ${botToken}`,
     };
 
     if (body) {
@@ -2110,7 +2203,7 @@ export class DiscordAdapter implements Adapter<DiscordThreadId, unknown> {
 
     try {
       // Login to Discord
-      await client.login(this.botToken);
+      await client.login(await this.resolveBotToken());
 
       // Wait for either: duration timeout OR abort signal
       await new Promise<void>((resolve) => {
@@ -2312,6 +2405,7 @@ export class DiscordAdapter implements Adapter<DiscordThreadId, unknown> {
     event: DiscordForwardedEvent
   ): Promise<void> {
     try {
+      const botToken = await this.resolveBotToken();
       this.logger.debug("Forwarding Gateway event to webhook", {
         type: event.type,
         webhookUrl,
@@ -2321,7 +2415,7 @@ export class DiscordAdapter implements Adapter<DiscordThreadId, unknown> {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          "x-discord-gateway-token": this.botToken,
+          "x-discord-gateway-token": botToken,
         },
         body: JSON.stringify(event),
       });
@@ -2902,6 +2996,7 @@ export type {
   DiscordMessageFlags,
   DiscordMessageFlagValue,
   DiscordThreadId,
+  DiscordWebhookVerifier,
 } from "./types";
 export {
   DiscordComponentType,

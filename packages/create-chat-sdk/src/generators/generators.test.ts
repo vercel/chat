@@ -113,6 +113,29 @@ describe("Vercel Connect generation", () => {
     );
   });
 
+  it("scaffolds Discord with Connect credentials instead of native secrets", () => {
+    const botTs = generateBotTs(connectConfig(["discord"]));
+    expect(botTs).toContain(
+      'import { connectDiscordAdapter } from "@vercel/connect/chat";'
+    );
+    expect(botTs).toContain("discord: createDiscordAdapter({");
+    expect(botTs).toContain(
+      '...connectDiscordAdapter(requireEnv("DISCORD_CONNECTOR")),'
+    );
+
+    const envExample = generateEnvExample(connectConfig(["discord"]));
+    expect(envExample).toContain("DISCORD_CONNECTOR=");
+    expect(envExample).toContain("CRON_SECRET=");
+    expect(envExample).not.toContain("DISCORD_BOT_TOKEN=");
+    expect(envExample).not.toContain("DISCORD_PUBLIC_KEY=");
+    expect(envExample).not.toContain("DISCORD_APPLICATION_ID=");
+
+    const readme = generateReadme(connectConfig(["discord"]));
+    expect(readme).toContain("authenticates Discord with");
+    expect(readme).toContain("DISCORD_CONNECTOR");
+    expect(readme).toContain("Discord Gateway (cron)");
+  });
+
   it("fails loudly on a missing connector via requireEnv", () => {
     const result = generateBotTs(connectConfig(["slack"]));
     expect(result).toContain("const requireEnv = (name: string): string =>");
@@ -129,15 +152,17 @@ describe("Vercel Connect generation", () => {
   });
 
   it("imports every selected Connect helper, sorted", () => {
-    const result = generateBotTs(connectConfig(["slack", "github", "linear"]));
+    const result = generateBotTs(
+      connectConfig(["slack", "discord", "github", "linear"])
+    );
     expect(result).toContain(
-      'import { connectGitHubAdapter, connectLinearAdapter, connectSlackAdapter } from "@vercel/connect/chat";'
+      'import { connectDiscordAdapter, connectGitHubAdapter, connectLinearAdapter, connectSlackAdapter } from "@vercel/connect/chat";'
     );
   });
 
   it("leaves non-Connect adapters on their native factory calls", () => {
-    const result = generateBotTs(connectConfig(["slack", "discord"]));
-    expect(result).toContain("discord: createDiscordAdapter(),");
+    const result = generateBotTs(connectConfig(["slack", "telegram"]));
+    expect(result).toContain("telegram: createTelegramAdapter(),");
     expect(result).toContain("slack: createSlackAdapter({");
   });
 
@@ -158,7 +183,7 @@ describe("Vercel Connect generation", () => {
   it("does not add @vercel/connect without a Connect-capable adapter", () => {
     const result = generatePackageJson(
       { dependencies: {} },
-      { ...makeConfig(["discord"]), useConnect: true }
+      { ...makeConfig(["telegram"]), useConnect: true }
     );
     expect(result.dependencies?.["@vercel/connect"]).toBeUndefined();
   });
@@ -186,7 +211,7 @@ describe("Vercel Connect generation", () => {
 
   it("omits the README Connect section without a Connect-capable adapter", () => {
     const result = generateReadme({
-      ...makeConfig(["discord"]),
+      ...makeConfig(["telegram"]),
       useConnect: true,
     });
     expect(result).not.toContain("Authentication (Vercel Connect)");

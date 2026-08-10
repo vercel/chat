@@ -100,7 +100,7 @@ When the [Discord adapter](/adapters/official/discord) is selected, the CLI also
 
 ## Vercel Connect
 
-[Vercel Connect](/docs/vercel-connect) lets the Slack, GitHub, and Linear adapters authenticate with a connector instead of stored provider secrets. Pass `--connect` — or choose **Vercel Connect** at the interactive auth-mode prompt — to scaffold Connect wiring for any selected Slack, GitHub, or Linear adapter:
+[Vercel Connect](/docs/vercel-connect) lets the Slack, Discord, GitHub, and Linear adapters authenticate with a connector instead of stored provider secrets. Pass `--connect` — or choose **Vercel Connect** at the interactive auth-mode prompt — to scaffold Connect wiring for any selected Slack, Discord, GitHub, or Linear adapter:
 
 ```bash
 npm create chat-sdk@latest -- my-bot --adapter slack --connect -y
@@ -120,7 +120,7 @@ The generated `src/lib/bot.ts` spreads the matching helper from `@vercel/connect
 | `-d, --description <text>` | Project description. |
 | `--adapter <values...>` | Platform or state adapters to include. |
 | `--vendor` | List only vendor-official adapters in the interactive prompt. |
-| `--connect` | Authenticate Slack, GitHub, and Linear adapters with Vercel Connect. |
+| `--connect` | Authenticate Slack, Discord, GitHub, and Linear adapters with Vercel Connect. |
 | `--pm <manager>` | Package manager to use: `npm`, `yarn`, `pnpm`, or `bun`. |
 | `-y, --yes` | Skip prompts and accept defaults. |
 | `--interactive` | Always prompt, even when a coding agent environment is detected. |

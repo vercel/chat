@@ -75,7 +75,7 @@ export interface AdapterConnectSpec {
 export interface CliScaffoldSpec {
   /**
    * Vercel Connect code-generation policy. Present only for adapters that
-   * support Connect (Slack, GitHub, Linear).
+   * support Connect (Slack, Discord, GitHub, Linear).
    */
   connect?: AdapterConnectSpec;
   /**
@@ -146,6 +146,10 @@ export const CLI_SCAFFOLD_SPEC = {
     },
   },
   discord: {
+    connect: {
+      connectorEnvVar: "DISCORD_CONNECTOR",
+      helper: "connectDiscordAdapter",
+    },
     invocation: { kind: "zero-arg" },
     serverExternalPackages: [
       "discord.js",

@@ -205,7 +205,7 @@ describe("runPrompts", () => {
 
   it("prompts for auth mode and applies Vercel Connect when chosen", async () => {
     vi.mocked(text).mockResolvedValueOnce("my-bot").mockResolvedValueOnce("");
-    vi.mocked(multiselect).mockResolvedValueOnce(["slack"]);
+    vi.mocked(multiselect).mockResolvedValueOnce(["discord"]);
     vi.mocked(select)
       .mockResolvedValueOnce("memory")
       .mockResolvedValueOnce("connect");
@@ -239,7 +239,7 @@ describe("runPrompts", () => {
 
   it("does not prompt for auth mode without a Connect-capable adapter", async () => {
     vi.mocked(text).mockResolvedValueOnce("my-bot").mockResolvedValueOnce("");
-    vi.mocked(multiselect).mockResolvedValueOnce(["discord"]);
+    vi.mocked(multiselect).mockResolvedValueOnce(["telegram"]);
     vi.mocked(select).mockResolvedValueOnce("memory");
     vi.mocked(confirm).mockResolvedValueOnce(true);
 
@@ -254,7 +254,7 @@ describe("runPrompts", () => {
       connect: true,
       name: "my-bot",
       quiet: true,
-      selectedAdapters: ["slack", "memory"],
+      selectedAdapters: ["discord", "memory"],
       yes: true,
     });
 
@@ -266,7 +266,7 @@ describe("runPrompts", () => {
       connect: true,
       name: "my-bot",
       quiet: false,
-      selectedAdapters: ["discord", "memory"],
+      selectedAdapters: ["telegram", "memory"],
       yes: true,
     });
 
