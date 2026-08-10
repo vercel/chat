@@ -1,3 +1,4 @@
+import { Heading } from "fumadocs-ui/components/heading";
 import {
   type AdapterPage,
   adaptersSource,
@@ -55,8 +56,10 @@ export const MoreAdapters = ({ page }: { page: AdapterPage }) => {
   }
 
   return (
-    <section aria-labelledby="more-adapters-heading">
-      <h2 id="more-adapters-heading">More adapters</h2>
+    <section aria-labelledby="more-adapters">
+      <Heading as="h2" id="more-adapters">
+        More adapters
+      </Heading>
       <div className="not-prose grid gap-4 sm:grid-cols-2">
         {picks.map((adapter) => {
           const data = adapter.data as unknown as AdapterCardData;

@@ -1,5 +1,6 @@
 import type { GeistdocsSourceBundle } from "@vercel/geistdocs/source";
 import { Card, Cards } from "fumadocs-ui/components/card";
+import { Heading } from "fumadocs-ui/components/heading";
 import { type LoaderPage, selectReadMore } from "@/lib/read-more";
 
 interface ReadMoreProps {
@@ -19,8 +20,10 @@ export const ReadMore = ({ page, source }: ReadMoreProps) => {
   }
 
   return (
-    <section aria-labelledby="read-more-heading">
-      <h2 id="read-more-heading">Read more</h2>
+    <section aria-labelledby="read-more">
+      <Heading as="h2" id="read-more">
+        Read more
+      </Heading>
       <Cards>
         {pages.map((related) => (
           <Card
