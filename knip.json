@@ -8,6 +8,9 @@
     "examples/nextjs-chat/src/app/.well-known/workflow/**/*"
   ],
   "workspaces": {
+    "packages/chat": {
+      "entry": ["fixtures/workflow-serialization.ts"]
+    },
     "examples/nuxt-chat": {
       "nuxt": {
         "entry": [
