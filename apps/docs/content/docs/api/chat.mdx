@@ -687,7 +687,10 @@ There is also a workflow-safe serialization entrypoint that works without import
 ```typescript
 import { Message, reviver, ThreadImpl } from "chat/serialization";
 
-const data = JSON.parse(payload, reviver) as { thread: Thread; message: Message };
+const data = JSON.parse(payload, reviver) as {
+  thread: ThreadImpl;
+  message: Message;
+};
 ```
 
 `Message`, `ThreadImpl`, and `ChannelImpl` retain their automatic Workflow serialization when imported from either `chat` or `chat/serialization`. The dedicated entrypoint guarantees their serializer module graph does not load the Node-only `Chat` conversation context.
