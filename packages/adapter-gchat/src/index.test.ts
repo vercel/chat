@@ -541,6 +541,84 @@ describe("GoogleChatAdapter", () => {
       );
     });
 
+    it("should fall back to downloadUri fetch when media.download fails", async () => {
+      const { adapter } = await createInitializedAdapter();
+      const mockDownload = vi
+        .fn()
+        .mockRejectedValue(
+          Object.assign(new Error("resource expired"), { code: 403 })
+        );
+      (adapter as any).chatApi = {
+        media: { download: mockDownload },
+      };
+      (adapter as any).authClient = {
+        getAccessToken: vi.fn().mockResolvedValue({ token: "test-token" }),
+      };
+      const mockFetch = vi.fn().mockResolvedValue({
+        ok: true,
+        arrayBuffer: () => Promise.resolve(new ArrayBuffer(4)),
+      });
+      vi.stubGlobal("fetch", mockFetch);
+
+      try {
+        const event = makeMessageEvent({
+          attachment: [
+            {
+              name: "att1",
+              contentName: "photo.png",
+              contentType: "image/png",
+              downloadUri: "https://example.com/photo.png",
+              attachmentDataRef: {
+                resourceName: "spaces/ABC123/attachments/att1",
+              },
+            },
+          ],
+        });
+
+        const msg = adapter.parseMessage(event);
+        const data = await msg.attachments[0].fetchData?.();
+
+        expect(data).toBeInstanceOf(Buffer);
+        expect(mockDownload).toHaveBeenCalledTimes(1);
+        expect(mockFetch).toHaveBeenCalledWith(
+          "https://example.com/photo.png",
+          { headers: { Authorization: "Bearer test-token" } }
+        );
+      } finally {
+        vi.unstubAllGlobals();
+      }
+    });
+
+    it("should throw AdapterRateLimitError when media.download returns 429 and no downloadUri exists", async () => {
+      const { adapter } = await createInitializedAdapter();
+      const mockDownload = vi
+        .fn()
+        .mockRejectedValue(
+          Object.assign(new Error("rate limited"), { code: 429 })
+        );
+      (adapter as any).chatApi = {
+        media: { download: mockDownload },
+      };
+
+      const event = makeMessageEvent({
+        attachment: [
+          {
+            name: "att1",
+            contentName: "photo.png",
+            contentType: "image/png",
+            attachmentDataRef: {
+              resourceName: "spaces/ABC123/attachments/att1",
+            },
+          },
+        ],
+      });
+
+      const msg = adapter.parseMessage(event);
+      await expect(msg.attachments[0].fetchData?.()).rejects.toBeInstanceOf(
+        AdapterRateLimitError
+      );
+    });
+
     it("should fall back to direct URL fetch when no attachmentDataRef", async () => {
       const { adapter } = await createInitializedAdapter();
       const event = makeMessageEvent({

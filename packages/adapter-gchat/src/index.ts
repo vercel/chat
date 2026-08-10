@@ -1720,19 +1720,29 @@ export class GoogleChatAdapter implements Adapter<GoogleChatThreadId, unknown> {
   ): Promise<Buffer> {
     // Prefer media.download API (correct method for chat apps)
     if (resourceName) {
-      // `alt=media` is required to receive the file bytes. Without it the
-      // endpoint returns resource metadata instead, and the arraybuffer
-      // request fails with a bare 400 — so every attachment download by
-      // resourceName failed. The generated @googleapis/chat client does not
-      // declare `alt`, so it is passed through as an extra param.
-      const res = await this.chatApi.media.download(
-        { resourceName, alt: "media" },
-        { responseType: "arraybuffer" }
-      );
-      return Buffer.from(res.data as ArrayBuffer);
+      try {
+        // `alt=media` (a StandardParameters field, and the documented
+        // download form for the Chat API) selects the file bytes. Without
+        // it the endpoint returns resource metadata instead, and the
+        // arraybuffer request fails with a bare 400.
+        const res = await this.chatApi.media.download(
+          { resourceName, alt: "media" },
+          { responseType: "arraybuffer" }
+        );
+        return Buffer.from(res.data as ArrayBuffer);
+      } catch (error) {
+        if (!url) {
+          this.handleGoogleChatError(error, "fetchAttachmentData");
+        }
+        this.logger.warn(
+          "GChat media.download failed, falling back to downloadUri fetch",
+          { resourceName, error }
+        );
+      }
     }
 
-    // Fallback to direct URL fetch (downloadUri)
+    // Direct URL fetch (downloadUri) — used when no resourceName is
+    // available, or as a fallback when media.download fails
     if (!url) {
       throw new NetworkError("gchat", "No URL or resourceName available");
     }
