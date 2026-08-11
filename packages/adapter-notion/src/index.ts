@@ -109,6 +109,15 @@ function parseKeywords(value: string | undefined): string[] | undefined {
   return keywords.length > 0 ? keywords : undefined;
 }
 
+function normalizeTokenProvider(
+  token: string | (() => string | Promise<string>)
+): () => Promise<string> {
+  if (typeof token === "function") {
+    return async () => await token();
+  }
+  return () => Promise.resolve(token);
+}
+
 export { NotionFormatConverter } from "./markdown";
 export type {
   NotionAdapterConfig,
@@ -173,7 +182,7 @@ export class NotionAdapter
   readonly userName: string;
   readonly lockScope = "thread" as const;
 
-  protected readonly token: string;
+  protected readonly tokenProvider: () => Promise<string>;
   /**
    * HMAC key from the webhook verification handshake.
    * Optional at construct time so the one-time `verification_token` POST can be
@@ -222,7 +231,7 @@ export class NotionAdapter
     }
 
     this.logger = config.logger ?? new ConsoleLogger("info").child("notion");
-    this.token = token;
+    this.tokenProvider = normalizeTokenProvider(token);
     this.verificationToken = verificationToken;
     this.notionVersion =
       config.notionVersion ??
@@ -249,6 +258,17 @@ export class NotionAdapter
         "NOTION_VERIFICATION_TOKEN is not set. The adapter will accept Notion's one-time verification_token handshake and log it, but all signed webhook events will return 401 until you set the token."
       );
     }
+  }
+
+  protected async resolveToken(): Promise<string> {
+    const token = await this.tokenProvider();
+    if (!token) {
+      throw new AuthenticationError(
+        "notion",
+        "Notion API token resolver returned an empty token. Check NOTION_TOKEN or the Vercel Connect connector."
+      );
+    }
+    return token;
   }
 
   async initialize(chat: ChatInstance): Promise<void> {
@@ -1140,11 +1160,12 @@ export class NotionAdapter
     let attempt = 0;
     for (;;) {
       await this.rateLimiter.acquire();
+      const token = await this.resolveToken();
       const url = path.startsWith("http") ? path : `${this.apiBaseUrl}${path}`;
       const response = await fetch(url, {
         method: init.method ?? "GET",
         headers: {
-          Authorization: `Bearer ${this.token}`,
+          Authorization: `Bearer ${token}`,
           "Notion-Version": this.notionVersion,
           "Content-Type": "application/json",
         },
@@ -1289,13 +1310,14 @@ export class NotionAdapter
     let attempt = 0;
     for (;;) {
       await this.rateLimiter.acquire();
+      const token = await this.resolveToken();
       const url = `${this.apiBaseUrl}${path}`;
       const formData = new FormData();
       formData.append("file", blob, filename);
       const response = await fetch(url, {
         method: "POST",
         headers: {
-          Authorization: `Bearer ${this.token}`,
+          Authorization: `Bearer ${token}`,
           "Notion-Version": this.notionVersion,
         },
         body: formData,
@@ -1352,7 +1374,7 @@ export class NotionAdapter
     if (response.status === 401) {
       throw new AuthenticationError(
         "notion",
-        "Notion API authentication failed — check NOTION_TOKEN"
+        "Notion API authentication failed — check NOTION_TOKEN or the Vercel Connect connector"
       );
     }
 

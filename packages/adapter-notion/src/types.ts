@@ -61,10 +61,11 @@ export interface NotionAdapterConfig {
    */
   streamingEditIntervalMs?: number;
   /**
-   * Connection access token (Bearer token).
+   * Connection access token (Bearer token), or a resolver invoked for each
+   * Notion API request.
    * Defaults to `NOTION_TOKEN`.
    */
-  token?: string;
+  token?: string | (() => string | Promise<string>);
   /**
    * Bot display name override.
    * Defaults to `NOTION_BOT_USERNAME` or `"notion-bot"`.

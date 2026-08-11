@@ -254,7 +254,7 @@ describe("runPrompts", () => {
       connect: true,
       name: "my-bot",
       quiet: true,
-      selectedAdapters: ["discord", "memory"],
+      selectedAdapters: ["notion", "memory"],
       yes: true,
     });
 

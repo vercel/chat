@@ -17,26 +17,55 @@ const connectSection = (config: ProjectConfig): string => {
     return "";
   }
   const names = connectAdapters.map((entry) => entry.adapter.name).join(", ");
+  const triggerNames = connectAdapters
+    .filter((entry) => entry.connect.inbound !== "native")
+    .map((entry) => entry.adapter.name)
+    .join(", ");
+  const nativeNames = connectAdapters
+    .filter((entry) => entry.connect.inbound === "native")
+    .map((entry) => entry.adapter.name)
+    .join(", ");
   const exampleVar = first.connect.connectorEnvVar;
   const lines = [
     "## Authentication (Vercel Connect)",
     "",
-    `This project authenticates ${names} with [Vercel Connect](https://chat-sdk.dev/docs/vercel-connect) instead of stored provider secrets.`,
+    `This project uses [Vercel Connect](https://chat-sdk.dev/docs/vercel-connect) for outbound credentials for ${names}.`,
     "",
-    "1. Create a connector for each provider in the [Vercel dashboard](https://vercel.com/d?to=%2F%5Bteam%5D%2F~%2Fconnect) and link it to this project, enabling trigger forwarding so inbound webhooks reach your deployment.",
-    "2. Pull the runtime OIDC token for local development:",
+    "1. Create a connector for each provider in the [Vercel dashboard](https://vercel.com/d?to=%2F%5Bteam%5D%2F~%2Fconnect) and link it to this project.",
+  ];
+  let step = 2;
+  if (triggerNames) {
+    lines.push(
+      `${step}. Enable Connect trigger forwarding for ${triggerNames} so inbound webhooks reach your deployment.`
+    );
+    step += 1;
+  }
+  if (nativeNames) {
+    lines.push(
+      `${step}. Configure native webhook subscriptions for ${nativeNames}; Connect supplies outbound credentials but does not forward those webhooks.`
+    );
+    step += 1;
+  }
+  lines.push(
+    `${step}. Pull the runtime OIDC token for local development:`,
     "",
     "```bash",
     "vercel link",
     "vercel env pull .env.local",
     "```",
     "",
-    `3. Set each connector UID (for example \`${exampleVar}\`) in your environment.`,
+    `${step + 1}. Set each connector UID (for example \`${exampleVar}\`) and any listed native webhook verification secrets in your environment.`,
     "",
-    "> Vercel Connect forwards inbound webhooks only to deployed URLs, so test webhook delivery against a Vercel deployment (such as a preview) rather than localhost.",
-    "",
-    "",
-  ];
+    ""
+  );
+  if (triggerNames) {
+    lines.splice(
+      -2,
+      0,
+      "> Vercel Connect forwards inbound webhooks only to deployed URLs, so test trigger delivery against a Vercel deployment (such as a preview) rather than localhost.",
+      ""
+    );
+  }
   return lines.join("\n");
 };
 

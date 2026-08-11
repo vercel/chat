@@ -131,9 +131,40 @@ describe("Vercel Connect generation", () => {
     expect(envExample).not.toContain("DISCORD_APPLICATION_ID=");
 
     const readme = generateReadme(connectConfig(["discord"]));
-    expect(readme).toContain("authenticates Discord with");
+    expect(readme).toContain("outbound credentials for Discord");
     expect(readme).toContain("DISCORD_CONNECTOR");
     expect(readme).toContain("Discord Gateway (cron)");
+  });
+
+  it("scaffolds Notion with Connect tokens and native webhook verification", () => {
+    const botTs = generateBotTs(connectConfig(["notion"]));
+    expect(botTs).toContain(
+      'import { connectNotionAdapter } from "@vercel/connect/chat";'
+    );
+    expect(botTs).toContain("notion: createNotionAdapter({");
+    expect(botTs).toContain(
+      '...connectNotionAdapter(requireEnv("NOTION_CONNECTOR")),'
+    );
+
+    const envExample = generateEnvExample(connectConfig(["notion"]));
+    expect(envExample).toContain("NOTION_CONNECTOR=");
+    expect(envExample).toContain("NOTION_VERIFICATION_TOKEN=");
+    expect(envExample).not.toContain("NOTION_TOKEN=");
+
+    const readme = generateReadme(connectConfig(["notion"]));
+    expect(readme).toContain("outbound credentials for Notion");
+    expect(readme).toContain(
+      "Configure native webhook subscriptions for Notion"
+    );
+    expect(readme).not.toContain("Enable Connect trigger forwarding");
+  });
+
+  it("documents mixed Connect trigger and native webhook modes", () => {
+    const readme = generateReadme(connectConfig(["slack", "notion"]));
+    expect(readme).toContain("Enable Connect trigger forwarding for Slack");
+    expect(readme).toContain(
+      "Configure native webhook subscriptions for Notion"
+    );
   });
 
   it("fails loudly on a missing connector via requireEnv", () => {
@@ -153,10 +184,10 @@ describe("Vercel Connect generation", () => {
 
   it("imports every selected Connect helper, sorted", () => {
     const result = generateBotTs(
-      connectConfig(["slack", "discord", "github", "linear"])
+      connectConfig(["slack", "discord", "github", "linear", "notion"])
     );
     expect(result).toContain(
-      'import { connectDiscordAdapter, connectGitHubAdapter, connectLinearAdapter, connectSlackAdapter } from "@vercel/connect/chat";'
+      'import { connectDiscordAdapter, connectGitHubAdapter, connectLinearAdapter, connectNotionAdapter, connectSlackAdapter } from "@vercel/connect/chat";'
     );
   });
 

@@ -12,6 +12,8 @@ monorepo-wide build, lint, and release rules — read it first.
 - Webhooks (`comment.created`) with `X-Notion-Signature` HMAC verification
   and a one-time `verification_token` handshake
 - Comments REST API (create / update / delete / list / retrieve)
+- Outbound Vercel Connect authentication via an async `token` resolver;
+  inbound webhooks remain direct and use native Notion HMAC verification
 - Outbound files via File Uploads API (`single_part` binary + `external_url`
   for public URLs). `external_url` imports are polled until `uploaded` before
   attach (default `[0, 5000, 10000]` — immediate recheck then 5s/10s; override
@@ -43,6 +45,8 @@ packages/adapter-notion/
 ## Public surface
 
 - `createNotionAdapter(config?)` / `NotionAdapter` / `NotionAdapterConfig`
+- `token` accepts a static string or async resolver and is resolved for every
+  Notion API request
 - Env: `NOTION_TOKEN`, `NOTION_VERIFICATION_TOKEN`, optional
   `NOTION_BOT_USERNAME`, `NOTION_VERSION`, `NOTION_MENTION_MODE`,
   `NOTION_KEYWORDS`

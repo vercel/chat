@@ -133,6 +133,13 @@ describe("createNotionAdapter", () => {
     expect(adapter.userName).toBe("notion-bot");
   });
 
+  it("accepts an async token resolver", () => {
+    const adapter = createTestAdapter({
+      token: async () => TOKEN,
+    });
+    expect(adapter.name).toBe("notion");
+  });
+
   it("throws ValidationError when token missing", () => {
     expect(() =>
       createNotionAdapter({ verificationToken: VERIFICATION_TOKEN })
@@ -192,6 +199,40 @@ describe("createNotionAdapter", () => {
     expect(
       (adapter as NotionAdapter & { mentionMode: string }).mentionMode
     ).toBe("mention");
+  });
+});
+
+describe("token resolver initialization", () => {
+  it("uses the resolved token to load the bot identity", async () => {
+    const token = vi.fn().mockResolvedValue("notion-connect-token");
+    const fetchMock = vi.fn().mockResolvedValue(
+      Response.json({
+        object: "user",
+        id: BOT_USER_ID,
+        name: "Docs Bot",
+        avatar_url: null,
+        type: "bot",
+        bot: { workspace_id: "ws-1", workspace_name: "Acme" },
+      })
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    try {
+      const adapter = createTestAdapter({ token });
+      await adapter.initialize(createMockChatInstance() as never);
+
+      expect(token).toHaveBeenCalledTimes(1);
+      expect(fetchMock).toHaveBeenCalledWith(
+        "https://api.notion.test/v1/users/me",
+        expect.objectContaining({
+          headers: expect.objectContaining({
+            Authorization: "Bearer notion-connect-token",
+          }),
+        })
+      );
+    } finally {
+      vi.unstubAllGlobals();
+    }
   });
 });
 
@@ -807,6 +848,37 @@ describe("postMessage / editMessage / deleteMessage", () => {
     });
   });
 
+  it("resolves a fresh token for each API request", async () => {
+    fetchMock.mockImplementation(() =>
+      Promise.resolve(Response.json(fixtureComment()))
+    );
+    const token = vi
+      .fn()
+      .mockResolvedValueOnce("notion-token-1")
+      .mockResolvedValueOnce("notion-token-2");
+    const adapter = createTestAdapter({ token });
+
+    await adapter.postMessage(`notion:${PAGE_ID}`, "first");
+    await adapter.postMessage(`notion:${PAGE_ID}`, "second");
+
+    expect(token).toHaveBeenCalledTimes(2);
+    expect(
+      fetchMock.mock.calls.map(([, init]) => {
+        const headers = (init as RequestInit).headers as Record<string, string>;
+        return headers.Authorization;
+      })
+    ).toEqual(["Bearer notion-token-1", "Bearer notion-token-2"]);
+  });
+
+  it("rejects an empty resolved token before calling Notion", async () => {
+    const adapter = createTestAdapter({ token: async () => "" });
+
+    await expect(
+      adapter.postMessage(`notion:${PAGE_ID}`, "hello")
+    ).rejects.toThrow("token resolver returned an empty token");
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
   it("replies with discussion_id", async () => {
     fetchMock.mockResolvedValue(Response.json(fixtureComment()));
     const adapter = createTestAdapter();
@@ -877,6 +949,10 @@ describe("postMessage / editMessage / deleteMessage", () => {
 
   it("retries on 429 Retry-After then succeeds", async () => {
     vi.useFakeTimers();
+    const token = vi
+      .fn()
+      .mockResolvedValueOnce("notion-token-1")
+      .mockResolvedValueOnce("notion-token-2");
     fetchMock
       .mockResolvedValueOnce(
         new Response("rate limited", {
@@ -886,12 +962,19 @@ describe("postMessage / editMessage / deleteMessage", () => {
       )
       .mockResolvedValueOnce(Response.json(fixtureComment()));
 
-    const adapter = createTestAdapter();
+    const adapter = createTestAdapter({ token });
     const promise = adapter.postMessage(`notion:${PAGE_ID}`, "hi");
     await vi.advanceTimersByTimeAsync(1100);
     const result = await promise;
     expect(result.id).toBe(COMMENT_ID);
     expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(token).toHaveBeenCalledTimes(2);
+    expect(
+      fetchMock.mock.calls.map(([, init]) => {
+        const headers = (init as RequestInit).headers as Record<string, string>;
+        return headers.Authorization;
+      })
+    ).toEqual(["Bearer notion-token-1", "Bearer notion-token-2"]);
     vi.useRealTimers();
   });
 
@@ -919,6 +1002,11 @@ describe("postMessage / editMessage / deleteMessage", () => {
   });
 
   it("uploads a file and attaches it on postMessage", async () => {
+    const token = vi
+      .fn()
+      .mockResolvedValueOnce("notion-create-token")
+      .mockResolvedValueOnce("notion-upload-token")
+      .mockResolvedValueOnce("notion-comment-token");
     fetchMock.mockImplementation((url: string, init?: RequestInit) => {
       const path = String(url);
       if (path.endsWith("/file_uploads") && init?.method === "POST") {
@@ -952,7 +1040,7 @@ describe("postMessage / editMessage / deleteMessage", () => {
       return Promise.resolve(new Response("unexpected", { status: 500 }));
     });
 
-    const adapter = createTestAdapter();
+    const adapter = createTestAdapter({ token });
     await adapter.postMessage(`notion:${PAGE_ID}`, {
       markdown: "hi",
       files: [
@@ -977,6 +1065,17 @@ describe("postMessage / editMessage / deleteMessage", () => {
     ]);
     expect(body.markdown).toContain("hi");
     expect(body.markdown).not.toContain("a.png");
+    expect(token).toHaveBeenCalledTimes(3);
+    expect(
+      fetchMock.mock.calls.map(([, init]) => {
+        const headers = (init as RequestInit).headers as Record<string, string>;
+        return headers.Authorization;
+      })
+    ).toEqual([
+      "Bearer notion-create-token",
+      "Bearer notion-upload-token",
+      "Bearer notion-comment-token",
+    ]);
   });
 
   it("attaches first 3 files and links the 4th on overflow", async () => {

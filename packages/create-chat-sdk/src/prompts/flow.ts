@@ -146,7 +146,7 @@ export async function runPrompts(
     useConnect = connectCapable;
     if (!(connectCapable || inputs.quiet)) {
       log.warning(
-        "Ignoring --connect: Vercel Connect supports only the Slack, Discord, GitHub, and Linear adapters."
+        "Ignoring --connect: Vercel Connect supports only the Slack, Discord, GitHub, Linear, and Notion adapters."
       );
     }
   } else if (!(inputs.yes || flaggedSelection) && connectCapable) {
