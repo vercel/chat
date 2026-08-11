@@ -196,6 +196,14 @@ describe("createTelegramAdapter", () => {
     expect(adapter).toBeInstanceOf(TelegramAdapter);
     expect(adapter.name).toBe("telegram");
   });
+
+  it("accepts an async bot token resolver", () => {
+    const adapter = createTelegramAdapter({
+      botToken: async () => "resolved-token",
+      logger: mockLogger,
+    });
+    expect(adapter).toBeInstanceOf(TelegramAdapter);
+  });
 });
 
 describe("constructor env var resolution", () => {
@@ -299,6 +307,137 @@ describe("constructor env var resolution", () => {
       userName: "config-name",
     });
     expect(adapter.userName).toBe("config-name");
+  });
+});
+
+describe("bot token resolver", () => {
+  it("resolves a fresh token for each Bot API request", async () => {
+    const botToken = vi
+      .fn()
+      .mockResolvedValueOnce("telegram-token-1")
+      .mockResolvedValueOnce("telegram-token-2");
+    mockFetch.mockImplementation(() =>
+      Promise.resolve(
+        telegramOk({
+          id: 123,
+          is_bot: true,
+          first_name: "Test Bot",
+          username: "test_bot",
+        })
+      )
+    );
+    const adapter = createTelegramAdapter({
+      botToken,
+      mode: "webhook",
+      logger: mockLogger,
+    });
+
+    const telegramFetch = (
+      adapter as unknown as {
+        telegramFetch<TResult>(method: string): Promise<TResult>;
+      }
+    ).telegramFetch.bind(adapter);
+    await telegramFetch("getMe");
+    await telegramFetch("getMe");
+
+    expect(botToken).toHaveBeenCalledTimes(2);
+    expect(mockFetch.mock.calls.map(([url]) => String(url))).toEqual([
+      "https://api.telegram.org/bottelegram-token-1/getMe",
+      "https://api.telegram.org/bottelegram-token-2/getMe",
+    ]);
+  });
+
+  it("rejects an empty resolved token before calling Telegram", async () => {
+    const adapter = createTelegramAdapter({
+      botToken: async () => "",
+      mode: "webhook",
+      logger: mockLogger,
+    });
+
+    await expect(
+      (
+        adapter as unknown as {
+          telegramFetch<TResult>(method: string): Promise<TResult>;
+        }
+      ).telegramFetch("getMe")
+    ).rejects.toThrow(AuthenticationError);
+    expect(mockFetch).not.toHaveBeenCalled();
+  });
+
+  it("resolves the token again when downloading a file", async () => {
+    const botToken = vi
+      .fn()
+      .mockResolvedValueOnce("telegram-api-token")
+      .mockResolvedValueOnce("telegram-file-token");
+    mockFetch
+      .mockResolvedValueOnce(
+        telegramOk({ file_id: "file-1", file_path: "documents/file.txt" })
+      )
+      .mockResolvedValueOnce(new Response("contents"));
+    const adapter = createTelegramAdapter({
+      botToken,
+      mode: "webhook",
+      logger: mockLogger,
+    });
+
+    await (
+      adapter as unknown as {
+        downloadFile(fileId: string): Promise<Buffer>;
+      }
+    ).downloadFile("file-1");
+
+    expect(botToken).toHaveBeenCalledTimes(2);
+    expect(mockFetch.mock.calls.map(([url]) => String(url))).toEqual([
+      "https://api.telegram.org/bottelegram-api-token/getFile",
+      "https://api.telegram.org/file/bottelegram-file-token/documents/file.txt",
+    ]);
+  });
+
+  it("scopes webhook deduplication with the resolved bot token", async () => {
+    const botToken = vi.fn().mockResolvedValue("resolved-token");
+    mockFetch.mockResolvedValue(
+      telegramOk({
+        id: 999,
+        is_bot: true,
+        first_name: "Bot",
+        username: "mybot",
+      })
+    );
+    const state = createMockState();
+    const chat = createMockChatInstance({
+      logger: mockLogger,
+      state,
+      userName: "mybot",
+    });
+    const adapter = createTelegramAdapter({
+      botToken,
+      mode: "webhook",
+      logger: mockLogger,
+      secretToken: "secret",
+      userName: "mybot",
+    });
+    await adapter.initialize(chat);
+
+    await adapter.handleWebhook(
+      new Request("https://example.com/webhook", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "x-telegram-bot-api-secret-token": "secret",
+        },
+        body: JSON.stringify({
+          update_id: 1,
+          message: sampleMessage(),
+        }),
+      })
+    );
+
+    const scope = createHash("sha256").update("resolved-token").digest("hex");
+    expect(state.setIfNotExists).toHaveBeenCalledWith(
+      `telegram:webhook-update:${scope}:1`,
+      true,
+      86_400_000
+    );
   });
 });
 

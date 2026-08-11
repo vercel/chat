@@ -198,6 +198,49 @@ describe("CLI Vercel Connect mode", () => {
     );
     expect(readme).not.toContain("Enable Connect trigger forwarding");
   });
+
+  it("scaffolds Telegram with Connect tokens and native webhooks", async () => {
+    process.exitCode = undefined;
+    const program = createProgram();
+    await program.parseAsync([
+      "node",
+      "create-chat-sdk",
+      "connect-telegram-bot",
+      "--adapter",
+      "telegram",
+      "memory",
+      "--connect",
+      "-yq",
+      "--skip-install",
+      "--no-git",
+    ]);
+
+    expect(process.exitCode).toBeUndefined();
+
+    const botTs = readProjectFile("connect-telegram-bot", "src/lib/bot.ts");
+    expect(botTs).toContain(
+      'import { connectTelegramAdapter } from "@vercel/connect/chat";'
+    );
+    expect(botTs).toContain(
+      '...connectTelegramAdapter(requireEnv("TELEGRAM_CONNECTOR")),'
+    );
+
+    const packageJson = JSON.parse(
+      readProjectFile("connect-telegram-bot", "package.json")
+    ) as { dependencies?: Record<string, string> };
+    expect(packageJson.dependencies?.["@vercel/connect"]).toBe("latest");
+
+    const envExample = readProjectFile("connect-telegram-bot", ".env.example");
+    expect(envExample).toContain("TELEGRAM_CONNECTOR=");
+    expect(envExample).toContain("TELEGRAM_WEBHOOK_SECRET_TOKEN=");
+    expect(envExample).not.toContain("TELEGRAM_BOT_TOKEN=");
+
+    const readme = readProjectFile("connect-telegram-bot", "README.md");
+    expect(readme).toContain(
+      "Configure native webhook subscriptions for Telegram"
+    );
+    expect(readme).not.toContain("Enable Connect trigger forwarding");
+  });
 });
 
 describe("CLI agent mode", () => {

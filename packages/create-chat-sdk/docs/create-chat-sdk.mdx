@@ -103,13 +103,13 @@ When the [Discord adapter](/adapters/official/discord) is selected, the CLI also
 
 ## Vercel Connect
 
-[Vercel Connect](/docs/vercel-connect) supplies outbound credentials for the Slack, Discord, GitHub, Linear, and Notion adapters. Pass `--connect` — or choose **Vercel Connect** at the interactive auth-mode prompt — to scaffold Connect wiring for any selected adapter in that list. Notion webhooks remain direct and retain `NOTION_VERIFICATION_TOKEN`.
+[Vercel Connect](/docs/vercel-connect) supplies outbound credentials for the Slack, Discord, GitHub, Linear, Notion, and Telegram adapters. Pass `--connect` — or choose **Vercel Connect** at the interactive auth-mode prompt — to scaffold Connect wiring for any selected adapter in that list. Notion and Telegram webhooks remain direct and retain their native verification secrets.
 
 ```bash
 npm create chat-sdk@latest -- my-bot --adapter slack --connect -y
 ```
 
-The generated `src/lib/bot.ts` spreads the matching helper from `@vercel/connect/chat` into the adapter factory, `@vercel/connect` is added to dependencies, and `.env.example` lists each connector UID (for example `SLACK_CONNECTOR`). Native webhook verification secrets are retained for adapters such as Notion.
+The generated `src/lib/bot.ts` spreads the matching helper from `@vercel/connect/chat` into the adapter factory, `@vercel/connect` is added to dependencies, and `.env.example` lists each connector UID (for example `SLACK_CONNECTOR`). Native webhook verification secrets are retained for adapters such as Notion and Telegram.
 
 <Callout type="info">
   Vercel Connect provides `VERCEL_OIDC_TOKEN` at runtime. For local development, run `vercel link` then `vercel env pull` to populate it. Connect forwards inbound webhooks only to deployed URLs, so test webhook delivery against a Vercel deployment (such as a preview) rather than localhost.
@@ -123,7 +123,7 @@ The generated `src/lib/bot.ts` spreads the matching helper from `@vercel/connect
 | `-d, --description <text>` | Project description. |
 | `--adapter <values...>` | Platform or state adapters to include. |
 | `--vendor` | List only vendor-official adapters in the interactive prompt. |
-| `--connect` | Authenticate Slack, Discord, GitHub, Linear, and Notion adapters with Vercel Connect. |
+| `--connect` | Authenticate Slack, Discord, GitHub, Linear, Notion, and Telegram adapters with Vercel Connect. |
 | `--pm <manager>` | Package manager to use: `npm`, `yarn`, `pnpm`, or `bun`. |
 | `-y, --yes` | Skip prompts and accept defaults. |
 | `--interactive` | Always prompt, even when a coding agent environment is detected. |

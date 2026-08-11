@@ -239,7 +239,7 @@ describe("runPrompts", () => {
 
   it("does not prompt for auth mode without a Connect-capable adapter", async () => {
     vi.mocked(text).mockResolvedValueOnce("my-bot").mockResolvedValueOnce("");
-    vi.mocked(multiselect).mockResolvedValueOnce(["telegram"]);
+    vi.mocked(multiselect).mockResolvedValueOnce(["gchat"]);
     vi.mocked(select).mockResolvedValueOnce("memory");
     vi.mocked(confirm).mockResolvedValueOnce(true);
 
@@ -266,7 +266,7 @@ describe("runPrompts", () => {
       connect: true,
       name: "my-bot",
       quiet: false,
-      selectedAdapters: ["telegram", "memory"],
+      selectedAdapters: ["gchat", "memory"],
       yes: true,
     });
 

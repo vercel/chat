@@ -39,13 +39,13 @@ When the CLI detects a coding agent environment, it announces the detection and 
 
 ## Vercel Connect
 
-The Slack, Discord, GitHub, Linear, and Notion adapters can use [Vercel Connect](https://chat-sdk.dev/docs/vercel-connect) for outbound credentials. Pass `--connect`, or choose **Vercel Connect** at the interactive auth-mode prompt:
+The Slack, Discord, GitHub, Linear, Notion, and Telegram adapters can use [Vercel Connect](https://chat-sdk.dev/docs/vercel-connect) for outbound credentials. Pass `--connect`, or choose **Vercel Connect** at the interactive auth-mode prompt:
 
 ```bash
 npm create chat-sdk@latest -- my-bot --adapter slack --connect -y
 ```
 
-The generated bot spreads the matching helper from `@vercel/connect/chat` into the adapter factory, adds `@vercel/connect` to dependencies, and lists each connector UID (such as `SLACK_CONNECTOR`) in `.env.example`. Native webhook verification secrets are retained for adapters such as Notion.
+The generated bot spreads the matching helper from `@vercel/connect/chat` into the adapter factory, adds `@vercel/connect` to dependencies, and lists each connector UID (such as `SLACK_CONNECTOR`) in `.env.example`. Native webhook verification secrets are retained for adapters such as Notion and Telegram.
 
 ## Options
 
@@ -60,8 +60,8 @@ Options:
   --adapter <values...>     platform or state adapters to include
   --vendor                  list vendor-official adapters in the interactive
                             prompt
-  --connect                 authenticate Slack, Discord, GitHub, Linear, and
-                            Notion adapters with Vercel Connect
+  --connect                 authenticate Slack, Discord, GitHub, Linear,
+                            Notion, and Telegram adapters with Vercel Connect
   --pm <manager>            package manager to use (npm, yarn, pnpm, bun)
   -y, --yes                 skip prompts and accept defaults
   --interactive             always prompt, even when a coding agent

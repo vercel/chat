@@ -14,8 +14,8 @@ export interface TelegramAdapterConfig {
   apiBaseUrl?: string;
   /** Override the Telegram API base URL. Alias for apiBaseUrl — apiUrl takes precedence if both are set. Defaults to TELEGRAM_API_BASE_URL env var. */
   apiUrl?: string;
-  /** Telegram bot token from BotFather. Defaults to TELEGRAM_BOT_TOKEN env var. */
-  botToken?: string;
+  /** Telegram bot token from BotFather, or a resolver invoked for each Bot API request. Defaults to TELEGRAM_BOT_TOKEN env var. */
+  botToken?: string | (() => string | Promise<string>);
   /** Logger instance for error reporting. Defaults to ConsoleLogger. */
   logger?: Logger;
   /** Optional long-polling configuration for getUpdates flow. */

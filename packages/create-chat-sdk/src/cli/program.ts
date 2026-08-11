@@ -71,7 +71,7 @@ export function createProgram(): Command {
     )
     .option(
       "--connect",
-      "authenticate Slack, Discord, GitHub, Linear, and Notion adapters with Vercel Connect"
+      "authenticate Slack, Discord, GitHub, Linear, Notion, and Telegram adapters with Vercel Connect"
     )
     .option(
       "--pm <manager>",

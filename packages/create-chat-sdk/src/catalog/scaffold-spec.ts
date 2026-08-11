@@ -81,7 +81,7 @@ export interface AdapterConnectSpec {
 export interface CliScaffoldSpec {
   /**
    * Vercel Connect code-generation policy. Present only for adapters that
-   * support Connect (Slack, Discord, GitHub, Linear, Notion).
+   * support Connect (Slack, Discord, GitHub, Linear, Notion, Telegram).
    */
   connect?: AdapterConnectSpec;
   /**
@@ -322,6 +322,17 @@ export const CLI_SCAFFOLD_SPEC = {
     },
   },
   telegram: {
+    connect: {
+      connectorEnvVar: "TELEGRAM_CONNECTOR",
+      extraEnv: [
+        {
+          description: "Native Telegram webhook secret token",
+          key: "TELEGRAM_WEBHOOK_SECRET_TOKEN",
+        },
+      ],
+      helper: "connectTelegramAdapter",
+      inbound: "native",
+    },
     invocation: { kind: "zero-arg" },
   },
   twilio: {

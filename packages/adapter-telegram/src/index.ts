@@ -130,6 +130,16 @@ const TELEGRAM_MAX_POLLING_LIMIT = 100;
 const TELEGRAM_MIN_POLLING_LIMIT = 1;
 const TELEGRAM_MIN_POLLING_TIMEOUT_SECONDS = 0;
 const TELEGRAM_MAX_POLLING_TIMEOUT_SECONDS = 300;
+
+function normalizeBotTokenProvider(
+  botToken: string | (() => string | Promise<string>)
+): () => Promise<string> {
+  if (typeof botToken === "function") {
+    return async () => await botToken();
+  }
+  return () => Promise.resolve(botToken);
+}
+
 interface TelegramMessageAuthor {
   fullName: string;
   isBot: boolean | "unknown";
@@ -263,10 +273,11 @@ export class TelegramAdapter
   readonly persistThreadHistory = true;
 
   protected readonly allowedUserIds?: Set<string>;
-  protected readonly botToken: string;
+  protected readonly botTokenProvider: () => Promise<string>;
+  protected readonly staticBotToken?: string;
   protected readonly apiBaseUrl: string;
   protected readonly secretToken?: string;
-  private readonly webhookScope: string;
+  private webhookScope?: string;
   private warnedNoVerification = false;
   protected readonly logger: Logger;
   protected readonly formatConverter = new TelegramFormatConverter();
@@ -315,8 +326,11 @@ export class TelegramAdapter
       );
     }
 
-    this.botToken = botToken;
-    this.webhookScope = createHash("sha256").update(botToken).digest("hex");
+    this.botTokenProvider = normalizeBotTokenProvider(botToken);
+    this.staticBotToken = typeof botToken === "string" ? botToken : undefined;
+    this.webhookScope = this.staticBotToken
+      ? createHash("sha256").update(this.staticBotToken).digest("hex")
+      : undefined;
     this.apiBaseUrl = trimTrailingSlashes(
       config.apiUrl ??
         config.apiBaseUrl ??
@@ -347,6 +361,18 @@ export class TelegramAdapter
         `Invalid mode: ${this.mode}. Expected "auto", "webhook", or "polling".`
       );
     }
+  }
+
+  protected async resolveBotToken(): Promise<string> {
+    const botToken = await this.botTokenProvider();
+    if (!botToken) {
+      throw new AuthenticationError(
+        "telegram",
+        "Telegram bot token resolver returned an empty token. Check TELEGRAM_BOT_TOKEN or the Vercel Connect connector."
+      );
+    }
+    this.webhookScope ??= createHash("sha256").update(botToken).digest("hex");
+    return botToken;
   }
 
   async initialize(chat: ChatInstance): Promise<void> {
@@ -467,11 +493,18 @@ export class TelegramAdapter
     }
 
     if (this.secretToken && Number.isInteger(update.update_id)) {
+      const webhookScope = this.webhookScope;
+      if (!webhookScope) {
+        this.logger.warn(
+          "Telegram webhook update could not be scoped before bot token resolution"
+        );
+        return new Response("Service unavailable", { status: 503 });
+      }
       try {
         const claimed = await this.chat
           .getState()
           .setIfNotExists(
-            `${this.name}:webhook-update:${this.webhookScope}:${update.update_id}`,
+            `${this.name}:webhook-update:${webhookScope}:${update.update_id}`,
             true,
             TELEGRAM_WEBHOOK_UPDATE_TTL_MS
           );
@@ -2018,7 +2051,8 @@ export class TelegramAdapter
       throw new ResourceNotFoundError("telegram", "file", fileId);
     }
 
-    const fileUrl = `${this.apiBaseUrl}/file/bot${this.botToken}/${file.file_path}`;
+    const botToken = this.staticBotToken ?? (await this.resolveBotToken());
+    const fileUrl = `${this.apiBaseUrl}/file/bot${botToken}/${file.file_path}`;
 
     let response: Response;
     try {
@@ -3087,7 +3121,8 @@ export class TelegramAdapter
       signal?: AbortSignal;
     }
   ): Promise<TResult> {
-    const url = `${this.apiBaseUrl}/bot${this.botToken}/${method}`;
+    const botToken = this.staticBotToken ?? (await this.resolveBotToken());
+    const url = `${this.apiBaseUrl}/bot${botToken}/${method}`;
 
     let response: Response;
     try {

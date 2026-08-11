@@ -1,6 +1,6 @@
 ---
 title: Vercel Connect
-description: Authenticate Slack, Discord, GitHub, Linear, and Notion adapters with Vercel Connect — short-lived runtime tokens for outbound calls and OIDC-verified inbound webhooks where supported.
+description: Authenticate Slack, Discord, GitHub, Linear, Notion, and Telegram adapters with Vercel Connect — short-lived runtime tokens for outbound calls and OIDC-verified inbound webhooks where supported.
 type: overview
 related:
   - /docs/usage
@@ -9,6 +9,7 @@ related:
   - /adapters/official/github
   - /adapters/official/linear
   - /adapters/official/notion
+  - /adapters/official/telegram
 ---
 
 [Vercel Connect](https://vercel.com/docs/connect) lets your bot use a registered connector for adapter authentication instead of storing long-lived provider secrets. You register a connector once, link it to your project and environments, and your code requests scoped, short-lived tokens at runtime.
@@ -20,6 +21,7 @@ The `@vercel/connect/chat` subpath ships a helper per platform that you spread i
 - `connectGitHubAdapter`
 - `connectLinearAdapter`
 - `connectNotionAdapter`
+- `connectTelegramAdapter`
 
 Each helper wires outbound credentials; trigger-capable providers also wire
 inbound traffic:
@@ -48,14 +50,15 @@ pnpm add @vercel/connect
 | [GitHub](/adapters/official/github) | `connectGitHubAdapter` | `installationToken` |
 | [Linear](/adapters/official/linear) | `connectLinearAdapter` | `accessToken` |
 | [Notion](/adapters/official/notion) | `connectNotionAdapter` | `token` |
+| [Telegram](/adapters/official/telegram) | `connectTelegramAdapter` | `botToken` |
 
 Each helper accepts `(connector, params?, options?)`, where `params` is the [`getToken`](https://vercel.com/docs/connect/ts-sdk-reference) parameters minus `subject` (pinned to `{ type: "app" }`), letting you pass through `installationId`, `scopes`, or `validityBufferMs`.
 
 ## Set up a connector
 
 The trigger-forwarding steps below apply to Slack, Discord, GitHub, and Linear.
-For Notion, create and attach the connector without triggers, then configure the
-webhook subscription directly in Notion.
+For Notion and Telegram, create and attach the connector without triggers, then
+use native webhook verification or polling.
 
 1. Create a connector for the provider in the [Vercel dashboard](https://vercel.com/d?to=%2F%5Bteam%5D%2F~%2Fconnect) or with the CLI, enabling trigger forwarding so inbound webhooks reach your project:
 
@@ -168,6 +171,23 @@ createNotionAdapter({
 webhook subscription directly in Notion and retain
 `NOTION_VERIFICATION_TOKEN` for native HMAC verification. Omit
 `NOTION_TOKEN` when using the helper.
+
+### Telegram
+
+```typescript title="lib/bot.ts" lineNumbers
+import { createTelegramAdapter } from "@chat-adapter/telegram";
+import { connectTelegramAdapter } from "@vercel/connect/chat";
+
+createTelegramAdapter({
+  ...connectTelegramAdapter("telegram/acme-telegram"),
+  secretToken: process.env.TELEGRAM_WEBHOOK_SECRET_TOKEN,
+});
+```
+
+`connectTelegramAdapter` supplies only the outbound `botToken`; it does not
+include a `webhookVerifier`. Connect does not forward Telegram triggers, so
+retain `TELEGRAM_WEBHOOK_SECRET_TOKEN` for native webhook verification or use
+polling mode. Omit `TELEGRAM_BOT_TOKEN` when using the helper.
 
 ## Custom webhook verification
 

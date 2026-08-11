@@ -65,8 +65,11 @@ Replay tests live in
 Main exports from `src/index.ts`:
 
 - `createTelegramAdapter(config?)` — primary factory. Auto-detects
-  `TELEGRAM_BOT_TOKEN`, `TELEGRAM_WEBHOOK_SECRET`, and the optional
+  `TELEGRAM_BOT_TOKEN`, `TELEGRAM_WEBHOOK_SECRET_TOKEN`, and the optional
   `TELEGRAM_BOT_USERNAME` (used for mention detection in groups).
+- `botToken` accepts a static string or async resolver and is resolved for each
+  Telegram Bot API or file-download request. This supports outbound-only
+  Vercel Connect authentication while native webhooks keep `secretToken`.
 - `TelegramAdapter` class — implements `Adapter<TelegramThreadId,
   unknown>`. Public methods: `handleWebhook`, `postMessage`,
   `editMessage`, `deleteMessage`, `addReaction`, `removeReaction`,

@@ -47,6 +47,26 @@ bot.onNewMention(async (thread, message) => {
 });
 ```
 
+## Vercel Connect
+
+Use `connectTelegramAdapter` to resolve the outbound bot token from Vercel
+Connect:
+
+```typescript
+import { createTelegramAdapter } from "@chat-adapter/telegram";
+import { connectTelegramAdapter } from "@vercel/connect/chat";
+
+const telegram = createTelegramAdapter({
+  ...connectTelegramAdapter("telegram/acme-telegram"),
+  secretToken: process.env.TELEGRAM_WEBHOOK_SECRET_TOKEN,
+});
+```
+
+Connect does not forward Telegram webhooks. Keep
+`TELEGRAM_WEBHOOK_SECRET_TOKEN` when using webhook mode, or use polling mode
+without an inbound webhook. `TELEGRAM_BOT_TOKEN` is not needed when using the
+Connect helper.
+
 ## Webhook route
 
 ```typescript

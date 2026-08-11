@@ -105,6 +105,27 @@ curl -X POST "https://api.telegram.org/bot$TELEGRAM_BOT_TOKEN/setWebhook" \
   }'
 ```
 
+## Vercel Connect
+
+Use Vercel Connect for the outbound Telegram bot token:
+
+```typescript title="lib/bot.ts" lineNumbers
+import { createTelegramAdapter } from "@chat-adapter/telegram";
+import { connectTelegramAdapter } from "@vercel/connect/chat";
+
+const telegram = createTelegramAdapter({
+  ...connectTelegramAdapter("telegram/acme-telegram"),
+  secretToken: process.env.TELEGRAM_WEBHOOK_SECRET_TOKEN,
+});
+```
+
+<Callout type="info">
+  Connect does not forward Telegram webhooks. Keep
+  `TELEGRAM_WEBHOOK_SECRET_TOKEN` for native webhook verification, or use
+  polling mode without an inbound webhook. `TELEGRAM_BOT_TOKEN` is not needed
+  when using `connectTelegramAdapter`.
+</Callout>
+
 ## Configuration
 
 <TypeTable
@@ -115,8 +136,9 @@ curl -X POST "https://api.telegram.org/bot$TELEGRAM_BOT_TOKEN/setWebhook" \
         "Telegram user IDs allowed to trigger the adapter. Auto-detected from `TELEGRAM_ALLOWED_USER_IDS` (comma-separated). All users are allowed when omitted or empty.",
     },
     botToken: {
-      type: "string",
-      description: "Telegram bot token. Auto-detected from `TELEGRAM_BOT_TOKEN`.",
+      type: "string | (() => string | Promise<string>)",
+      description:
+        "Telegram bot token or resolver invoked for each Bot API request. Auto-detected from `TELEGRAM_BOT_TOKEN`.",
     },
     secretToken: {
       type: "string",
