@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import {
   AdapterRateLimitError,
   AuthenticationError,
@@ -409,6 +410,7 @@ describe("TelegramAdapter", () => {
         botToken: "token",
         mode: "webhook",
         logger: mockLogger,
+        secretToken: "secret",
         userName: "mybot",
       })
     );
@@ -422,7 +424,10 @@ describe("TelegramAdapter", () => {
     const request = (updateId: number) =>
       new Request("https://example.com/webhook", {
         method: "POST",
-        headers: { "content-type": "application/json" },
+        headers: {
+          "content-type": "application/json",
+          "x-telegram-bot-api-secret-token": "secret",
+        },
         body: JSON.stringify({ update_id: updateId, message: sampleMessage() }),
       });
     const dispatchCount = () =>
@@ -460,6 +465,7 @@ describe("TelegramAdapter", () => {
       botToken: "token",
       mode: "webhook",
       logger: mockLogger,
+      secretToken: "secret",
       userName: "mybot",
     });
     const state = createMockState();
@@ -480,7 +486,10 @@ describe("TelegramAdapter", () => {
         adapter.handleWebhook(
           new Request("https://example.com/webhook", {
             method: "POST",
-            headers: { "content-type": "application/json" },
+            headers: {
+              "content-type": "application/json",
+              "x-telegram-bot-api-secret-token": "secret",
+            },
             body: JSON.stringify(update),
           })
         )
@@ -489,11 +498,104 @@ describe("TelegramAdapter", () => {
 
     expect(chat.processMessage).toHaveBeenCalledTimes(3);
     expect(state.setIfNotExists).toHaveBeenCalledTimes(2);
+    const scope = createHash("sha256").update("token").digest("hex");
     expect(state.setIfNotExists).toHaveBeenCalledWith(
-      "telegram:webhook-update:1",
+      `telegram:webhook-update:${scope}:1`,
       true,
       86_400_000
     );
+  });
+
+  it("does not let unverified updates claim IDs", async () => {
+    mockFetch.mockResolvedValue(
+      telegramOk({
+        id: 999,
+        is_bot: true,
+        first_name: "Bot",
+        username: "mybot",
+      })
+    );
+
+    const state = createMockState();
+    const chat = createMockChatInstance({
+      logger: mockLogger,
+      state,
+      userName: "mybot",
+    });
+    const adapter = createTelegramAdapter({
+      botToken: "token",
+      mode: "webhook",
+      logger: mockLogger,
+      userName: "mybot",
+    });
+    await adapter.initialize(chat);
+
+    const request = (update: object) =>
+      new Request("https://example.com/webhook", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(update),
+      });
+
+    await adapter.handleWebhook(request({ update_id: 1 }));
+    await adapter.handleWebhook(
+      request({ update_id: 1, message: sampleMessage() })
+    );
+
+    expect(chat.processMessage).toHaveBeenCalledTimes(1);
+    expect(state.setIfNotExists).not.toHaveBeenCalled();
+  });
+
+  it("scopes webhook update claims by bot token", async () => {
+    mockFetch.mockResolvedValue(
+      telegramOk({
+        id: 999,
+        is_bot: true,
+        first_name: "Bot",
+        username: "mybot",
+      })
+    );
+
+    const state = createMockState();
+    const adapters = ["token-a", "token-b"].map((botToken) =>
+      createTelegramAdapter({
+        botToken,
+        mode: "webhook",
+        logger: mockLogger,
+        secretToken: "secret",
+        userName: "mybot",
+      })
+    );
+    const chats = adapters.map(() =>
+      createMockChatInstance({ logger: mockLogger, state, userName: "mybot" })
+    );
+    await Promise.all(
+      adapters.map((adapter, index) => adapter.initialize(chats[index]))
+    );
+
+    const request = () =>
+      new Request("https://example.com/webhook", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "x-telegram-bot-api-secret-token": "secret",
+        },
+        body: JSON.stringify({ update_id: 1, message: sampleMessage() }),
+      });
+    await Promise.all(
+      adapters.map((adapter) => adapter.handleWebhook(request()))
+    );
+
+    expect(
+      chats.reduce(
+        (count, chat) =>
+          count +
+          (chat.processMessage as ReturnType<typeof vi.fn>).mock.calls.length,
+        0
+      )
+    ).toBe(2);
+    const keys = state.setIfNotExists.mock.calls.map(([key]) => key);
+    expect(new Set(keys).size).toBe(2);
   });
 
   it("returns 503 without dispatch when the deduplication state fails", async () => {
@@ -514,6 +616,7 @@ describe("TelegramAdapter", () => {
       botToken: "token",
       mode: "webhook",
       logger: mockLogger,
+      secretToken: "secret",
       userName: "mybot",
     });
     const chat = createMockChatInstance({
@@ -526,7 +629,10 @@ describe("TelegramAdapter", () => {
     const response = await adapter.handleWebhook(
       new Request("https://example.com/webhook", {
         method: "POST",
-        headers: { "content-type": "application/json" },
+        headers: {
+          "content-type": "application/json",
+          "x-telegram-bot-api-secret-token": "secret",
+        },
         body: JSON.stringify({ update_id: 1, message: sampleMessage() }),
       })
     );

@@ -1,4 +1,4 @@
-import { timingSafeEqual } from "node:crypto";
+import { createHash, timingSafeEqual } from "node:crypto";
 import {
   AdapterRateLimitError,
   AuthenticationError,
@@ -266,6 +266,7 @@ export class TelegramAdapter
   protected readonly botToken: string;
   protected readonly apiBaseUrl: string;
   protected readonly secretToken?: string;
+  private readonly webhookScope: string;
   private warnedNoVerification = false;
   protected readonly logger: Logger;
   protected readonly formatConverter = new TelegramFormatConverter();
@@ -315,6 +316,7 @@ export class TelegramAdapter
     }
 
     this.botToken = botToken;
+    this.webhookScope = createHash("sha256").update(botToken).digest("hex");
     this.apiBaseUrl = trimTrailingSlashes(
       config.apiUrl ??
         config.apiBaseUrl ??
@@ -464,12 +466,12 @@ export class TelegramAdapter
       return new Response("OK", { status: 200 });
     }
 
-    if (Number.isInteger(update.update_id)) {
+    if (this.secretToken && Number.isInteger(update.update_id)) {
       try {
         const claimed = await this.chat
           .getState()
           .setIfNotExists(
-            `${this.name}:webhook-update:${update.update_id}`,
+            `${this.name}:webhook-update:${this.webhookScope}:${update.update_id}`,
             true,
             TELEGRAM_WEBHOOK_UPDATE_TTL_MS
           );

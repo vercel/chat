@@ -211,6 +211,7 @@ Behavior change in 4.27.0: previous versions used Telegram's legacy `Markdown` p
 
 ## Notes
 
+- Verified webhook updates with an integer `update_id` are deduplicated for 24 hours through the configured state adapter. Configure `secretToken` and use shared durable state across serverless instances. If state is unavailable, the adapter returns 503 so Telegram retries without dispatching.
 - Telegram does not expose full historical message APIs to bots. `fetchMessages` / `fetchChannelMessages` return adapter-cached messages from the current process.
 - `listThreads` is not available for Telegram chats.
 - Polling and webhooks are mutually exclusive in Telegram.
