@@ -1771,6 +1771,66 @@ describe("addReaction / removeReaction", () => {
   });
 });
 
+describe("markAsRead", () => {
+  let fetchSpy: MockInstance;
+
+  beforeEach(() => {
+    fetchSpy = vi.spyOn(global, "fetch").mockImplementation(() =>
+      Promise.resolve(
+        new Response(JSON.stringify({ success: true }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        })
+      )
+    );
+  });
+
+  afterEach(() => {
+    fetchSpy.mockRestore();
+  });
+
+  it("marks an inbound message as read", async () => {
+    const adapter = createTestAdapter();
+
+    await adapter.markAsRead("whatsapp:123456789:15551234567", "wamid.inbound");
+
+    const [url, init] = fetchSpy.mock.calls[0];
+    expect(String(url)).toContain("/123456789/messages");
+    expect(init?.method).toBe("POST");
+    expect(JSON.parse(init?.body as string)).toEqual({
+      messaging_product: "whatsapp",
+      status: "read",
+      message_id: "wamid.inbound",
+    });
+  });
+
+  it("preserves the adapter-level message id signature", async () => {
+    const adapter = createTestAdapter();
+
+    await adapter.markAsRead("wamid.inbound");
+
+    expect(JSON.parse(fetchSpy.mock.calls[0][1]?.body as string)).toEqual({
+      messaging_product: "whatsapp",
+      status: "read",
+      message_id: "wamid.inbound",
+    });
+  });
+
+  it("rejects an unsuccessful API response", async () => {
+    fetchSpy.mockResolvedValueOnce(
+      new Response(JSON.stringify({ success: false }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      })
+    );
+    const adapter = createTestAdapter();
+
+    await expect(adapter.markAsRead("wamid.inbound")).rejects.toThrow(
+      "WhatsApp mark as read failed"
+    );
+  });
+});
+
 // ---------------------------------------------------------------------------
 // startTyping
 // ---------------------------------------------------------------------------

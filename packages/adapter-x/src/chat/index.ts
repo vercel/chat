@@ -23,7 +23,7 @@
 
 import { createHmac, timingSafeEqual } from "node:crypto";
 import { createRequire } from "node:module";
-import { ValidationError } from "@chat-adapter/shared";
+import { AdapterError, ValidationError } from "@chat-adapter/shared";
 import {
   type AttachmentDescriptor,
   type ChatWithJuicebox,
@@ -1123,10 +1123,10 @@ export class XchatAdapter implements Adapter<XchatThreadId, XchatRawMessage> {
         return;
       }
 
-      // Read receipt before handlers run; markAsRead logs and swallows its
+      // Read receipt before handlers run; acknowledge logs and swallows its
       // own failures, so delivery is never blocked by a receipt error.
       if (this.sendReadReceipts) {
-        await this.markAsRead(threadId, parsed);
+        await this.acknowledge(threadId, parsed);
       }
 
       await this.chat?.handleIncomingMessage(this, threadId, parsed);
@@ -1309,10 +1309,10 @@ export class XchatAdapter implements Adapter<XchatThreadId, XchatRawMessage> {
       conversationId: event.conversationId,
     });
 
-    // Read receipt before handlers run; markAsRead logs and swallows its
+    // Read receipt before handlers run; acknowledge logs and swallows its
     // own failures, so delivery is never blocked by a receipt error.
     if (this.sendReadReceipts) {
-      await this.markAsRead(threadId, message);
+      await this.acknowledge(threadId, message);
     }
 
     await this.chat.handleIncomingMessage(this, threadId, message);
@@ -2191,46 +2191,71 @@ export class XchatAdapter implements Adapter<XchatThreadId, XchatRawMessage> {
    * Send a read receipt (seen-until watermark) for an inbound message.
    *
    * Called automatically for each delivered inbound message when
-   * `sendReadReceipts` is enabled (the default). Failures are logged and
-   * swallowed so message delivery is never blocked by a receipt error.
+   * `sendReadReceipts` is enabled (the default).
    */
-  async markAsRead(threadId: string, message: Message): Promise<void> {
+  async markAsRead(
+    threadId: string,
+    messageIdOrMessage: string | Message<XchatRawMessage>,
+    message?: Message<XchatRawMessage>
+  ): Promise<void> {
     const { conversationId } = this.decodeThreadId(threadId);
-    const raw = message.raw as XchatRawMessage | undefined;
-    let sequenceId = raw?.decrypted?.sequenceId ?? raw?.event?.sequenceId ?? "";
+    const target =
+      typeof messageIdOrMessage === "string" ? message : messageIdOrMessage;
+    const messageId =
+      typeof messageIdOrMessage === "string"
+        ? messageIdOrMessage
+        : messageIdOrMessage.id;
+    const raw = target?.raw;
+    let sequenceId =
+      raw?.decrypted?.sequenceId ??
+      raw?.event?.sequenceId ??
+      this.sequenceIdByMessageId.get(messageId) ??
+      "";
+    const client = this.getXdkClient();
+    const apiConvId = conversationPathId(conversationId, this.userId);
 
-    try {
-      const client = this.getXdkClient();
-      const apiConvId = conversationPathId(conversationId, this.userId);
+    if (!sequenceId && typeof messageIdOrMessage === "string") {
+      sequenceId = await this.resolveSequenceId(threadId, messageId);
+    }
 
-      // Fallback: mark read up to the latest event in the conversation.
+    // Fallback: mark read up to the latest event in the conversation.
+    if (!sequenceId) {
+      const response = (await client.chat.getConversationEvents(apiConvId, {
+        maxResults: 1,
+        chatMessageEventFields: [
+          ...MESSAGE_EVENT_FIELDS,
+        ] as unknown as MessageEventFields,
+      })) as unknown as ConversationEventsResponse;
+      const latest = response?.data?.[0];
+      // Event ids use a different namespace. Only a real sequence id is a
+      // valid read watermark, so fail when the latest event lacks one.
+      sequenceId = latest?.sequenceId ?? "";
       if (!sequenceId) {
-        const response = (await client.chat.getConversationEvents(apiConvId, {
-          maxResults: 1,
-          chatMessageEventFields: [
-            ...MESSAGE_EVENT_FIELDS,
-          ] as unknown as MessageEventFields,
-        })) as unknown as ConversationEventsResponse;
-        const latest = response?.data?.[0];
-        // Event ids are a different namespace — only a real sequence id is a
-        // valid read watermark, so skip when the latest event lacks one.
-        sequenceId = latest?.sequenceId ?? "";
-        if (!sequenceId) {
-          this.logger.debug("markAsRead skipped: no sequenceId available", {
-            messageId: message.id,
-            threadId,
-          });
-          return;
-        }
+        throw new ValidationError(
+          "xchat",
+          `No sequence id known for message ${messageId}`
+        );
       }
+    }
 
-      await client.chat.markConversationRead(apiConvId, {
-        seenUntilSequenceId: sequenceId,
-      });
-      this.logger.debug("Read receipt sent", {
-        conversationId: apiConvId,
-        sequenceId,
-      });
+    const response = await client.chat.markConversationRead(apiConvId, {
+      seenUntilSequenceId: sequenceId,
+    });
+    if (!response.data?.success) {
+      throw new AdapterError("XChat mark as read failed", "xchat");
+    }
+    this.logger.debug("Read receipt sent", {
+      conversationId: apiConvId,
+      sequenceId,
+    });
+  }
+
+  private async acknowledge(
+    threadId: string,
+    message: Message<XchatRawMessage>
+  ): Promise<void> {
+    try {
+      await this.markAsRead(threadId, message);
     } catch (err) {
       this.logger.warn("Failed to send read receipt", {
         threadId,

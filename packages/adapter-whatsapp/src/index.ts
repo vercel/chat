@@ -1531,12 +1531,24 @@ export class WhatsAppAdapter
    *
    * @see https://developers.facebook.com/docs/whatsapp/cloud-api/messages/mark-messages-as-read
    */
-  async markAsRead(messageId: string): Promise<void> {
-    await this.graphApiRequest(`/${this.phoneNumberId}/messages`, {
-      messaging_product: "whatsapp",
-      status: "read",
-      message_id: messageId,
-    });
+  async markAsRead(
+    threadIdOrMessageId: string,
+    messageId?: string,
+    _message?: Message<WhatsAppRawMessage>
+  ): Promise<void> {
+    const response =
+      await this.graphApiRequest<WhatsAppTypingIndicatorResponse>(
+        `/${this.phoneNumberId}/messages`,
+        {
+          messaging_product: "whatsapp",
+          status: "read",
+          message_id: messageId ?? threadIdOrMessageId,
+        }
+      );
+
+    if (!response.success) {
+      throw new AdapterError("WhatsApp mark as read failed", "whatsapp");
+    }
   }
 
   // =============================================================================
