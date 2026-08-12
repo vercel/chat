@@ -24,6 +24,7 @@ export const PLATFORM_FEATURE_CATEGORIES: AdapterFeatureCategory[] = [
     label: "Messaging",
     features: [
       { key: "postMessage", label: "Post message" },
+      { key: "messageReplies", label: "Message replies" },
       { key: "editMessage", label: "Edit message" },
       { key: "deleteMessage", label: "Delete message" },
       { key: "fileUploads", label: "File uploads" },

@@ -900,6 +900,14 @@ export class WhatsAppAdapter
     threadId: string,
     message: AdapterPostableMessage
   ): Promise<RawMessage<WhatsAppRawMessage>> {
+    return this.send(threadId, message);
+  }
+
+  protected async send(
+    threadId: string,
+    message: AdapterPostableMessage,
+    replyId?: string
+  ): Promise<RawMessage<WhatsAppRawMessage>> {
     const { userWaId } = this.decodeThreadId(threadId);
     const files = extractFiles(message);
     const attachments = extractPostableAttachments(message);
@@ -909,7 +917,13 @@ export class WhatsAppAdapter
     ];
 
     if (mediaItems.length > 0) {
-      return this.postMessageWithMedia(threadId, userWaId, message, mediaItems);
+      return this.postMessageWithMedia(
+        threadId,
+        userWaId,
+        message,
+        mediaItems,
+        replyId
+      );
     }
 
     // Check if this is a card with interactive buttons
@@ -925,13 +939,19 @@ export class WhatsAppAdapter
           )
         ) as WhatsAppInteractiveMessage;
 
-        return this.sendInteractiveMessage(threadId, userWaId, interactive);
+        return this.sendInteractiveMessage(
+          threadId,
+          userWaId,
+          interactive,
+          replyId
+        );
       }
 
       return this.sendTextMessage(
         threadId,
         userWaId,
-        convertEmojiPlaceholders(result.text, "whatsapp")
+        convertEmojiPlaceholders(result.text, "whatsapp"),
+        replyId
       );
     }
 
@@ -941,7 +961,15 @@ export class WhatsAppAdapter
       "whatsapp"
     );
 
-    return this.sendTextMessage(threadId, userWaId, body);
+    return this.sendTextMessage(threadId, userWaId, body, replyId);
+  }
+
+  async reply(
+    threadId: string,
+    messageId: string,
+    message: AdapterPostableMessage
+  ): Promise<RawMessage<WhatsAppRawMessage>> {
+    return this.send(threadId, message, messageId);
   }
 
   /**
@@ -951,8 +979,10 @@ export class WhatsAppAdapter
     threadId: string,
     userWaId: string,
     message: AdapterPostableMessage,
-    mediaItems: Array<FileUpload | Attachment>
+    mediaItems: Array<FileUpload | Attachment>,
+    replyId?: string
   ): Promise<RawMessage<WhatsAppRawMessage>> {
+    let remainingId = replyId;
     const card = extractCard(message);
     // cta_url promotion is disabled alongside media: the text fallback
     // captions the media in a single send, whereas an interactive
@@ -994,7 +1024,8 @@ export class WhatsAppAdapter
         !firstMedia?.captionEligible);
 
     if (useSeparateText) {
-      await this.sendTextMessage(threadId, userWaId, text);
+      await this.sendTextMessage(threadId, userWaId, text, remainingId);
+      remainingId = undefined;
     }
 
     let result: RawMessage<WhatsAppRawMessage> | undefined;
@@ -1014,8 +1045,10 @@ export class WhatsAppAdapter
         media.type,
         media.payload,
         caption,
-        media.filename
+        media.filename,
+        remainingId
       );
+      remainingId = undefined;
     }
 
     if (cardResult) {
@@ -1030,14 +1063,18 @@ export class WhatsAppAdapter
         result = await this.sendInteractiveMessage(
           threadId,
           userWaId,
-          interactive
+          interactive,
+          remainingId
         );
+        remainingId = undefined;
       } else if (text.length === 0) {
         result = await this.sendTextMessage(
           threadId,
           userWaId,
-          convertEmojiPlaceholders(cardResult.text, "whatsapp")
+          convertEmojiPlaceholders(cardResult.text, "whatsapp"),
+          remainingId
         );
+        remainingId = undefined;
       }
     }
 
@@ -1064,7 +1101,8 @@ export class WhatsAppAdapter
   protected async sendSingleTextMessage(
     threadId: string,
     to: string,
-    text: string
+    text: string,
+    replyId?: string
   ): Promise<RawMessage<WhatsAppRawMessage>> {
     const response = await this.graphApiRequest<WhatsAppSendResponse>(
       `/${this.phoneNumberId}/messages`,
@@ -1072,6 +1110,7 @@ export class WhatsAppAdapter
         messaging_product: "whatsapp",
         recipient_type: "individual",
         to,
+        ...(replyId ? { context: { message_id: replyId } } : {}),
         type: "text",
         text: { preview_url: false, body: text },
       }
@@ -1107,13 +1146,19 @@ export class WhatsAppAdapter
   protected async sendTextMessage(
     threadId: string,
     to: string,
-    text: string
+    text: string,
+    replyId?: string
   ): Promise<RawMessage<WhatsAppRawMessage>> {
     const chunks = this.splitMessage(text);
     let result: RawMessage<WhatsAppRawMessage> | undefined;
 
-    for (const chunk of chunks) {
-      result = await this.sendSingleTextMessage(threadId, to, chunk);
+    for (const [index, chunk] of chunks.entries()) {
+      result = await this.sendSingleTextMessage(
+        threadId,
+        to,
+        chunk,
+        index === 0 ? replyId : undefined
+      );
     }
 
     return result as RawMessage<WhatsAppRawMessage>;
@@ -1125,7 +1170,8 @@ export class WhatsAppAdapter
   protected async sendInteractiveMessage(
     threadId: string,
     to: string,
-    interactive: WhatsAppInteractiveMessage
+    interactive: WhatsAppInteractiveMessage,
+    replyId?: string
   ): Promise<RawMessage<WhatsAppRawMessage>> {
     const response = await this.graphApiRequest<WhatsAppSendResponse>(
       `/${this.phoneNumberId}/messages`,
@@ -1133,6 +1179,7 @@ export class WhatsAppAdapter
         messaging_product: "whatsapp",
         recipient_type: "individual",
         to,
+        ...(replyId ? { context: { message_id: replyId } } : {}),
         type: "interactive",
         interactive,
       }
@@ -1601,7 +1648,8 @@ export class WhatsAppAdapter
     type: WhatsAppMediaType,
     payload: { id?: string; link?: string },
     caption?: string,
-    filename?: string
+    filename?: string,
+    replyId?: string
   ): Promise<RawMessage<WhatsAppRawMessage>> {
     const mediaObject: Record<string, string> = {};
 
@@ -1627,6 +1675,7 @@ export class WhatsAppAdapter
         messaging_product: "whatsapp",
         recipient_type: "individual",
         to,
+        ...(replyId ? { context: { message_id: replyId } } : {}),
         type,
         [type]: mediaObject,
       }

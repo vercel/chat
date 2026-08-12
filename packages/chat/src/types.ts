@@ -504,6 +504,12 @@ export interface Adapter<TThreadId = unknown, TRawMessage = unknown> {
   /** Render formatted content to platform-specific string */
   renderFormatted(content: FormattedContent): string;
 
+  reply?(
+    threadId: string,
+    messageId: string,
+    message: AdapterPostableMessage
+  ): Promise<RawMessage<TRawMessage>>;
+
   /**
    * Schedule a message for future delivery.
    *
@@ -1287,6 +1293,14 @@ export interface Thread<TState = Record<string, unknown>, TRawMessage = unknown>
    * Fetches the latest 50 messages and updates `recentMessages`.
    */
   refresh(): Promise<void>;
+
+  reply(
+    target: string | Message<TRawMessage>,
+    message:
+      | AdapterPostableMessage
+      | AsyncIterable<string | StreamChunk | StreamEvent>
+      | ChatElement
+  ): Promise<SentMessage<TRawMessage>>;
 
   /**
    * Show typing indicator in the thread.

@@ -536,6 +536,62 @@ export class ThreadImpl<TState = Record<string, unknown>>
     return null;
   }
 
+  async reply(
+    target: string | Message,
+    message:
+      | AdapterPostableMessage
+      | AsyncIterable<string | StreamChunk | StreamEvent>
+      | ChatElement
+  ): Promise<SentMessage> {
+    if (!this.adapter.reply) {
+      throw new NotImplementedError(
+        "Message replies are not supported by this adapter",
+        "replies"
+      );
+    }
+
+    if (target instanceof Message && target.threadId !== this.id) {
+      throw new Error("Cannot reply to a message from another thread");
+    }
+
+    let postable: AdapterPostableMessage;
+    if (isAsyncIterable(message)) {
+      let markdown = "";
+      for await (const chunk of fromFullStream(message)) {
+        if (typeof chunk === "string") {
+          markdown += chunk;
+        } else if (chunk.type === "markdown_text") {
+          markdown += chunk.text;
+        }
+      }
+      postable = { markdown };
+    } else if (isJSX(message)) {
+      const card = toCardElement(message);
+      if (!card) {
+        throw new Error("Invalid JSX element: must be a Card element");
+      }
+      postable = card;
+    } else {
+      postable = message as AdapterPostableMessage;
+    }
+
+    postable = await this.processCallbackUrls(postable);
+    const targetId = typeof target === "string" ? target : target.id;
+    const rawMessage = await this.adapter.reply(this.id, targetId, postable);
+    const result = this.createSentMessage(
+      rawMessage.id,
+      postable,
+      rawMessage.threadId,
+      target instanceof Message ? target : undefined
+    );
+
+    if (this._threadHistory) {
+      await this._threadHistory.append(this.id, new Message(result));
+    }
+
+    return result;
+  }
+
   private async processCallbackUrls(
     postable: string | AdapterPostableMessage
   ): Promise<string | AdapterPostableMessage> {
@@ -955,7 +1011,8 @@ export class ThreadImpl<TState = Record<string, unknown>>
   private createSentMessage(
     messageId: string,
     postable: AdapterPostableMessage,
-    threadIdOverride?: string
+    threadIdOverride?: string,
+    replyTo?: Message
   ): SentMessage {
     const adapter = this.adapter;
     // Use the threadId returned by postMessage if available (may differ after thread creation)
@@ -985,6 +1042,7 @@ export class ThreadImpl<TState = Record<string, unknown>>
         edited: false,
       },
       attachments,
+      replyTo,
 
       toJSON() {
         return new Message(this).toJSON();
@@ -1005,7 +1063,7 @@ export class ThreadImpl<TState = Record<string, unknown>>
         }
         postable = await self.processCallbackUrls(postable);
         await adapter.editMessage(threadId, messageId, postable);
-        return self.createSentMessage(messageId, postable);
+        return self.createSentMessage(messageId, postable, threadId, replyTo);
       },
 
       async delete(): Promise<void> {
@@ -1062,7 +1120,12 @@ export class ThreadImpl<TState = Record<string, unknown>>
         }
         postable = await self.processCallbackUrls(postable);
         await adapter.editMessage(threadId, messageId, postable);
-        return self.createSentMessage(messageId, postable, threadId);
+        return self.createSentMessage(
+          messageId,
+          postable,
+          threadId,
+          message.replyTo
+        );
       },
 
       async delete(): Promise<void> {

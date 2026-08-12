@@ -75,6 +75,22 @@ await thread.post(new StreamingPlan(stream, { groupTasks: "plan" }));
 
 See [Posting Messages](/docs/posting-messages) for details on each format.
 
+## reply
+
+Post a message with a native reference to another message.
+
+```typescript
+await thread.reply(message, {
+  markdown: "Thanks, I can help with that.",
+});
+```
+
+**Parameters:** `target: string | Message`, `message: string | PostableMessage | CardJSXElement`
+
+**Returns:** `Promise<SentMessage>`
+
+The target `Message` must belong to the same thread. Streams are buffered before sending. Adapters without native message reply support throw `NotImplementedError`.
+
 ## postEphemeral
 
 Post a message visible only to a specific user.

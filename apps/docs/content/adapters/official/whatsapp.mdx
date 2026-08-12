@@ -9,6 +9,7 @@ tagline: Connect to WhatsApp Business Cloud for customer messaging and automated
 beta: true
 features:
   postMessage: yes
+  messageReplies: yes
   editMessage: no
   deleteMessage: no
   fileUploads:
@@ -174,6 +175,22 @@ Card elements are automatically converted to WhatsApp interactive messages:
 - **Max body text** — 1024 characters.
 
 When a card with reply buttons also contains link buttons, each link button is appended to the interactive message body as a `Label: url` line, since WhatsApp reply buttons cannot open URLs.
+
+### Contextual replies
+
+Use `thread.reply()` to quote a specific message in WhatsApp:
+
+```typescript
+bot.onNewMessage(async (thread, message) => {
+  await thread.reply(message, {
+    markdown: "I can help with that.",
+  });
+});
+```
+
+You can pass either a `Message` or a message ID as the target. Text, cards, files, and buffered streams are supported. When one logical reply produces multiple WhatsApp messages, only the first message includes the contextual reference.
+
+WhatsApp does not display the quoted bubble when the target was deleted or moved to long-term storage, when the reply is a template message, or for some media replies on KaiOS. Reaction messages cannot be contextual replies. See [Meta's contextual replies documentation](https://developers.facebook.com/documentation/business-messaging/whatsapp/messages/contextual-replies/).
 
 ### Link buttons (CTA URL)
 

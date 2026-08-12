@@ -2720,6 +2720,112 @@ describe("ThreadImpl", () => {
     });
   });
 
+  describe("reply()", () => {
+    let mockAdapter: Adapter;
+    let mockState: ReturnType<typeof createMockState>;
+    let thread: ThreadImpl;
+
+    beforeEach(() => {
+      mockAdapter = createMockAdapter();
+      mockState = createMockState();
+      thread = new ThreadImpl({
+        id: "slack:C123:1234.5678",
+        adapter: mockAdapter,
+        channelId: "C123",
+        stateAdapter: mockState,
+      });
+    });
+
+    it("throws when the adapter does not support replies", async () => {
+      await expect(thread.reply("original", "Hello")).rejects.toThrow(
+        NotImplementedError
+      );
+    });
+
+    it("delegates a message id and content to the adapter", async () => {
+      mockAdapter.reply = vi.fn().mockResolvedValue({
+        id: "reply-1",
+        threadId: "slack:C123:1234.5678",
+        raw: {},
+      });
+
+      const result = await thread.reply("original", { markdown: "Hello" });
+
+      expect(mockAdapter.reply).toHaveBeenCalledWith(
+        "slack:C123:1234.5678",
+        "original",
+        { markdown: "Hello" }
+      );
+      expect(result.id).toBe("reply-1");
+    });
+
+    it("accepts a Message and preserves it on the result", async () => {
+      mockAdapter.reply = vi.fn().mockResolvedValue({
+        id: "reply-1",
+        threadId: "slack:C123:1234.5678",
+        raw: {},
+      });
+      const original = createTestMessage("original", "Question");
+
+      const result = await thread.reply(original, "Answer");
+
+      expect(mockAdapter.reply).toHaveBeenCalledWith(
+        "slack:C123:1234.5678",
+        "original",
+        "Answer"
+      );
+      expect(result.replyTo).toBe(original);
+    });
+
+    it("rejects a Message from another thread", async () => {
+      mockAdapter.reply = vi.fn();
+      const original = createTestMessage("original", "Question", {
+        threadId: "slack:C999:9999.0000",
+      });
+
+      await expect(thread.reply(original, "Answer")).rejects.toThrow(
+        "Cannot reply to a message from another thread"
+      );
+      expect(mockAdapter.reply).not.toHaveBeenCalled();
+    });
+
+    it("converts JSX cards before delegating", async () => {
+      mockAdapter.reply = vi.fn().mockResolvedValue({
+        id: "reply-1",
+        threadId: "slack:C123:1234.5678",
+        raw: {},
+      });
+
+      await thread.reply("original", Card({ title: "Answer" }));
+
+      expect(mockAdapter.reply).toHaveBeenCalledWith(
+        "slack:C123:1234.5678",
+        "original",
+        expect.objectContaining({ type: "card", title: "Answer" })
+      );
+    });
+
+    it("buffers streams into one markdown reply", async () => {
+      mockAdapter.reply = vi.fn().mockResolvedValue({
+        id: "reply-1",
+        threadId: "slack:C123:1234.5678",
+        raw: {},
+      });
+      const stream = (async function* () {
+        yield "Hello ";
+        yield "world";
+      })();
+
+      await thread.reply("original", stream);
+
+      expect(mockAdapter.reply).toHaveBeenCalledWith(
+        "slack:C123:1234.5678",
+        "original",
+        { markdown: "Hello world" }
+      );
+    });
+  });
+
   describe("schedule()", () => {
     let mockAdapter: Adapter;
     let mockState: ReturnType<typeof createMockState>;
