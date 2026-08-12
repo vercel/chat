@@ -65,7 +65,8 @@ const telegram = createTelegramAdapter({
 Connect does not forward Telegram webhooks. Keep
 `TELEGRAM_WEBHOOK_SECRET_TOKEN` when using webhook mode, or use polling mode
 without an inbound webhook. `TELEGRAM_BOT_TOKEN` is not needed when using the
-Connect helper.
+Connect helper. The adapter derives webhook deduplication scope from Telegram's
+stable bot identity, so token rotation does not split update claims.
 
 ## Webhook route
 

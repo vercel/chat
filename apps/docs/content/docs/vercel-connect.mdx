@@ -185,9 +185,10 @@ createTelegramAdapter({
 ```
 
 `connectTelegramAdapter` supplies only the outbound `botToken`; it does not
-include a `webhookVerifier`. Connect does not forward Telegram triggers, so
-retain `TELEGRAM_WEBHOOK_SECRET_TOKEN` for native webhook verification or use
-polling mode. Omit `TELEGRAM_BOT_TOKEN` when using the helper.
+include a `webhookVerifier`. The adapter derives webhook deduplication scope
+from Telegram's stable bot identity, not the rotating credential. Retain
+`TELEGRAM_WEBHOOK_SECRET_TOKEN` for native webhook verification or use polling
+mode. Omit `TELEGRAM_BOT_TOKEN` when using the helper.
 
 ## Custom webhook verification
 

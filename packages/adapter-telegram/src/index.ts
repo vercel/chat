@@ -325,12 +325,8 @@ export class TelegramAdapter
         "botToken is required. Set TELEGRAM_BOT_TOKEN or provide it in config."
       );
     }
-
     this.botTokenProvider = normalizeBotTokenProvider(botToken);
     this.staticBotToken = typeof botToken === "string" ? botToken : undefined;
-    this.webhookScope = this.staticBotToken
-      ? createHash("sha256").update(this.staticBotToken).digest("hex")
-      : undefined;
     this.apiBaseUrl = trimTrailingSlashes(
       config.apiUrl ??
         config.apiBaseUrl ??
@@ -371,7 +367,6 @@ export class TelegramAdapter
         "Telegram bot token resolver returned an empty token. Check TELEGRAM_BOT_TOKEN or the Vercel Connect connector."
       );
     }
-    this.webhookScope ??= createHash("sha256").update(botToken).digest("hex");
     return botToken;
   }
 
@@ -390,6 +385,9 @@ export class TelegramAdapter
     try {
       const me = await this.telegramFetch<TelegramUser>("getMe");
       this._botUserId = String(me.id);
+      this.webhookScope = createHash("sha256")
+        .update(this._botUserId)
+        .digest("hex");
       if (!this.hasExplicitUserName && me.username) {
         this._userName = this.normalizeUserName(me.username);
       }
@@ -496,7 +494,7 @@ export class TelegramAdapter
       const webhookScope = this.webhookScope;
       if (!webhookScope) {
         this.logger.warn(
-          "Telegram webhook update could not be scoped before bot token resolution"
+          "Telegram webhook update could not be scoped before bot identity resolution"
         );
         return new Response("Service unavailable", { status: 503 });
       }
