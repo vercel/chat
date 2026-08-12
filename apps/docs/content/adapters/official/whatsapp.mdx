@@ -39,6 +39,7 @@ features:
   addReactions: yes
   removeReactions: yes
   typingIndicator: yes
+  markAsRead: yes
   messageUpdatedEvents: no
   messageDeletedEvents: no
   directMessages: yes
@@ -228,6 +229,19 @@ WhatsApp-specific behavior:
 - The adapter uses the most recent inbound message ID from thread history.
 - If there is no inbound message context, `startTyping()` no-ops.
 - The typing indicator is dismissed when the bot sends its reply, or after the WhatsApp platform timeout.
+
+### Read receipts
+
+Mark the current inbound message as read before starting work:
+
+```typescript
+bot.onDirectMessage(async (thread) => {
+  await thread.markAsRead();
+  await thread.post("Thanks, I am checking that now.");
+});
+```
+
+You can also pass an inbound `Message` or its ID to `thread.markAsRead()`. WhatsApp marks that message and earlier messages in the conversation as read. It does not allow outgoing message IDs to be marked as read and recommends acknowledging inbound messages within 30 days.
 
 ### Thread ID format
 

@@ -173,6 +173,16 @@ WhatsApp-specific behavior:
 - If there is no inbound message context, `startTyping()` no-ops.
 - The typing indicator is dismissed when the bot sends its reply, or after the WhatsApp platform timeout.
 
+### Read receipts
+
+Use `thread.markAsRead()` in a message handler to acknowledge the current inbound message:
+
+```typescript
+await thread.markAsRead();
+```
+
+You can also pass an inbound `Message` or its ID. WhatsApp marks that message and earlier messages in the conversation as read. It does not allow outgoing message IDs to be marked as read and recommends acknowledging inbound messages within 30 days.
+
 ### Incoming message types
 
 | Type | Supported |

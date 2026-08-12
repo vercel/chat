@@ -185,6 +185,29 @@ await thread.startTyping();
 await thread.startTyping("Searching documents...");
 ```
 
+## markAsRead
+
+Mark an inbound message as read. WhatsApp, Messenger, and XChat support this capability. Other adapters throw `NotImplementedError`.
+
+Inside a message handler, omit the argument to mark the current message:
+
+```typescript
+bot.onDirectMessage(async (thread) => {
+  await thread.markAsRead();
+});
+```
+
+Pass a `Message` or message ID when targeting a message explicitly:
+
+```typescript
+await thread.markAsRead(message);
+await thread.markAsRead(message.id);
+```
+
+The message must belong to the thread. Calling `markAsRead()` without an argument outside a message handler throws because there is no current message.
+
+Platforms may advance the conversation's read state through the target message, which also marks earlier messages as read.
+
 ## messages / allMessages
 
 Iterate through message history.

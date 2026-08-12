@@ -89,6 +89,29 @@ await thread.startTyping();
 Not all platforms support typing indicators. The call is a no-op on unsupported platforms. See the [adapter feature matrix](/docs/platform-adapters) for details.
 </Callout>
 
+### Mark as read
+
+Inside a message handler, mark the current inbound message as read without passing platform-specific IDs:
+
+```typescript title="lib/bot.ts"
+bot.onDirectMessage(async (thread) => {
+  await thread.markAsRead();
+});
+```
+
+You can pass a `Message` or message ID when you need an explicit target:
+
+```typescript
+await thread.markAsRead(message);
+await thread.markAsRead(message.id);
+```
+
+Platforms may advance the conversation's read state through the target message, which also marks earlier messages as read.
+
+<Callout type="info">
+WhatsApp, Messenger, and XChat support marking messages as read. Other adapters throw `NotImplementedError`. See the [adapter feature matrix](/docs/platform-adapters) for details.
+</Callout>
+
 ### Message history
 
 Access recent messages or iterate through full history:

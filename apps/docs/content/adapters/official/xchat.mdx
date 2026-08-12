@@ -41,6 +41,7 @@ features:
   addReactions: yes
   removeReactions: yes
   typingIndicator: yes
+  markAsRead: yes
   messageUpdatedEvents: no
   messageDeletedEvents: no
   directMessages: yes
@@ -271,7 +272,20 @@ The adapter can edit and delete only the bot's own messages. The first edit of a
 
 ### Read receipts and typing
 
-A read receipt is sent for each delivered inbound message before handlers run unless `sendReadReceipts: false`. The typing indicator is re-sent every 3 seconds while a handler runs.
+A read receipt is sent for each delivered inbound message before handlers run unless `sendReadReceipts: false`. To control the timing yourself, disable automatic receipts and call `thread.markAsRead()` in the handler. XChat advances the conversation's read watermark through the target message sequence. The typing indicator is re-sent every 3 seconds while a handler runs.
+
+```typescript
+const xchat = createXchatAdapter({ sendReadReceipts: false });
+
+const bot = new Chat({
+  userName: "mybot",
+  adapters: { xchat },
+});
+
+bot.onDirectMessage(async (thread) => {
+  await thread.markAsRead();
+});
+```
 
 ### Thread ID format
 
