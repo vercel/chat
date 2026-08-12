@@ -388,6 +388,12 @@ export interface Adapter<TThreadId = unknown, TRawMessage = unknown> {
    * Can be overridden by `ChatConfig.lockScope`.
    */
   readonly lockScope?: LockScope;
+
+  markAsRead?(
+    threadId: string,
+    messageId: string,
+    message?: Message<TRawMessage>
+  ): Promise<void>;
   /** Unique name for this adapter (e.g., "slack", "teams") */
   readonly name: string;
 
@@ -1184,6 +1190,8 @@ export interface Thread<TState = Record<string, unknown>, TRawMessage = unknown>
    * @returns Promise resolving to true if subscribed, false otherwise
    */
   isSubscribed(): Promise<boolean>;
+
+  markAsRead(message?: string | Message<TRawMessage>): Promise<void>;
 
   /**
    * Get a platform-specific mention string for a user.

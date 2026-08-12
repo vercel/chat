@@ -37,7 +37,7 @@ import type {
   StreamOptions,
   Thread,
 } from "./types";
-import { NotImplementedError, THREAD_STATE_TTL_MS } from "./types";
+import { ChatError, NotImplementedError, THREAD_STATE_TTL_MS } from "./types";
 
 /**
  * Serialized thread data for passing to external systems (e.g., workflow engines).
@@ -735,6 +735,36 @@ export class ThreadImpl<TState = Record<string, unknown>>
 
   async startTyping(status?: string): Promise<void> {
     await this.adapter.startTyping(this.id, status);
+  }
+
+  async markAsRead(message?: string | Message): Promise<void> {
+    if (!this.adapter.markAsRead) {
+      throw new NotImplementedError(
+        "Read receipts are not supported by this adapter",
+        "read-receipts"
+      );
+    }
+
+    const target = message ?? this._currentMessage;
+    if (!target) {
+      throw new ChatError(
+        "A message is required outside a message handler",
+        "MESSAGE_REQUIRED"
+      );
+    }
+
+    if (typeof target !== "string" && target.threadId !== this.id) {
+      throw new ChatError(
+        "Cannot mark a message from another thread as read",
+        "THREAD_MISMATCH"
+      );
+    }
+
+    await this.adapter.markAsRead(
+      this.id,
+      typeof target === "string" ? target : target.id,
+      typeof target === "string" ? undefined : target
+    );
   }
 
   /**
