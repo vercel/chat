@@ -303,10 +303,106 @@ export interface SlackThreadId {
   threadTs: string;
 }
 
+interface SlackBlock {
+  elements?: SlackBlock[];
+  name?: string;
+  range?: string;
+  rows?: unknown;
+  text?: string;
+  type: string;
+  url?: string;
+  user_id?: string;
+  value?: number;
+}
+
+type SlackTable = Extract<
+  FormattedContent["children"][number],
+  { type: "table" }
+>;
+
+function blocktext(value: unknown): string {
+  if (!(typeof value === "object" && value !== null && "type" in value)) {
+    return "";
+  }
+
+  const block = value as SlackBlock;
+  if (block.type === "raw_number") {
+    return (
+      block.text ?? (typeof block.value === "number" ? String(block.value) : "")
+    );
+  }
+  if (block.type === "link") {
+    return block.text ?? block.url ?? "";
+  }
+  if (block.type === "emoji") {
+    return block.name ? `:${block.name}:` : "";
+  }
+  if (block.type === "user") {
+    return block.user_id ? `<@${block.user_id}>` : "";
+  }
+  if (block.type === "broadcast") {
+    return block.range ? `@${block.range}` : "";
+  }
+  if (typeof block.text === "string") {
+    return block.text;
+  }
+  if (!Array.isArray(block.elements)) {
+    return "";
+  }
+
+  const separator =
+    block.type === "rich_text" ||
+    block.type === "rich_text_list" ||
+    block.type === "rich_text_quote" ||
+    block.type === "rich_text_preformatted"
+      ? "\n"
+      : "";
+  return block.elements.map(blocktext).join(separator);
+}
+
+function table(block: SlackBlock): SlackTable | null {
+  if (!(block.type === "table" && Array.isArray(block.rows))) {
+    return null;
+  }
+
+  const children = block.rows.flatMap((row) => {
+    if (!(Array.isArray(row) && row.length > 0)) {
+      return [];
+    }
+    return [
+      {
+        type: "tableRow" as const,
+        children: row.map((cell) => ({
+          type: "tableCell" as const,
+          children: [{ type: "text" as const, value: blocktext(cell) }],
+        })),
+      },
+    ];
+  });
+
+  return children.length > 0 ? { type: "table", children } : null;
+}
+
+function tables(event: SlackEvent): SlackTable[] {
+  const blocks = [
+    ...(event.blocks ?? []),
+    ...(event.attachments ?? []).flatMap((attachment) =>
+      Array.isArray(attachment.blocks) ? attachment.blocks : []
+    ),
+  ];
+
+  return blocks.flatMap((block) => {
+    const parsed = table(block);
+    return parsed ? [parsed] : [];
+  });
+}
+
 /** Slack event payload (raw message format) */
 export interface SlackEvent {
   /** Legacy attachments (unfurl previews, app unfurls, etc.) */
   attachments?: Array<{
+    blocks?: SlackBlock[];
+    fallback?: string;
     from_url?: string;
     image_url?: string;
     is_msg_unfurl?: boolean;
@@ -319,17 +415,7 @@ export interface SlackEvent {
     title_link?: string;
   }>;
   /** Rich text blocks containing structured elements (links, mentions, etc.) */
-  blocks?: Array<{
-    type: string;
-    elements?: Array<{
-      type: string;
-      elements?: Array<{
-        type: string;
-        url?: string;
-        text?: string;
-      }>;
-    }>;
-  }>;
+  blocks?: SlackBlock[];
   bot_id?: string;
   channel?: string;
   /** Channel type: "channel", "group", "mpim", or "im" (DM) */
@@ -3549,12 +3635,13 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
 
     // Resolve inline @mentions to display names
     const text = await this.resolveInlineMentions(rawText, skipSelfMention);
+    const formatted = this.content(event, text);
 
     return new Message({
       id: event.ts || "",
       threadId,
-      text: this.formatConverter.extractPlainText(text),
-      formatted: this.formatConverter.toAst(text),
+      text: toPlainText(formatted),
+      formatted,
       raw: event,
       author: {
         userId: event.user || event.bot_id || "unknown",
@@ -5430,6 +5517,7 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
     const isMe = this.isMessageFromSelf(event);
 
     const text = event.text || "";
+    const formatted = this.content(event, text);
     // Without async lookup, fall back to user ID for human users
     const userName = event.username || event.user || "unknown";
     const fullName = event.username || event.user || "unknown";
@@ -5437,8 +5525,8 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
     return new Message({
       id: event.ts || "",
       threadId,
-      text: this.formatConverter.extractPlainText(text),
-      formatted: this.formatConverter.toAst(text),
+      text: toPlainText(formatted),
+      formatted,
       raw: event,
       author: {
         userId: event.user || event.bot_id || "unknown",
@@ -5460,6 +5548,12 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
       ),
       links: this.extractLinks(event),
     });
+  }
+
+  protected content(event: SlackEvent, text: string): FormattedContent {
+    const formatted = this.formatConverter.toAst(text);
+    formatted.children.push(...tables(event));
+    return formatted;
   }
 
   // =========================================================================

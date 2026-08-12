@@ -21,6 +21,7 @@ import type {
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type {
   SlackAdapterConfig,
+  SlackEvent,
   SlackInstallation,
   SlackThreadId,
 } from "./index";
@@ -1279,6 +1280,115 @@ describe("parseMessage", () => {
 
     const fileMsg = adapter.parseMessage(createEvent("application/pdf"));
     expect(fileMsg.attachments?.[0].type).toBe("file");
+  });
+
+  it("preserves pasted table attachments as message content", async () => {
+    const event: SlackEvent = {
+      type: "message",
+      user: "U123",
+      username: "alice",
+      channel: "C456",
+      text: "Which devices support remote firmware upgrades?",
+      ts: "1786120899.208429",
+      attachments: [
+        {
+          fallback: "[no preview available]",
+          blocks: [
+            {
+              type: "table",
+              rows: [
+                [
+                  {
+                    type: "rich_text",
+                    elements: [
+                      {
+                        type: "rich_text_section",
+                        elements: [
+                          {
+                            type: "text",
+                            text: "Manufacturer",
+                            style: { bold: true },
+                          },
+                        ],
+                      },
+                    ],
+                  },
+                  { type: "raw_text", text: "Identifier Listed" },
+                  { type: "raw_text", text: "Units" },
+                ],
+                [
+                  { type: "raw_text", text: "Samsung" },
+                  { type: "raw_text", text: "QB55C" },
+                  { type: "raw_number", value: 3 },
+                ],
+              ],
+            },
+          ],
+        },
+      ],
+    };
+    const expected =
+      "Which devices support remote firmware upgrades?\n\n" +
+      "Manufacturer\tIdentifier Listed\tUnits\nSamsung\tQB55C\t3";
+    const sync = adapter.parseMessage(event);
+    const internals = adapter as unknown as {
+      parseSlackMessage(
+        value: SlackEvent,
+        threadId: string
+      ): Promise<Message<unknown>>;
+    };
+    const async = await internals.parseSlackMessage(
+      event,
+      "slack:C456:1786120899.208429"
+    );
+
+    for (const message of [sync, async]) {
+      expect(message.text).toBe(expected);
+      expect(message.attachments).toEqual([]);
+      expect(message.formatted.children[1]).toMatchObject({
+        type: "table",
+        children: [
+          {
+            type: "tableRow",
+            children: [
+              { type: "tableCell", children: [{ value: "Manufacturer" }] },
+              {
+                type: "tableCell",
+                children: [{ value: "Identifier Listed" }],
+              },
+              { type: "tableCell", children: [{ value: "Units" }] },
+            ],
+          },
+          {
+            type: "tableRow",
+            children: [
+              { type: "tableCell", children: [{ value: "Samsung" }] },
+              { type: "tableCell", children: [{ value: "QB55C" }] },
+              { type: "tableCell", children: [{ value: "3" }] },
+            ],
+          },
+        ],
+      });
+    }
+  });
+
+  it("preserves table-only messages and ignores malformed table blocks", () => {
+    const message = adapter.parseMessage({
+      type: "message",
+      user: "U123",
+      channel: "C456",
+      text: "",
+      ts: "1786120899.208429",
+      blocks: [
+        { type: "table", rows: [[{ type: "raw_text", text: "Visible" }]] },
+        { type: "table", rows: "invalid" },
+      ],
+      attachments: [{ blocks: [{ type: "table" }] }],
+    });
+
+    expect(message.text).toBe("Visible");
+    expect(message.formatted.children).toHaveLength(1);
+    expect(message.formatted.children[0]?.type).toBe("table");
   });
 });
 
