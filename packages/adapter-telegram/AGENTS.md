@@ -71,7 +71,8 @@ Main exports from `src/index.ts`:
   Telegram Bot API or file-download request. This supports outbound-only
   Vercel Connect authentication while native webhooks keep `secretToken`.
   Webhook deduplication is scoped with the stable bot ID returned by `getMe`,
-  never the potentially rotating token.
+  never the potentially rotating token. Failed startup identity lookups retry
+  lazily on later verified webhooks.
 - `TelegramAdapter` class — implements `Adapter<TelegramThreadId,
   unknown>`. Public methods: `handleWebhook`, `postMessage`,
   `editMessage`, `deleteMessage`, `addReaction`, `removeReaction`,

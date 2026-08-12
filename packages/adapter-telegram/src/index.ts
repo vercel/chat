@@ -277,6 +277,7 @@ export class TelegramAdapter
   protected readonly staticBotToken?: string;
   protected readonly apiBaseUrl: string;
   protected readonly secretToken?: string;
+  private botIdentityPromise: Promise<void> | null = null;
   private webhookScope?: string;
   private warnedNoVerification = false;
   protected readonly logger: Logger;
@@ -370,6 +371,32 @@ export class TelegramAdapter
     return botToken;
   }
 
+  protected async ensureBotIdentity(): Promise<void> {
+    if (this.webhookScope) {
+      return;
+    }
+    if (!this.botIdentityPromise) {
+      this.botIdentityPromise = this.telegramFetch<TelegramUser>("getMe")
+        .then((me) => {
+          this._botUserId = String(me.id);
+          this.webhookScope = createHash("sha256")
+            .update(this._botUserId)
+            .digest("hex");
+          if (!this.hasExplicitUserName && me.username) {
+            this._userName = this.normalizeUserName(me.username);
+          }
+          this.logger.info("Telegram bot identity resolved", {
+            botUserId: this._botUserId,
+            userName: this._userName,
+          });
+        })
+        .finally(() => {
+          this.botIdentityPromise = null;
+        });
+    }
+    await this.botIdentityPromise;
+  }
+
   async initialize(chat: ChatInstance): Promise<void> {
     this.chat = chat;
 
@@ -383,19 +410,7 @@ export class TelegramAdapter
     }
 
     try {
-      const me = await this.telegramFetch<TelegramUser>("getMe");
-      this._botUserId = String(me.id);
-      this.webhookScope = createHash("sha256")
-        .update(this._botUserId)
-        .digest("hex");
-      if (!this.hasExplicitUserName && me.username) {
-        this._userName = this.normalizeUserName(me.username);
-      }
-
-      this.logger.info("Telegram adapter initialized", {
-        botUserId: this._botUserId,
-        userName: this._userName,
-      });
+      await this.ensureBotIdentity();
     } catch (error) {
       this.logger.warn("Failed to fetch Telegram bot identity", {
         error: String(error),
@@ -491,11 +506,20 @@ export class TelegramAdapter
     }
 
     if (this.secretToken && Number.isInteger(update.update_id)) {
-      const webhookScope = this.webhookScope;
+      let webhookScope = this.webhookScope;
       if (!webhookScope) {
-        this.logger.warn(
-          "Telegram webhook update could not be scoped before bot identity resolution"
-        );
+        try {
+          await this.ensureBotIdentity();
+          webhookScope = this.webhookScope;
+        } catch (error) {
+          this.logger.warn(
+            "Telegram webhook update could not resolve bot identity",
+            { error: String(error) }
+          );
+          return new Response("Service unavailable", { status: 503 });
+        }
+      }
+      if (!webhookScope) {
         return new Response("Service unavailable", { status: 503 });
       }
       try {
