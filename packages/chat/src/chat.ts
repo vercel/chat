@@ -2360,9 +2360,11 @@ export class Chat<
       token: lock.token,
     });
 
+    const stopLockHeartbeat = this.startLockHeartbeat(lock);
     try {
       await this.dispatchToHandlers(adapter, threadId, message);
     } finally {
+      stopLockHeartbeat();
       await this._stateAdapter.releaseLock(lock);
       this.logger.debug("Lock released", { threadId, lockKey });
     }
@@ -2435,6 +2437,7 @@ export class Chat<
       token: lock.token,
     });
 
+    const stopLockHeartbeat = this.startLockHeartbeat(lock);
     try {
       if (strategy === "debounce") {
         // Debounce: enqueue our own message and enter the debounce loop
@@ -2479,9 +2482,48 @@ export class Chat<
         await this.drainQueue(lock, adapter, threadId, lockKey);
       }
     } finally {
+      stopLockHeartbeat();
       await this._stateAdapter.releaseLock(lock);
       this.logger.debug("Lock released", { threadId, lockKey });
     }
+  }
+
+  private startLockHeartbeat(lock: Lock): () => void {
+    let stopped = false;
+    const heartbeat = setInterval(
+      () =>
+        this._stateAdapter
+          .extendLock(lock, DEFAULT_LOCK_TTL_MS)
+          .then((extended) => {
+            if (!extended) {
+              clearInterval(heartbeat);
+              if (!stopped) {
+                this.logger.warn(
+                  "Lock heartbeat stopped after ownership was lost",
+                  {
+                    threadId: lock.threadId,
+                    token: lock.token,
+                  }
+                );
+              }
+            }
+          })
+          .catch((error) => {
+            if (!stopped) {
+              this.logger.warn("Lock heartbeat failed", {
+                error,
+                threadId: lock.threadId,
+                token: lock.token,
+              });
+            }
+          }),
+      DEFAULT_LOCK_TTL_MS / 3
+    );
+
+    return () => {
+      stopped = true;
+      clearInterval(heartbeat);
+    };
   }
 
   /**
