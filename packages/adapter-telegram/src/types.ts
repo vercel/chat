@@ -27,6 +27,7 @@ export interface TelegramAdapterConfig {
    * - polling: polling-only mode
    */
   mode?: TelegramAdapterMode;
+  nativeStreaming?: boolean;
   /** Optional webhook secret token checked against x-telegram-bot-api-secret-token. Defaults to TELEGRAM_WEBHOOK_SECRET_TOKEN env var. */
   secretToken?: string;
   /** Override bot username (optional). Defaults to TELEGRAM_BOT_USERNAME env var. */

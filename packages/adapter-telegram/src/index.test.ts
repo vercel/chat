@@ -1988,7 +1988,7 @@ describe("TelegramAdapter", () => {
     expect(sendMessageBody.rich_message.markdown).toBe("hello");
   });
 
-  it("streams draft updates for private chats and sends a final message", async () => {
+  it("streams draft updates when native streaming is enabled", async () => {
     mockFetch
       .mockResolvedValueOnce(
         telegramOk({
@@ -2015,6 +2015,7 @@ describe("TelegramAdapter", () => {
       botToken: "token",
       mode: "webhook",
       logger: mockLogger,
+      nativeStreaming: true,
       userName: "mybot",
     });
 
@@ -2094,6 +2095,7 @@ describe("TelegramAdapter", () => {
       botToken: "token",
       mode: "webhook",
       logger: mockLogger,
+      nativeStreaming: true,
       userName: "mybot",
     });
 
@@ -2177,6 +2179,7 @@ describe("TelegramAdapter", () => {
       botToken: "token",
       mode: "webhook",
       logger: mockLogger,
+      nativeStreaming: true,
       userName: "mybot",
     });
 
@@ -2248,6 +2251,7 @@ describe("TelegramAdapter", () => {
       botToken: "token",
       mode: "webhook",
       logger: mockLogger,
+      nativeStreaming: true,
       userName: "mybot",
     });
 
@@ -2262,6 +2266,39 @@ describe("TelegramAdapter", () => {
     });
 
     expect(result).toBeNull();
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+  });
+
+  it("returns null before consuming private streams by default", async () => {
+    mockFetch.mockResolvedValueOnce(
+      telegramOk({
+        id: 999,
+        is_bot: true,
+        first_name: "Bot",
+        username: "mybot",
+      })
+    );
+
+    const adapter = createTelegramAdapter({
+      botToken: "token",
+      mode: "webhook",
+      userName: "mybot",
+    });
+
+    await adapter.initialize(createMockChat());
+
+    let consumed = false;
+    async function* stream(): AsyncIterable<string> {
+      consumed = true;
+      yield "hello";
+    }
+
+    const result = await adapter.stream("telegram:123", stream(), {
+      updateIntervalMs: 0,
+    });
+
+    expect(result).toBeNull();
+    expect(consumed).toBe(false);
     expect(mockFetch).toHaveBeenCalledTimes(1);
   });
 
@@ -2291,6 +2328,7 @@ describe("TelegramAdapter", () => {
       botToken: "token",
       mode: "webhook",
       logger: mockLogger,
+      nativeStreaming: true,
       userName: "mybot",
     });
 
@@ -2361,6 +2399,7 @@ describe("TelegramAdapter", () => {
       botToken: "token",
       mode: "webhook",
       logger: mockLogger,
+      nativeStreaming: true,
       userName: "mybot",
     });
 
@@ -3458,6 +3497,7 @@ describe("TelegramAdapter", () => {
       botToken: "token",
       mode: "webhook",
       logger: mockLogger,
+      nativeStreaming: true,
       userName: "mybot",
     });
 
@@ -3527,6 +3567,7 @@ describe("TelegramAdapter", () => {
       botToken: "token",
       mode: "webhook",
       logger: mockLogger,
+      nativeStreaming: true,
       userName: "mybot",
     });
 

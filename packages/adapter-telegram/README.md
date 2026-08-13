@@ -184,7 +184,7 @@ TELEGRAM_API_BASE_URL=https://api.telegram.org
 | Delete message | Yes |
 | File uploads | Yes (`sendDocument`, `sendMediaGroup`) |
 | Attachment uploads | Yes (`sendPhoto`, `sendAudio`, `sendVideo`, `sendDocument`, `sendMediaGroup`) |
-| Streaming | Private chat rich draft previews + post/edit fallback |
+| Streaming | Post/edit + opt-in private chat rich drafts |
 
 ### Rich content
 
@@ -223,9 +223,19 @@ TELEGRAM_API_BASE_URL=https://api.telegram.org
 | Fetch channel info | Yes |
 | Post channel message | Yes |
 
+## Streaming
+
+Streams use post-and-edit by default for consistent behavior across Telegram clients. To opt into native draft previews in private chats:
+
+```typescript
+const telegram = createTelegramAdapter({ nativeStreaming: true });
+```
+
+[Telegram clients should dismiss a draft preview](https://core.telegram.org/api/bots/ai#live-response-streaming) when the final message arrives, but draft rendering varies between clients. Keep the default when your bot must work consistently across Telegram clients.
+
 ## Markdown formatting
 
-On Telegram Bot API 10.1 and newer, explicit `{ markdown }` and `{ ast }` messages use rich messages, including native headings, lists, tables, task lists, formulas, details, and separate media blocks supported by the Bot API. Private chat streams use rich draft previews and persist the completed response as a rich message.
+On Telegram Bot API 10.1 and newer, explicit `{ markdown }` and `{ ast }` messages use rich messages, including native headings, lists, tables, task lists, formulas, details, and separate media blocks supported by the Bot API.
 
 Plain strings, raw messages, cards, and media captions retain their existing lightweight message paths. Cards and captions use Telegram's `MarkdownV2` parse mode with context-aware escaping. If an older or custom Bot API server does not support rich message methods, the adapter automatically falls back to the existing MarkdownV2 path.
 

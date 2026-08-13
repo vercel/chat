@@ -142,4 +142,26 @@ describe("Replay Tests - Telegram", () => {
       })
     );
   });
+
+  it("streams with post and edit by default", async () => {
+    await sendWebhook(fixtures.mention);
+    mockApi.clearMocks();
+
+    const thread = captured.mentionThread;
+    if (!thread) {
+      throw new Error("Expected mention thread");
+    }
+
+    async function* stream(): AsyncIterable<string> {
+      yield "hello";
+      yield " world";
+    }
+
+    await thread.post(stream());
+
+    expect(mockApi.calls.map(({ method }) => method)).toEqual([
+      "sendMessage",
+      "editMessageText",
+    ]);
+  });
 });

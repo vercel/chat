@@ -294,6 +294,7 @@ export class TelegramAdapter
   private _mentionRegex?: RegExp;
   protected readonly hasExplicitUserName: boolean;
   protected readonly mode: TelegramAdapterMode;
+  protected readonly nativeStreaming: boolean;
   protected readonly longPolling?: TelegramLongPollingConfig;
   private _runtimeMode: TelegramRuntimeMode = "webhook";
   private pollingAbortController: AbortController | null = null;
@@ -350,6 +351,7 @@ export class TelegramAdapter
     this._userName = this.normalizeUserName(userName ?? "bot");
     this.hasExplicitUserName = Boolean(userName);
     this.mode = config.mode ?? "auto";
+    this.nativeStreaming = config.nativeStreaming ?? false;
     this.longPolling = config.longPolling;
 
     if (!["auto", "webhook", "polling"].includes(this.mode)) {
@@ -1460,7 +1462,7 @@ export class TelegramAdapter
     textStream: AsyncIterable<string | StreamChunk>,
     options?: StreamOptions
   ): Promise<RawMessage<TelegramRawMessage> | null> {
-    if (!this.isDM(threadId)) {
+    if (!(this.nativeStreaming && this.isDM(threadId))) {
       return null;
     }
 
