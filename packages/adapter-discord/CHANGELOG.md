@@ -1,5 +1,23 @@
 # @chat-adapter/discord
 
+## 4.38.0
+
+### Minor Changes
+
+- a0cba02: Add Vercel Connect credential resolvers and custom webhook verification to the Discord adapter, with `create-chat-sdk --connect` scaffolding for Discord bots.
+
+### Patch Changes
+
+- a94995e: Restore attachment downloads across Discord inbound message paths.
+- 4bdf721: Preserve content and attachments from forwarded Discord message snapshots.
+- Updated dependencies [0f24cc3]
+- Updated dependencies [bdeb2bf]
+- Updated dependencies [a0cba02]
+- Updated dependencies [83ede7e]
+- Updated dependencies [18d4a23]
+  - chat@4.38.0
+  - @chat-adapter/shared@4.38.0
+
 ## 4.37.0
 
 ### Patch Changes

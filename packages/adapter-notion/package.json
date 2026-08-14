@@ -1,6 +1,6 @@
 {
   "name": "@chat-adapter/notion",
-  "version": "4.37.0",
+  "version": "4.38.0",
   "description": "Notion adapter for Chat SDK — participate in page and block comment discussions",
   "type": "module",
   "engines": {

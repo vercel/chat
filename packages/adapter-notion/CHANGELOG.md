@@ -1,5 +1,21 @@
 # @chat-adapter/notion
 
+## 4.38.0
+
+### Minor Changes
+
+- 06b04ac: Add outbound-only Vercel Connect authentication for Notion while retaining native webhook verification and scaffolding.
+
+### Patch Changes
+
+- Updated dependencies [0f24cc3]
+- Updated dependencies [bdeb2bf]
+- Updated dependencies [a0cba02]
+- Updated dependencies [83ede7e]
+- Updated dependencies [18d4a23]
+  - chat@4.38.0
+  - @chat-adapter/shared@4.38.0
+
 ## 4.37.0
 
 ### Minor Changes

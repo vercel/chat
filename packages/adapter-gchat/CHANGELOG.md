@@ -1,5 +1,30 @@
 # @chat-adapter/gchat
 
+## 4.38.0
+
+### Patch Changes
+
+- 2f40a32: Fix attachment downloads failing with a 400 when `attachmentDataRef` is present
+
+  `fetchAttachmentData` called the Chat media endpoint without `alt=media`, so it
+  returned resource metadata rather than file bytes and rejected the arraybuffer
+  request with a bare 400. Every download by `resourceName` failed, which is the
+  path taken for any file uploaded directly to Chat.
+
+  The download path is also hardened: when `media.download` fails and the
+  attachment carries a `downloadUri`, the adapter now falls back to fetching that
+  URL instead of rejecting, and failures with no fallback are routed through the
+  shared error handling so a 429 surfaces as `AdapterRateLimitError` like every
+  other Chat API call.
+
+- Updated dependencies [0f24cc3]
+- Updated dependencies [bdeb2bf]
+- Updated dependencies [a0cba02]
+- Updated dependencies [83ede7e]
+- Updated dependencies [18d4a23]
+  - chat@4.38.0
+  - @chat-adapter/shared@4.38.0
+
 ## 4.37.0
 
 ### Minor Changes

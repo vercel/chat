@@ -1,5 +1,27 @@
 # @chat-adapter/telegram
 
+## 4.38.0
+
+### Minor Changes
+
+- 0f24cc3: Preserve normalized replied-to message context and populate it from Telegram replies.
+- 7a1150c: Add outbound-only Vercel Connect authentication for Telegram while retaining native webhook verification or polling.
+- 3bbf3ff: Use post-and-edit streaming by default and make native Telegram drafts opt-in. Streams now render the same way in every chat type; set the new `nativeStreaming: true` config option to restore draft previews in private chats.
+
+  The adapter now owns the post-and-edit loop so edits stay under Telegram's per-chat rate limit. Edits are throttled to a 1100ms floor, configurable with the new `streamingEditIntervalMs` option, and a rate-limited final edit is retried once instead of failing the post.
+
+### Patch Changes
+
+- 1d2b78d: Deduplicate repeated Telegram webhook updates by their update ID using the configured state adapter.
+- 745fdf5: respect Telegram streaming rate limits and target XChat read receipts exactly
+- Updated dependencies [0f24cc3]
+- Updated dependencies [bdeb2bf]
+- Updated dependencies [a0cba02]
+- Updated dependencies [83ede7e]
+- Updated dependencies [18d4a23]
+  - chat@4.38.0
+  - @chat-adapter/shared@4.38.0
+
 ## 4.37.0
 
 ### Patch Changes

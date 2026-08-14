@@ -1,5 +1,17 @@
 # chat
 
+## 4.38.0
+
+### Minor Changes
+
+- 0f24cc3: Preserve normalized replied-to message context and populate it from Telegram replies.
+- bdeb2bf: Add a workflow-safe `chat/serialization` entrypoint and isolate automatic Chat class serializers from Node-only runtime dependencies.
+- a0cba02: Add Vercel Connect credential resolvers and custom webhook verification to the Discord adapter, with `create-chat-sdk --connect` scaffolding for Discord bots.
+- 83ede7e: add native message replies with WhatsApp contextual reply support
+- 18d4a23: Add a shared thread API for marking messages as read across WhatsApp, Messenger, and XChat.
+
+  Note for anyone calling `XchatAdapter.markAsRead()` directly: it now rejects when a receipt fails instead of logging a warning and resolving. Automatic read receipts are unaffected, since the adapter still catches and logs those internally. If you call the method yourself without awaiting it, add a `.catch()` so a failed receipt does not surface as an unhandled rejection.
+
 ## 4.37.0
 
 ### Minor Changes
