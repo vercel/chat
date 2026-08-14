@@ -289,7 +289,7 @@ bot.onDirectMessage(async (thread) => {
 
 Automatic receipts never interrupt a handler, since a failure is logged and swallowed. A `thread.markAsRead()` call you make yourself rejects on failure, so await it or attach a `.catch()`.
 
-When the message's sequence id is not known, such as an event the adapter could not decrypt, the watermark advances to the latest event in the conversation instead.
+When a delivered message has no sequence id, such as an event the adapter could not decrypt, the watermark advances to the latest event in the conversation. When only an explicit message id is available, the adapter replays recent history and rejects if it cannot resolve that exact message rather than advancing through newer messages.
 
 ### Thread ID format
 

@@ -1908,6 +1908,39 @@ describe("markAsRead", () => {
     }
   });
 
+  it("rejects an unresolved explicit message id", async () => {
+    const { adapter, getXdkClient, restore } =
+      await createInitializedTestAdapter();
+    try {
+      const xdk = getXdkClient();
+      xdk.chat.getConversationEvents = vi.fn().mockResolvedValue({
+        data: [
+          {
+            id: "evt-latest",
+            sequenceId: "seq-99",
+            senderId: TEST_OTHER_USER_ID,
+            conversationId: TEST_CONVERSATION_ID,
+            encodedEvent: "not-a-real-encrypted-event",
+          },
+        ],
+        meta: {},
+      });
+      xdk.users.getPublicKey = vi.fn().mockResolvedValue({ data: [] });
+      xdk.chat.markConversationRead = vi
+        .fn()
+        .mockResolvedValue({ data: { success: true } });
+
+      await expect(
+        adapter.markAsRead(TEST_THREAD_ID, "missing-message")
+      ).rejects.toThrow(NO_SEQUENCE_ID_RE);
+
+      expect(xdk.chat.getConversationEvents).toHaveBeenCalledOnce();
+      expect(xdk.chat.markConversationRead).not.toHaveBeenCalled();
+    } finally {
+      restore();
+    }
+  });
+
   it("propagates explicit read receipt failures", async () => {
     const { adapter, getXdkClient, restore } =
       await createInitializedTestAdapter();
