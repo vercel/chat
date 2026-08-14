@@ -117,10 +117,8 @@ const TELEGRAM_DEFAULT_POLLING_TIMEOUT_SECONDS = 30;
 const TELEGRAM_DEFAULT_POLLING_LIMIT = 100;
 const TELEGRAM_DEFAULT_POLLING_RETRY_DELAY_MS = 1000;
 const TELEGRAM_DEFAULT_STREAM_UPDATE_INTERVAL_MS = 250;
-// Telegram allows roughly one message per second per chat and edits count
-// against that budget, so the post-and-edit path throttles harder than the
-// draft path (drafts are not persisted messages).
-const TELEGRAM_DEFAULT_STREAMING_EDIT_INTERVAL_MS = 1100;
+const TELEGRAM_DEFAULT_PRIVATE_STREAMING_EDIT_INTERVAL_MS = 1100;
+const TELEGRAM_DEFAULT_NON_PRIVATE_STREAMING_EDIT_INTERVAL_MS = 3100;
 const TELEGRAM_STREAM_FINAL_EDIT_RETRY_CAP_MS = 5000;
 const TELEGRAM_STREAM_PLACEHOLDER_TEXT = "...";
 const TELEGRAM_INCOMING_MEDIA_GROUP_BUFFER_TTL_MS = 30_000;
@@ -301,7 +299,7 @@ export class TelegramAdapter
   protected readonly hasExplicitUserName: boolean;
   protected readonly mode: TelegramAdapterMode;
   protected readonly nativeStreaming: boolean;
-  protected readonly streamingEditIntervalMs: number;
+  protected readonly streamingEditIntervalMs?: number;
   protected readonly longPolling?: TelegramLongPollingConfig;
   private _runtimeMode: TelegramRuntimeMode = "webhook";
   private pollingAbortController: AbortController | null = null;
@@ -359,12 +357,16 @@ export class TelegramAdapter
     this.hasExplicitUserName = Boolean(userName);
     this.mode = config.mode ?? "auto";
     this.nativeStreaming = config.nativeStreaming ?? false;
-    this.streamingEditIntervalMs = this.clampInteger(
-      config.streamingEditIntervalMs,
-      TELEGRAM_DEFAULT_STREAMING_EDIT_INTERVAL_MS,
-      0,
-      Number.MAX_SAFE_INTEGER
-    );
+    this.streamingEditIntervalMs =
+      typeof config.streamingEditIntervalMs !== "number" ||
+      !Number.isFinite(config.streamingEditIntervalMs)
+        ? undefined
+        : this.clampInteger(
+            config.streamingEditIntervalMs,
+            0,
+            0,
+            Number.MAX_SAFE_INTEGER
+          );
     this.longPolling = config.longPolling;
 
     if (!["auto", "webhook", "polling"].includes(this.mode)) {
@@ -1494,8 +1496,9 @@ export class TelegramAdapter
     textStream: AsyncIterable<string | StreamChunk>,
     options?: StreamOptions
   ): Promise<RawMessage<TelegramRawMessage>> {
-    // Treat the adapter interval as a floor: a lower Chat-level
-    // streamingUpdateIntervalMs must not push us past Telegram's limit.
+    const defaultIntervalMs = this.isDM(threadId)
+      ? TELEGRAM_DEFAULT_PRIVATE_STREAMING_EDIT_INTERVAL_MS
+      : TELEGRAM_DEFAULT_NON_PRIVATE_STREAMING_EDIT_INTERVAL_MS;
     const intervalMs = Math.max(
       this.clampInteger(
         options?.updateIntervalMs,
@@ -1503,7 +1506,7 @@ export class TelegramAdapter
         0,
         Number.MAX_SAFE_INTEGER
       ),
-      this.streamingEditIntervalMs
+      this.streamingEditIntervalMs ?? defaultIntervalMs
     );
     const placeholderText =
       options?.fallbackStreamingPlaceholderText === undefined
@@ -1516,6 +1519,8 @@ export class TelegramAdapter
     let editThreadId = threadId;
     let lastEditContent = "";
     let lastEditAt = 0;
+    let blockedUntil = 0;
+    let rateLimitError: AdapterRateLimitError | null = null;
 
     if (placeholderText !== null) {
       posted = await this.postMessage(threadId, placeholderText);
@@ -1535,6 +1540,14 @@ export class TelegramAdapter
       editThreadId = posted.threadId || editThreadId;
       lastEditContent = content;
       lastEditAt = Date.now();
+      blockedUntil = 0;
+      rateLimitError = null;
+    };
+
+    const rememberRateLimit = (error: AdapterRateLimitError): void => {
+      const retryAfterMs = Math.max(0, error.retryAfter ?? 1) * 1000;
+      blockedUntil = Math.max(blockedUntil, Date.now() + retryAfterMs);
+      rateLimitError = error;
     };
 
     const shouldEdit = (content: string): boolean =>
@@ -1550,6 +1563,9 @@ export class TelegramAdapter
       try {
         await applyEdit(content);
       } catch (error) {
+        if (error instanceof AdapterRateLimitError) {
+          rememberRateLimit(error);
+        }
         this.logger.warn("Telegram stream edit failed", {
           error: String(error),
           threadId,
@@ -1562,6 +1578,16 @@ export class TelegramAdapter
         return;
       }
 
+      const blockedMs = Math.max(0, blockedUntil - Date.now());
+      const pacingMs = Math.max(0, intervalMs - (Date.now() - lastEditAt));
+      if (
+        blockedMs > TELEGRAM_STREAM_FINAL_EDIT_RETRY_CAP_MS &&
+        rateLimitError
+      ) {
+        throw rateLimitError;
+      }
+      await this.sleep(Math.max(blockedMs, pacingMs));
+
       try {
         await applyEdit(content);
         return;
@@ -1570,29 +1596,16 @@ export class TelegramAdapter
           throw error;
         }
 
-        // The final edit carries the complete response, so it earns one retry
-        // when Telegram tells us how long to wait. Anything longer than the cap
-        // is left as the last successful edit rather than stalling the caller.
+        rememberRateLimit(error);
         const retryAfterMs = (error.retryAfter ?? 1) * 1000;
         if (retryAfterMs > TELEGRAM_STREAM_FINAL_EDIT_RETRY_CAP_MS) {
-          this.logger.warn("Telegram stream final edit rate limited", {
-            error: String(error),
-            threadId,
-          });
-          return;
+          throw error;
         }
 
         await this.sleep(retryAfterMs);
       }
 
-      try {
-        await applyEdit(content);
-      } catch (retryError) {
-        this.logger.warn("Telegram stream final edit failed", {
-          error: String(retryError),
-          threadId,
-        });
-      }
+      await applyEdit(content);
     };
 
     for await (const chunk of textStream) {
@@ -1611,7 +1624,10 @@ export class TelegramAdapter
       renderer.push(text);
 
       if (posted) {
-        if (Date.now() - lastEditAt >= intervalMs) {
+        if (
+          Date.now() >= blockedUntil &&
+          Date.now() - lastEditAt >= intervalMs
+        ) {
           await flushEdit(renderer.render());
         }
         continue;

@@ -39,9 +39,9 @@ export interface TelegramAdapterConfig {
   secretToken?: string;
   /**
    * Minimum interval between edits on the post-and-edit streaming path.
-   * Telegram allows roughly one message per second per chat and edits count
-   * against that budget, so this acts as a floor: a lower Chat-level
-   * `streamingUpdateIntervalMs` is raised to this value. Defaults to 1100.
+   * Defaults to 1100ms for private chats and 3100ms for other chats. Acts as a
+   * floor: a lower Chat-level `streamingUpdateIntervalMs` is raised to this
+   * value.
    */
   streamingEditIntervalMs?: number;
   /** Override bot username (optional). Defaults to TELEGRAM_BOT_USERNAME env var. */

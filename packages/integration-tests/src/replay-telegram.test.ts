@@ -55,6 +55,7 @@ describe("Replay Tests - Telegram", () => {
     adapter = createTelegramAdapter({
       botToken: TELEGRAM_BOT_TOKEN,
       logger: mockLogger,
+      mode: "webhook",
       userName: fixtures.botName,
     });
 

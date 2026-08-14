@@ -169,7 +169,7 @@ const telegram = createTelegramAdapter({
     },
     streamingEditIntervalMs: {
       type: "number",
-      default: "1100",
+      default: "1100 private, 3100 other",
       description:
         "Minimum interval between edits on the post-and-edit streaming path. Acts as a floor, so a lower Chat-level `streamingUpdateIntervalMs` is raised to this value. Config only, no env var.",
     },
@@ -237,13 +237,13 @@ const telegram = createTelegramAdapter({ nativeStreaming: true });
 
 [Telegram clients should dismiss a draft preview](https://core.telegram.org/api/bots/ai#live-response-streaming) when the final message arrives, but draft rendering varies between clients. Keep the default when your bot must work consistently across Telegram clients.
 
-Telegram allows roughly one message per second per chat and edits count against that budget, so the post-and-edit path throttles edits to 1100ms. This is a floor: setting a lower `streamingUpdateIntervalMs` on your `Chat` instance does not push the adapter past the limit. Adjust it with `streamingEditIntervalMs`:
+Telegram recommends at most one message per second in a single chat and limits groups to 20 messages per minute. Sends and edits share flood control, so the post-and-edit path defaults to 1100ms between operations in private chats and 3100ms in other chats. This is a floor: setting a lower `streamingUpdateIntervalMs` on your `Chat` instance does not push the adapter past it. Override it with `streamingEditIntervalMs`:
 
 ```typescript
-const telegram = createTelegramAdapter({ streamingEditIntervalMs: 2000 });
+const telegram = createTelegramAdapter({ streamingEditIntervalMs: 4000 });
 ```
 
-If Telegram still rate limits the final edit, the adapter retries once when the requested wait is 5 seconds or less, then leaves the last successful edit in place rather than failing the post.
+If Telegram rate limits the final edit, the adapter waits and retries when the requested delay is 5 seconds or less. Longer delays and failed retries reject the post so it never reports text that Telegram did not receive.
 
 ### Markdown formatting
 

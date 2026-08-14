@@ -2271,14 +2271,14 @@ describe("TelegramAdapter", () => {
       mode: "webhook",
       logger: mockLogger,
       nativeStreaming: true,
+      streamingEditIntervalMs: 0,
       userName: "mybot",
     });
 
     await adapter.initialize(createMockChat());
 
     async function* textStream(): AsyncIterable<string> {
-      yield "hello";
-      yield " world";
+      yield "hello world";
     }
 
     const result = await adapter.stream("telegram:-100123", textStream(), {
@@ -2312,14 +2312,14 @@ describe("TelegramAdapter", () => {
       botToken: "token",
       mode: "webhook",
       logger: mockLogger,
+      streamingEditIntervalMs: 0,
       userName: "mybot",
     });
 
     await adapter.initialize(createMockChat());
 
     async function* stream(): AsyncIterable<string> {
-      yield "hello";
-      yield " world";
+      yield "hello world";
     }
 
     const result = await adapter.stream("telegram:123", stream(), {
@@ -2337,7 +2337,9 @@ describe("TelegramAdapter", () => {
     );
   });
 
-  it("raises a lower core update interval to the Telegram edit floor", async () => {
+  it("uses the private chat streaming edit floor", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(0);
     mockFetch
       .mockResolvedValueOnce(
         telegramOk({
@@ -2363,13 +2365,73 @@ describe("TelegramAdapter", () => {
 
     async function* stream(): AsyncIterable<string> {
       yield "one ";
+      vi.setSystemTime(1200);
       yield "two ";
+      vi.setSystemTime(1300);
       yield "three";
     }
 
-    // The core default of 500ms is below Telegram's ~1 msg/sec per-chat limit,
-    // so every chunk collapses into the single final edit.
-    await adapter.stream("telegram:123", stream(), { updateIntervalMs: 500 });
+    const result = adapter.stream("telegram:123", stream(), {
+      updateIntervalMs: 0,
+    });
+
+    await vi.advanceTimersByTimeAsync(999);
+    expect(
+      telegramMethods().filter((method) => method === "editMessageText")
+    ).toHaveLength(1);
+
+    await vi.advanceTimersByTimeAsync(1);
+    await result;
+
+    expect(
+      telegramMethods().filter((method) => method === "editMessageText")
+    ).toHaveLength(2);
+  });
+
+  it("uses the group streaming edit floor", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(0);
+    mockFetch
+      .mockResolvedValueOnce(
+        telegramOk({
+          id: 999,
+          is_bot: true,
+          first_name: "Bot",
+          username: "mybot",
+        })
+      )
+      .mockImplementation(() =>
+        Promise.resolve(telegramOk(groupStreamMessage("chunk")))
+      );
+
+    const adapter = createTelegramAdapter({
+      botToken: "token",
+      mode: "webhook",
+      logger: mockLogger,
+      userName: "mybot",
+    });
+
+    await adapter.initialize(createMockChat());
+
+    async function* stream(): AsyncIterable<string> {
+      yield "one ";
+      vi.setSystemTime(1200);
+      yield "two ";
+      vi.setSystemTime(1300);
+      yield "three";
+    }
+
+    const result = adapter.stream("telegram:-100123", stream(), {
+      updateIntervalMs: 0,
+    });
+
+    await vi.advanceTimersByTimeAsync(1799);
+    expect(
+      telegramMethods().filter((method) => method === "editMessageText")
+    ).toHaveLength(0);
+
+    await vi.advanceTimersByTimeAsync(1);
+    await result;
 
     expect(
       telegramMethods().filter((method) => method === "editMessageText")
@@ -2434,6 +2496,7 @@ describe("TelegramAdapter", () => {
       botToken: "token",
       mode: "webhook",
       logger: mockLogger,
+      streamingEditIntervalMs: 0,
       userName: "mybot",
     });
 
@@ -2453,7 +2516,42 @@ describe("TelegramAdapter", () => {
     ).toHaveLength(2);
   });
 
-  it("keeps the last successful edit when the final retry_after exceeds the cap", async () => {
+  it("rejects when the final streamed edit retry fails", async () => {
+    mockFetch
+      .mockResolvedValueOnce(
+        telegramOk({
+          id: 999,
+          is_bot: true,
+          first_name: "Bot",
+          username: "mybot",
+        })
+      )
+      .mockResolvedValueOnce(telegramOk(sampleMessage({ text: "..." })))
+      .mockResolvedValueOnce(
+        telegramError(429, 429, "Too Many Requests", { retry_after: 0 })
+      )
+      .mockResolvedValueOnce(telegramError(500, 500, "Internal Server Error"));
+
+    const adapter = createTelegramAdapter({
+      botToken: "token",
+      mode: "webhook",
+      logger: mockLogger,
+      streamingEditIntervalMs: 0,
+      userName: "mybot",
+    });
+
+    await adapter.initialize(createMockChat());
+
+    async function* stream(): AsyncIterable<string> {
+      yield "hello";
+    }
+
+    await expect(
+      adapter.stream("telegram:123", stream(), { updateIntervalMs: 0 })
+    ).rejects.toBeInstanceOf(NetworkError);
+  });
+
+  it("rejects when the final retry_after exceeds the cap", async () => {
     mockFetch
       .mockResolvedValueOnce(
         telegramOk({
@@ -2472,6 +2570,7 @@ describe("TelegramAdapter", () => {
       botToken: "token",
       mode: "webhook",
       logger: mockLogger,
+      streamingEditIntervalMs: 0,
       userName: "mybot",
     });
 
@@ -2481,13 +2580,51 @@ describe("TelegramAdapter", () => {
       yield "hello";
     }
 
-    // The placeholder message is still returned rather than rejecting out of
-    // thread.post() and stranding the caller.
-    const result = await adapter.stream("telegram:123", stream(), {
-      updateIntervalMs: 0,
+    await expect(
+      adapter.stream("telegram:123", stream(), { updateIntervalMs: 0 })
+    ).rejects.toBeInstanceOf(AdapterRateLimitError);
+    expect(
+      telegramMethods().filter((method) => method === "editMessageText")
+    ).toHaveLength(1);
+  });
+
+  it("respects retry_after after an intermediate streamed edit", async () => {
+    mockFetch
+      .mockResolvedValueOnce(
+        telegramOk({
+          id: 999,
+          is_bot: true,
+          first_name: "Bot",
+          username: "mybot",
+        })
+      )
+      .mockResolvedValueOnce(telegramOk(sampleMessage({ text: "..." })))
+      .mockResolvedValueOnce(
+        telegramError(429, 429, "Too Many Requests", { retry_after: 30 })
+      )
+      .mockImplementation(() =>
+        Promise.resolve(telegramOk(sampleMessage({ text: "chunk" })))
+      );
+
+    const adapter = createTelegramAdapter({
+      botToken: "token",
+      mode: "webhook",
+      logger: mockLogger,
+      streamingEditIntervalMs: 0,
+      userName: "mybot",
     });
 
-    expect(result).not.toBeNull();
+    await adapter.initialize(createMockChat());
+
+    async function* stream(): AsyncIterable<string> {
+      yield "one ";
+      yield "two ";
+      yield "three";
+    }
+
+    await expect(
+      adapter.stream("telegram:123", stream(), { updateIntervalMs: 0 })
+    ).rejects.toBeInstanceOf(AdapterRateLimitError);
     expect(
       telegramMethods().filter((method) => method === "editMessageText")
     ).toHaveLength(1);
