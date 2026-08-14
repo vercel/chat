@@ -287,6 +287,10 @@ bot.onDirectMessage(async (thread) => {
 });
 ```
 
+Automatic receipts never interrupt a handler, since a failure is logged and swallowed. A `thread.markAsRead()` call you make yourself rejects on failure, so await it or attach a `.catch()`.
+
+When the message's sequence id is not known, such as an event the adapter could not decrypt, the watermark advances to the latest event in the conversation instead.
+
 ### Thread ID format
 
 ```

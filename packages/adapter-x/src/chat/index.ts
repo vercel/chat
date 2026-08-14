@@ -2215,7 +2215,11 @@ export class XchatAdapter implements Adapter<XchatThreadId, XchatRawMessage> {
     const apiConvId = conversationPathId(conversationId, this.userId);
 
     if (!sequenceId && typeof messageIdOrMessage === "string") {
-      sequenceId = await this.resolveSequenceId(threadId, messageId);
+      // A miss here is not fatal for a read watermark: unlike edits, deletes,
+      // and reactions, we can still fall back to the latest event below.
+      sequenceId = await this.resolveSequenceId(threadId, messageId).catch(
+        () => ""
+      );
     }
 
     // Fallback: mark read up to the latest event in the conversation.

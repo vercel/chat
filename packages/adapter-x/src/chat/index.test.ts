@@ -1860,6 +1860,54 @@ describe("markAsRead", () => {
     }
   });
 
+  it("reaches the latest-event fallback when called with a message id", async () => {
+    const { adapter, getXdkClient, restore } =
+      await createInitializedTestAdapter();
+    try {
+      const xdk = getXdkClient();
+      // Serves both the history replay inside resolveSequenceId and the
+      // latest-event fallback. The event is undecryptable, so the replay
+      // caches no sequence id for our message.
+      xdk.chat.getConversationEvents = vi.fn().mockResolvedValue({
+        data: [
+          {
+            id: "evt-latest",
+            sequenceId: "seq-99",
+            senderId: TEST_OTHER_USER_ID,
+            conversationId: TEST_CONVERSATION_ID,
+            encodedEvent: "not-a-real-encrypted-event",
+          },
+        ],
+        meta: {},
+      });
+      xdk.users.getPublicKey = vi.fn().mockResolvedValue({ data: [] });
+      xdk.chat.markConversationRead = vi
+        .fn()
+        .mockResolvedValue({ data: { success: true } });
+
+      const message = adapter.parseMessage({
+        event: {
+          id: "evt-no-seq",
+          conversationId: TEST_CONVERSATION_ID,
+          senderId: TEST_OTHER_USER_ID,
+          encodedEvent: "x",
+        },
+        decrypted: null,
+      });
+
+      // The argument shape Thread.markAsRead() uses: id in slot two, message
+      // in slot three. A resolveSequenceId miss must not abort the receipt.
+      await adapter.markAsRead(TEST_THREAD_ID, message.id, message);
+
+      expect(xdk.chat.markConversationRead).toHaveBeenCalledWith(
+        TEST_OTHER_USER_ID,
+        { seenUntilSequenceId: "seq-99" }
+      );
+    } finally {
+      restore();
+    }
+  });
+
   it("propagates explicit read receipt failures", async () => {
     const { adapter, getXdkClient, restore } =
       await createInitializedTestAdapter();
