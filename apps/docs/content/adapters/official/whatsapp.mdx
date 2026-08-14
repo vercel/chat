@@ -9,7 +9,9 @@ tagline: Connect to WhatsApp Business Cloud for customer messaging and automated
 beta: true
 features:
   postMessage: yes
-  messageReplies: yes
+  messageReplies:
+    status: partial
+    label: Outbound only
   editMessage: no
   deleteMessage: no
   fileUploads:
@@ -189,6 +191,8 @@ bot.onNewMessage(async (thread, message) => {
 ```
 
 You can pass either a `Message` or a message ID as the target. Text, cards, files, and buffered streams are supported. When one logical reply produces multiple WhatsApp messages, only the first message includes the contextual reference.
+
+Replies are outbound only. When a user quote-replies to one of your messages, the adapter does not yet surface what they quoted, so `message.replyTo` is `undefined` on inbound WhatsApp messages.
 
 WhatsApp does not display the quoted bubble when the target was deleted or moved to long-term storage, when the reply is a template message, or for some media replies on KaiOS. Reaction messages cannot be contextual replies. See [Meta's contextual replies documentation](https://developers.facebook.com/documentation/business-messaging/whatsapp/messages/contextual-replies/).
 

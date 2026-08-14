@@ -550,7 +550,10 @@ export class ThreadImpl<TState = Record<string, unknown>>
       );
     }
 
-    if (target instanceof Message && target.threadId !== this.id) {
+    const targetMessage =
+      target instanceof Message ? target : this.findKnownMessage(target);
+
+    if (targetMessage && targetMessage.threadId !== this.id) {
       throw new Error("Cannot reply to a message from another thread");
     }
 
@@ -564,7 +567,10 @@ export class ThreadImpl<TState = Record<string, unknown>>
           markdown += chunk.text;
         }
       }
-      postable = { markdown };
+      // A stream can finish without producing text (tool calls only, or just
+      // task_update/plan_update chunks). Platforms reject empty message bodies,
+      // so fall back to a single space like fallbackStream does.
+      postable = { markdown: markdown.trim() ? markdown : " " };
     } else if (isJSX(message)) {
       const card = toCardElement(message);
       if (!card) {
@@ -582,7 +588,7 @@ export class ThreadImpl<TState = Record<string, unknown>>
       rawMessage.id,
       postable,
       rawMessage.threadId,
-      target instanceof Message ? target : undefined
+      targetMessage
     );
 
     if (this._threadHistory) {
@@ -590,6 +596,18 @@ export class ThreadImpl<TState = Record<string, unknown>>
     }
 
     return result;
+  }
+
+  /**
+   * Resolve a message id against the messages this thread already holds in
+   * memory. Deliberately does not fetch: callers that need `replyTo` populated
+   * for certain should pass the `Message` itself.
+   */
+  private findKnownMessage(messageId: string): Message | undefined {
+    if (this._currentMessage?.id === messageId) {
+      return this._currentMessage;
+    }
+    return this._recentMessages.find((m) => m.id === messageId);
   }
 
   private async processCallbackUrls(

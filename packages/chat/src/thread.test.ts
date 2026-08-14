@@ -2824,6 +2824,57 @@ describe("ThreadImpl", () => {
         { markdown: "Hello world" }
       );
     });
+
+    it("falls back to a space when a stream produces no text", async () => {
+      mockAdapter.reply = vi.fn().mockResolvedValue({
+        id: "reply-1",
+        threadId: "slack:C123:1234.5678",
+        raw: {},
+      });
+      const stream = (async function* () {
+        yield { type: "tool-call", toolName: "search" };
+        yield { type: "finish-step" };
+      })();
+
+      await thread.reply("original", stream);
+
+      expect(mockAdapter.reply).toHaveBeenCalledWith(
+        "slack:C123:1234.5678",
+        "original",
+        { markdown: " " }
+      );
+    });
+
+    it("resolves a message id against messages the thread knows", async () => {
+      mockAdapter.reply = vi.fn().mockResolvedValue({
+        id: "reply-1",
+        threadId: "slack:C123:1234.5678",
+        raw: {},
+      });
+      const original = createTestMessage("original", "Question");
+      thread.recentMessages = [original];
+
+      const result = await thread.reply("original", "Answer");
+
+      expect(result.replyTo).toBe(original);
+    });
+
+    it("leaves replyTo undefined for an unknown message id", async () => {
+      mockAdapter.reply = vi.fn().mockResolvedValue({
+        id: "reply-1",
+        threadId: "slack:C123:1234.5678",
+        raw: {},
+      });
+
+      const result = await thread.reply("not-in-memory", "Answer");
+
+      expect(mockAdapter.reply).toHaveBeenCalledWith(
+        "slack:C123:1234.5678",
+        "not-in-memory",
+        "Answer"
+      );
+      expect(result.replyTo).toBeUndefined();
+    });
   });
 
   describe("schedule()", () => {

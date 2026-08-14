@@ -85,11 +85,13 @@ await thread.reply(message, {
 });
 ```
 
-**Parameters:** `target: string | Message`, `message: string | PostableMessage | CardJSXElement`
+**Parameters:** `target: string | Message`, `message: string | AdapterPostableMessage | AsyncIterable<string | StreamChunk | StreamEvent> | CardJSXElement`
 
 **Returns:** `Promise<SentMessage>`
 
-The target `Message` must belong to the same thread. Streams are buffered before sending. Adapters without native message reply support throw `NotImplementedError`.
+The target `Message` must belong to the same thread. Streams are buffered before sending. Unlike `post()`, `reply()` does not accept `Plan` or `StreamingPlan`. Adapters without native message reply support throw `NotImplementedError`.
+
+Prefer passing the `Message` over its ID. The `Message` is checked against this thread and carried through to `SentMessage.replyTo` and cached thread history. A bare ID is only resolved to a `Message` when the thread already holds it in `recentMessages`; otherwise the reply is still sent, but `replyTo` is left undefined.
 
 ## postEphemeral
 
