@@ -7,7 +7,7 @@
 [![Agent Stack](https://img.shields.io/badge/Agent%20Stack-000?style=flat-square&logo=vercel&logoColor=FFF&labelColor=000&color=000)](https://vercel.com/kb/agent-stack)
 [![MIT License](https://img.shields.io/badge/License-MIT-000?style=flat-square&logo=opensourceinitiative&logoColor=white&labelColor=000&color=000)](../../LICENSE)
 
-X (Twitter) adapter for [Chat SDK](https://chat-sdk.dev), using the [X API v2](https://docs.x.com/x-api/overview) and the [X Activity API](https://docs.x.com/x-api/activity/introduction). Reply to public mentions, hold DM conversations, post from the bot account, and like posts.
+X (Twitter) adapter for [Chat SDK](https://chat-sdk.dev), using the [X API v2](https://docs.x.com/x-api/overview) and the [X Activity API](https://docs.x.com/x-api/activity/introduction). Reply to public mentions, post from the bot account, and like posts. For direct messages, use the [XChat adapter](https://chat-sdk.dev/adapters/official/xchat) on the `@chat-adapter/x/chat` subpath.
 
 Documentation: [chat-sdk.dev/adapters/official/x](https://chat-sdk.dev/adapters/official/x) · Guides: [vercel.com/kb/chat-sdk](https://vercel.com/kb/chat-sdk)
 
@@ -43,10 +43,6 @@ const bot = new Chat({
 bot.onNewMention(async (thread, message) => {
   await thread.post(`Hi @${message.author.userName}!`);
 });
-
-bot.onDirectMessage(async (thread, message) => {
-  await thread.post("Hello from X!");
-});
 ```
 
 When using `createXAdapter()` without arguments, credentials are auto-detected from environment variables.
@@ -56,8 +52,8 @@ When using `createXAdapter()` without arguments, credentials are auto-detected f
 ### 1. Create an X app
 
 1. Go to the [X developer portal](https://developer.x.com) and create a Project and App
-2. Under **Keys and tokens**, copy the **API Key Secret** (consumer secret): this becomes `X_CONSUMER_SECRET`
-3. Enable **OAuth 2.0** user authentication with the scopes `tweet.read`, `tweet.write`, `users.read`, `dm.read`, `dm.write`, `like.write`, and `offline.access`
+2. Under **Keys and tokens**, copy the **API Key Secret** (consumer secret): this becomes `X_CONSUMER_SECRET`. The portal files this under OAuth 1.0a, but the adapter uses it only as the HMAC key to verify inbound webhooks: it signs nothing, and every outbound adapter call uses OAuth 2.0. The one place this secret does sign OAuth 1.0a is the `@chat-adapter/x/setup` subpath below, which runs at provisioning time and never on the adapter's request path
+3. Enable **OAuth 2.0** user authentication with the scopes `tweet.read`, `tweet.write`, `users.read`, `like.write`, `media.write`, and `offline.access`
 4. Complete the OAuth 2.0 flow for the bot account. Either store the access token as `X_USER_ACCESS_TOKEN`, or store `X_CLIENT_ID` plus `X_REFRESH_TOKEN` to let the adapter manage token refresh
 
 ### 2. Register a webhook
@@ -65,9 +61,31 @@ When using `createXAdapter()` without arguments, credentials are auto-detected f
 X delivers events through the [X Activity API](https://docs.x.com/x-api/activity/introduction). Set this up once in the [X developer console](https://console.x.com), which handles the auth for you:
 
 1. Register your webhook URL (`https://your-domain.com/api/webhooks/x`). It must be public HTTPS without a port. X immediately sends a CRC challenge, which the adapter answers automatically
-2. Create subscriptions for the events the adapter consumes: `post.mention.create`, `dm.received`, and `dm.sent` (private events, so the bot user must have authorized your app first)
+2. Create a subscription for the event the adapter consumes: `post.mention.create`
 
-Subscription and webhook management is one-time setup, not adapter runtime. If you script it instead of using the console, the Activity API endpoints are auth-picky and operation-specific and do not fully match the published spec (creating a private-event subscription needed OAuth 1.0a user context in testing, while list and delete used the app-only bearer token), so the console is the simpler path.
+Subscription and webhook management is one-time setup, not adapter runtime. To script it instead of clicking through the console, use the `@chat-adapter/x/setup` subpath:
+
+```typescript
+import { createXSetup } from "@chat-adapter/x/setup";
+
+const setup = createXSetup();
+const webhook = await setup.registerWebhook("https://your-domain.com/api/webhooks/x");
+await setup.createSubscription({ webhookId: webhook.id });
+```
+
+`createSubscription` defaults to `post.mention.create` and scopes the filter to `X_USER_ID`. It is the one operation here that needs user context. X documents an OAuth 2.0 user token as valid for it, but that token has been [reported](https://devcommunity.x.com/t/account-activity-activity-api-oauth-2-0-user-token-returns-bare-403-on-2-activity-subscriptions-for-all-event-types-oauth-1-0a-works/269754) to answer a bare 403, so the client prefers OAuth 1.0a when those credentials are set and falls back to `X_USER_ACCESS_TOKEN` otherwise. Everything else uses the app-only bearer token, and the adapter itself stays OAuth 2.0 only.
+
+```bash
+X_CONSUMER_KEY=...                  # API Key
+X_CONSUMER_SECRET=...               # API Key Secret, the same value the adapter verifies webhooks with
+X_OAUTH1_ACCESS_TOKEN=...           # Access Token
+X_OAUTH1_ACCESS_TOKEN_SECRET=...    # Access Token Secret
+X_BEARER_TOKEN=...                  # App-only Bearer Token, for webhook management
+```
+
+Apart from `X_CONSUMER_SECRET`, which the adapter needs at runtime to verify inbound webhooks, none of these are read at runtime. Keep the rest out of your deployment if you provision from the console or a local script.
+
+The client also exposes `listWebhooks`, `validateWebhook`, `deleteWebhook`, `listSubscriptions`, and `deleteSubscription`, plus `signOauth1` if you need to sign an X request the client does not cover, including query and `application/x-www-form-urlencoded` body parameters.
 
 ### 3. Environment variables
 
@@ -83,14 +101,14 @@ X_REFRESH_TOKEN=...        # OAuth 2.0 refresh token (requires the offline.acces
 X_CLIENT_SECRET=...        # Optional, only for confidential clients
 X_ENCRYPTION_KEY=...       # Optional, base64 32-byte key to encrypt persisted tokens
 
-X_USER_ID=...              # Bot account user ID. Optional if omitted it is fetched from /2/users/me; the adapter requires a resolvable bot id and fails init otherwise
+X_USER_ID=...              # Optional bot account user ID, required for likes and fetched from /2/users/me when omitted
 X_USERNAME=...             # Optional, bot @handle for mention detection (fetched when omitted)
 X_API_BASE_URL=...         # Optional, override the X API base URL
 ```
 
 ### Token refresh
 
-X OAuth 2.0 user tokens are short-lived (about two hours). With `X_CLIENT_ID` and `X_REFRESH_TOKEN` set, the adapter refreshes the access token before expiry and persists the rotated refresh token in your state adapter, so the bot survives restarts. Set `X_ENCRYPTION_KEY` to store those tokens AES-256-GCM encrypted.
+X OAuth 2.0 user access tokens expire. With `X_CLIENT_ID` and `X_REFRESH_TOKEN` set, the adapter uses X's returned expiry to refresh the access token before it expires and persists any replacement refresh token in your state adapter, so the bot survives restarts. Set `X_ENCRYPTION_KEY` to store those tokens AES-256-GCM encrypted.
 
 Alternatively, pass a token provider and plug in your own refresh logic:
 
@@ -106,7 +124,7 @@ const adapter = createXAdapter({
 
 X uses two webhook mechanisms, both handled by the adapter:
 
-1. **CRC challenge** (GET): X sends a `crc_token` that the adapter answers with an HMAC-SHA256 response keyed by your consumer secret. X re-validates hourly
+1. **CRC challenge** (GET): X sends a `crc_token` that the adapter answers with an HMAC-SHA256 response keyed by your consumer secret. X re-validates the webhook periodically
 2. **Event delivery** (POST): activity events signed via the `x-twitter-webhooks-signature` header, verified against the raw request body
 
 ```typescript
@@ -128,10 +146,10 @@ export async function POST(request: Request) {
 
 | Feature | Supported |
 |---------|-----------|
-| Post message | Yes (mention replies and DMs) |
+| Post message | Yes (mention replies) |
 | Top-level posts | Yes (`channel.post` on `x:public`) |
 | Edit message | Posts only (X edit eligibility rules apply) |
-| Delete message | Posts and own DM events |
+| Delete message | Posts |
 | Streaming | Buffered (accumulates then posts once) |
 | Typing indicator | No |
 
@@ -143,9 +161,9 @@ export async function POST(request: Request) {
 | Buttons | No (link buttons render as text) |
 | Tables | ASCII |
 | Modals | No |
-| Image uploads | Yes (png, jpeg, webp; up to 4 per post; also DMs) |
+| Image uploads | Yes (png, jpeg, webp; up to 4 per post) |
 
-Attach images by passing `files` (or `attachments`) on the message; the adapter uploads each through X's chunked media endpoints (`initialize` then `append` then `finalize`) and attaches the returned `media_id`s to the post or DM. A post can carry media with or without text.
+Attach images by passing `files` (or `attachments`) on the message; the adapter uploads each through X's chunked media endpoints (`initialize` then `append` then `finalize`) and attaches the returned `media_id`s to the post. A post can carry media with or without text.
 
 ```typescript
 await thread.post({
@@ -161,7 +179,7 @@ Media upload requires the `media.write` scope on your OAuth 2.0 token, in additi
 | Feature | Supported |
 |---------|-----------|
 | Mentions | Yes (`post.mention.create`) |
-| DMs | Yes (`dm.received` / `dm.sent`) |
+| DMs | No (use the [XChat adapter](https://chat-sdk.dev/adapters/official/xchat)) |
 | Reactions | Likes only (`emoji.heart` or `"like"`) |
 | User lookup | Yes |
 
@@ -169,17 +187,16 @@ Media upload requires the `media.write` scope on your OAuth 2.0 token, in additi
 
 | Feature | Supported |
 |---------|-----------|
-| Fetch messages | DMs via API, posts from cache |
-| Fetch single message | Posts via API, DMs from cache |
+| Fetch messages | Posts from cache |
+| Fetch single message | Posts via API |
 
 ## Thread ID format
 
 ```
 x:post:{conversationId}   # public post threads (channel: x:public)
-x:dm:{participantUserId}  # direct message with a single user
 ```
 
-Examples: `x:post:1943467279943467279`, `x:dm:783214`. X DM webhooks carry no conversation id, only participant ids, so DMs are threaded by the other participant's user id: `openDM("783214")` returns `x:dm:783214`, and sends route to `POST /2/dm_conversations/with/783214/messages`. Top-level posts go through `channel.post` on the `x:public` channel.
+Example: `x:post:1943467279943467279`. Top-level posts go through `channel.post` on the `x:public` channel.
 
 ## Automation policy
 

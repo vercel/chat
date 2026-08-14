@@ -47,9 +47,6 @@ import type {
   XActivityEvent,
   XAdapterConfig,
   XApiResponse,
-  XDmEvent,
-  XDmSendResult,
-  XDmWireEvent,
   XMediaUploadResult,
   XOauthTokenResult,
   XPost,
@@ -69,7 +66,6 @@ const SIGNATURE_PREFIX = "sha256=";
 // response can't double as a POST signature for a forged event.
 const CRC_TOKEN_PATTERN = /^[A-Za-z0-9+/=_-]{16,128}$/;
 const SENT_ID_LIMIT = 1000;
-const DM_EVENT_FIELDS = "id,text,sender_id,created_at,dm_conversation_id";
 const LIKE_EMOJI = new Set(["❤️", "♥️", "❤"]);
 const LIKE_NAMES = new Set(["heart", "like", "red_heart"]);
 /** Refresh the managed access token this long before it expires. */
@@ -108,7 +104,7 @@ export class XAdapter implements Adapter<XThreadId, XRawMessage> {
   protected _userName: string;
   protected readonly hasExplicitUserName: boolean;
 
-  /** IDs of posts and DM events created by this adapter, for isMe echo detection. */
+  /** IDs of posts created by this adapter, for isMe echo detection. */
   private readonly sentIds = new Set<string>();
   /** Latest inbound post ID per conversation, used as the reply target. */
   private readonly replyTargets = new Map<string, string>();
@@ -187,16 +183,6 @@ export class XAdapter implements Adapter<XThreadId, XRawMessage> {
       this.logger.warn("Failed to fetch X bot identity", {
         error: String(error),
       });
-    }
-
-    // The bot id is required: DM threading keys on the other participant and
-    // self-detection compares against it, so a missing id silently misroutes
-    // the bot's own DMs. Fail fast rather than degrade in production.
-    if (!this._botUserId) {
-      throw new ValidationError(
-        "x",
-        "Could not resolve the bot user id. Set X_USER_ID, or ensure the access token has the users.read scope so it can be fetched from /2/users/me."
-      );
     }
   }
 
@@ -299,19 +285,6 @@ export class XAdapter implements Adapter<XThreadId, XRawMessage> {
         this.handleIncomingPost(extracted.post, extracted.author, options);
         return;
       }
-      case "dm.received":
-      case "dm.sent": {
-        const extracted = extractDmEvents(event.payload, users);
-        if (extracted.length === 0) {
-          this.logger.warn("Unrecognized X DM payload shape");
-          return;
-        }
-        // A delivery can batch multiple message_create events; route each.
-        for (const { dmEvent, sender } of extracted) {
-          this.handleIncomingDm(dmEvent, sender, options);
-        }
-        return;
-      }
       default:
         this.logger.debug("Ignoring X activity event", {
           eventType: event.event_type,
@@ -343,48 +316,12 @@ export class XAdapter implements Adapter<XThreadId, XRawMessage> {
     this.chat.processMessage(this, threadId, message, options);
   }
 
-  protected handleIncomingDm(
-    dmEvent: XDmEvent,
-    sender: XUser | undefined,
-    options?: WebhookOptions
-  ): void {
-    const participant = this.otherParticipant(dmEvent);
-    if (!(this.chat && participant)) {
-      return;
-    }
-
-    const threadId = this.encodeThreadId({
-      conversationId: participant,
-      kind: "dm",
-    });
-
-    const message = this.buildDmMessage(
-      { dmEvent, kind: "dm", sender },
-      threadId
-    );
-    this.cacheMessage(message);
-    this.chat.processMessage(this, threadId, message, options);
-  }
-
-  /**
-   * The user id of the other party in a DM: the sender for inbound events,
-   * the recipient for the bot's own outbound echoes. DM threads are keyed by
-   * this id since X DM webhooks carry no conversation id.
-   */
-  protected otherParticipant(dmEvent: XDmEvent): string | undefined {
-    const { sender_id, recipient_id } = dmEvent;
-    if (this._botUserId && sender_id === this._botUserId) {
-      return recipient_id;
-    }
-    return sender_id ?? recipient_id;
-  }
-
   /**
    * Post to a thread. `x:post:` threads become a reply to the latest mention
-   * in the conversation (chaining under the bot's own prior replies);
-   * `x:dm:` threads send a direct message to the participant. Cards and
-   * markdown are flattened to plain text; image, gif, and video attachments are
-   * uploaded via the chunked media endpoint and attached to the post.
+   * in the conversation (chaining under the bot's own prior replies). Cards
+   * and markdown are flattened to plain text; image, gif, and video
+   * attachments are uploaded via the chunked media endpoint and attached to
+   * the post.
    */
   async postMessage(
     threadId: string,
@@ -392,16 +329,13 @@ export class XAdapter implements Adapter<XThreadId, XRawMessage> {
   ): Promise<RawMessage<XRawMessage>> {
     const decoded = this.decodeThreadId(threadId);
     const text = this.renderOutbound(message);
-    const mediaIds = await this.uploadAttachments(message, decoded.kind);
+    const mediaIds = await this.uploadAttachments(message);
 
     if (!(text.trim() || mediaIds.length > 0)) {
       throw new ValidationError("x", "Message must have text or media");
     }
 
-    if (decoded.kind === "post") {
-      return this.sendReply(threadId, decoded.conversationId, text, mediaIds);
-    }
-    return this.sendDm(threadId, decoded.conversationId, text, mediaIds);
+    return this.sendReply(threadId, decoded.conversationId, text, mediaIds);
   }
 
   async postChannelMessage(
@@ -416,7 +350,7 @@ export class XAdapter implements Adapter<XThreadId, XRawMessage> {
     }
 
     const text = this.renderOutbound(message);
-    const mediaIds = await this.uploadAttachments(message, "post");
+    const mediaIds = await this.uploadAttachments(message);
     if (!(text.trim() || mediaIds.length > 0)) {
       throw new ValidationError("x", "Message must have text or media");
     }
@@ -482,52 +416,14 @@ export class XAdapter implements Adapter<XThreadId, XRawMessage> {
     return { id: postId, raw, threadId };
   }
 
-  protected async sendDm(
-    threadId: string,
-    participantId: string,
-    text: string,
-    mediaIds: string[] = []
-  ): Promise<RawMessage<XRawMessage>> {
-    // DM threads are keyed by the other participant, so send via the
-    // documented by-participant endpoint. Inbound echoes for this
-    // conversation arrive on the same participant-keyed thread.
-    const result = await this.xApiFetch<XDmSendResult>(
-      `/2/dm_conversations/with/${encodeURIComponent(participantId)}/messages`,
-      "POST",
-      {
-        ...(text.trim() ? { text } : {}),
-        ...(mediaIds.length > 0
-          ? { attachments: mediaIds.map((id) => ({ media_id: id })) }
-          : {}),
-      }
-    );
-    const sent = this.requireData(result, "send DM");
-    this.trackSentId(sent.dm_event_id);
-
-    const raw: XRawMessage = {
-      dmEvent: {
-        created_timestamp: String(Date.now()),
-        dm_conversation_id: sent.dm_conversation_id,
-        id: sent.dm_event_id,
-        recipient_id: participantId,
-        sender_id: this._botUserId,
-        text,
-      },
-      kind: "dm",
-    };
-    this.cacheMessage(this.buildDmMessage(raw, threadId));
-    return { id: sent.dm_event_id, raw, threadId };
-  }
-
   /**
    * Upload every attachment on the message via the chunked media endpoint and
-   * return the resulting media IDs, ready to attach to a post or DM. Accepts
+   * return the resulting media IDs, ready to attach to a post. Accepts
    * both `files` (FileUpload) and `attachments` (Attachment). X allows at most
    * {@link MAX_MEDIA_PER_POST} media per post.
    */
   protected async uploadAttachments(
-    message: AdapterPostableMessage,
-    surface: "dm" | "post"
+    message: AdapterPostableMessage
   ): Promise<string[]> {
     const sources: { load: () => Promise<Buffer>; mimeType: string }[] = [];
     for (const file of extractFiles(message)) {
@@ -565,7 +461,7 @@ export class XAdapter implements Adapter<XThreadId, XRawMessage> {
     const mediaIds: string[] = [];
     for (const source of sources) {
       const bytes = await source.load();
-      mediaIds.push(await this.uploadMedia(bytes, source.mimeType, surface));
+      mediaIds.push(await this.uploadMedia(bytes, source.mimeType));
     }
     return mediaIds;
   }
@@ -577,8 +473,7 @@ export class XAdapter implements Adapter<XThreadId, XRawMessage> {
    */
   protected async uploadMedia(
     bytes: Buffer,
-    mimeType: string,
-    surface: "dm" | "post"
+    mimeType: string
   ): Promise<string> {
     // v2 chunked upload is path-based: initialize (JSON) then one or more
     // multipart appends, then finalize (JSON). Images finalize synchronously.
@@ -586,7 +481,7 @@ export class XAdapter implements Adapter<XThreadId, XRawMessage> {
       `${MEDIA_UPLOAD_PATH}/initialize`,
       "POST",
       {
-        media_category: mediaCategory(mimeType, surface),
+        media_category: mediaCategory(mimeType),
         media_type: mimeType,
         total_bytes: bytes.length,
       }
@@ -658,10 +553,7 @@ export class XAdapter implements Adapter<XThreadId, XRawMessage> {
     messageId: string,
     message: AdapterPostableMessage
   ): Promise<RawMessage<XRawMessage>> {
-    const decoded = this.decodeThreadId(threadId);
-    if (decoded.kind !== "post") {
-      throw new ValidationError("x", "X does not support editing DMs");
-    }
+    this.decodeThreadId(threadId);
 
     const text = this.renderOutbound(message);
     if (!text.trim()) {
@@ -681,21 +573,9 @@ export class XAdapter implements Adapter<XThreadId, XRawMessage> {
     return this.finishSentPost(threadId, post.id, text);
   }
 
-  /**
-   * Delete a message. Posts are deleted via `DELETE /2/tweets/:id`; DM events
-   * via `DELETE /2/dm_events/:id`, which removes the event for the
-   * authenticated user only, not for the other participant.
-   */
+  /** Delete a post via `DELETE /2/tweets/:id`. */
   async deleteMessage(threadId: string, messageId: string): Promise<void> {
-    const decoded = this.decodeThreadId(threadId);
-    if (decoded.kind !== "post") {
-      // Deletes the event for the authenticated user only, not other participants.
-      await this.xApiFetch(
-        `/2/dm_events/${encodeURIComponent(messageId)}`,
-        "DELETE"
-      );
-      return;
-    }
+    this.decodeThreadId(threadId);
     await this.xApiFetch(
       `/2/tweets/${encodeURIComponent(messageId)}`,
       "DELETE"
@@ -735,10 +615,7 @@ export class XAdapter implements Adapter<XThreadId, XRawMessage> {
     threadId: string,
     emoji: EmojiValue | string
   ): void {
-    const decoded = this.decodeThreadId(threadId);
-    if (decoded.kind !== "post") {
-      throw new ValidationError("x", "X does not support reactions on DMs");
-    }
+    this.decodeThreadId(threadId);
 
     const name = typeof emoji === "string" ? emoji.toLowerCase() : "";
     const unicode = defaultEmojiResolver.toGChat(emoji);
@@ -779,56 +656,20 @@ export class XAdapter implements Adapter<XThreadId, XRawMessage> {
   }
 
   /**
-   * Fetch thread messages. DM threads are read live from the by-participant
-   * DM-events endpoint; post threads are served from the inbound cache, since
-   * X has no public thread-history read (persistThreadHistory backs longer
-   * retention).
+   * Fetch thread messages. Post threads are served from the inbound cache,
+   * since X has no public thread-history read (persistThreadHistory backs
+   * longer retention).
    */
   async fetchMessages(
     threadId: string,
     options: FetchOptions = {}
   ): Promise<FetchResult<XRawMessage>> {
-    const decoded = this.decodeThreadId(threadId);
+    this.decodeThreadId(threadId);
 
-    if (decoded.kind === "post") {
-      const messages = [...(this.messageCache.get(threadId) ?? [])].sort(
-        compareByDate
-      );
-      return paginateMessages(messages, options);
-    }
-
-    return this.fetchDmMessages(threadId, decoded, options);
-  }
-
-  protected async fetchDmMessages(
-    threadId: string,
-    decoded: XThreadId,
-    options: FetchOptions
-  ): Promise<FetchResult<XRawMessage>> {
-    const limit = Math.max(1, Math.min(options.limit ?? 50, 100));
-    const params = new URLSearchParams({
-      "dm_event.fields": DM_EVENT_FIELDS,
-      event_types: "MessageCreate",
-      max_results: String(limit),
-    });
-    if (options.cursor) {
-      params.set("pagination_token", options.cursor);
-    }
-
-    // DM threads are participant-keyed, so read via the by-participant
-    // endpoint. This REST lookup returns v2-shaped events (flat, ISO
-    // `created_at`), distinct from the legacy webhook shape.
-    const result = await this.xApiFetch<XDmEvent[]>(
-      `/2/dm_conversations/with/${encodeURIComponent(decoded.conversationId)}/dm_events?${params.toString()}`,
-      "GET"
+    const messages = [...(this.messageCache.get(threadId) ?? [])].sort(
+      compareByDate
     );
-
-    const events = result.data ?? [];
-    const messages = events
-      .map((dmEvent) => this.buildDmMessage({ dmEvent, kind: "dm" }, threadId))
-      .sort(compareByDate);
-
-    return { messages, nextCursor: result.meta?.next_token };
+    return paginateMessages(messages, options);
   }
 
   async fetchMessage(
@@ -840,10 +681,7 @@ export class XAdapter implements Adapter<XThreadId, XRawMessage> {
       return cached;
     }
 
-    const decoded = this.decodeThreadId(threadId);
-    if (decoded.kind !== "post") {
-      return null;
-    }
+    this.decodeThreadId(threadId);
 
     try {
       const params = new URLSearchParams({
@@ -879,7 +717,7 @@ export class XAdapter implements Adapter<XThreadId, XRawMessage> {
     return {
       channelId: this.channelIdFromThreadId(threadId),
       id: threadId,
-      isDM: decoded.kind !== "post",
+      isDM: false,
       metadata: { conversationId: decoded.conversationId, kind: decoded.kind },
     };
   }
@@ -911,19 +749,6 @@ export class XAdapter implements Adapter<XThreadId, XRawMessage> {
     }
   }
 
-  /**
-   * DM threads are keyed by the other participant's user id, since X DM
-   * webhooks carry no conversation id. Sends and inbound events for the same
-   * user therefore share one thread.
-   */
-  async openDM(userId: string): Promise<string> {
-    return this.encodeThreadId({ conversationId: userId, kind: "dm" });
-  }
-
-  isDM(threadId: string): boolean {
-    return this.decodeThreadId(threadId).kind === "dm";
-  }
-
   encodeThreadId(platformData: XThreadId): string {
     return `x:${platformData.kind}:${platformData.conversationId}`;
   }
@@ -932,37 +757,19 @@ export class XAdapter implements Adapter<XThreadId, XRawMessage> {
     const parts = threadId.split(":");
     const kind = parts[1];
     const conversationId = parts.slice(2).join(":");
-    if (
-      parts[0] !== "x" ||
-      (kind !== "post" && kind !== "dm") ||
-      !conversationId
-    ) {
+    if (parts[0] !== "x" || kind !== "post" || !conversationId) {
       throw new ValidationError("x", `Invalid X thread ID: ${threadId}`);
     }
     return { conversationId, kind };
   }
 
-  /**
-   * Public post threads share the `x:public` channel; DM threads are their
-   * own channel (a DM conversation has no broader container on X).
-   */
+  /** Post threads all share the `x:public` channel. */
   channelIdFromThreadId(threadId: string): string {
-    const decoded = this.decodeThreadId(threadId);
-    return decoded.kind === "post" ? PUBLIC_CHANNEL_ID : threadId;
+    this.decodeThreadId(threadId);
+    return PUBLIC_CHANNEL_ID;
   }
 
   parseMessage(raw: XRawMessage): Message<XRawMessage> {
-    if (raw.kind === "dm") {
-      const participant = this.otherParticipant(raw.dmEvent) ?? raw.dmEvent.id;
-      const threadId = this.encodeThreadId({
-        conversationId: participant,
-        kind: "dm",
-      });
-      const message = this.buildDmMessage(raw, threadId);
-      this.cacheMessage(message);
-      return message;
-    }
-
     const threadId = this.encodeThreadId({
       conversationId: raw.post.conversation_id ?? raw.post.id,
       kind: "post",
@@ -1007,33 +814,6 @@ export class XAdapter implements Adapter<XThreadId, XRawMessage> {
     });
   }
 
-  protected buildDmMessage(
-    raw: Extract<XRawMessage, { kind: "dm" }>,
-    threadId: string
-  ): Message<XRawMessage> {
-    const { dmEvent, sender } = raw;
-    const text = dmEvent.text ?? "";
-    // A DM is self when this adapter sent it (tracked id) or when the sender is
-    // the bot account. The latter is stateless, so dm.sent echoes are filtered
-    // even on a cold start or a different serverless instance, avoiding reply
-    // loops where the bot's own DM would otherwise route as inbound.
-    const isMe = this.isSelf(dmEvent.id) || this.isBotSender(dmEvent.sender_id);
-    return new Message<XRawMessage>({
-      attachments: [],
-      author: this.buildAuthor(dmEvent.sender_id, sender, isMe),
-      formatted: this.formatConverter.toAst(text),
-      id: dmEvent.id,
-      isMention: false,
-      metadata: {
-        dateSent: dmTimestamp(dmEvent),
-        edited: false,
-      },
-      raw,
-      text,
-      threadId,
-    });
-  }
-
   /**
    * Only events echoing IDs this adapter created are `isMe`. Other activity
    * from the bot's own account (for example manual posts by the account
@@ -1041,11 +821,6 @@ export class XAdapter implements Adapter<XThreadId, XRawMessage> {
    */
   protected isSelf(messageId: string): boolean {
     return this.sentIds.has(messageId);
-  }
-
-  /** Whether a sender id is the bot account (stateless self-detection). */
-  protected isBotSender(senderId: string | undefined): boolean {
-    return Boolean(this._botUserId && senderId === this._botUserId);
   }
 
   protected buildAuthor(
@@ -1141,8 +916,8 @@ export class XAdapter implements Adapter<XThreadId, XRawMessage> {
     ) {
       return current.accessToken;
     }
-    // Single-flight so concurrent API calls share one refresh. X rotates
-    // refresh tokens, so a duplicate refresh would invalidate the other.
+    // Single-flight prevents concurrent refreshes from racing when X returns
+    // a replacement refresh token.
     if (!this.refreshPromise) {
       this.refreshPromise = this.refreshManagedToken().finally(() => {
         this.refreshPromise = null;
@@ -1214,7 +989,7 @@ export class XAdapter implements Adapter<XThreadId, XRawMessage> {
     if (!response.ok) {
       throw new AuthenticationError(
         "x",
-        `Failed to refresh X access token (status ${response.status}). The refresh token may have been revoked or already rotated.`
+        `Failed to refresh X access token (status ${response.status}). The refresh token may have been revoked or superseded.`
       );
     }
 
@@ -1238,7 +1013,7 @@ export class XAdapter implements Adapter<XThreadId, XRawMessage> {
       accessToken: result.access_token,
       expiresAt:
         Date.now() + (result.expires_in ?? DEFAULT_TOKEN_LIFETIME_S) * 1000,
-      // X rotates refresh tokens; persist the new one or auth breaks after restart.
+      // Persist any replacement refresh token returned by X.
       refreshToken: result.refresh_token ?? refreshToken,
     };
     await this.persistManagedToken(this.managedToken);
@@ -1424,15 +1199,13 @@ async function toBytes(data: Buffer | Blob | ArrayBuffer): Promise<Buffer> {
   throw new ValidationError("x", "Unsupported attachment data type");
 }
 
-function mediaCategory(mimeType: string, surface: "dm" | "post"): string {
+function mediaCategory(mimeType: string): string {
   if (
     mimeType === "image/png" ||
     mimeType === "image/jpeg" ||
     mimeType === "image/webp"
   ) {
-    // DM attachments must be registered as dm_image; X rejects a tweet_image
-    // media_id attached to a DM event with "unsupported media category".
-    return surface === "dm" ? "dm_image" : "tweet_image";
+    return "tweet_image";
   }
   throw new ValidationError(
     "x",
@@ -1547,19 +1320,6 @@ function looksLikePost(value: unknown): value is XPost {
   );
 }
 
-function dmTimestamp(dmEvent: XDmEvent): Date {
-  if (dmEvent.created_timestamp) {
-    const ms = Number.parseInt(dmEvent.created_timestamp, 10);
-    if (!Number.isNaN(ms)) {
-      return new Date(ms);
-    }
-  }
-  if (dmEvent.created_at) {
-    return new Date(dmEvent.created_at);
-  }
-  return new Date();
-}
-
 function findUser(
   users: readonly XUser[] | undefined,
   id: string | undefined
@@ -1610,54 +1370,6 @@ function unwrapPost(payload: unknown): XPost | null {
   return null;
 }
 
-/**
- * Extract every message and its sender from a DM Activity payload.
- *
- * DMs use the legacy Account Activity shape: `direct_message_events[]` of
- * `message_create` items, with hydrated users in a `users` map keyed by id.
- * A single delivery can batch multiple events, so all `message_create` items
- * are returned in order. There is no conversation id on the wire, so callers
- * thread by participant. The `users` argument (mention-style `includes.users`)
- * is accepted as a fallback for any delivery that uses the v2 expansion shape.
- */
-export function extractDmEvents(
-  payload: unknown,
-  users?: readonly XUser[]
-): { dmEvent: XDmEvent; sender?: XUser }[] {
-  if (!isRecord(payload)) {
-    return [];
-  }
-  const events = payload.direct_message_events;
-  if (!Array.isArray(events)) {
-    return [];
-  }
-  const map = isRecord(payload.users)
-    ? (payload.users as Record<string, { data?: XUser }>)
-    : undefined;
-
-  const results: { dmEvent: XDmEvent; sender?: XUser }[] = [];
-  for (const wire of events as XDmWireEvent[]) {
-    if (!wire?.message_create) {
-      continue;
-    }
-    const create = wire.message_create;
-    const dmEvent: XDmEvent = {
-      created_timestamp: wire.created_timestamp,
-      id: wire.id,
-      recipient_id: create.target?.recipient_id,
-      sender_id: create.sender_id,
-      text: create.message_data?.text,
-    };
-    const mapped =
-      dmEvent.sender_id && map ? map[dmEvent.sender_id]?.data : undefined;
-    results.push({
-      dmEvent,
-      sender: mapped ?? findUser(users, dmEvent.sender_id),
-    });
-  }
-  return results;
-}
-
 export function createXAdapter(config?: XAdapterConfig): XAdapter {
   const consumerSecret =
     config?.consumerSecret ?? process.env.X_CONSUMER_SECRET;
@@ -1702,8 +1414,6 @@ export type {
   XAdapterConfig,
   XApiError,
   XApiResponse,
-  XDmEvent,
-  XDmSendResult,
   XOauthTokenResult,
   XPost,
   XPostCreateResult,

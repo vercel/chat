@@ -4,7 +4,7 @@ import type { Logger } from "chat";
 /**
  * OAuth 2.0 user-context access token, or an async provider that returns one.
  *
- * X OAuth 2.0 user tokens are short-lived. Either configure managed refresh
+ * X OAuth 2.0 user tokens expire. Either configure managed refresh
  * (`clientId` + `refreshToken`) or pass a provider function that plugs in your
  * own refresh logic, so long-running bots keep working after the initial
  * token expires.
@@ -40,8 +40,8 @@ export interface XAdapterConfig {
   /**
    * OAuth 2.0 refresh token (requires the `offline.access` scope). Together
    * with `clientId` this enables managed refresh: the adapter refreshes the
-   * access token before expiry and persists the rotated refresh token in the
-   * state adapter. Defaults to X_REFRESH_TOKEN.
+   * access token before expiry and persists any replacement refresh token in
+   * the state adapter. Defaults to X_REFRESH_TOKEN.
    */
   refreshToken?: string;
   /**
@@ -50,21 +50,16 @@ export interface XAdapterConfig {
    * Optional when managed refresh (`clientId` + `refreshToken`) is configured.
    */
   userAccessToken?: XAccessToken;
-  /** User ID of the authenticated bot account. Defaults to X_USER_ID, else fetched from GET /2/users/me. */
+  /** User ID required for likes. Defaults to X_USER_ID, else fetched from GET /2/users/me. */
   userId?: string;
   /** Bot account handle used for mention detection. Defaults to X_USERNAME, else fetched from GET /2/users/me. */
   userName?: string;
 }
 
 export interface XThreadId {
-  /**
-   * For `post` threads, the post `conversation_id`. For `dm` threads, the
-   * **other participant's user id**: X DM webhooks carry no conversation id,
-   * only participant ids, so DMs are threaded by participant and replies use
-   * the by-participant send endpoint.
-   */
+  /** The post `conversation_id`. */
   conversationId: string;
-  kind: "dm" | "post";
+  kind: "post";
 }
 
 export interface XUser {
@@ -89,45 +84,6 @@ export interface XPost {
   in_reply_to_user_id?: string;
   lang?: string;
   text: string;
-}
-
-/**
- * Normalized direct message event used internally by the adapter, flattened
- * from the wire shape ({@link XDmActivityPayload}).
- */
-export interface XDmEvent {
-  /** ISO timestamp, as returned by the v2 REST DM-events lookup. */
-  created_at?: string;
-  /** Epoch-millis string, as delivered by the Activity API webhook/stream. */
-  created_timestamp?: string;
-  /** Present only when sourced from a send/lookup response, not from webhooks. */
-  dm_conversation_id?: string;
-  id: string;
-  recipient_id?: string;
-  sender_id?: string;
-  text?: string;
-}
-
-/** A single `message_create` item inside a DM Activity payload. */
-export interface XDmWireEvent {
-  created_timestamp?: string;
-  id: string;
-  message_create?: {
-    message_data?: { entities?: unknown; text?: string };
-    sender_id?: string;
-    target?: { recipient_id?: string };
-  };
-  type?: string;
-}
-
-/**
- * DM Activity payload. Legacy Account Activity shape: a
- * `direct_message_events` array plus a `users` map keyed by user id (each
- * user nested under `.data`).
- */
-export interface XDmActivityPayload {
-  direct_message_events?: XDmWireEvent[];
-  users?: Record<string, { data: XUser }>;
 }
 
 /**
@@ -156,9 +112,11 @@ export interface XActivityEnvelope {
   data?: XActivityEvent | XActivityEvent[];
 }
 
-export type XRawMessage =
-  | { author?: XUser; kind: "post"; post: XPost }
-  | { dmEvent: XDmEvent; kind: "dm"; sender?: XUser };
+export interface XRawMessage {
+  author?: XUser;
+  kind: "post";
+  post: XPost;
+}
 
 export interface XApiError {
   detail?: string;
@@ -180,11 +138,6 @@ export interface XApiResponse<TData> {
 export interface XPostCreateResult {
   id: string;
   text?: string;
-}
-
-export interface XDmSendResult {
-  dm_conversation_id: string;
-  dm_event_id: string;
 }
 
 /** Response body of the /2/media/upload INIT, FINALIZE, and STATUS commands. */

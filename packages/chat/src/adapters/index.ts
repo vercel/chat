@@ -1126,8 +1126,10 @@ export const ADAPTERS = {
   },
   x: {
     description:
-      "Reply to public mentions and hold direct message conversations on X (Twitter) with the X API v2.",
+      "Reply to public mentions on X (Twitter) with the X API v2. Direct messages live in the XChat adapter on the @chat-adapter/x/chat subpath.",
     env: {
+      notes:
+        "X_CONSUMER_SECRET is the app's API key secret. The adapter uses it only to verify inbound webhooks (CRC challenge and signature), never to sign requests, and every outbound adapter call authenticates with OAuth 2.0. Webhook registration and Activity API subscriptions are one-time provisioning, done from the @chat-adapter/x/setup subpath or the X developer console. Subscribing is the one operation needing user context: an OAuth 2.0 user token has been reported to 403 there, so it prefers OAuth 1.0a via X_CONSUMER_KEY and the X_OAUTH1_* pair and falls back to X_USER_ACCESS_TOKEN. Nothing on the adapter's runtime path reads the OAuth 1.0a credentials.",
       credentialModes: [
         {
           label: "Static access token",
@@ -1160,13 +1162,29 @@ export const ADAPTERS = {
         ),
         env(
           "X_USER_ID",
-          "Bot account user ID. Fetched from /2/users/me when omitted."
+          "Bot account user ID required for likes. Fetched from /2/users/me when omitted."
         ),
         env(
           "X_USERNAME",
           "Bot account handle used for mention detection. Fetched when omitted."
         ),
         urlEnv("X_API_BASE_URL", "Override the X API base URL."),
+        env(
+          "X_CONSUMER_KEY",
+          "App API key. Provisioning only, read by @chat-adapter/x/setup to sign OAuth 1.0a subscribe calls."
+        ),
+        secretEnv(
+          "X_OAUTH1_ACCESS_TOKEN",
+          "OAuth 1.0a access token. Provisioning only, read by @chat-adapter/x/setup."
+        ),
+        secretEnv(
+          "X_OAUTH1_ACCESS_TOKEN_SECRET",
+          "OAuth 1.0a access token secret. Provisioning only, read by @chat-adapter/x/setup."
+        ),
+        secretEnv(
+          "X_BEARER_TOKEN",
+          "App-only bearer token. Provisioning only, read by @chat-adapter/x/setup for webhook management."
+        ),
       ],
       required: [
         secretEnv(

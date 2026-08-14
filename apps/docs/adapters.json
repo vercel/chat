@@ -103,7 +103,7 @@
     "name": "X",
     "slug": "x",
     "type": "platform",
-    "description": "Reply to public mentions and hold direct message conversations on X (Twitter) with the X API v2.",
+    "description": "Reply to public mentions on X (Twitter) with the X API v2. Direct messages live in the XChat adapter on the @chat-adapter/x/chat subpath.",
     "packageName": "@chat-adapter/x",
     "icon": "x",
     "beta": true,

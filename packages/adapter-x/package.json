@@ -1,7 +1,7 @@
 {
   "name": "@chat-adapter/x",
   "version": "4.37.0",
-  "description": "X (Twitter) adapter for Chat SDK: reply to mentions, send direct messages, and post from your bot account with the X API v2, plus encrypted XChat conversations from the @chat-adapter/x/chat subpath",
+  "description": "X (Twitter) adapter for Chat SDK: reply to mentions and post from your bot account with the X API v2, plus encrypted XChat conversations from the @chat-adapter/x/chat subpath and OAuth 1.0a provisioning helpers from @chat-adapter/x/setup",
   "type": "module",
   "engines": {
     "node": ">=20"
@@ -17,6 +17,10 @@
     "./chat": {
       "types": "./dist/chat/index.d.ts",
       "import": "./dist/chat/index.js"
+    },
+    "./setup": {
+      "types": "./dist/setup.d.ts",
+      "import": "./dist/setup.js"
     }
   },
   "files": [

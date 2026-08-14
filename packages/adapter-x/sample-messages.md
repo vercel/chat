@@ -209,6 +209,11 @@ Response body from posting a top-level tweet through the adapter's
 
 ## dm.received (inbound direct message)
 
+> Historical. The adapter no longer parses this event: classic DM support was
+> removed in favour of the XChat adapter on the `@chat-adapter/x/chat`
+> subpath. The capture is kept because it is the only record of X's legacy DM
+> wire format.
+
 Delivered when someone sends the authenticated account a DM. Unlike mentions,
 DMs arrive in the **legacy Account Activity format**, a materially different
 shape: the payload holds a `direct_message_events` array of `message_create`
@@ -217,7 +222,7 @@ items, the text lives at `message_create.message_data.text`, the sender is
 `message_create.target.recipient_id`, and hydrated users are in a `users`
 **object keyed by id** (each under `.data`). Timestamps are epoch-millis
 strings (`created_timestamp`). There is **no `dm_conversation_id`**, so the
-adapter threads DMs by the other participant's user id (`x:dm:{userId}`).
+adapter threaded DMs by the other participant's user id (`x:dm:{userId}`).
 
 ```json
 {

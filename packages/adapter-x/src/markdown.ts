@@ -24,7 +24,7 @@ const BLOCK_SEPARATOR = /\n{2,}/;
 /**
  * Format converter for X.
  *
- * X renders plain text only, so inbound post/DM text is parsed as plain text
+ * X renders plain text only, so inbound post text is parsed as plain text
  * (never as markdown: `#topic` hashtags and `*emphasis*` would misparse) with
  * URLs promoted to link nodes, and outbound ASTs are flattened to readable
  * plain text.

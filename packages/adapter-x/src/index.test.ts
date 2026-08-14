@@ -129,45 +129,6 @@ function mentionEnvelope(overrides?: Record<string, unknown>) {
   };
 }
 
-// Mirrors the real dm.received shape: legacy Account Activity format with a
-// direct_message_events array and a users map keyed by id (each under .data).
-function dmEnvelope(options?: {
-  eventType?: "dm.received" | "dm.sent";
-  id?: string;
-  recipientId?: string;
-  senderId?: string;
-  text?: string;
-}) {
-  const senderId = options?.senderId ?? "111";
-  const recipientId = options?.recipientId ?? BOT_USER_ID;
-  return {
-    data: {
-      event_type: options?.eventType ?? "dm.received",
-      filter: { user_id: BOT_USER_ID },
-      payload: {
-        direct_message_events: [
-          {
-            created_timestamp: "1735689600000",
-            id: options?.id ?? "9001",
-            message_create: {
-              message_data: { text: options?.text ?? "hi bot" },
-              sender_id: senderId,
-              target: { recipient_id: recipientId },
-            },
-            type: "message_create",
-          },
-        ],
-        users: {
-          "111": { data: { id: "111", name: "Ada Lovelace", username: "ada" } },
-          [BOT_USER_ID]: {
-            data: { id: BOT_USER_ID, name: "Test Bot", username: "testbot" },
-          },
-        },
-      },
-    },
-  };
-}
-
 function lastProcessedMessage(chat: ChatInstance): Message<XRawMessage> {
   const processMessage = chat.processMessage as ReturnType<typeof vi.fn>;
   const call = processMessage.mock.calls.at(-1);
@@ -246,7 +207,7 @@ describe("XAdapter", () => {
       expect(mockFetch).not.toHaveBeenCalled();
     });
 
-    it("throws when the bot id cannot be resolved (no userId and /me fails)", async () => {
+    it("continues when the bot id cannot be resolved", async () => {
       mockFetch.mockResolvedValueOnce(
         new Response(JSON.stringify({ errors: [{ title: "Unauthorized" }] }), {
           status: 401,
@@ -257,9 +218,15 @@ describe("XAdapter", () => {
         logger: mockLogger,
         userAccessToken: ACCESS_TOKEN,
       });
-      await expect(adapter.initialize(createMockChat())).rejects.toThrow(
-        ValidationError
-      );
+      await expect(
+        adapter.initialize(createMockChat())
+      ).resolves.toBeUndefined();
+      expect(adapter.botUserId).toBeUndefined();
+
+      mockFetch.mockResolvedValueOnce(apiOk({ data: { id: "600" } }));
+      await expect(
+        adapter.postChannelMessage("x:public", "hello")
+      ).resolves.toMatchObject({ id: "600" });
     });
   });
 
@@ -288,7 +255,7 @@ describe("XAdapter", () => {
 
     it("rejects a webhook-shaped crc_token without signing it", async () => {
       const adapter = createAdapter();
-      const forgedBody = JSON.stringify(dmEnvelope());
+      const forgedBody = JSON.stringify(mentionEnvelope());
       const response = await adapter.handleWebhook(
         new Request(
           `${WEBHOOK_URL}?crc_token=${encodeURIComponent(forgedBody)}`,
@@ -411,128 +378,15 @@ describe("XAdapter", () => {
       expect(message.author.userName).toBe("ada");
       expect(message.author.fullName).toBe("Ada");
     });
-  });
-
-  describe("DM routing", () => {
-    it("routes dm.received to a participant-keyed dm thread", async () => {
-      const { adapter, chat } = await createInitializedAdapter();
-      await adapter.handleWebhook(webhookRequest(dmEnvelope()));
-
-      const message = lastProcessedMessage(chat);
-      // No conversation id on the wire: threaded by the other participant.
-      expect(message.threadId).toBe("x:dm:111");
-      expect(message.text).toBe("hi bot");
-      expect(message.author.userName).toBe("ada");
-      expect(message.author.isMe).toBe(false);
-      expect(adapter.isDM(message.threadId)).toBe(true);
-    });
-
-    it("parses the legacy direct_message_events shape", async () => {
-      const { adapter, chat } = await createInitializedAdapter();
-      await adapter.handleWebhook(
-        webhookRequest(dmEnvelope({ id: "9100", text: "nested legacy shape" }))
-      );
-      const message = lastProcessedMessage(chat);
-      expect(message.id).toBe("9100");
-      expect(message.text).toBe("nested legacy shape");
-    });
-
-    it("marks adapter-sent DM echoes as isMe", async () => {
-      const { adapter, chat } = await createInitializedAdapter();
-      mockFetch.mockResolvedValueOnce(
-        apiOk({ data: { dm_conversation_id: "111-999", dm_event_id: "9002" } })
-      );
-      await adapter.postMessage("x:dm:111", "hello!");
-
-      // dm.sent echo of the message we just sent (same event id we tracked)
-      await adapter.handleWebhook(
-        webhookRequest(
-          dmEnvelope({
-            eventType: "dm.sent",
-            id: "9002",
-            recipientId: "111",
-            senderId: BOT_USER_ID,
-            text: "hello!",
-          })
-        )
-      );
-      const message = lastProcessedMessage(chat);
-      expect(message.author.isMe).toBe(true);
-    });
-
-    it("marks bot-sent DMs as isMe even when untracked (stateless)", async () => {
-      const { adapter, chat } = await createInitializedAdapter();
-      // A dm.sent echo arriving on a fresh instance (id never tracked here):
-      // still self because the sender is the bot, so no reply loop.
-      await adapter.handleWebhook(
-        webhookRequest(
-          dmEnvelope({
-            eventType: "dm.sent",
-            id: "9500",
-            recipientId: "111",
-            senderId: BOT_USER_ID,
-            text: "cold-start echo",
-          })
-        )
-      );
-      expect(lastProcessedMessage(chat).author.isMe).toBe(true);
-    });
-
-    it("routes every message_create in a batched DM delivery", async () => {
-      const { adapter, chat } = await createInitializedAdapter();
-      const envelope = {
-        data: {
-          event_type: "dm.received",
-          filter: { user_id: BOT_USER_ID },
-          payload: {
-            direct_message_events: [
-              {
-                created_timestamp: "1735689600000",
-                id: "9101",
-                message_create: {
-                  message_data: { text: "first of batch" },
-                  sender_id: "111",
-                  target: { recipient_id: BOT_USER_ID },
-                },
-                type: "message_create",
-              },
-              {
-                created_timestamp: "1735689600001",
-                id: "9102",
-                message_create: {
-                  message_data: { text: "second of batch" },
-                  sender_id: "111",
-                  target: { recipient_id: BOT_USER_ID },
-                },
-                type: "message_create",
-              },
-            ],
-            users: {
-              "111": {
-                data: { id: "111", name: "Ada Lovelace", username: "ada" },
-              },
-            },
-          },
-        },
-      };
-      await adapter.handleWebhook(webhookRequest(envelope));
-      const processMessage = chat.processMessage as ReturnType<typeof vi.fn>;
-      expect(processMessage).toHaveBeenCalledTimes(2);
-      expect(
-        processMessage.mock.calls.map(
-          (c) => (c[2] as Message<XRawMessage>).text
-        )
-      ).toEqual(["first of batch", "second of batch"]);
-    });
 
     it("ignores unknown event types", async () => {
       const { adapter, chat } = await createInitializedAdapter();
-      const response = await adapter.handleWebhook(
+      await adapter.handleWebhook(
         webhookRequest({
-          data: { event_type: "profile.update.bio", payload: {} },
+          data: { event_type: "post.like.create", payload: { id: "9" } },
         })
       );
-      expect(response.status).toBe(200);
+
       expect(chat.processMessage).not.toHaveBeenCalled();
     });
   });
@@ -579,23 +433,6 @@ describe("XAdapter", () => {
 
       const secondBody = JSON.parse(String(mockFetch.mock.calls[1][1]?.body));
       expect(secondBody.reply.in_reply_to_tweet_id).toBe("600");
-    });
-
-    it("sends DMs through the by-participant endpoint", async () => {
-      const { adapter } = await createInitializedAdapter();
-      mockFetch.mockResolvedValueOnce(
-        apiOk({ data: { dm_conversation_id: "111-999", dm_event_id: "9002" } })
-      );
-
-      const result = await adapter.postMessage("x:dm:111", "hello!");
-
-      expect(result.id).toBe("9002");
-      expect(result.threadId).toBe("x:dm:111");
-      const [url, init] = mockFetch.mock.calls[0];
-      expect(String(url)).toBe(
-        "https://api.x.com/2/dm_conversations/with/111/messages"
-      );
-      expect(JSON.parse(String(init?.body))).toEqual({ text: "hello!" });
     });
 
     describe("media attachments", () => {
@@ -684,32 +521,6 @@ describe("XAdapter", () => {
         const initBody = JSON.parse(String(mockFetch.mock.calls[0][1]?.body));
         expect(initBody.media_type).toBe("image/png");
         expect(initBody.media_category).toBe("tweet_image");
-      });
-
-      it("attaches uploaded media to a DM", async () => {
-        const { adapter } = await createInitializedAdapter();
-        queueMediaUpload();
-        mockFetch.mockResolvedValueOnce(
-          apiOk({
-            data: { dm_conversation_id: "111-999", dm_event_id: "9002" },
-          })
-        );
-
-        await adapter.postMessage("x:dm:111", {
-          files: [image()],
-          markdown: "pic",
-        });
-
-        // DM media must register as dm_image; X rejects a tweet_image media_id
-        // attached to a DM event.
-        const initBody = JSON.parse(String(mockFetch.mock.calls[0][1]?.body));
-        expect(initBody.media_category).toBe("dm_image");
-
-        const dmBody = JSON.parse(String(mockFetch.mock.calls[3][1]?.body));
-        expect(dmBody).toEqual({
-          attachments: [{ media_id: "MEDIA1" }],
-          text: "pic",
-        });
       });
 
       it("rejects more than four media attachments", async () => {
@@ -841,13 +652,6 @@ describe("XAdapter", () => {
         text: "fixed",
       });
     });
-
-    it("rejects DM edits", async () => {
-      const { adapter } = await createInitializedAdapter();
-      await expect(
-        adapter.editMessage("x:dm:111", "9002", "fixed")
-      ).rejects.toThrow(ValidationError);
-    });
   });
 
   describe("deleteMessage", () => {
@@ -858,15 +662,6 @@ describe("XAdapter", () => {
       const [url, init] = mockFetch.mock.calls[0];
       expect(String(url)).toBe("https://api.x.com/2/tweets/600");
       expect(init?.method).toBe("DELETE");
-    });
-
-    it("deletes DM events", async () => {
-      const { adapter } = await createInitializedAdapter();
-      mockFetch.mockResolvedValueOnce(apiOk({ data: { deleted: true } }));
-      await adapter.deleteMessage("x:dm:111", "9002");
-      expect(String(mockFetch.mock.calls[0][0])).toBe(
-        "https://api.x.com/2/dm_events/9002"
-      );
     });
   });
 
@@ -909,11 +704,18 @@ describe("XAdapter", () => {
       ).rejects.toThrow(ValidationError);
     });
 
-    it("rejects reactions on DMs", async () => {
-      const { adapter } = await createInitializedAdapter();
+    it("requires the bot user id only when adding a like", async () => {
+      const adapter = new XAdapter({
+        consumerSecret: CONSUMER_SECRET,
+        logger: mockLogger,
+        userAccessToken: ACCESS_TOKEN,
+        userName: "testbot",
+      });
+
       await expect(
-        adapter.addReaction("x:dm:111", "9002", emoji.heart)
-      ).rejects.toThrow(ValidationError);
+        adapter.addReaction("x:post:500", "501", emoji.heart)
+      ).rejects.toThrow("The bot user ID is required to add reactions");
+      expect(mockFetch).not.toHaveBeenCalled();
     });
   });
 
@@ -938,22 +740,25 @@ describe("XAdapter", () => {
   });
 
   describe("thread IDs", () => {
-    it("round-trips post and dm thread IDs", () => {
+    it("round-trips post thread IDs", () => {
       const adapter = createAdapter();
       expect(
         adapter.encodeThreadId({ conversationId: "500", kind: "post" })
       ).toBe("x:post:500");
-      expect(adapter.decodeThreadId("x:dm:111")).toEqual({
-        conversationId: "111",
-        kind: "dm",
+      expect(adapter.decodeThreadId("x:post:500")).toEqual({
+        conversationId: "500",
+        kind: "post",
       });
+    });
+
+    it("rejects dm thread IDs now that DMs live in the XChat adapter", () => {
+      const adapter = createAdapter();
+      expect(() => adapter.decodeThreadId("x:dm:111")).toThrow(ValidationError);
     });
 
     it("derives channel IDs from thread IDs", () => {
       const adapter = createAdapter();
       expect(adapter.channelIdFromThreadId("x:post:500")).toBe("x:public");
-      // A DM has no broader channel, so the thread is its own channel.
-      expect(adapter.channelIdFromThreadId("x:dm:111")).toBe("x:dm:111");
     });
 
     it("rejects malformed thread IDs", () => {
@@ -966,95 +771,9 @@ describe("XAdapter", () => {
       );
       expect(() => adapter.decodeThreadId("x:post:")).toThrow(ValidationError);
     });
-
-    it("opens DMs as participant-keyed dm threads", async () => {
-      const { adapter } = await createInitializedAdapter();
-      const threadId = await adapter.openDM("111");
-      expect(threadId).toBe("x:dm:111");
-      expect(adapter.isDM(threadId)).toBe(true);
-    });
-
-    it("keeps a DM send on the same participant thread it was posted to", async () => {
-      const { adapter } = await createInitializedAdapter();
-      mockFetch.mockResolvedValueOnce(
-        apiOk({ data: { dm_conversation_id: "111-999", dm_event_id: "9100" } })
-      );
-
-      const result = await adapter.postMessage("x:dm:111", "hello!");
-
-      expect(result.id).toBe("9100");
-      // Thread stays participant-keyed so inbound echoes land on it too.
-      expect(result.threadId).toBe("x:dm:111");
-      expect(String(mockFetch.mock.calls[0][0])).toBe(
-        "https://api.x.com/2/dm_conversations/with/111/messages"
-      );
-    });
-
-    it("deletes DM messages as DM events", async () => {
-      const { adapter } = await createInitializedAdapter();
-      mockFetch.mockResolvedValueOnce(apiOk({ data: { deleted: true } }));
-
-      await adapter.deleteMessage("x:dm:111", "9100");
-
-      const [url, init] = mockFetch.mock.calls[0];
-      expect(String(url)).toBe("https://api.x.com/2/dm_events/9100");
-      expect(init?.method).toBe("DELETE");
-    });
-
-    it("fetches DM messages through the by-participant endpoint", async () => {
-      const { adapter } = await createInitializedAdapter();
-      mockFetch.mockResolvedValueOnce(apiOk({ data: [], meta: {} }));
-      await adapter.fetchMessages("x:dm:111");
-      expect(String(mockFetch.mock.calls[0][0])).toContain(
-        "/2/dm_conversations/with/111/dm_events"
-      );
-    });
   });
 
   describe("fetchMessages", () => {
-    it("fetches DM events from the API", async () => {
-      const { adapter } = await createInitializedAdapter();
-      mockFetch.mockResolvedValueOnce(
-        apiOk({
-          data: [
-            {
-              created_at: "2026-07-01T12:01:00.000Z",
-              id: "9002",
-              sender_id: BOT_USER_ID,
-              text: "second",
-            },
-            {
-              created_at: "2026-07-01T12:00:00.000Z",
-              id: "9001",
-              sender_id: "111",
-              text: "first",
-            },
-          ],
-          meta: { next_token: "cursor-1", result_count: 2 },
-        })
-      );
-
-      const result = await adapter.fetchMessages("x:dm:111", { limit: 2 });
-
-      expect(result.messages.map((message) => message.text)).toEqual([
-        "first",
-        "second",
-      ]);
-      expect(result.nextCursor).toBe("cursor-1");
-      const url = String(mockFetch.mock.calls[0][0]);
-      expect(url).toContain("/2/dm_conversations/with/111/dm_events");
-      expect(url).toContain("max_results=2");
-    });
-
-    it("passes the cursor as pagination_token", async () => {
-      const { adapter } = await createInitializedAdapter();
-      mockFetch.mockResolvedValueOnce(apiOk({ data: [], meta: {} }));
-      await adapter.fetchMessages("x:dm:111", { cursor: "cursor-1" });
-      expect(String(mockFetch.mock.calls[0][0])).toContain(
-        "pagination_token=cursor-1"
-      );
-    });
-
     it("serves post threads from the inbound cache", async () => {
       const { adapter } = await createInitializedAdapter();
       await adapter.handleWebhook(webhookRequest(mentionEnvelope()));
@@ -1065,19 +784,22 @@ describe("XAdapter", () => {
       expect(result.messages[0].id).toBe("501");
       expect(mockFetch).not.toHaveBeenCalled();
     });
+
+    it("rejects dm thread IDs", async () => {
+      const { adapter } = await createInitializedAdapter();
+      await expect(adapter.fetchMessages("x:dm:111")).rejects.toThrow(
+        ValidationError
+      );
+    });
   });
 
   describe("fetchThread", () => {
-    it("returns thread info for both kinds", async () => {
+    it("returns thread info for post threads", async () => {
       const adapter = createAdapter();
       expect(await adapter.fetchThread("x:post:500")).toMatchObject({
         channelId: "x:public",
         id: "x:post:500",
         isDM: false,
-      });
-      expect(await adapter.fetchThread("x:dm:111")).toMatchObject({
-        channelId: "x:dm:111",
-        isDM: true,
       });
     });
   });
@@ -1177,20 +899,6 @@ describe("XAdapter", () => {
       });
       expect(message.threadId).toBe("x:post:500");
       expect(message.text).toBe("hello");
-    });
-
-    it("rebuilds a dm message from raw, threaded by participant", () => {
-      const adapter = createAdapter();
-      const message = adapter.parseMessage({
-        dmEvent: {
-          id: "9001",
-          recipient_id: BOT_USER_ID,
-          sender_id: "111",
-          text: "hi",
-        },
-        kind: "dm",
-      });
-      expect(message.threadId).toBe("x:dm:111");
     });
   });
 
