@@ -119,6 +119,22 @@ function sampleMessage(overrides?: Partial<TelegramMessage>): TelegramMessage {
   };
 }
 
+function groupStreamMessage(text: string): TelegramMessage {
+  return sampleMessage({
+    chat: { id: -100_123, title: "Group", type: "supergroup" },
+    message_id: 21,
+    text,
+  });
+}
+
+/** Bot API method names in call order, e.g. ["getMe", "sendMessage"]. */
+function telegramMethods(): string[] {
+  return mockFetch.mock.calls.map(([url]) => {
+    const { pathname } = new URL(String(url));
+    return pathname.slice(pathname.lastIndexOf("/") + 1);
+  });
+}
+
 function readFormData(callIndex: number): FormData {
   const body = mockFetch.mock.calls[callIndex]?.[1]?.body;
   if (!(body instanceof FormData)) {
@@ -2237,15 +2253,18 @@ describe("TelegramAdapter", () => {
     expect(finalSendBody.rich_message.markdown).toBe(longMarkdown);
   });
 
-  it("returns null for non-DM streaming so Chat SDK can use fallback streaming", async () => {
-    mockFetch.mockResolvedValueOnce(
-      telegramOk({
-        id: 999,
-        is_bot: true,
-        first_name: "Bot",
-        username: "mybot",
-      })
-    );
+  it("streams non-DM chats with post-and-edit even when nativeStreaming is on", async () => {
+    mockFetch
+      .mockResolvedValueOnce(
+        telegramOk({
+          id: 999,
+          is_bot: true,
+          first_name: "Bot",
+          username: "mybot",
+        })
+      )
+      .mockResolvedValueOnce(telegramOk(groupStreamMessage("...")))
+      .mockResolvedValueOnce(telegramOk(groupStreamMessage("hello world")));
 
     const adapter = createTelegramAdapter({
       botToken: "token",
@@ -2259,37 +2278,168 @@ describe("TelegramAdapter", () => {
 
     async function* textStream(): AsyncIterable<string> {
       yield "hello";
+      yield " world";
     }
 
     const result = await adapter.stream("telegram:-100123", textStream(), {
       updateIntervalMs: 0,
     });
 
-    expect(result).toBeNull();
-    expect(mockFetch).toHaveBeenCalledTimes(1);
+    expect(result).not.toBeNull();
+    expect(telegramMethods()).toEqual([
+      "getMe",
+      "sendMessage",
+      "editMessageText",
+    ]);
   });
 
-  it("returns null before consuming private streams by default", async () => {
-    mockFetch.mockResolvedValueOnce(
-      telegramOk({
-        id: 999,
-        is_bot: true,
-        first_name: "Bot",
-        username: "mybot",
-      })
-    );
+  it("streams private chats with post-and-edit by default", async () => {
+    mockFetch
+      .mockResolvedValueOnce(
+        telegramOk({
+          id: 999,
+          is_bot: true,
+          first_name: "Bot",
+          username: "mybot",
+        })
+      )
+      .mockResolvedValueOnce(telegramOk(sampleMessage({ text: "..." })))
+      .mockResolvedValueOnce(
+        telegramOk(sampleMessage({ text: "hello world" }))
+      );
 
     const adapter = createTelegramAdapter({
       botToken: "token",
       mode: "webhook",
+      logger: mockLogger,
       userName: "mybot",
     });
 
     await adapter.initialize(createMockChat());
 
-    let consumed = false;
     async function* stream(): AsyncIterable<string> {
-      consumed = true;
+      yield "hello";
+      yield " world";
+    }
+
+    const result = await adapter.stream("telegram:123", stream(), {
+      updateIntervalMs: 0,
+    });
+
+    expect(result).not.toBeNull();
+    expect(telegramMethods()).toEqual([
+      "getMe",
+      "sendMessage",
+      "editMessageText",
+    ]);
+    expect(telegramMethods().some((method) => method.includes("Draft"))).toBe(
+      false
+    );
+  });
+
+  it("raises a lower core update interval to the Telegram edit floor", async () => {
+    mockFetch
+      .mockResolvedValueOnce(
+        telegramOk({
+          id: 999,
+          is_bot: true,
+          first_name: "Bot",
+          username: "mybot",
+        })
+      )
+      // A Response body can only be read once, so build a fresh one per call.
+      .mockImplementation(() =>
+        Promise.resolve(telegramOk(sampleMessage({ text: "chunk" })))
+      );
+
+    const adapter = createTelegramAdapter({
+      botToken: "token",
+      mode: "webhook",
+      logger: mockLogger,
+      userName: "mybot",
+    });
+
+    await adapter.initialize(createMockChat());
+
+    async function* stream(): AsyncIterable<string> {
+      yield "one ";
+      yield "two ";
+      yield "three";
+    }
+
+    // The core default of 500ms is below Telegram's ~1 msg/sec per-chat limit,
+    // so every chunk collapses into the single final edit.
+    await adapter.stream("telegram:123", stream(), { updateIntervalMs: 500 });
+
+    expect(
+      telegramMethods().filter((method) => method === "editMessageText")
+    ).toHaveLength(1);
+  });
+
+  it("edits per chunk when streamingEditIntervalMs opts out of throttling", async () => {
+    mockFetch
+      .mockResolvedValueOnce(
+        telegramOk({
+          id: 999,
+          is_bot: true,
+          first_name: "Bot",
+          username: "mybot",
+        })
+      )
+      // A Response body can only be read once, so build a fresh one per call.
+      .mockImplementation(() =>
+        Promise.resolve(telegramOk(sampleMessage({ text: "chunk" })))
+      );
+
+    const adapter = createTelegramAdapter({
+      botToken: "token",
+      mode: "webhook",
+      logger: mockLogger,
+      streamingEditIntervalMs: 0,
+      userName: "mybot",
+    });
+
+    await adapter.initialize(createMockChat());
+
+    async function* stream(): AsyncIterable<string> {
+      yield "one ";
+      yield "two ";
+      yield "three";
+    }
+
+    await adapter.stream("telegram:123", stream(), { updateIntervalMs: 0 });
+
+    expect(
+      telegramMethods().filter((method) => method === "editMessageText").length
+    ).toBeGreaterThan(1);
+  });
+
+  it("retries the final streamed edit once when Telegram rate limits it", async () => {
+    mockFetch
+      .mockResolvedValueOnce(
+        telegramOk({
+          id: 999,
+          is_bot: true,
+          first_name: "Bot",
+          username: "mybot",
+        })
+      )
+      .mockResolvedValueOnce(telegramOk(sampleMessage({ text: "..." })))
+      .mockResolvedValueOnce(
+        telegramError(429, 429, "Too Many Requests", { retry_after: 0 })
+      )
+      .mockResolvedValueOnce(telegramOk(sampleMessage({ text: "hello" })));
+
+    const adapter = createTelegramAdapter({
+      botToken: "token",
+      mode: "webhook",
+      logger: mockLogger,
+      userName: "mybot",
+    });
+
+    await adapter.initialize(createMockChat());
+
+    async function* stream(): AsyncIterable<string> {
       yield "hello";
     }
 
@@ -2297,9 +2447,50 @@ describe("TelegramAdapter", () => {
       updateIntervalMs: 0,
     });
 
-    expect(result).toBeNull();
-    expect(consumed).toBe(false);
-    expect(mockFetch).toHaveBeenCalledTimes(1);
+    expect(result).not.toBeNull();
+    expect(
+      telegramMethods().filter((method) => method === "editMessageText")
+    ).toHaveLength(2);
+  });
+
+  it("keeps the last successful edit when the final retry_after exceeds the cap", async () => {
+    mockFetch
+      .mockResolvedValueOnce(
+        telegramOk({
+          id: 999,
+          is_bot: true,
+          first_name: "Bot",
+          username: "mybot",
+        })
+      )
+      .mockResolvedValueOnce(telegramOk(sampleMessage({ text: "..." })))
+      .mockResolvedValueOnce(
+        telegramError(429, 429, "Too Many Requests", { retry_after: 30 })
+      );
+
+    const adapter = createTelegramAdapter({
+      botToken: "token",
+      mode: "webhook",
+      logger: mockLogger,
+      userName: "mybot",
+    });
+
+    await adapter.initialize(createMockChat());
+
+    async function* stream(): AsyncIterable<string> {
+      yield "hello";
+    }
+
+    // The placeholder message is still returned rather than rejecting out of
+    // thread.post() and stranding the caller.
+    const result = await adapter.stream("telegram:123", stream(), {
+      updateIntervalMs: 0,
+    });
+
+    expect(result).not.toBeNull();
+    expect(
+      telegramMethods().filter((method) => method === "editMessageText")
+    ).toHaveLength(1);
   });
 
   it("renders MarkdownV2 when rich draft streaming is unavailable", async () => {

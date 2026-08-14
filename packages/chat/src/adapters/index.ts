@@ -995,6 +995,7 @@ export const ADAPTERS = {
     description:
       "Connect to Telegram with support for groups, channels, and inline keyboards.",
     env: {
+      config: ["nativeStreaming", "streamingEditIntervalMs"],
       optional: [
         env(
           "TELEGRAM_ALLOWED_USER_IDS",

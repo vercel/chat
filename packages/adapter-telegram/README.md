@@ -147,7 +147,7 @@ console.log(telegram.runtimeMode); // "webhook" | "polling"
 
 ## Configuration
 
-All options are auto-detected from environment variables when not provided.
+Most options are auto-detected from environment variables when not provided. `nativeStreaming` and `streamingEditIntervalMs` are config only and have no environment variables.
 
 | Option | Required | Description |
 |--------|----------|-------------|
@@ -157,6 +157,8 @@ All options are auto-detected from environment variables when not provided.
 | `mode` | No | Adapter mode: `auto` (default), `webhook`, or `polling` |
 | `longPolling` | No | Optional long polling config for `getUpdates` (`timeout`, `limit`, `allowedUpdates`, `deleteWebhook`, `dropPendingUpdates`, `retryDelayMs`) |
 | `userName` | No | Bot username used for mention detection. Auto-detected from `TELEGRAM_BOT_USERNAME` or `getMe` |
+| `nativeStreaming` | No | Stream with Telegram's native draft previews in private chats. Defaults to `false`, which uses post-and-edit in every chat type |
+| `streamingEditIntervalMs` | No | Minimum interval between edits on the post-and-edit streaming path. Defaults to `1100` and acts as a floor for the Chat-level `streamingUpdateIntervalMs` |
 | `apiUrl` | No | Telegram API base URL. Auto-detected from `TELEGRAM_API_BASE_URL`. Use `apiUrl` for cross-adapter consistency; the legacy `apiBaseUrl` alias is still accepted |
 | `logger` | No | Logger instance (defaults to `ConsoleLogger("info")`) |
 
@@ -232,6 +234,12 @@ const telegram = createTelegramAdapter({ nativeStreaming: true });
 ```
 
 [Telegram clients should dismiss a draft preview](https://core.telegram.org/api/bots/ai#live-response-streaming) when the final message arrives, but draft rendering varies between clients. Keep the default when your bot must work consistently across Telegram clients.
+
+Telegram allows roughly one message per second per chat and edits count against that budget, so the post-and-edit path throttles edits to 1100ms. This is a floor: a lower `streamingUpdateIntervalMs` on your `Chat` instance does not push the adapter past the limit. Adjust it with `streamingEditIntervalMs`:
+
+```typescript
+const telegram = createTelegramAdapter({ streamingEditIntervalMs: 2000 });
+```
 
 ## Markdown formatting
 
