@@ -304,15 +304,23 @@ export interface SlackThreadId {
 }
 
 interface SlackBlock {
+  channel_id?: string;
   elements?: SlackBlock[];
+  fallback?: string;
+  file_id?: string;
+  format?: string;
+  label?: string;
   name?: string;
   range?: string;
   rows?: unknown;
+  team_id?: string;
   text?: string;
+  timestamp?: number;
   type: string;
   url?: string;
   user_id?: string;
-  value?: number;
+  usergroup_id?: string;
+  value?: number | string;
 }
 
 type SlackTable = Extract<
@@ -343,20 +351,39 @@ function blocktext(value: unknown): string {
   if (block.type === "broadcast") {
     return block.range ? `@${block.range}` : "";
   }
+  if (block.type === "channel") {
+    return block.channel_id ? `<#${block.channel_id}>` : "";
+  }
+  if (block.type === "usergroup") {
+    return block.usergroup_id ? `<!subteam^${block.usergroup_id}>` : "";
+  }
+  if (block.type === "date") {
+    return block.fallback ?? block.format ?? "";
+  }
+  if (block.type === "color") {
+    return typeof block.value === "string" ? block.value : "";
+  }
+  if (block.type === "team") {
+    return block.team_id ?? "";
+  }
   if (typeof block.text === "string") {
     return block.text;
+  }
+  if (typeof block.label === "string") {
+    return block.label;
+  }
+  if (typeof block.url === "string") {
+    return block.url;
+  }
+  if (typeof block.file_id === "string") {
+    return block.file_id;
   }
   if (!Array.isArray(block.elements)) {
     return "";
   }
 
   const separator =
-    block.type === "rich_text" ||
-    block.type === "rich_text_list" ||
-    block.type === "rich_text_quote" ||
-    block.type === "rich_text_preformatted"
-      ? "\n"
-      : "";
+    block.type === "rich_text" || block.type === "rich_text_list" ? "\n" : "";
   return block.elements.map(blocktext).join(separator);
 }
 

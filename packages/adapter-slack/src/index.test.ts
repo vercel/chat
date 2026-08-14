@@ -1390,6 +1390,86 @@ describe("parseMessage", () => {
     expect(message.formatted.children).toHaveLength(1);
     expect(message.formatted.children[0]?.type).toBe("table");
   });
+
+  it("preserves inline rich text within table cells", () => {
+    const message = adapter.parseMessage({
+      type: "message",
+      user: "U123",
+      channel: "C456",
+      text: "",
+      ts: "1786120899.208429",
+      blocks: [
+        {
+          type: "table",
+          rows: [
+            [
+              {
+                type: "rich_text",
+                elements: [
+                  {
+                    type: "rich_text_quote",
+                    elements: [
+                      { type: "text", text: "See " },
+                      {
+                        type: "link",
+                        text: "details",
+                        url: "https://example.com",
+                      },
+                    ],
+                  },
+                ],
+              },
+            ],
+          ],
+        },
+      ],
+    });
+
+    expect(message.text).toBe("See details");
+  });
+
+  it("preserves rich text metadata within table cells", () => {
+    const message = adapter.parseMessage({
+      type: "message",
+      user: "U123",
+      channel: "C456",
+      text: "",
+      ts: "1786120899.208429",
+      blocks: [
+        {
+          type: "table",
+          rows: [
+            [
+              {
+                type: "rich_text",
+                elements: [
+                  {
+                    type: "rich_text_section",
+                    elements: [
+                      { type: "channel", channel_id: "C789" },
+                      { type: "text", text: " " },
+                      { type: "usergroup", usergroup_id: "S789" },
+                      { type: "text", text: " " },
+                      {
+                        type: "date",
+                        timestamp: 1_720_710_212,
+                        format: "{date_num}",
+                        fallback: "July 11",
+                      },
+                      { type: "text", text: " " },
+                      { type: "color", value: "#ff0000" },
+                    ],
+                  },
+                ],
+              },
+            ],
+          ],
+        },
+      ],
+    });
+
+    expect(message.text).toBe("<#C789> <!subteam^S789> July 11 #ff0000");
+  });
 });
 
 // ============================================================================
