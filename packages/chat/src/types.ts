@@ -389,11 +389,24 @@ export interface Adapter<TThreadId = unknown, TRawMessage = unknown> {
    */
   readonly lockScope?: LockScope;
 
+  /**
+   * Send a read receipt for an inbound message.
+   *
+   * Optional: `Thread.markAsRead()` throws `NotImplementedError` when an
+   * adapter leaves this out. The full message is passed alongside its ID when
+   * the caller has one, so adapters can read platform data off `message.raw`
+   * instead of resolving the ID themselves.
+   *
+   * @param threadId - Thread containing the message
+   * @param messageId - ID of the message to acknowledge
+   * @param message - The message itself, when the caller has it
+   */
   markAsRead?(
     threadId: string,
     messageId: string,
     message?: Message<TRawMessage>
   ): Promise<void>;
+
   /** Unique name for this adapter (e.g., "slack", "teams") */
   readonly name: string;
 
@@ -1191,6 +1204,19 @@ export interface Thread<TState = Record<string, unknown>, TRawMessage = unknown>
    */
   isSubscribed(): Promise<boolean>;
 
+  /**
+   * Send a read receipt for an inbound message.
+   *
+   * Defaults to the message being handled, so it takes no argument inside a
+   * message handler. Pass a `Message` or a message ID to target one explicitly;
+   * a `Message` must belong to this thread.
+   *
+   * Platforms may treat the receipt as a watermark and mark earlier messages
+   * read along with the target.
+   *
+   * @param message - Message or message ID to acknowledge; defaults to the current message
+   * @throws NotImplementedError when the adapter does not support read receipts
+   */
   markAsRead(message?: string | Message<TRawMessage>): Promise<void>;
 
   /**

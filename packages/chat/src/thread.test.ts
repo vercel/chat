@@ -2458,9 +2458,11 @@ describe("ThreadImpl", () => {
     });
 
     it("throws when the adapter does not support read receipts", async () => {
+      const adapter = createMockAdapter();
+      adapter.markAsRead = undefined;
       const thread = new ThreadImpl({
         id: "slack:C123:1234.5678",
-        adapter: createMockAdapter(),
+        adapter,
         channelId: "C123",
         stateAdapter: createMockState(),
         currentMessage: createTestMessage("msg-5", "Hello"),
