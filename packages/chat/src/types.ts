@@ -1742,7 +1742,7 @@ export interface Attachment {
    * For platforms that require authentication (like Slack private URLs),
    * this method handles the auth automatically.
    */
-  fetchData?: () => Promise<Buffer>;
+  fetchData?: () => Promise<Buffer | ArrayBuffer>;
   /**
    * Platform-specific metadata needed to reconstruct fetchData after serialization.
    * Adapters store IDs here (e.g. WhatsApp mediaId, Telegram fileId) so that

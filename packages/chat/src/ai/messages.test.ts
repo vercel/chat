@@ -449,6 +449,31 @@ describe("toAiMessages", () => {
     expect(imgPart.mediaType).toBe("image/png");
   });
 
+  it("uses ArrayBuffer attachment data without Buffer conversion", async () => {
+    const data = new Uint8Array([1, 2, 3]).buffer;
+    const messages = [
+      createTestMessage("1", "Portable image", {
+        attachments: [
+          {
+            type: "image",
+            mimeType: "image/png",
+            fetchData: async () => data,
+          },
+        ],
+      }),
+    ];
+
+    const result = await toAiMessages(messages);
+    const content = result[0]?.content as AiMessagePart[];
+
+    expect(content[1]).toEqual({
+      type: "file",
+      data,
+      mediaType: "image/png",
+      filename: undefined,
+    });
+  });
+
   it("uses fetchData to inline text file as base64", async () => {
     const messages = [
       createTestMessage("1", "Here is a log", {

@@ -2266,7 +2266,7 @@ export class TelegramAdapter
     };
   }
 
-  protected async downloadFile(fileId: string): Promise<Buffer> {
+  protected async downloadFile(fileId: string): Promise<Buffer | ArrayBuffer> {
     const file = await this.telegramFetch<TelegramFile>("getFile", {
       file_id: fileId,
     });
@@ -2296,7 +2296,7 @@ export class TelegramAdapter
       );
     }
 
-    return Buffer.from(await response.arrayBuffer());
+    return response.arrayBuffer();
   }
 
   protected async sendDocument(
