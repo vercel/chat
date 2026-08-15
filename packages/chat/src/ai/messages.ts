@@ -156,7 +156,7 @@ async function attachmentToPart(
  * - Uses `message.text` for content
  * - Appends link metadata when available
  * - Includes image attachments and text files as `FilePart`
- * - Uses `fetchData()` when available to include attachment data inline (base64)
+ * - Uses `fetchData()` when available to include attachment data inline
  * - Warns on unsupported attachment types (video, audio)
  *
  * Works with `FetchResult.messages`, `thread.recentMessages`, or collected iterables.
