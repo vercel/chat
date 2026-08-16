@@ -246,6 +246,20 @@ describe("toPlainText", () => {
     expect(result).toBe("Name\tRole\nAda Lovelace\tEngineer");
   });
 
+  it("keeps empty table cells so columns stay aligned", () => {
+    const ast = parseMarkdown(
+      "| Name | Middle | Units |\n| --- | --- | --- |\n| Samsung |  | 3 |"
+    );
+    const result = toPlainText(ast);
+    expect(result).toBe("Name\tMiddle\tUnits\nSamsung\t\t3");
+  });
+
+  it("drops table rows with no content", () => {
+    const ast = parseMarkdown("|  |  |\n| --- | --- |\n| Samsung | 3 |");
+    const result = toPlainText(ast);
+    expect(result).toBe("Samsung\t3");
+  });
+
   it("handles empty AST", () => {
     const ast = root([]);
     const result = toPlainText(ast);

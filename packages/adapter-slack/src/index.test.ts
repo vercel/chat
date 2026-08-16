@@ -1426,6 +1426,31 @@ describe("parseMessage", () => {
     });
 
     expect(message.text).toBe("See details");
+    // The link URL survives in the AST as a real link node
+    expect(message.formatted.children[0]).toMatchObject({
+      type: "table",
+      children: [
+        // Headerless table: an empty header row is inserted so GFM doesn't
+        // promote the data row to a header
+        { type: "tableRow", children: [{ type: "tableCell", children: [] }] },
+        {
+          type: "tableRow",
+          children: [
+            {
+              type: "tableCell",
+              children: [
+                { type: "text", value: "See " },
+                {
+                  type: "link",
+                  url: "https://example.com",
+                  children: [{ type: "text", value: "details" }],
+                },
+              ],
+            },
+          ],
+        },
+      ],
+    });
   });
 
   it("preserves rich text metadata within table cells", () => {
@@ -1468,7 +1493,190 @@ describe("parseMessage", () => {
       ],
     });
 
-    expect(message.text).toBe("<#C789> <!subteam^S789> July 11 #ff0000");
+    // Cell tokens are rendered by the same mrkdwn converter as body text
+    expect(message.text).toBe("#C789 <!subteam^S789> July 11 #ff0000");
+  });
+
+  it("formats date cells from the timestamp when no fallback is present", () => {
+    const message = adapter.parseMessage({
+      type: "message",
+      user: "U123",
+      channel: "C456",
+      text: "",
+      ts: "1786120899.208429",
+      blocks: [
+        {
+          type: "table",
+          rows: [
+            [
+              {
+                type: "date",
+                timestamp: 1_720_710_212,
+                format: "{date_num}",
+              },
+            ],
+          ],
+        },
+      ],
+    });
+
+    expect(message.text).toBe("2024-07-11");
+    expect(message.text).not.toContain("{date_num}");
+  });
+
+  it("preserves empty and raw value cells so columns stay aligned", () => {
+    const message = adapter.parseMessage({
+      type: "message",
+      user: "U123",
+      channel: "C456",
+      text: "",
+      ts: "1786120899.208429",
+      blocks: [
+        {
+          type: "table",
+          rows: [
+            [
+              { type: "raw_text", text: "Samsung" },
+              { type: "raw_text", text: "" },
+              { type: "raw_number", value: 3 },
+            ],
+            [
+              { type: "raw_text", text: "LG" },
+              { type: "raw_boolean", value: true },
+              { type: "raw_number", value: "7" },
+            ],
+          ],
+        },
+      ],
+    });
+
+    expect(message.text).toBe("Samsung\t\t3\nLG\ttrue\t7");
+  });
+
+  it("parses data_table blocks with their header row intact", () => {
+    const message = adapter.parseMessage({
+      type: "message",
+      user: "U123",
+      channel: "C456",
+      text: "",
+      ts: "1786120899.208429",
+      blocks: [
+        {
+          type: "data_table",
+          caption: "Devices",
+          rows: [
+            [
+              { type: "raw_text", text: "Manufacturer" },
+              { type: "raw_text", text: "Units" },
+            ],
+            [
+              { type: "raw_text", text: "Samsung" },
+              { type: "raw_text", text: "3" },
+            ],
+          ],
+        },
+      ],
+    });
+
+    expect(message.text).toBe("Manufacturer\tUnits\nSamsung\t3");
+    // data_table rows always start with a header row; no placeholder is added
+    expect(message.formatted.children[0]).toMatchObject({
+      type: "table",
+      children: [
+        {
+          type: "tableRow",
+          children: [
+            { type: "tableCell", children: [{ value: "Manufacturer" }] },
+            { type: "tableCell", children: [{ value: "Units" }] },
+          ],
+        },
+        {
+          type: "tableRow",
+          children: [
+            { type: "tableCell", children: [{ value: "Samsung" }] },
+            { type: "tableCell", children: [{ value: "3" }] },
+          ],
+        },
+      ],
+    });
+  });
+
+  it("ignores tables in unfurl and app attachments", () => {
+    const tableBlock = {
+      type: "table",
+      rows: [[{ type: "raw_text", text: "Foreign" }]],
+    };
+    const message = adapter.parseMessage({
+      type: "message",
+      user: "U123",
+      channel: "C456",
+      text: "Check this out",
+      ts: "1786120899.208429",
+      attachments: [
+        { is_msg_unfurl: true, blocks: [tableBlock] },
+        { is_app_unfurl: true, blocks: [tableBlock] },
+        { from_url: "https://example.com", blocks: [tableBlock] },
+        { original_url: "https://example.com/page", blocks: [tableBlock] },
+      ],
+    });
+
+    expect(message.text).toBe("Check this out");
+    expect(message.formatted.children).toHaveLength(1);
+  });
+
+  it("keeps tables pasted above the message text above it", () => {
+    const message = adapter.parseMessage({
+      type: "message",
+      user: "U123",
+      channel: "C456",
+      text: "The table above shows Q1",
+      ts: "1786120899.208429",
+      blocks: [
+        {
+          type: "table",
+          rows: [[{ type: "raw_text", text: "Row" }]],
+        },
+        {
+          type: "rich_text",
+          elements: [
+            {
+              type: "rich_text_section",
+              elements: [{ type: "text", text: "The table above shows Q1" }],
+            },
+          ],
+        },
+      ],
+    });
+
+    expect(message.formatted.children[0]?.type).toBe("table");
+    expect(message.formatted.children[1]?.type).toBe("paragraph");
+    expect(message.text).toBe("Row\n\nThe table above shows Q1");
+  });
+
+  it("does not leave raw bot mention tokens in table cells", () => {
+    const message = adapter.parseMessage({
+      type: "message",
+      user: "U123",
+      channel: "C456",
+      text: "",
+      ts: "1786120899.208429",
+      blocks: [
+        {
+          type: "table",
+          rows: [
+            [
+              { type: "raw_text", text: "On call" },
+              { type: "user", user_id: "UBOT123" },
+            ],
+          ],
+        },
+      ],
+    });
+
+    // Raw <@UBOT123> would false-positive Chat core's Discord-format
+    // mention fallback; the converter rewrites it like body text
+    expect(message.text).toBe("On call\t@UBOT123");
+    expect(message.text).not.toContain("<@");
   });
 });
 
