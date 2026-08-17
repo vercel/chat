@@ -21,6 +21,17 @@ export interface TelegramAdapterConfig {
   /** Optional long-polling configuration for getUpdates flow. */
   longPolling?: TelegramLongPollingConfig;
   /**
+   * Treat a reply to one of the bot's own messages as a mention.
+   *
+   * Telegram users continue a conversation by replying rather than repeating
+   * the handle, so a bot that only reacts to `@name` looks unresponsive in a
+   * group. Off by default: turning it on changes which messages report
+   * `isMention`, and a bot that deliberately answers mentions only should keep
+   * the stricter behaviour. Defaults to the `TELEGRAM_MENTION_ON_REPLY`
+   * environment variable when set to `"true"`.
+   */
+  mentionOnReply?: boolean;
+  /**
    * Adapter runtime mode:
    * - auto: choose webhook vs polling based on webhook registration/runtime (default)
    * - webhook: webhook-only mode

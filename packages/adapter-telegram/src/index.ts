@@ -281,6 +281,7 @@ export class TelegramAdapter
   protected readonly staticBotToken?: string;
   protected readonly apiBaseUrl: string;
   protected readonly secretToken?: string;
+  protected readonly mentionOnReply: boolean;
   private botIdentityPromise: Promise<void> | null = null;
   private webhookScope?: string;
   private warnedNoVerification = false;
@@ -342,6 +343,8 @@ export class TelegramAdapter
     );
     this.secretToken =
       config.secretToken ?? process.env.TELEGRAM_WEBHOOK_SECRET_TOKEN;
+    this.mentionOnReply =
+      config.mentionOnReply ?? process.env.TELEGRAM_MENTION_ON_REPLY === "true";
     const allowedUserIds =
       config.allowedUserIds ??
       process.env.TELEGRAM_ALLOWED_USER_IDS?.split(",");
@@ -3008,6 +3011,19 @@ export class TelegramAdapter
   }
 
   protected isBotMentioned(message: TelegramMessage, text: string): boolean {
+    // Replying to one of the bot's own messages addresses it as directly as an
+    // @mention does — it is how Telegram users continue a conversation without
+    // repeating the handle. Opt-in, and checked before the empty-text guard so
+    // a reply carrying only a photo or a document still counts.
+    if (
+      this.mentionOnReply &&
+      this._botUserId &&
+      message.reply_to_message?.from &&
+      String(message.reply_to_message.from.id) === this._botUserId
+    ) {
+      return true;
+    }
+
     if (!text) {
       return false;
     }

@@ -5919,3 +5919,94 @@ describe("reply", () => {
     ).rejects.toThrow("chat mismatch");
   });
 });
+
+describe("mentionOnReply", () => {
+  const BOT_USER_ID = 8981792219;
+
+  async function deliverReply(options: {
+    mentionOnReply?: boolean;
+    replyFromBot: boolean;
+  }) {
+    mockFetch.mockResolvedValue(
+      telegramOk({
+        id: BOT_USER_ID,
+        is_bot: true,
+        first_name: "Bot",
+        username: "mybot",
+      })
+    );
+    const chat = createMockChatInstance({
+      logger: mockLogger,
+      state: createMockState(),
+      userName: "mybot",
+    });
+    const adapter = createTelegramAdapter({
+      botToken: "token",
+      mode: "webhook",
+      logger: mockLogger,
+      userName: "mybot",
+      ...(options.mentionOnReply === undefined
+        ? {}
+        : { mentionOnReply: options.mentionOnReply }),
+    });
+    await adapter.initialize(chat);
+
+    await adapter.handleWebhook(
+      new Request("https://example.com/webhook", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          update_id: 1,
+          message: sampleMessage({
+            chat: { id: -100123, type: "supergroup", title: "General" },
+            text: "and the second one?",
+            reply_to_message: sampleMessage({
+              message_id: 5,
+              chat: { id: -100123, type: "supergroup", title: "General" },
+              from: options.replyFromBot
+                ? {
+                    id: BOT_USER_ID,
+                    is_bot: true,
+                    first_name: "Bot",
+                    username: "mybot",
+                  }
+                : {
+                    id: 777,
+                    is_bot: false,
+                    first_name: "Someone",
+                    username: "someone",
+                  },
+            }),
+          }),
+        }),
+      })
+    );
+
+    const processMessage = chat.processMessage as ReturnType<typeof vi.fn>;
+    const call = processMessage.mock.calls[0] as
+      | [unknown, string, { isMention?: boolean }]
+      | undefined;
+    return call?.[2];
+  }
+
+  it("counts a reply to the bot as a mention when enabled", async () => {
+    const parsed = await deliverReply({
+      mentionOnReply: true,
+      replyFromBot: true,
+    });
+    expect(parsed?.isMention).toBe(true);
+  });
+
+  it("ignores a reply to somebody else", async () => {
+    const parsed = await deliverReply({
+      mentionOnReply: true,
+      replyFromBot: false,
+    });
+    expect(parsed?.isMention).toBe(false);
+  });
+
+  it("stays off by default so existing bots keep mention-only behaviour", async () => {
+    const parsed = await deliverReply({ replyFromBot: true });
+    expect(parsed?.isMention).toBe(false);
+  });
+});
