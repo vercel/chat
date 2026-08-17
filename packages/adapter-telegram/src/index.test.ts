@@ -6010,3 +6010,142 @@ describe("mentionOnReply", () => {
     expect(parsed?.isMention).toBe(false);
   });
 });
+
+describe("sticker messages", () => {
+  it("represents a sticker by the emoji it stands for", async () => {
+    mockFetch.mockResolvedValue(
+      telegramOk({
+        id: 8981792219,
+        is_bot: true,
+        first_name: "Bot",
+        username: "mybot",
+      })
+    );
+    const chat = createMockChatInstance({
+      logger: mockLogger,
+      state: createMockState(),
+      userName: "mybot",
+    });
+    const adapter = createTelegramAdapter({
+      botToken: "token",
+      mode: "webhook",
+      logger: mockLogger,
+      userName: "mybot",
+    });
+    await adapter.initialize(chat);
+
+    await adapter.handleWebhook(
+      new Request("https://example.com/webhook", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          update_id: 1,
+          message: sampleMessage({
+            text: undefined,
+            sticker: {
+              emoji: "😀",
+              file_id: "sticker-file",
+              file_unique_id: "sticker-unique",
+            },
+          }),
+        }),
+      })
+    );
+
+    const processMessage = chat.processMessage as ReturnType<typeof vi.fn>;
+    const call = processMessage.mock.calls[0] as
+      | [unknown, string, { text?: string }]
+      | undefined;
+    expect(call?.[2]?.text).toBe("😀");
+  });
+});
+
+describe("sticker and animation attachments", () => {
+  async function parseMedia(overrides: Partial<TelegramMessage>) {
+    mockFetch.mockResolvedValue(
+      telegramOk({
+        id: 8981792219,
+        is_bot: true,
+        first_name: "Bot",
+        username: "mybot",
+      })
+    );
+    const chat = createMockChatInstance({
+      logger: mockLogger,
+      state: createMockState(),
+      userName: "mybot",
+    });
+    const adapter = createTelegramAdapter({
+      botToken: "token",
+      mode: "webhook",
+      logger: mockLogger,
+      userName: "mybot",
+    });
+    await adapter.initialize(chat);
+
+    await adapter.handleWebhook(
+      new Request("https://example.com/webhook", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          update_id: 1,
+          message: sampleMessage({ text: undefined, ...overrides }),
+        }),
+      })
+    );
+
+    const processMessage = chat.processMessage as ReturnType<typeof vi.fn>;
+    const call = processMessage.mock.calls[0] as
+      | [
+          unknown,
+          string,
+          { attachments?: { type: string; mimeType?: string }[] },
+        ]
+      | undefined;
+    return call?.[2]?.attachments ?? [];
+  }
+
+  it("carries a sticker through as an image", async () => {
+    const attachments = await parseMedia({
+      sticker: {
+        emoji: "😀",
+        file_id: "sticker-file",
+        file_unique_id: "sticker-unique",
+        width: 512,
+        height: 512,
+      },
+    });
+
+    expect(attachments).toHaveLength(1);
+    expect(attachments[0]?.type).toBe("image");
+    expect(attachments[0]?.mimeType).toBe("image/webp");
+  });
+
+  it("labels a video sticker by its real format", async () => {
+    const attachments = await parseMedia({
+      sticker: {
+        emoji: "🔥",
+        file_id: "sticker-file",
+        file_unique_id: "sticker-unique",
+        is_video: true,
+      },
+    });
+
+    expect(attachments[0]?.mimeType).toBe("video/webm");
+  });
+
+  it("carries an animation through as a video", async () => {
+    const attachments = await parseMedia({
+      animation: {
+        file_id: "animation-file",
+        file_unique_id: "animation-unique",
+        mime_type: "video/mp4",
+        file_name: "cat.mp4",
+      },
+    });
+
+    expect(attachments).toHaveLength(1);
+    expect(attachments[0]?.type).toBe("video");
+    expect(attachments[0]?.mimeType).toBe("video/mp4");
+  });
+});

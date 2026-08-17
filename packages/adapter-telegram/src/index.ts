@@ -269,6 +269,23 @@ export function applyTelegramEntities(
   return result;
 }
 
+/**
+ * Sticker formats: a still sticker is WebP, a video sticker WebM, and an
+ * animated (Lottie) one the TGS container.
+ */
+function stickerMimeType(sticker: {
+  is_animated?: boolean;
+  is_video?: boolean;
+}): string {
+  if (sticker.is_video) {
+    return "video/webm";
+  }
+  if (sticker.is_animated) {
+    return "application/x-tgsticker";
+  }
+  return "image/webp";
+}
+
 export class TelegramAdapter
   implements Adapter<TelegramThreadId, TelegramRawMessage>
 {
@@ -2116,6 +2133,10 @@ export class TelegramAdapter
       content?.text ??
       raw.text ??
       raw.caption ??
+      // A sticker carries no text, only the emoji it stands for. Without this
+      // a sticker reaches the handler as an empty message and looks like a
+      // delivery that lost its body.
+      raw.sticker?.emoji ??
       (raw.rich_message ? richMessageToText(raw.rich_message) : "");
     const entities = raw.entities ?? raw.caption_entities ?? [];
     const text = content?.text
@@ -2233,6 +2254,35 @@ export class TelegramAdapter
           width: raw.video_note.length,
           height: raw.video_note.length,
           fileUniqueId: raw.video_note.file_unique_id,
+        })
+      );
+    }
+
+    // An animation is Telegram's GIF: an MP4 without sound.
+    if (raw.animation) {
+      attachments.push(
+        this.createAttachment("video", raw.animation.file_id, {
+          size: raw.animation.file_size,
+          width: raw.animation.width,
+          height: raw.animation.height,
+          name: raw.animation.file_name,
+          mimeType: raw.animation.mime_type,
+          fileUniqueId: raw.animation.file_unique_id,
+        })
+      );
+    }
+
+    // Stickers are images (WebP, or WebM/TGS when animated). They arrive with
+    // no text at all, so without this a sticker reaches the handler as an
+    // empty message; the emoji it stands for becomes the message text.
+    if (raw.sticker) {
+      attachments.push(
+        this.createAttachment("image", raw.sticker.file_id, {
+          size: raw.sticker.file_size,
+          width: raw.sticker.width,
+          height: raw.sticker.height,
+          mimeType: stickerMimeType(raw.sticker),
+          fileUniqueId: raw.sticker.file_unique_id,
         })
       );
     }
