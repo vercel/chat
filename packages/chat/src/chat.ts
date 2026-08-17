@@ -2453,7 +2453,7 @@ export class Chat<
           messageId: message.id,
           debounceMs,
         });
-        await this.debounceLoop(lock, adapter, threadId, lockKey);
+        await this.debounceLoop(lock, adapter, lockKey);
       } else if (strategy === "burst") {
         await this._stateAdapter.enqueue(
           lockKey,
@@ -2472,11 +2472,11 @@ export class Chat<
         });
         await sleep(debounceMs);
         await this._stateAdapter.extendLock(lock, DEFAULT_LOCK_TTL_MS);
-        await this.drainQueue(lock, adapter, threadId, lockKey);
+        await this.drainQueue(lock, adapter, lockKey);
       } else {
         // Queue: process our message immediately, then drain any queued messages
         await this.dispatchToHandlers(adapter, threadId, message);
-        await this.drainQueue(lock, adapter, threadId, lockKey);
+        await this.drainQueue(lock, adapter, lockKey);
       }
     } finally {
       await this._stateAdapter.releaseLock(lock);
@@ -2491,7 +2491,6 @@ export class Chat<
   private async debounceLoop(
     lock: Lock,
     adapter: Adapter,
-    threadId: string,
     lockKey: string
   ): Promise<void> {
     const { debounceMs } = this._concurrencyConfig;
@@ -2513,7 +2512,7 @@ export class Chat<
           pending.push({ message: msg, expiresAt: entry.expiresAt });
         } else {
           this.logger.info("message-expired", {
-            threadId,
+            threadId: msg.threadId,
             lockKey,
             messageId: msg.id,
           });
@@ -2536,7 +2535,7 @@ export class Chat<
         // Newer message superseded this one — loop again
         skipped.push(latest.message);
         this.logger.info("message-superseded", {
-          threadId,
+          threadId: latest.message.threadId,
           lockKey,
           droppedId: latest.message.id,
         });
@@ -2544,14 +2543,18 @@ export class Chat<
       }
 
       // Nothing new — this is the final message in the burst
+      const messageThreadId = latest.message.threadId;
+      const messageSkipped = skipped.filter(
+        (message) => message.threadId === messageThreadId
+      );
       this.logger.info("message-dequeued", {
-        threadId,
+        threadId: messageThreadId,
         lockKey,
         messageId: latest.message.id,
       });
-      await this.dispatchToHandlers(adapter, threadId, latest.message, {
-        skipped,
-        totalSinceLastHandler: skipped.length + 1,
+      await this.dispatchToHandlers(adapter, messageThreadId, latest.message, {
+        skipped: messageSkipped,
+        totalSinceLastHandler: messageSkipped.length + 1,
       });
       break;
     }
@@ -2564,7 +2567,6 @@ export class Chat<
   private async drainQueue(
     lock: Lock,
     adapter: Adapter,
-    threadId: string,
     lockKey: string
   ): Promise<void> {
     while (true) {
@@ -2580,7 +2582,7 @@ export class Chat<
           pending.push({ message: msg, expiresAt: entry.expiresAt });
         } else {
           this.logger.info("message-expired", {
-            threadId,
+            threadId: msg.threadId,
             lockKey,
             messageId: msg.id,
           });
@@ -2598,23 +2600,31 @@ export class Chat<
       if (!latest) {
         return;
       }
-      // Everything before it is "skipped" context
-      const skipped = pending.slice(0, -1).map((e) => e.message);
+      const messageThreadId = latest.message.threadId;
+      const skipped = pending
+        .slice(0, -1)
+        .map((entry) => entry.message)
+        .filter((message) => message.threadId === messageThreadId);
 
       this.logger.info("message-dequeued", {
-        threadId,
+        threadId: messageThreadId,
         lockKey,
         messageId: latest.message.id,
         skippedCount: skipped.length,
-        totalSinceLastHandler: pending.length,
+        totalSinceLastHandler: skipped.length + 1,
       });
 
       const context: MessageContext = {
         skipped,
-        totalSinceLastHandler: pending.length,
+        totalSinceLastHandler: skipped.length + 1,
       };
 
-      await this.dispatchToHandlers(adapter, threadId, latest.message, context);
+      await this.dispatchToHandlers(
+        adapter,
+        messageThreadId,
+        latest.message,
+        context
+      );
 
       // After processing, check if MORE messages arrived during this handler
       // (loop continues)
