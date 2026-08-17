@@ -1,5 +1,12 @@
 # chat
 
+## 4.38.1
+
+### Patch Changes
+
+- 6cb933e: isolate queued and debounced messages by thread when using channel-scoped locks
+- 764e475: `toPlainText` keeps empty table cells so tab-separated columns stay aligned, and drops table rows with no content (such as placeholder header rows)
+
 ## 4.38.0
 
 ### Minor Changes

@@ -1,5 +1,15 @@
 # @chat-adapter/twilio
 
+## 4.38.1
+
+### Patch Changes
+
+- d8103a1: prevent credentials from being sent to untrusted media origins
+- Updated dependencies [6cb933e]
+- Updated dependencies [764e475]
+  - chat@4.38.1
+  - @chat-adapter/shared@4.38.1
+
 ## 4.38.0
 
 ### Patch Changes

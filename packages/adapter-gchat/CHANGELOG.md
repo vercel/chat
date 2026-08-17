@@ -1,5 +1,15 @@
 # @chat-adapter/gchat
 
+## 4.38.1
+
+### Patch Changes
+
+- 3268703: download attachments through the Google Chat media API to prevent credential exposure
+- Updated dependencies [6cb933e]
+- Updated dependencies [764e475]
+  - chat@4.38.1
+  - @chat-adapter/shared@4.38.1
+
 ## 4.38.0
 
 ### Patch Changes
