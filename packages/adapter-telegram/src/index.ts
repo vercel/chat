@@ -270,6 +270,48 @@ export function applyTelegramEntities(
 }
 
 /**
+ * Describe the message kinds Telegram sends with no text and no file:
+ * locations, venues, shared contacts, polls and dice.
+ *
+ * Without this they arrive as an empty message — the content is there in the
+ * payload, but a handler reading `text` sees nothing and cannot tell an empty
+ * delivery from a shared location. The wording stays short and literal; the
+ * structured payload is still on `raw` for anyone who needs the numbers.
+ */
+function describeNonFileContent(raw: TelegramMessage): string | undefined {
+  if (raw.location) {
+    return `📍 ${raw.location.latitude}, ${raw.location.longitude}`;
+  }
+  if (raw.venue) {
+    return `📍 ${raw.venue.title}, ${raw.venue.address}`;
+  }
+  if (raw.contact) {
+    const name = [raw.contact.first_name, raw.contact.last_name]
+      .filter(Boolean)
+      .join(" ");
+    return `👤 ${name} ${raw.contact.phone_number}`.trim();
+  }
+  if (raw.poll) {
+    return `📊 ${raw.poll.question}`;
+  }
+  if (raw.dice) {
+    return `${raw.dice.emoji} ${raw.dice.value}`;
+  }
+  if (raw.game) {
+    return `🎮 ${raw.game.title}`;
+  }
+  if (raw.invoice) {
+    // total_amount is in the currency's smallest unit.
+    const amount = (raw.invoice.total_amount / 100).toFixed(2);
+    return `🧾 ${raw.invoice.title} — ${amount} ${raw.invoice.currency}`;
+  }
+  if (raw.story) {
+    return "📖 Story";
+  }
+  return undefined;
+}
+
+/**
  * Sticker formats: a still sticker is WebP, a video sticker WebM, and an
  * animated (Lottie) one the TGS container.
  */
@@ -2137,6 +2179,7 @@ export class TelegramAdapter
       // a sticker reaches the handler as an empty message and looks like a
       // delivery that lost its body.
       raw.sticker?.emoji ??
+      describeNonFileContent(raw) ??
       (raw.rich_message ? richMessageToText(raw.rich_message) : "");
     const entities = raw.entities ?? raw.caption_entities ?? [];
     const text = content?.text

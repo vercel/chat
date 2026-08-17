@@ -6149,3 +6149,105 @@ describe("sticker and animation attachments", () => {
     expect(attachments[0]?.mimeType).toBe("video/mp4");
   });
 });
+
+describe("non-file content", () => {
+  async function parseContent(overrides: Partial<TelegramMessage>) {
+    mockFetch.mockResolvedValue(
+      telegramOk({
+        id: 8981792219,
+        is_bot: true,
+        first_name: "Bot",
+        username: "mybot",
+      })
+    );
+    const chat = createMockChatInstance({
+      logger: mockLogger,
+      state: createMockState(),
+      userName: "mybot",
+    });
+    const adapter = createTelegramAdapter({
+      botToken: "token",
+      mode: "webhook",
+      logger: mockLogger,
+      userName: "mybot",
+    });
+    await adapter.initialize(chat);
+
+    await adapter.handleWebhook(
+      new Request("https://example.com/webhook", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          update_id: 1,
+          message: sampleMessage({ text: undefined, ...overrides }),
+        }),
+      })
+    );
+
+    const processMessage = chat.processMessage as ReturnType<typeof vi.fn>;
+    const call = processMessage.mock.calls[0] as
+      | [unknown, string, { text?: string }]
+      | undefined;
+    return call?.[2]?.text;
+  }
+
+  it("describes a shared location", async () => {
+    expect(
+      await parseContent({ location: { latitude: 55.75, longitude: 37.61 } })
+    ).toBe("📍 55.75, 37.61");
+  });
+
+  it("describes a venue by name and address", async () => {
+    expect(
+      await parseContent({
+        venue: {
+          title: "Central Library",
+          address: "12 Main St",
+          location: { latitude: 55.75, longitude: 37.61 },
+        },
+      })
+    ).toBe("📍 Central Library, 12 Main St");
+  });
+
+  it("describes a shared contact", async () => {
+    expect(
+      await parseContent({
+        contact: {
+          first_name: "Ada",
+          last_name: "Lovelace",
+          phone_number: "+15551234567",
+        },
+      })
+    ).toBe("👤 Ada Lovelace +15551234567");
+  });
+
+  it("describes a poll by its question", async () => {
+    expect(
+      await parseContent({ poll: { id: "1", question: "Lunch or dinner?" } })
+    ).toBe("📊 Lunch or dinner?");
+  });
+
+  it("describes a dice roll", async () => {
+    expect(await parseContent({ dice: { emoji: "🎲", value: 4 } })).toBe(
+      "🎲 4"
+    );
+  });
+
+  it("describes a game by its title", async () => {
+    expect(await parseContent({ game: { title: "Corsairs" } })).toBe(
+      "🎮 Corsairs"
+    );
+  });
+
+  it("describes an invoice with its amount", async () => {
+    expect(
+      await parseContent({
+        invoice: { title: "Yearly plan", total_amount: 4999, currency: "USD" },
+      })
+    ).toBe("🧾 Yearly plan — 49.99 USD");
+  });
+
+  it("marks a shared story", async () => {
+    expect(await parseContent({ story: { id: 7 } })).toBe("📖 Story");
+  });
+});

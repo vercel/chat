@@ -470,15 +470,37 @@ export interface TelegramMessage {
   caption?: string;
   caption_entities?: TelegramMessageEntity[];
   chat: TelegramChat;
+  contact?: {
+    first_name: string;
+    last_name?: string;
+    phone_number: string;
+    user_id?: number;
+    vcard?: string;
+  };
   date: number;
+  dice?: { emoji: string; value: number };
   document?: TelegramFile & { file_name?: string; mime_type?: string };
   edit_date?: number;
   entities?: TelegramMessageEntity[];
   from?: TelegramUser;
+  game?: { description?: string; title: string };
+  invoice?: {
+    currency: string;
+    description?: string;
+    title: string;
+    total_amount: number;
+  };
+  location?: TelegramLocation;
   media_group_id?: string;
   message_id: number;
   message_thread_id?: number;
   photo?: TelegramPhotoSize[];
+  poll?: {
+    id: string;
+    options?: { text: string; voter_count?: number }[];
+    question: string;
+    type?: string;
+  };
   reply_to_message?: TelegramMessage;
   rich_message?: TelegramRichMessage;
   sender_chat?: TelegramChat;
@@ -489,7 +511,13 @@ export interface TelegramMessage {
     is_animated?: boolean;
     is_video?: boolean;
   };
+  story?: { chat?: TelegramChat; id?: number };
   text?: string;
+  venue?: {
+    address: string;
+    location: TelegramLocation;
+    title: string;
+  };
   video?: TelegramVideo;
   video_note?: TelegramFile & { length?: number; duration?: number };
   voice?: TelegramFile & { duration?: number; mime_type?: string };
