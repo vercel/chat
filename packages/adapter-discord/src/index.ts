@@ -113,6 +113,26 @@ interface DiscordFileUpload {
   mimeType?: string;
 }
 
+function flatten<T>(
+  text: string,
+  files: Iterable<T>,
+  snapshots: Iterable<{
+    attachments: { values: () => IterableIterator<T> };
+    content: string;
+  }>
+): { attachments: T[]; text: string } {
+  const items = [...snapshots];
+  return {
+    attachments: [
+      ...files,
+      ...items.flatMap((item) => [...item.attachments.values()]),
+    ],
+    text: [text, ...items.map((item) => item.content)]
+      .filter(Boolean)
+      .join("\n\n"),
+  };
+}
+
 function normalizeCredentialProvider(
   value: string | (() => string | Promise<string>)
 ): () => Promise<string> {
@@ -981,13 +1001,18 @@ export class DiscordAdapter implements Adapter<DiscordThreadId, unknown> {
       channelId: parentChannelId,
       threadId: discordThreadId,
     });
+    const content = flatten(
+      data.content,
+      data.attachments,
+      data.message_snapshots?.map(({ message }) => message) ?? []
+    );
 
     // Convert to SDK Message format
     const chatMessage = new Message({
       id: data.id,
       threadId,
-      text: data.content,
-      formatted: this.formatConverter.toAst(data.content),
+      text: content.text,
+      formatted: this.formatConverter.toAst(content.text),
       author: {
         userId: data.author.id,
         userName: data.author.username,
@@ -999,7 +1024,7 @@ export class DiscordAdapter implements Adapter<DiscordThreadId, unknown> {
         dateSent: new Date(data.timestamp),
         edited: false,
       },
-      attachments: data.attachments.map((a) =>
+      attachments: content.attachments.map((a) =>
         this.rehydrateAttachment({
           type: this.getAttachmentType(a.content_type),
           url: a.url,
@@ -1916,12 +1941,17 @@ export class DiscordAdapter implements Adapter<DiscordThreadId, unknown> {
     const author = msg.author;
     const isBot = author.bot ?? false;
     const isMe = author.id === this.botUserId;
+    const content = flatten(
+      msg.content,
+      msg.attachments ?? [],
+      msg.message_snapshots?.map(({ message }) => message) ?? []
+    );
 
     return new Message({
       id: msg.id,
       threadId,
-      text: this.formatConverter.extractPlainText(msg.content),
-      formatted: this.formatConverter.toAst(msg.content),
+      text: this.formatConverter.extractPlainText(content.text),
+      formatted: this.formatConverter.toAst(content.text),
       raw,
       author: {
         userId: author.id,
@@ -1937,7 +1967,7 @@ export class DiscordAdapter implements Adapter<DiscordThreadId, unknown> {
           ? new Date(msg.edited_timestamp)
           : undefined,
       },
-      attachments: (msg.attachments || []).map((att) =>
+      attachments: content.attachments.map((att) =>
         this.rehydrateAttachment({
           type: this.getAttachmentType(att.content_type),
           url: att.url,
@@ -2498,13 +2528,18 @@ export class DiscordAdapter implements Adapter<DiscordThreadId, unknown> {
       channelId: parentChannelId,
       threadId: discordThreadId,
     });
+    const content = flatten(
+      message.content,
+      message.attachments.values(),
+      message.messageSnapshots?.values() ?? []
+    );
 
     // Convert discord.js message to our Message format
     const chatMessage = new Message({
       id: message.id,
       threadId,
-      text: message.content,
-      formatted: this.formatConverter.toAst(message.content),
+      text: content.text,
+      formatted: this.formatConverter.toAst(content.text),
       author: {
         userId: message.author.id,
         userName: message.author.username,
@@ -2517,7 +2552,7 @@ export class DiscordAdapter implements Adapter<DiscordThreadId, unknown> {
         edited: message.editedAt !== null,
         editedAt: message.editedAt ?? undefined,
       },
-      attachments: message.attachments.map((a) =>
+      attachments: content.attachments.map((a) =>
         this.rehydrateAttachment({
           type: this.getAttachmentType(a.contentType),
           url: a.url,

@@ -37,7 +37,7 @@ import type {
   StreamOptions,
   Thread,
 } from "./types";
-import { NotImplementedError, THREAD_STATE_TTL_MS } from "./types";
+import { ChatError, NotImplementedError, THREAD_STATE_TTL_MS } from "./types";
 
 /**
  * Serialized thread data for passing to external systems (e.g., workflow engines).
@@ -536,6 +536,80 @@ export class ThreadImpl<TState = Record<string, unknown>>
     return null;
   }
 
+  async reply(
+    target: string | Message,
+    message:
+      | AdapterPostableMessage
+      | AsyncIterable<string | StreamChunk | StreamEvent>
+      | ChatElement
+  ): Promise<SentMessage> {
+    if (!this.adapter.reply) {
+      throw new NotImplementedError(
+        "Message replies are not supported by this adapter",
+        "replies"
+      );
+    }
+
+    const targetMessage =
+      target instanceof Message ? target : this.findKnownMessage(target);
+
+    if (targetMessage && targetMessage.threadId !== this.id) {
+      throw new Error("Cannot reply to a message from another thread");
+    }
+
+    let postable: AdapterPostableMessage;
+    if (isAsyncIterable(message)) {
+      let markdown = "";
+      for await (const chunk of fromFullStream(message)) {
+        if (typeof chunk === "string") {
+          markdown += chunk;
+        } else if (chunk.type === "markdown_text") {
+          markdown += chunk.text;
+        }
+      }
+      // A stream can finish without producing text (tool calls only, or just
+      // task_update/plan_update chunks). Platforms reject empty message bodies,
+      // so fall back to a single space like fallbackStream does.
+      postable = { markdown: markdown.trim() ? markdown : " " };
+    } else if (isJSX(message)) {
+      const card = toCardElement(message);
+      if (!card) {
+        throw new Error("Invalid JSX element: must be a Card element");
+      }
+      postable = card;
+    } else {
+      postable = message as AdapterPostableMessage;
+    }
+
+    postable = await this.processCallbackUrls(postable);
+    const targetId = typeof target === "string" ? target : target.id;
+    const rawMessage = await this.adapter.reply(this.id, targetId, postable);
+    const result = this.createSentMessage(
+      rawMessage.id,
+      postable,
+      rawMessage.threadId,
+      targetMessage
+    );
+
+    if (this._threadHistory) {
+      await this._threadHistory.append(this.id, new Message(result));
+    }
+
+    return result;
+  }
+
+  /**
+   * Resolve a message id against the messages this thread already holds in
+   * memory. Deliberately does not fetch: callers that need `replyTo` populated
+   * for certain should pass the `Message` itself.
+   */
+  private findKnownMessage(messageId: string): Message | undefined {
+    if (this._currentMessage?.id === messageId) {
+      return this._currentMessage;
+    }
+    return this._recentMessages.find((m) => m.id === messageId);
+  }
+
   private async processCallbackUrls(
     postable: string | AdapterPostableMessage
   ): Promise<string | AdapterPostableMessage> {
@@ -735,6 +809,36 @@ export class ThreadImpl<TState = Record<string, unknown>>
 
   async startTyping(status?: string): Promise<void> {
     await this.adapter.startTyping(this.id, status);
+  }
+
+  async markAsRead(message?: string | Message): Promise<void> {
+    if (!this.adapter.markAsRead) {
+      throw new NotImplementedError(
+        "Read receipts are not supported by this adapter",
+        "read-receipts"
+      );
+    }
+
+    const target = message ?? this._currentMessage;
+    if (!target) {
+      throw new ChatError(
+        "A message is required outside a message handler",
+        "MESSAGE_REQUIRED"
+      );
+    }
+
+    if (typeof target !== "string" && target.threadId !== this.id) {
+      throw new ChatError(
+        "Cannot mark a message from another thread as read",
+        "THREAD_MISMATCH"
+      );
+    }
+
+    await this.adapter.markAsRead(
+      this.id,
+      typeof target === "string" ? target : target.id,
+      typeof target === "string" ? undefined : target
+    );
   }
 
   /**
@@ -955,7 +1059,8 @@ export class ThreadImpl<TState = Record<string, unknown>>
   private createSentMessage(
     messageId: string,
     postable: AdapterPostableMessage,
-    threadIdOverride?: string
+    threadIdOverride?: string,
+    replyTo?: Message
   ): SentMessage {
     const adapter = this.adapter;
     // Use the threadId returned by postMessage if available (may differ after thread creation)
@@ -985,6 +1090,7 @@ export class ThreadImpl<TState = Record<string, unknown>>
         edited: false,
       },
       attachments,
+      replyTo,
 
       toJSON() {
         return new Message(this).toJSON();
@@ -1005,7 +1111,7 @@ export class ThreadImpl<TState = Record<string, unknown>>
         }
         postable = await self.processCallbackUrls(postable);
         await adapter.editMessage(threadId, messageId, postable);
-        return self.createSentMessage(messageId, postable);
+        return self.createSentMessage(messageId, postable, threadId, replyTo);
       },
 
       async delete(): Promise<void> {
@@ -1062,7 +1168,12 @@ export class ThreadImpl<TState = Record<string, unknown>>
         }
         postable = await self.processCallbackUrls(postable);
         await adapter.editMessage(threadId, messageId, postable);
-        return self.createSentMessage(messageId, postable, threadId);
+        return self.createSentMessage(
+          messageId,
+          postable,
+          threadId,
+          message.replyTo
+        );
       },
 
       async delete(): Promise<void> {

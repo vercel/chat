@@ -1,5 +1,26 @@
 # @chat-adapter/github
 
+## 4.38.1
+
+### Patch Changes
+
+- Updated dependencies [6cb933e]
+- Updated dependencies [764e475]
+  - chat@4.38.1
+  - @chat-adapter/shared@4.38.1
+
+## 4.38.0
+
+### Patch Changes
+
+- Updated dependencies [0f24cc3]
+- Updated dependencies [bdeb2bf]
+- Updated dependencies [a0cba02]
+- Updated dependencies [83ede7e]
+- Updated dependencies [18d4a23]
+  - chat@4.38.0
+  - @chat-adapter/shared@4.38.0
+
 ## 4.37.0
 
 ### Patch Changes

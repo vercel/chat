@@ -1175,6 +1175,14 @@ export class WhatsAppAdapter
     threadId: string,
     message: AdapterPostableMessage
   ): Promise<RawMessage<WhatsAppRawMessage>> {
+    return this.send(threadId, message);
+  }
+
+  protected async send(
+    threadId: string,
+    message: AdapterPostableMessage,
+    replyId?: string
+  ): Promise<RawMessage<WhatsAppRawMessage>> {
     const { userWaId } = this.decodeThreadId(threadId);
     // Resolve the route once per logical post; the send helpers reuse it
     // across chunked and multi-part sends.
@@ -1192,6 +1200,7 @@ export class WhatsAppAdapter
         userWaId,
         message,
         mediaItems,
+        replyId,
         recipient
       );
     }
@@ -1213,6 +1222,7 @@ export class WhatsAppAdapter
           threadId,
           userWaId,
           interactive,
+          replyId,
           recipient
         );
       }
@@ -1221,6 +1231,7 @@ export class WhatsAppAdapter
         threadId,
         userWaId,
         convertEmojiPlaceholders(result.text, "whatsapp"),
+        replyId,
         recipient
       );
     }
@@ -1231,7 +1242,15 @@ export class WhatsAppAdapter
       "whatsapp"
     );
 
-    return this.sendTextMessage(threadId, userWaId, body, recipient);
+    return this.sendTextMessage(threadId, userWaId, body, replyId, recipient);
+  }
+
+  async reply(
+    threadId: string,
+    messageId: string,
+    message: AdapterPostableMessage
+  ): Promise<RawMessage<WhatsAppRawMessage>> {
+    return this.send(threadId, message, messageId);
   }
 
   /**
@@ -1242,8 +1261,10 @@ export class WhatsAppAdapter
     userWaId: string,
     message: AdapterPostableMessage,
     mediaItems: Array<FileUpload | Attachment>,
+    replyId?: string,
     recipient?: WhatsAppRecipient
   ): Promise<RawMessage<WhatsAppRawMessage>> {
+    let remainingId = replyId;
     const card = extractCard(message);
     // cta_url promotion is disabled alongside media: the text fallback
     // captions the media in a single send, whereas an interactive
@@ -1285,7 +1306,14 @@ export class WhatsAppAdapter
         !firstMedia?.captionEligible);
 
     if (useSeparateText) {
-      await this.sendTextMessage(threadId, userWaId, text, recipient);
+      await this.sendTextMessage(
+        threadId,
+        userWaId,
+        text,
+        remainingId,
+        recipient
+      );
+      remainingId = undefined;
     }
 
     let result: RawMessage<WhatsAppRawMessage> | undefined;
@@ -1306,8 +1334,10 @@ export class WhatsAppAdapter
         media.payload,
         caption,
         media.filename,
+        remainingId,
         recipient
       );
+      remainingId = undefined;
     }
 
     if (cardResult) {
@@ -1323,15 +1353,19 @@ export class WhatsAppAdapter
           threadId,
           userWaId,
           interactive,
+          remainingId,
           recipient
         );
+        remainingId = undefined;
       } else if (text.length === 0) {
         result = await this.sendTextMessage(
           threadId,
           userWaId,
           convertEmojiPlaceholders(cardResult.text, "whatsapp"),
+          remainingId,
           recipient
         );
+        remainingId = undefined;
       }
     }
 
@@ -1359,6 +1393,7 @@ export class WhatsAppAdapter
     threadId: string,
     to: string,
     text: string,
+    replyId?: string,
     recipient?: WhatsAppRecipient
   ): Promise<RawMessage<WhatsAppRawMessage>> {
     const response = await this.graphApiRequest<WhatsAppSendResponse>(
@@ -1367,6 +1402,7 @@ export class WhatsAppAdapter
         messaging_product: "whatsapp",
         recipient_type: "individual",
         ...(recipient ?? (await this.recipient(threadId, to))),
+        ...(replyId ? { context: { message_id: replyId } } : {}),
         type: "text",
         text: { preview_url: false, body: text },
       }
@@ -1403,6 +1439,7 @@ export class WhatsAppAdapter
     threadId: string,
     to: string,
     text: string,
+    replyId?: string,
     recipient?: WhatsAppRecipient
   ): Promise<RawMessage<WhatsAppRawMessage>> {
     const chunks = this.splitMessage(text);
@@ -1410,8 +1447,14 @@ export class WhatsAppAdapter
     const resolved = recipient ?? (await this.recipient(threadId, to));
     let result: RawMessage<WhatsAppRawMessage> | undefined;
 
-    for (const chunk of chunks) {
-      result = await this.sendSingleTextMessage(threadId, to, chunk, resolved);
+    for (const [index, chunk] of chunks.entries()) {
+      result = await this.sendSingleTextMessage(
+        threadId,
+        to,
+        chunk,
+        index === 0 ? replyId : undefined,
+        resolved
+      );
     }
 
     return result as RawMessage<WhatsAppRawMessage>;
@@ -1424,6 +1467,7 @@ export class WhatsAppAdapter
     threadId: string,
     to: string,
     interactive: WhatsAppInteractiveMessage,
+    replyId?: string,
     recipient?: WhatsAppRecipient
   ): Promise<RawMessage<WhatsAppRawMessage>> {
     const response = await this.graphApiRequest<WhatsAppSendResponse>(
@@ -1432,6 +1476,7 @@ export class WhatsAppAdapter
         messaging_product: "whatsapp",
         recipient_type: "individual",
         ...(recipient ?? (await this.recipient(threadId, to))),
+        ...(replyId ? { context: { message_id: replyId } } : {}),
         type: "interactive",
         interactive,
       }
@@ -1834,12 +1879,24 @@ export class WhatsAppAdapter
    *
    * @see https://developers.facebook.com/docs/whatsapp/cloud-api/messages/mark-messages-as-read
    */
-  async markAsRead(messageId: string): Promise<void> {
-    await this.graphApiRequest(`/${this.phoneNumberId}/messages`, {
-      messaging_product: "whatsapp",
-      status: "read",
-      message_id: messageId,
-    });
+  async markAsRead(
+    threadIdOrMessageId: string,
+    messageId?: string,
+    _message?: Message<WhatsAppRawMessage>
+  ): Promise<void> {
+    const response =
+      await this.graphApiRequest<WhatsAppTypingIndicatorResponse>(
+        `/${this.phoneNumberId}/messages`,
+        {
+          messaging_product: "whatsapp",
+          status: "read",
+          message_id: messageId ?? threadIdOrMessageId,
+        }
+      );
+
+    if (!response.success) {
+      throw new AdapterError("WhatsApp mark as read failed", "whatsapp");
+    }
   }
 
   // =============================================================================
@@ -1905,6 +1962,7 @@ export class WhatsAppAdapter
     payload: { id?: string; link?: string },
     caption?: string,
     filename?: string,
+    replyId?: string,
     recipient?: WhatsAppRecipient
   ): Promise<RawMessage<WhatsAppRawMessage>> {
     const mediaObject: Record<string, string> = {};
@@ -1931,6 +1989,7 @@ export class WhatsAppAdapter
         messaging_product: "whatsapp",
         recipient_type: "individual",
         ...(recipient ?? (await this.recipient(threadId, to))),
+        ...(replyId ? { context: { message_id: replyId } } : {}),
         type,
         [type]: mediaObject,
       }

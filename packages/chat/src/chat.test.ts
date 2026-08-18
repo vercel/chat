@@ -5268,6 +5268,144 @@ describe("Chat", () => {
         expect(call[0]).toBe("telegram:C123");
       }
     });
+
+    it("should isolate queued messages across channel-scoped threads", async () => {
+      const state = createMockState();
+      const adapter = createMockAdapter("telegram");
+      (adapter as { lockScope: string }).lockScope = "channel";
+
+      const queueChat = new Chat({
+        userName: "testbot",
+        adapters: { telegram: adapter },
+        state,
+        logger: mockLogger,
+        concurrency: "queue",
+      });
+
+      await queueChat.webhooks.telegram(
+        new Request("http://test.com", { method: "POST" })
+      );
+
+      const first = "telegram:C123:topic1";
+      const second = "telegram:C123:topic2";
+      const mentions = vi.fn().mockResolvedValue(undefined);
+      const subscribed = vi.fn().mockImplementation(async (thread, message) => {
+        await thread.setState({ request: message.text });
+      });
+      queueChat.onNewMention(mentions);
+      queueChat.onSubscribedMessage(subscribed);
+      await state.subscribe(second);
+      await state.acquireLock("telegram:C123", 30000);
+
+      await queueChat.handleIncomingMessage(
+        adapter,
+        first,
+        createTestMessage("msg-isolation-1", "Hey @telegram-bot", {
+          threadId: first,
+        })
+      );
+      await queueChat.handleIncomingMessage(
+        adapter,
+        second,
+        createTestMessage("msg-isolation-2", "private request", {
+          threadId: second,
+        })
+      );
+
+      await state.forceReleaseLock("telegram:C123");
+      await queueChat.handleIncomingMessage(
+        adapter,
+        first,
+        createTestMessage("msg-isolation-3", "Hey @telegram-bot", {
+          threadId: first,
+        })
+      );
+
+      expect(mentions).toHaveBeenCalledTimes(1);
+      expect(subscribed).toHaveBeenCalledTimes(1);
+      expect(subscribed.mock.calls[0][0].id).toBe(second);
+      expect(subscribed.mock.calls[0][1].threadId).toBe(second);
+      expect(subscribed.mock.calls[0][2]).toEqual({
+        skipped: [],
+        totalSinceLastHandler: 1,
+      });
+      expect(state.cache.get(`thread-state:${second}`)).toEqual({
+        request: "private request",
+      });
+      expect(state.cache.has(`thread-state:${first}`)).toBe(false);
+      expect(mockLogger.info).toHaveBeenCalledWith(
+        "message-dequeued",
+        expect.objectContaining({
+          threadId: second,
+          messageId: "msg-isolation-2",
+        })
+      );
+    });
+
+    it("should isolate debounced messages across channel-scoped threads", async () => {
+      vi.useFakeTimers();
+      try {
+        const state = createMockState();
+        const adapter = createMockAdapter("telegram");
+        (adapter as { lockScope: string }).lockScope = "channel";
+
+        const debounceChat = new Chat({
+          userName: "testbot",
+          adapters: { telegram: adapter },
+          state,
+          logger: mockLogger,
+          concurrency: { strategy: "debounce", debounceMs: 100 },
+        });
+
+        await debounceChat.webhooks.telegram(
+          new Request("http://test.com", { method: "POST" })
+        );
+
+        const first = "telegram:C123:topic1";
+        const second = "telegram:C123:topic2";
+        const mentions = vi.fn().mockResolvedValue(undefined);
+        const subscribed = vi.fn().mockResolvedValue(undefined);
+        debounceChat.onNewMention(mentions);
+        debounceChat.onSubscribedMessage(subscribed);
+        await state.subscribe(second);
+
+        const pending = debounceChat.handleIncomingMessage(
+          adapter,
+          first,
+          createTestMessage("msg-debounce-isolation-1", "Hey @telegram-bot", {
+            threadId: first,
+          })
+        );
+        await debounceChat.handleIncomingMessage(
+          adapter,
+          second,
+          createTestMessage("msg-debounce-isolation-2", "private request", {
+            threadId: second,
+          })
+        );
+
+        await vi.advanceTimersByTimeAsync(150);
+        await pending;
+
+        expect(mentions).not.toHaveBeenCalled();
+        expect(subscribed).toHaveBeenCalledTimes(1);
+        expect(subscribed.mock.calls[0][0].id).toBe(second);
+        expect(subscribed.mock.calls[0][1].threadId).toBe(second);
+        expect(subscribed.mock.calls[0][2]).toEqual({
+          skipped: [],
+          totalSinceLastHandler: 1,
+        });
+        expect(mockLogger.info).toHaveBeenCalledWith(
+          "message-dequeued",
+          expect.objectContaining({
+            threadId: second,
+            messageId: "msg-debounce-isolation-2",
+          })
+        );
+      } finally {
+        vi.useRealTimers();
+      }
+    });
   });
 
   describe("persistThreadHistory", () => {

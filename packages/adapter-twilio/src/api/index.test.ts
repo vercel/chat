@@ -174,6 +174,41 @@ describe("Twilio api helpers", () => {
     });
   });
 
+  it("fetches media from the configured regional api origin", async () => {
+    const request = vi.fn(async () => new Response("photo"));
+
+    const media = await fetchTwilioMedia({
+      apiUrl: "https://api.dublin.ie1.twilio.com",
+      credentials: credentials(),
+      fetch: request,
+      url: "https://api.dublin.ie1.twilio.com/2010-04-01/media/photo",
+    });
+
+    expect(new TextDecoder().decode(media)).toBe("photo");
+  });
+
+  it.each([
+    "https://api.twilio.com.attacker.example/media/photo",
+    "http://api.twilio.com/media/photo",
+    "https://api.twilio.com:444/media/photo",
+  ])("rejects media outside the configured api origin", async (url) => {
+    const accountSid = vi.fn(() => "AC123");
+    const authToken = vi.fn(() => "token");
+    const request = vi.fn(async () => new Response("photo"));
+
+    await expect(
+      fetchTwilioMedia({
+        credentials: { accountSid, authToken },
+        fetch: request,
+        url,
+      })
+    ).rejects.toThrow("configured Twilio API origin");
+
+    expect(accountSid).not.toHaveBeenCalled();
+    expect(authToken).not.toHaveBeenCalled();
+    expect(request).not.toHaveBeenCalled();
+  });
+
   it("throws TwilioApiError for non-ok responses", async () => {
     const request = mockFetch({ message: "bad" }, 400);
 

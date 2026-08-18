@@ -70,7 +70,7 @@ Main exports from `src/index.ts`:
   `WHATSAPP_PHONE_NUMBER_ID`, `WHATSAPP_VERIFY_TOKEN`, and the
   optional `WHATSAPP_WABA_ID` (used for cross-number reads).
 - `WhatsAppAdapter` class — implements `Adapter<WhatsAppThreadId,
-  unknown>`. Public methods: `handleWebhook`, `postMessage`,
+  unknown>`. Public methods: `handleWebhook`, `postMessage`, `reply`,
   `editMessage`, `deleteMessage`, `addReaction`, `removeReaction`,
   `startTyping`, `markRead`, `fetchThread`, `fetchMessages`,
   `fetchSingleMessage`, `fetchChannelInfo`, `postChannelMessage`,

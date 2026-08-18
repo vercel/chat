@@ -117,6 +117,10 @@ const TELEGRAM_DEFAULT_POLLING_TIMEOUT_SECONDS = 30;
 const TELEGRAM_DEFAULT_POLLING_LIMIT = 100;
 const TELEGRAM_DEFAULT_POLLING_RETRY_DELAY_MS = 1000;
 const TELEGRAM_DEFAULT_STREAM_UPDATE_INTERVAL_MS = 250;
+const TELEGRAM_DEFAULT_PRIVATE_STREAMING_EDIT_INTERVAL_MS = 1100;
+const TELEGRAM_DEFAULT_NON_PRIVATE_STREAMING_EDIT_INTERVAL_MS = 3100;
+const TELEGRAM_STREAM_FINAL_EDIT_RETRY_CAP_MS = 5000;
+const TELEGRAM_STREAM_PLACEHOLDER_TEXT = "...";
 const TELEGRAM_INCOMING_MEDIA_GROUP_BUFFER_TTL_MS = 30_000;
 const TELEGRAM_INCOMING_MEDIA_GROUP_LOCK_TTL_MS = 5_000;
 const TELEGRAM_INCOMING_MEDIA_GROUP_RETRY_MS = 50;
@@ -294,6 +298,8 @@ export class TelegramAdapter
   private _mentionRegex?: RegExp;
   protected readonly hasExplicitUserName: boolean;
   protected readonly mode: TelegramAdapterMode;
+  protected readonly nativeStreaming: boolean;
+  protected readonly streamingEditIntervalMs?: number;
   protected readonly longPolling?: TelegramLongPollingConfig;
   private _runtimeMode: TelegramRuntimeMode = "webhook";
   private pollingAbortController: AbortController | null = null;
@@ -350,6 +356,17 @@ export class TelegramAdapter
     this._userName = this.normalizeUserName(userName ?? "bot");
     this.hasExplicitUserName = Boolean(userName);
     this.mode = config.mode ?? "auto";
+    this.nativeStreaming = config.nativeStreaming ?? false;
+    this.streamingEditIntervalMs =
+      typeof config.streamingEditIntervalMs !== "number" ||
+      !Number.isFinite(config.streamingEditIntervalMs)
+        ? undefined
+        : this.clampInteger(
+            config.streamingEditIntervalMs,
+            0,
+            0,
+            Number.MAX_SAFE_INTEGER
+          );
     this.longPolling = config.longPolling;
 
     if (!["auto", "webhook", "polling"].includes(this.mode)) {
@@ -1460,10 +1477,195 @@ export class TelegramAdapter
     textStream: AsyncIterable<string | StreamChunk>,
     options?: StreamOptions
   ): Promise<RawMessage<TelegramRawMessage> | null> {
-    if (!this.isDM(threadId)) {
-      return null;
+    if (this.nativeStreaming && this.isDM(threadId)) {
+      return await this.nativeDraftStream(threadId, textStream, options);
     }
 
+    return await this.postAndEditStream(threadId, textStream, options);
+  }
+
+  /**
+   * Post a placeholder message and edit it as chunks arrive.
+   *
+   * The adapter owns this loop rather than deferring to the chat core's
+   * fallback so edits can be throttled to Telegram's per-chat rate limit,
+   * which the core interval (500ms by default) sits under.
+   */
+  private async postAndEditStream(
+    threadId: string,
+    textStream: AsyncIterable<string | StreamChunk>,
+    options?: StreamOptions
+  ): Promise<RawMessage<TelegramRawMessage>> {
+    const defaultIntervalMs = this.isDM(threadId)
+      ? TELEGRAM_DEFAULT_PRIVATE_STREAMING_EDIT_INTERVAL_MS
+      : TELEGRAM_DEFAULT_NON_PRIVATE_STREAMING_EDIT_INTERVAL_MS;
+    const intervalMs = Math.max(
+      this.clampInteger(
+        options?.updateIntervalMs,
+        0,
+        0,
+        Number.MAX_SAFE_INTEGER
+      ),
+      this.streamingEditIntervalMs ?? defaultIntervalMs
+    );
+    const placeholderText =
+      options?.fallbackStreamingPlaceholderText === undefined
+        ? TELEGRAM_STREAM_PLACEHOLDER_TEXT
+        : options.fallbackStreamingPlaceholderText;
+
+    const renderer = new StreamingMarkdownRenderer();
+    let accumulated = "";
+    let posted: RawMessage<TelegramRawMessage> | null = null;
+    let editThreadId = threadId;
+    let lastEditContent = "";
+    let lastEditAt = 0;
+    let blockedUntil = 0;
+    let rateLimitError: AdapterRateLimitError | null = null;
+
+    if (placeholderText !== null) {
+      posted = await this.postMessage(threadId, placeholderText);
+      editThreadId = posted.threadId || threadId;
+      lastEditContent = placeholderText;
+      lastEditAt = Date.now();
+    }
+
+    const applyEdit = async (content: string): Promise<void> => {
+      if (!posted) {
+        return;
+      }
+
+      posted = await this.editMessage(editThreadId, posted.id, {
+        markdown: content,
+      });
+      editThreadId = posted.threadId || editThreadId;
+      lastEditContent = content;
+      lastEditAt = Date.now();
+      blockedUntil = 0;
+      rateLimitError = null;
+    };
+
+    const rememberRateLimit = (error: AdapterRateLimitError): void => {
+      const retryAfterMs = Math.max(0, error.retryAfter ?? 1) * 1000;
+      blockedUntil = Math.max(blockedUntil, Date.now() + retryAfterMs);
+      rateLimitError = error;
+    };
+
+    const shouldEdit = (content: string): boolean =>
+      Boolean(posted) &&
+      content.trim().length > 0 &&
+      content !== lastEditContent;
+
+    const flushEdit = async (content: string): Promise<void> => {
+      if (!shouldEdit(content)) {
+        return;
+      }
+
+      try {
+        await applyEdit(content);
+      } catch (error) {
+        if (error instanceof AdapterRateLimitError) {
+          rememberRateLimit(error);
+        }
+        this.logger.warn("Telegram stream edit failed", {
+          error: String(error),
+          threadId,
+        });
+      }
+    };
+
+    const flushFinalEdit = async (content: string): Promise<void> => {
+      if (!shouldEdit(content)) {
+        return;
+      }
+
+      const blockedMs = Math.max(0, blockedUntil - Date.now());
+      const pacingMs = Math.max(0, intervalMs - (Date.now() - lastEditAt));
+      if (
+        blockedMs > TELEGRAM_STREAM_FINAL_EDIT_RETRY_CAP_MS &&
+        rateLimitError
+      ) {
+        throw rateLimitError;
+      }
+      await this.sleep(Math.max(blockedMs, pacingMs));
+
+      try {
+        await applyEdit(content);
+        return;
+      } catch (error) {
+        if (!(error instanceof AdapterRateLimitError)) {
+          throw error;
+        }
+
+        rememberRateLimit(error);
+        const retryAfterMs = (error.retryAfter ?? 1) * 1000;
+        if (retryAfterMs > TELEGRAM_STREAM_FINAL_EDIT_RETRY_CAP_MS) {
+          throw error;
+        }
+
+        await this.sleep(retryAfterMs);
+      }
+
+      await applyEdit(content);
+    };
+
+    for await (const chunk of textStream) {
+      let text: string | null = null;
+      if (typeof chunk === "string") {
+        text = chunk;
+      } else if (chunk.type === "markdown_text") {
+        text = chunk.text;
+      }
+
+      if (text === null) {
+        continue;
+      }
+
+      accumulated += text;
+      renderer.push(text);
+
+      if (posted) {
+        if (
+          Date.now() >= blockedUntil &&
+          Date.now() - lastEditAt >= intervalMs
+        ) {
+          await flushEdit(renderer.render());
+        }
+        continue;
+      }
+
+      const initial = renderer.render();
+      if (initial.trim()) {
+        posted = await this.postMessage(threadId, { markdown: initial });
+        editThreadId = posted.threadId || threadId;
+        lastEditContent = initial;
+        lastEditAt = Date.now();
+      }
+    }
+
+    const finalContent = renderer.finish();
+
+    if (posted) {
+      await flushFinalEdit(finalContent);
+      return posted;
+    }
+
+    // Nothing was posted: the caller suppressed the placeholder and the stream
+    // produced no renderable text.
+    if (!accumulated.trim()) {
+      throw new ValidationError(
+        "telegram",
+        "Telegram streaming requires text content"
+      );
+    }
+
+    return await this.postMessage(threadId, { markdown: accumulated });
+  }
+
+  private async nativeDraftStream(
+    threadId: string,
+    textStream: AsyncIterable<string | StreamChunk>,
+    options?: StreamOptions
+  ): Promise<RawMessage<TelegramRawMessage>> {
     const parsedThread = this.resolveThreadId(threadId);
     const updateIntervalMs = this.clampInteger(
       options?.updateIntervalMs,

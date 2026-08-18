@@ -9,6 +9,9 @@ tagline: Connect to WhatsApp Business Cloud for customer messaging and automated
 beta: true
 features:
   postMessage: yes
+  messageReplies:
+    status: partial
+    label: Outbound only
   editMessage: no
   deleteMessage: no
   fileUploads:
@@ -39,6 +42,7 @@ features:
   addReactions: yes
   removeReactions: yes
   typingIndicator: yes
+  markAsRead: yes
   messageUpdatedEvents: no
   messageDeletedEvents: no
   directMessages: yes
@@ -175,6 +179,24 @@ Card elements are automatically converted to WhatsApp interactive messages:
 
 When a card with reply buttons also contains link buttons, each link button is appended to the interactive message body as a `Label: url` line, since WhatsApp reply buttons cannot open URLs.
 
+### Contextual replies
+
+Use `thread.reply()` to quote a specific message in WhatsApp:
+
+```typescript
+bot.onNewMessage(async (thread, message) => {
+  await thread.reply(message, {
+    markdown: "I can help with that.",
+  });
+});
+```
+
+You can pass either a `Message` or a message ID as the target. Text, cards, files, and buffered streams are supported. When one logical reply produces multiple WhatsApp messages, only the first message includes the contextual reference.
+
+Replies are outbound only. When a user quote-replies to one of your messages, the adapter does not yet surface what they quoted, so `message.replyTo` is `undefined` on inbound WhatsApp messages.
+
+WhatsApp does not display the quoted bubble when the target was deleted or moved to long-term storage, when the reply is a template message, or for some media replies on KaiOS. Reaction messages cannot be contextual replies. See [Meta's contextual replies documentation](https://developers.facebook.com/documentation/business-messaging/whatsapp/messages/contextual-replies/).
+
 ### Link buttons (CTA URL)
 
 A card whose only interactive element is a single `LinkButton` is sent as a native WhatsApp CTA URL message with a tappable link button. The card is promoted only when all of these hold:
@@ -228,6 +250,19 @@ WhatsApp-specific behavior:
 - The adapter uses the most recent inbound message ID from thread history.
 - If there is no inbound message context, `startTyping()` no-ops.
 - The typing indicator is dismissed when the bot sends its reply, or after the WhatsApp platform timeout.
+
+### Read receipts
+
+Mark the current inbound message as read before starting work:
+
+```typescript
+bot.onDirectMessage(async (thread) => {
+  await thread.markAsRead();
+  await thread.post("Thanks, I am checking that now.");
+});
+```
+
+You can also pass an inbound `Message` or its ID to `thread.markAsRead()`. WhatsApp marks that message and earlier messages in the conversation as read. It does not allow outgoing message IDs to be marked as read and recommends acknowledging inbound messages within 30 days.
 
 ### User identity
 

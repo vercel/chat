@@ -27,8 +27,23 @@ export interface TelegramAdapterConfig {
    * - polling: polling-only mode
    */
   mode?: TelegramAdapterMode;
+  /**
+   * Use Telegram's native draft previews (`sendRichMessageDraft`, persisted
+   * with `sendRichMessage`) for streamed posts in private chats. Defaults to
+   * false, so streams use post-and-edit everywhere for consistent rendering
+   * across Telegram clients. Group, supergroup, and channel streams always use
+   * post-and-edit regardless of this setting.
+   */
+  nativeStreaming?: boolean;
   /** Optional webhook secret token checked against x-telegram-bot-api-secret-token. Defaults to TELEGRAM_WEBHOOK_SECRET_TOKEN env var. */
   secretToken?: string;
+  /**
+   * Minimum interval between edits on the post-and-edit streaming path.
+   * Defaults to 1100ms for private chats and 3100ms for other chats. Acts as a
+   * floor: a lower Chat-level `streamingUpdateIntervalMs` is raised to this
+   * value.
+   */
+  streamingEditIntervalMs?: number;
   /** Override bot username (optional). Defaults to TELEGRAM_BOT_USERNAME env var. */
   userName?: string;
 }

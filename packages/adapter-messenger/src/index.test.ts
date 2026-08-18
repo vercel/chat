@@ -1220,6 +1220,31 @@ describe("MessengerAdapter", () => {
       });
     });
 
+    describe("markAsRead", () => {
+      it("sends the mark_seen sender action", async () => {
+        const adapter = createAdapter();
+        const chat = createMockChat();
+
+        mockFetch.mockResolvedValueOnce(
+          graphApiOk({ id: "PAGE_456", name: "Test Page" })
+        );
+        await adapter.initialize(chat);
+
+        mockFetch.mockResolvedValueOnce(
+          graphApiOk({ recipient_id: "USER_123" })
+        );
+
+        await adapter.markAsRead("messenger:USER_123", "mid.1");
+
+        const [url, options] = mockFetch.mock.calls[1];
+        expect(url.toString()).toContain("me/messages");
+        expect(JSON.parse(options?.body as string)).toEqual({
+          recipient: { id: "USER_123" },
+          sender_action: "mark_seen",
+        });
+      });
+    });
+
     describe("unsupported operations", () => {
       it("throws on editMessage", async () => {
         const adapter = createAdapter();

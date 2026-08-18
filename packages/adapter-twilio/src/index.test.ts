@@ -79,6 +79,26 @@ describe("TwilioAdapter", () => {
     });
   });
 
+  it("rejects rehydrated media from an untrusted origin", async () => {
+    const fetch = mockFetch("photo");
+    const adapter = createTwilioAdapter({
+      accountSid: "AC123",
+      authToken: "token",
+      fetch,
+    });
+    const attachment = adapter.rehydrateAttachment({
+      fetchMetadata: {
+        twilioMediaUrl: "https://attacker.example/media/photo",
+      },
+      type: "image",
+    });
+
+    await expect(attachment.fetchData?.()).rejects.toThrow(
+      "configured Twilio API origin"
+    );
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
   it("posts SMS messages through the Messages API", async () => {
     const fetch = mockFetch({
       body: "hello",

@@ -36,6 +36,22 @@ await thread.post({
 
 Under the hood, the SDK parses the markdown into an mdast AST, then each adapter handles it natively or converts it to the platform's format.
 
+## Reply to a message
+
+Use `thread.reply()` when the platform should preserve a native reference to a specific message:
+
+```typescript title="lib/bot.ts" lineNumbers
+bot.onNewMessage(async (thread, message) => {
+  await thread.reply(message, {
+    markdown: "Thanks, I can help with that.",
+  });
+});
+```
+
+The target can be a `Message` from the same thread or its message ID. Replies accept the same plain text, markdown, AST, card, file, and stream formats as regular messages. Streams are buffered before the reply is sent.
+
+Adapters without native message replies throw `NotImplementedError`. See the [adapter feature matrix](/docs/platform-adapters) for support.
+
 ## AST builders
 
 For programmatic control over message formatting, use the mdast AST builder functions exported from `chat`. This is the recommended approach for most use cases — it gives you fine-grained control without the overhead of card rendering.

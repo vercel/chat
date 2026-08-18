@@ -67,7 +67,7 @@ import {
   type SlackAppContext,
   type SlackAppContextChangedEvent,
 } from "./agent-context";
-import { cardToBlockKit, cardToFallbackText } from "./cards";
+import { cardToBlockKit, cardToFallbackText, type SlackBlock } from "./cards";
 import type { EncryptedTokenData } from "./crypto";
 import {
   decodeKey,
@@ -303,12 +303,218 @@ export interface SlackThreadId {
   threadTs: string;
 }
 
+/**
+ * Block inside a Slack message event (`event.blocks` or `attachment.blocks`).
+ * Extends the open Block Kit shape with the fields the parser reads directly;
+ * everything else stays reachable through the index signature.
+ */
+export interface SlackMessageBlock extends SlackBlock {
+  elements?: SlackMessageBlock[];
+  rows?: unknown;
+  text?: string;
+  url?: string;
+}
+
+type SlackTable = Extract<
+  FormattedContent["children"][number],
+  { type: "table" }
+>;
+type SlackTableRow = SlackTable["children"][number];
+type SlackTableCell = SlackTableRow["children"][number];
+
+/** Table extracted from a Slack table block, one mrkdwn string per cell. */
+interface SlackTableData {
+  /**
+   * True when the source rows carry no header styling. GFM tables always
+   * render their first row as a header, so headerless tables get an empty
+   * header row prepended instead of promoting the first data row.
+   */
+  headerless: boolean;
+  rows: string[][];
+}
+
+const TABLE_BLOCK_TYPES = new Set(["table", "data_table"]);
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
+}
+
+function str(value: unknown): string | undefined {
+  return typeof value === "string" ? value : undefined;
+}
+
+/**
+ * Flatten a table cell (or any rich text element inside one) to mrkdwn.
+ * Mentions, channels, and links are emitted as mrkdwn tokens so the format
+ * converter renders them the same way it renders body text.
+ */
+function blocktext(value: unknown): string {
+  if (!(isRecord(value) && typeof value.type === "string")) {
+    return "";
+  }
+
+  const text = str(value.text);
+  switch (value.type) {
+    case "link": {
+      const url = str(value.url);
+      if (!url) {
+        return text ?? "";
+      }
+      return text ? `<${url}|${text}>` : `<${url}>`;
+    }
+    case "emoji": {
+      const name = str(value.name);
+      return name ? `:${name}:` : "";
+    }
+    case "user": {
+      const userId = str(value.user_id);
+      return userId ? `<@${userId}>` : "";
+    }
+    case "broadcast": {
+      const range = str(value.range);
+      return range ? `@${range}` : "";
+    }
+    case "channel": {
+      const channelId = str(value.channel_id);
+      return channelId ? `<#${channelId}>` : "";
+    }
+    case "usergroup": {
+      const usergroupId = str(value.usergroup_id);
+      return usergroupId ? `<!subteam^${usergroupId}>` : "";
+    }
+    case "date": {
+      const fallback = str(value.fallback);
+      if (fallback) {
+        return fallback;
+      }
+      // Format the timestamp rather than leaking the raw format template
+      // (e.g. "{date_num}") when Slack omits the fallback.
+      return typeof value.timestamp === "number"
+        ? new Date(value.timestamp * 1000).toISOString().slice(0, 10)
+        : "";
+    }
+    case "color":
+      return str(value.value) ?? "";
+    case "team":
+      return str(value.team_id) ?? "";
+    default:
+      break;
+  }
+  if (text !== undefined) {
+    return text;
+  }
+  const fallback = str(value.label) ?? str(value.url) ?? str(value.file_id);
+  if (fallback !== undefined) {
+    return fallback;
+  }
+  // Raw value cells (raw_number, raw_date, raw_currency, raw_percent,
+  // raw_boolean, …) carry a primitive value when text is absent.
+  if (
+    typeof value.value === "number" ||
+    typeof value.value === "string" ||
+    typeof value.value === "boolean"
+  ) {
+    return String(value.value);
+  }
+  if (!Array.isArray(value.elements)) {
+    return "";
+  }
+
+  const separator =
+    value.type === "rich_text" || value.type === "rich_text_list" ? "\n" : "";
+  return value.elements.map(blocktext).join(separator);
+}
+
+function hasBoldText(value: unknown): boolean {
+  if (!isRecord(value)) {
+    return false;
+  }
+  if (isRecord(value.style) && value.style.bold === true) {
+    return true;
+  }
+  return Array.isArray(value.elements) && value.elements.some(hasBoldText);
+}
+
+function tableData(block: SlackMessageBlock): SlackTableData | null {
+  if (!(TABLE_BLOCK_TYPES.has(block.type) && Array.isArray(block.rows))) {
+    return null;
+  }
+
+  const sourceRows = block.rows.filter(
+    (row): row is unknown[] => Array.isArray(row) && row.length > 0
+  );
+  if (sourceRows.length === 0) {
+    return null;
+  }
+
+  // data_table rows always start with a header row (the outbound renderer in
+  // blocks/index.ts relies on this); pasted `table` blocks mark headers only
+  // via bold cell styling.
+  const headerless = block.type === "table" && !sourceRows[0].some(hasBoldText);
+  return { headerless, rows: sourceRows.map((row) => row.map(blocktext)) };
+}
+
+interface SlackEventTables {
+  /** Tables that appear before any other block, rendered above the text. */
+  leading: SlackTableData[];
+  /** All remaining tables, rendered below the text. */
+  trailing: SlackTableData[];
+}
+
+/**
+ * Skip attachments that carry someone else's content (link unfurls, app
+ * unfurls) — their blocks must not be attributed to the message author.
+ */
+function isForeignAttachment(
+  attachment: NonNullable<SlackEvent["attachments"]>[number]
+): boolean {
+  return Boolean(
+    attachment.is_msg_unfurl ||
+      attachment.is_app_unfurl ||
+      attachment.from_url ||
+      attachment.original_url
+  );
+}
+
+/**
+ * Collect table blocks from the event, split by position. Slack flattens all
+ * rich text into `event.text`, so exact interleaving can't be reconstructed;
+ * tables pasted above the text at least stay above it.
+ */
+function eventTables(event: SlackEvent): SlackEventTables {
+  const blocks = event.blocks ?? [];
+  const firstContentIdx = blocks.findIndex(
+    (block) => !TABLE_BLOCK_TYPES.has(block.type)
+  );
+  const splitIdx = firstContentIdx === -1 ? blocks.length : firstContentIdx;
+
+  const parse = (list: SlackMessageBlock[]) =>
+    list.flatMap((block) => {
+      const parsed = tableData(block);
+      return parsed ? [parsed] : [];
+    });
+
+  const attachmentBlocks = (event.attachments ?? [])
+    .filter((attachment) => !isForeignAttachment(attachment))
+    .flatMap((attachment) =>
+      Array.isArray(attachment.blocks) ? attachment.blocks : []
+    );
+
+  return {
+    leading: parse(blocks.slice(0, splitIdx)),
+    trailing: [...parse(blocks.slice(splitIdx)), ...parse(attachmentBlocks)],
+  };
+}
+
 /** Slack event payload (raw message format) */
 export interface SlackEvent {
   /** Legacy attachments (unfurl previews, app unfurls, etc.) */
   attachments?: Array<{
+    blocks?: SlackMessageBlock[];
+    fallback?: string;
     from_url?: string;
     image_url?: string;
+    is_app_unfurl?: boolean;
     is_msg_unfurl?: boolean;
     original_url?: string;
     service_icon?: string;
@@ -319,17 +525,7 @@ export interface SlackEvent {
     title_link?: string;
   }>;
   /** Rich text blocks containing structured elements (links, mentions, etc.) */
-  blocks?: Array<{
-    type: string;
-    elements?: Array<{
-      type: string;
-      elements?: Array<{
-        type: string;
-        url?: string;
-        text?: string;
-      }>;
-    }>;
-  }>;
+  blocks?: SlackMessageBlock[];
   bot_id?: string;
   channel?: string;
   /** Channel type: "channel", "group", "mpim", or "im" (DM) */
@@ -3549,12 +3745,13 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
 
     // Resolve inline @mentions to display names
     const text = await this.resolveInlineMentions(rawText, skipSelfMention);
+    const formatted = await this.resolvedContent(event, text, skipSelfMention);
 
     return new Message({
       id: event.ts || "",
       threadId,
-      text: this.formatConverter.extractPlainText(text),
-      formatted: this.formatConverter.toAst(text),
+      text: toPlainText(formatted),
+      formatted,
       raw: event,
       author: {
         userId: event.user || event.bot_id || "unknown",
@@ -5430,6 +5627,7 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
     const isMe = this.isMessageFromSelf(event);
 
     const text = event.text || "";
+    const formatted = this.content(event, text);
     // Without async lookup, fall back to user ID for human users
     const userName = event.username || event.user || "unknown";
     const fullName = event.username || event.user || "unknown";
@@ -5437,8 +5635,8 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
     return new Message({
       id: event.ts || "",
       threadId,
-      text: this.formatConverter.extractPlainText(text),
-      formatted: this.formatConverter.toAst(text),
+      text: toPlainText(formatted),
+      formatted,
       raw: event,
       author: {
         userId: event.user || event.bot_id || "unknown",
@@ -5460,6 +5658,100 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
       ),
       links: this.extractLinks(event),
     });
+  }
+
+  protected content(event: SlackEvent, text: string): FormattedContent {
+    return this.assembleContent(text, eventTables(event));
+  }
+
+  /**
+   * Like `content`, but resolves user and channel mentions inside table
+   * cells the same way `resolveInlineMentions` resolves them in body text.
+   */
+  protected async resolvedContent(
+    event: SlackEvent,
+    text: string,
+    skipSelfMention: boolean
+  ): Promise<FormattedContent> {
+    const resolve = async (data: SlackTableData): Promise<SlackTableData> => ({
+      ...data,
+      rows: await Promise.all(
+        data.rows.map((row) =>
+          Promise.all(
+            row.map((cell) =>
+              cell ? this.resolveInlineMentions(cell, skipSelfMention) : cell
+            )
+          )
+        )
+      ),
+    });
+
+    const { leading, trailing } = eventTables(event);
+    return this.assembleContent(text, {
+      leading: await Promise.all(leading.map(resolve)),
+      trailing: await Promise.all(trailing.map(resolve)),
+    });
+  }
+
+  private assembleContent(
+    text: string,
+    tables: SlackEventTables
+  ): FormattedContent {
+    const formatted = this.formatConverter.toAst(text);
+    formatted.children.unshift(
+      ...tables.leading.map((data) => this.tableNode(data))
+    );
+    formatted.children.push(
+      ...tables.trailing.map((data) => this.tableNode(data))
+    );
+    return formatted;
+  }
+
+  private tableNode(data: SlackTableData): SlackTable {
+    const rows: SlackTableRow[] = data.rows.map((row) => ({
+      type: "tableRow",
+      children: row.map((cell) => ({
+        type: "tableCell",
+        children: this.cellChildren(cell),
+      })),
+    }));
+    if (data.headerless) {
+      const width = Math.max(...data.rows.map((row) => row.length));
+      rows.unshift({
+        type: "tableRow",
+        children: Array.from({ length: width }, () => ({
+          type: "tableCell",
+          children: [],
+        })),
+      });
+    }
+    return { type: "table", children: rows };
+  }
+
+  /**
+   * Convert a cell's mrkdwn text to table cell (phrasing) content via the
+   * same format converter used for body text, so mentions, links, and emoji
+   * render consistently.
+   */
+  private cellChildren(cell: string): SlackTableCell["children"] {
+    if (!cell) {
+      return [];
+    }
+    const children: SlackTableCell["children"] = [];
+    for (const node of this.formatConverter.toAst(cell).children) {
+      if (children.length > 0) {
+        children.push({ type: "text", value: "\n" });
+      }
+      if (node.type === "paragraph") {
+        children.push(...node.children);
+      } else {
+        children.push({
+          type: "text",
+          value: toPlainText({ type: "root", children: [node] }),
+        });
+      }
+    }
+    return children;
   }
 
   // =========================================================================
@@ -6045,6 +6337,7 @@ export type {
 } from "./agent-context";
 // Re-export agent active-view context helpers for advanced use
 export { getAppContext, normalizeAppContextEntities } from "./agent-context";
+export type { SlackBlock } from "./cards";
 // Re-export card converter for advanced use
 export { cardToBlockKit, cardToFallbackText } from "./cards";
 export type { EncryptedTokenData } from "./crypto";

@@ -135,6 +135,7 @@ export async function POST(request: Request) {
 | Delete message | No (Messenger limitation) |
 | Streaming | Buffered (accumulates then sends) |
 | Typing indicator | Yes |
+| Mark as read | Yes |
 
 ### Rich content
 
@@ -157,6 +158,16 @@ export async function POST(request: Request) {
 | Typing indicator | Yes |
 | DMs | Yes (DM-only platform) |
 | Postbacks | Yes |
+
+### Read receipts
+
+Use `thread.markAsRead()` in a message handler to send Messenger's `mark_seen` sender action:
+
+```typescript
+await thread.markAsRead();
+```
+
+Messenger applies this action to the conversation's seen state rather than a single message, even when you pass a message or message ID.
 
 ### Message history
 

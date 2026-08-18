@@ -1433,6 +1433,72 @@ describe("postMessage", () => {
   });
 });
 
+describe("reply", () => {
+  let fetchSpy: MockInstance;
+
+  beforeEach(() => {
+    fetchSpy = vi.spyOn(global, "fetch").mockImplementation(() =>
+      Promise.resolve(
+        new Response(JSON.stringify({ messages: [{ id: "wamid.sent123" }] }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        })
+      )
+    );
+  });
+
+  afterEach(() => {
+    fetchSpy.mockRestore();
+  });
+
+  it("adds contextual reply data to text messages", async () => {
+    const adapter = createTestAdapter();
+
+    await adapter.reply("whatsapp:123456789:15551234567", "wamid.original", {
+      markdown: "Hello there",
+    });
+
+    const [, init] = fetchSpy.mock.calls[0];
+    const sent = JSON.parse(init?.body as string);
+    expect(sent.context).toEqual({ message_id: "wamid.original" });
+  });
+
+  it("adds contextual reply data only to the first split message", async () => {
+    const adapter = createTestAdapter();
+
+    await adapter.reply("whatsapp:123456789:15551234567", "wamid.original", {
+      markdown: "a".repeat(5000),
+    });
+
+    const first = JSON.parse(fetchSpy.mock.calls[0][1]?.body as string);
+    const second = JSON.parse(fetchSpy.mock.calls[1][1]?.body as string);
+    expect(first.context).toEqual({ message_id: "wamid.original" });
+    expect(second).not.toHaveProperty("context");
+  });
+
+  it("adds contextual reply data to interactive cards", async () => {
+    const adapter = createTestAdapter();
+
+    await adapter.reply("whatsapp:123456789:15551234567", "wamid.original", {
+      card: {
+        type: "card",
+        title: "Approve?",
+        children: [
+          {
+            type: "actions",
+            children: [{ type: "button", id: "yes", label: "Yes" }],
+          },
+        ],
+      },
+    });
+
+    const [, init] = fetchSpy.mock.calls[0];
+    const sent = JSON.parse(init?.body as string);
+    expect(sent.type).toBe("interactive");
+    expect(sent.context).toEqual({ message_id: "wamid.original" });
+  });
+});
+
 // ---------------------------------------------------------------------------
 // postMessage - file uploads
 // ---------------------------------------------------------------------------
@@ -1640,6 +1706,31 @@ describe("postMessage - file uploads", () => {
     expect((first.document as { caption: string }).caption).toBe("Two files");
     expect((second.document as { caption?: string }).caption).toBeUndefined();
     expect(result.id).toBe("wamid.msg2");
+  });
+
+  it("adds reply context only to the first media message", async () => {
+    const adapter = createTestAdapter();
+
+    await adapter.reply(THREAD_ID, "wamid.original", {
+      markdown: "Two files",
+      files: [
+        {
+          data: Buffer.from("a"),
+          filename: "first.pdf",
+          mimeType: "application/pdf",
+        },
+        {
+          data: Buffer.from("b"),
+          filename: "second.pdf",
+          mimeType: "application/pdf",
+        },
+      ],
+    });
+
+    const first = parseMessageBody(0);
+    const second = parseMessageBody(1);
+    expect(first.context).toEqual({ message_id: "wamid.original" });
+    expect(second).not.toHaveProperty("context");
   });
 
   it("attachment with HTTPS url uses link passthrough without upload", async () => {
@@ -2398,6 +2489,66 @@ describe("addReaction / removeReaction", () => {
     expect(body.reaction.emoji).toBe("");
     expect(body.recipient).toBe("US.13491208655302741918");
     expect(body).not.toHaveProperty("to");
+  });
+});
+
+describe("markAsRead", () => {
+  let fetchSpy: MockInstance;
+
+  beforeEach(() => {
+    fetchSpy = vi.spyOn(global, "fetch").mockImplementation(() =>
+      Promise.resolve(
+        new Response(JSON.stringify({ success: true }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        })
+      )
+    );
+  });
+
+  afterEach(() => {
+    fetchSpy.mockRestore();
+  });
+
+  it("marks an inbound message as read", async () => {
+    const adapter = createTestAdapter();
+
+    await adapter.markAsRead("whatsapp:123456789:15551234567", "wamid.inbound");
+
+    const [url, init] = fetchSpy.mock.calls[0];
+    expect(String(url)).toContain("/123456789/messages");
+    expect(init?.method).toBe("POST");
+    expect(JSON.parse(init?.body as string)).toEqual({
+      messaging_product: "whatsapp",
+      status: "read",
+      message_id: "wamid.inbound",
+    });
+  });
+
+  it("preserves the adapter-level message id signature", async () => {
+    const adapter = createTestAdapter();
+
+    await adapter.markAsRead("wamid.inbound");
+
+    expect(JSON.parse(fetchSpy.mock.calls[0][1]?.body as string)).toEqual({
+      messaging_product: "whatsapp",
+      status: "read",
+      message_id: "wamid.inbound",
+    });
+  });
+
+  it("rejects an unsuccessful API response", async () => {
+    fetchSpy.mockResolvedValueOnce(
+      new Response(JSON.stringify({ success: false }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      })
+    );
+    const adapter = createTestAdapter();
+
+    await expect(adapter.markAsRead("wamid.inbound")).rejects.toThrow(
+      "WhatsApp mark as read failed"
+    );
   });
 });
 

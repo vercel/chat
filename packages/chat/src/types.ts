@@ -388,6 +388,25 @@ export interface Adapter<TThreadId = unknown, TRawMessage = unknown> {
    * Can be overridden by `ChatConfig.lockScope`.
    */
   readonly lockScope?: LockScope;
+
+  /**
+   * Send a read receipt for an inbound message.
+   *
+   * Optional: `Thread.markAsRead()` throws `NotImplementedError` when an
+   * adapter leaves this out. The full message is passed alongside its ID when
+   * the caller has one, so adapters can read platform data off `message.raw`
+   * instead of resolving the ID themselves.
+   *
+   * @param threadId - Thread containing the message
+   * @param messageId - ID of the message to acknowledge
+   * @param message - The message itself, when the caller has it
+   */
+  markAsRead?(
+    threadId: string,
+    messageId: string,
+    message?: Message<TRawMessage>
+  ): Promise<void>;
+
   /** Unique name for this adapter (e.g., "slack", "teams") */
   readonly name: string;
 
@@ -503,6 +522,12 @@ export interface Adapter<TThreadId = unknown, TRawMessage = unknown> {
 
   /** Render formatted content to platform-specific string */
   renderFormatted(content: FormattedContent): string;
+
+  reply?(
+    threadId: string,
+    messageId: string,
+    message: AdapterPostableMessage
+  ): Promise<RawMessage<TRawMessage>>;
 
   /**
    * Schedule a message for future delivery.
@@ -1186,6 +1211,21 @@ export interface Thread<TState = Record<string, unknown>, TRawMessage = unknown>
   isSubscribed(): Promise<boolean>;
 
   /**
+   * Send a read receipt for an inbound message.
+   *
+   * Defaults to the message being handled, so it takes no argument inside a
+   * message handler. Pass a `Message` or a message ID to target one explicitly;
+   * a `Message` must belong to this thread.
+   *
+   * Platforms may treat the receipt as a watermark and mark earlier messages
+   * read along with the target.
+   *
+   * @param message - Message or message ID to acknowledge; defaults to the current message
+   * @throws NotImplementedError when the adapter does not support read receipts
+   */
+  markAsRead(message?: string | Message<TRawMessage>): Promise<void>;
+
+  /**
    * Get a platform-specific mention string for a user.
    * Use this to @-mention a user in a message.
    * @example
@@ -1287,6 +1327,36 @@ export interface Thread<TState = Record<string, unknown>, TRawMessage = unknown>
    * Fetches the latest 50 messages and updates `recentMessages`.
    */
   refresh(): Promise<void>;
+
+  /**
+   * Reply to a specific message in this thread, using the platform's native
+   * reply (quote, threaded reply) rather than posting a loose message.
+   *
+   * Throws `NotImplementedError` on adapters without native reply support.
+   *
+   * @param target - The message to reply to, or its id. Prefer passing the
+   *   `Message`: it is checked against this thread, and it is carried through
+   *   to `SentMessage.replyTo` and cached thread history. A raw id is resolved
+   *   only if it matches a message this thread already holds (`recentMessages`
+   *   or the message being handled); otherwise the reply is still sent, but
+   *   `replyTo` is left undefined and no cross-thread check happens.
+   * @param message - Reply content. Streams are buffered and posted as one
+   *   message rather than streamed edit-by-edit.
+   *
+   * @example
+   * ```typescript
+   * chat.onNewMessage(async (thread, message) => {
+   *   await thread.reply(message, 'Got it');
+   * });
+   * ```
+   */
+  reply(
+    target: string | Message<TRawMessage>,
+    message:
+      | AdapterPostableMessage
+      | AsyncIterable<string | StreamChunk | StreamEvent>
+      | ChatElement
+  ): Promise<SentMessage<TRawMessage>>;
 
   /**
    * Show typing indicator in the thread.

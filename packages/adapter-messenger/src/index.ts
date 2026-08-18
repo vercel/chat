@@ -527,6 +527,14 @@ export class MessengerAdapter
     });
   }
 
+  async markAsRead(threadId: string, _messageId: string): Promise<void> {
+    const { recipientId } = this.resolveThreadId(threadId);
+    await this.graphApiFetch("me/messages", "POST", {
+      recipient: { id: recipientId },
+      sender_action: "mark_seen",
+    });
+  }
+
   async fetchMessages(
     threadId: string,
     options: FetchOptions = {}

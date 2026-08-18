@@ -24,6 +24,7 @@ export const PLATFORM_FEATURE_CATEGORIES: AdapterFeatureCategory[] = [
     label: "Messaging",
     features: [
       { key: "postMessage", label: "Post message" },
+      { key: "messageReplies", label: "Message replies" },
       { key: "editMessage", label: "Edit message" },
       { key: "deleteMessage", label: "Delete message" },
       { key: "fileUploads", label: "File uploads" },
@@ -55,6 +56,7 @@ export const PLATFORM_FEATURE_CATEGORIES: AdapterFeatureCategory[] = [
       { key: "addReactions", label: "Add reactions" },
       { key: "removeReactions", label: "Remove reactions" },
       { key: "typingIndicator", label: "Typing indicator" },
+      { key: "markAsRead", label: "Mark as read" },
       { key: "messageUpdatedEvents", label: "Message edit events" },
       { key: "messageDeletedEvents", label: "Message delete events" },
       { key: "directMessages", label: "DMs" },
