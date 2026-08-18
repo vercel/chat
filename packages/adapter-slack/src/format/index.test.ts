@@ -95,6 +95,18 @@ describe("Slack format primitives", () => {
     );
   });
 
+  it("normalizes Slack code fences for CommonMark parsing", () => {
+    expect(slackMrkdwnToMarkdown("```first line\nsecond line\n```")).toBe(
+      "```\nfirst line\nsecond line\n```"
+    );
+  });
+
+  it("puts Slack code fences on separate lines from surrounding text", () => {
+    expect(slackMrkdwnToMarkdown("before ```code``` after")).toBe(
+      "before \n```\ncode\n```\n after"
+    );
+  });
+
   it("preserves the channel ID for labeled channel tokens", () => {
     expect(slackMrkdwnToMarkdown("Post in <#C042BLND6R6|general>")).toBe(
       "Post in #general (C042BLND6R6)"

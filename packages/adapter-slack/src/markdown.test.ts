@@ -1,3 +1,4 @@
+import { toPlainText } from "chat";
 import { describe, expect, it } from "vitest";
 import { SlackFormatConverter } from "./markdown";
 
@@ -5,6 +6,18 @@ describe("SlackFormatConverter", () => {
   const converter = new SlackFormatConverter();
 
   describe("toMarkdown (mrkdwn -> markdown)", () => {
+    it("preserves code starting immediately after the opening fence", () => {
+      const ast = converter.toAst("```first line\nsecond line\n```");
+
+      expect(ast.children[0]).toMatchObject({
+        type: "code",
+        lang: null,
+        meta: null,
+        value: "first line\nsecond line",
+      });
+      expect(toPlainText(ast)).toBe("first line\nsecond line");
+    });
+
     it("should convert bold", () => {
       expect(converter.toMarkdown("Hello *world*!")).toContain("**world**");
     });
