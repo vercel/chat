@@ -2,6 +2,7 @@ import { createHmac } from "node:crypto";
 import {
   createMockChatInstance,
   createMockLogger,
+  createMockState,
   threadIdContract,
 } from "@chat-adapter/tests";
 import type { CardElement } from "chat";
@@ -24,6 +25,7 @@ import {
 import type {
   WhatsAppContact,
   WhatsAppInboundMessage,
+  WhatsAppUserIdUpdate,
   WhatsAppWebhookPayload,
 } from "./types";
 
@@ -693,6 +695,32 @@ function notification(
   };
 }
 
+function userIdUpdateNotification(
+  updates: WhatsAppUserIdUpdate[]
+): WhatsAppWebhookPayload {
+  return {
+    object: "whatsapp_business_account",
+    entry: [
+      {
+        id: "waba",
+        changes: [
+          {
+            field: "user_id_update",
+            value: {
+              messaging_product: "whatsapp",
+              metadata: {
+                display_phone_number: "15550000000",
+                phone_number_id: "123456789",
+              },
+              user_id_update: updates,
+            },
+          },
+        ],
+      },
+    ],
+  };
+}
+
 function makeWebhookPayload(overrides?: {
   field?: string;
   hasMessages?: boolean;
@@ -1012,18 +1040,20 @@ describe("handleWebhook - business-scoped user IDs", () => {
         )
       )
     );
+    // Meta's system payload carries only the NEW identifiers; the old
+    // number rides in the message-level `from`.
     await adapter.handleWebhook(
       webhook(
         notification([
           {
+            from: "15551234567",
             id: "wamid.system",
             timestamp: "1700000001",
             type: "system",
             system: {
-              body: "User changed from US.OLD to US.NEW",
+              body: "User A changed from 15551234567 to 15557654321",
               wa_id: "15557654321",
               user_id: "US.NEW",
-              previous_user_id: "US.OLD",
               type: "user_changed_number",
             },
           },
@@ -1106,7 +1136,7 @@ describe("handleWebhook - business-scoped user IDs", () => {
     expect(threadId).toBe("whatsapp:123456789:15551234567");
   });
 
-  it("clears a stale phone route after a BSUID-only rotation", async () => {
+  it("clears a stale phone route after a user_id_update rotation", async () => {
     const adapter = createTestAdapter();
     const chat = createMockChatInstance();
     await adapter.initialize(chat);
@@ -1125,19 +1155,15 @@ describe("handleWebhook - business-scoped user IDs", () => {
         )
       )
     );
+    // No wa_id on the update: the user no longer shares a phone number,
+    // so the stored phone route must be dropped.
     await adapter.handleWebhook(
       webhook(
-        notification([
+        userIdUpdateNotification([
           {
-            id: "wamid.system",
+            detail: "User id for User has been updated.",
             timestamp: "1700000001",
-            type: "system",
-            system: {
-              body: "User changed from US.OLD to US.NEW",
-              user_id: "US.NEW",
-              previous_user_id: "US.OLD",
-              type: "user_changed_user_id",
-            },
+            user_id: { previous: "US.OLD", current: "US.NEW" },
           },
         ])
       )
@@ -1157,6 +1183,156 @@ describe("handleWebhook - business-scoped user IDs", () => {
     expect(body.recipient).toBe("US.NEW");
     expect(body).not.toHaveProperty("to");
     fetchSpy.mockRestore();
+  });
+
+  it("preserves a BSUID-keyed thread across a user_id_update rotation", async () => {
+    const adapter = createTestAdapter();
+    const chat = createMockChatInstance();
+    await adapter.initialize(chat);
+
+    // Username-only user: no phone anywhere, thread keyed by the BSUID.
+    await adapter.handleWebhook(
+      webhook(
+        notification(
+          [inbound({ from_user_id: "US.OLD" })],
+          [
+            {
+              profile: { name: "User", username: "exampleuser" },
+              user_id: "US.OLD",
+            },
+          ]
+        )
+      )
+    );
+    await adapter.handleWebhook(
+      webhook(
+        userIdUpdateNotification([
+          {
+            detail: "User id for User has been updated.",
+            timestamp: "1700000001",
+            user_id: { previous: "US.OLD", current: "US.NEW" },
+          },
+        ])
+      )
+    );
+    await adapter.handleWebhook(
+      webhook(
+        notification(
+          [inbound({ from_user_id: "US.NEW" })],
+          [
+            {
+              profile: { name: "User", username: "exampleuser" },
+              user_id: "US.NEW",
+            },
+          ]
+        )
+      )
+    );
+
+    expect(chat.processMessage).toHaveBeenCalledTimes(2);
+    const [, threadId] = vi.mocked(chat.processMessage).mock.calls[1];
+    expect(threadId).toBe("whatsapp:123456789:US.OLD");
+
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(JSON.stringify({ messages: [{ id: "wamid.reply" }] }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      })
+    );
+    await adapter.postMessage("whatsapp:123456789:US.OLD", {
+      markdown: "Reply",
+    });
+    const body = JSON.parse(fetchSpy.mock.calls[0][1]?.body as string);
+    expect(body.recipient).toBe("US.NEW");
+    expect(body).not.toHaveProperty("to");
+    fetchSpy.mockRestore();
+  });
+
+  it("keeps the pre-change thread when a number change arrives without prior state", async () => {
+    const adapter = createTestAdapter();
+    const chat = createMockChatInstance();
+    await adapter.initialize(chat);
+
+    // System message first — e.g. a fresh deploy over an existing
+    // conversation. The old number in `from` must stay canonical.
+    await adapter.handleWebhook(
+      webhook(
+        notification([
+          {
+            from: "15551234567",
+            id: "wamid.system",
+            timestamp: "1700000001",
+            type: "system",
+            system: {
+              body: "User A changed from 15551234567 to 15557654321",
+              wa_id: "15557654321",
+              user_id: "US.NEW",
+              type: "user_changed_number",
+            },
+          },
+        ])
+      )
+    );
+    await adapter.handleWebhook(
+      webhook(
+        notification([inbound({ from: "15557654321", from_user_id: "US.NEW" })])
+      )
+    );
+
+    expect(chat.processMessage).toHaveBeenCalledTimes(1);
+    const [, threadId] = vi.mocked(chat.processMessage).mock.calls[0];
+    expect(threadId).toBe("whatsapp:123456789:15551234567");
+  });
+
+  it("skips redundant identity writes for repeat messages", async () => {
+    const adapter = createTestAdapter();
+    const state = createMockState();
+    const chat = createMockChatInstance({ state });
+    await adapter.initialize(chat);
+    const setSpy = vi.spyOn(state, "set");
+
+    const contact = {
+      profile: { name: "User" },
+      wa_id: "15551234567",
+      user_id: "US.13491208655302741918",
+    };
+    const message = {
+      from: "15551234567",
+      from_user_id: "US.13491208655302741918",
+    };
+
+    await adapter.handleWebhook(
+      webhook(notification([inbound(message)], [contact]))
+    );
+    expect(setSpy).toHaveBeenCalled();
+
+    setSpy.mockClear();
+    await adapter.handleWebhook(
+      webhook(notification([inbound({ ...message, id: "wamid.2" })], [contact]))
+    );
+    expect(setSpy).not.toHaveBeenCalled();
+  });
+
+  it("falls back to the user ID when the profile name is empty", async () => {
+    const adapter = createTestAdapter();
+    const chat = createMockChatInstance();
+    await adapter.initialize(chat);
+
+    await adapter.handleWebhook(
+      webhook(
+        notification(
+          [inbound({ from: "15551234567" })],
+          [{ profile: { name: "" }, wa_id: "15551234567" }]
+        )
+      )
+    );
+
+    const [, , parsed] = vi.mocked(chat.processMessage).mock.calls[0];
+    expect(typeof parsed).not.toBe("function");
+    if (typeof parsed !== "function") {
+      expect(parsed.author.userName).toBe("15551234567");
+      expect(parsed.author.fullName).toBe("15551234567");
+    }
   });
 
   it("ignores messages without a phone number or BSUID", async () => {

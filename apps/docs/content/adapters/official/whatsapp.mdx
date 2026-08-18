@@ -237,7 +237,7 @@ The adapter accepts either identifier. When both are available, it preserves an 
 
 Meta does not support BSUID recipients for one-tap, zero-tap, or copy-code authentication templates. Those templates require the user's phone number.
 
-Use a persistent state adapter in production so identity aliases survive restarts. The adapter also consumes `user_changed_number` and `user_changed_user_id` system messages to preserve the canonical thread when Meta rotates a BSUID. Current phone, BSUID, parent BSUID, and username fields remain available through `message.raw`.
+Use a persistent state adapter in production so identity aliases survive restarts. The adapter preserves the canonical thread when Meta rotates a BSUID by consuming `user_changed_number` and `user_changed_user_id` system messages plus the `user_id_update` webhook, which carries the previous and current BSUID. Subscribe your Meta app to the `user_id_update` webhook field so rotations reach the adapter. Current phone, BSUID, parent BSUID, and username fields remain available through `message.raw`.
 
 ### Thread ID format
 

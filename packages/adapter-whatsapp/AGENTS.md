@@ -114,6 +114,11 @@ supported by this adapter).
      it can decide when the 24-hour window has expired.
    - `errors` → `chat.logger.error` with the Cloud API error
      payload.
+   - `user_id_update` (a separate `field` from `messages`) → alias the
+     previous and current BSUID to the same canonical user so the
+     thread survives the rotation. `user_changed_number` and
+     `user_changed_user_id` system messages under `messages` update
+     identity state the same way, then skip message dispatch.
 4. **`waitUntil`** — the 200 response must land within 20 s; longer
    work goes through `waitUntil`.
 

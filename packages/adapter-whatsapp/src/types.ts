@@ -81,9 +81,12 @@ export interface WhatsAppWebhookEntry {
 
 /**
  * A change object containing the actual event data.
+ *
+ * Only `messages` and `user_id_update` changes are consumed by the
+ * adapter; other subscription fields are ignored.
  */
 export interface WhatsAppWebhookChange {
-  field: "messages";
+  field: string;
   value: WhatsAppWebhookValue;
 }
 
@@ -99,6 +102,27 @@ export interface WhatsAppWebhookValue {
     phone_number_id: string;
   };
   statuses?: WhatsAppStatus[];
+  user_id_update?: WhatsAppUserIdUpdate[];
+}
+
+/**
+ * A business-scoped user ID rotation delivered under
+ * `field: "user_id_update"`. Meta sends it when a phone number change
+ * regenerates a user's BSUID, carrying the previous and current values
+ * so existing records can be re-linked.
+ *
+ * @see https://developers.facebook.com/documentation/business-messaging/whatsapp/business-scoped-user-ids
+ */
+export interface WhatsAppUserIdUpdate {
+  /** Human-readable description of the update */
+  detail?: string;
+  /** Previous and current parent BSUID, when parent BSUIDs are enabled */
+  parent_user_id?: { current?: string; previous?: string };
+  timestamp?: string;
+  /** Previous and current BSUID */
+  user_id?: { current?: string; previous?: string };
+  /** User's phone number, omitted when sharing conditions aren't met */
+  wa_id?: string;
 }
 
 /**
@@ -218,8 +242,6 @@ export interface WhatsAppInboundMessage {
   system?: {
     body: string;
     parent_user_id?: string;
-    previous_parent_user_id?: string;
-    previous_user_id?: string;
     type: "user_changed_number" | "user_changed_user_id";
     user_id: string;
     wa_id?: string;
