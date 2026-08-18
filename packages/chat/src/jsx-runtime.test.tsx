@@ -140,7 +140,11 @@ describe("chat-sdk JSX runtime with actual JSX syntax", () => {
       const element = (
         <Card>
           <Actions>
-            <LinkButton style="primary" url="https://example.com">
+            <LinkButton
+              id="visit-site"
+              style="primary"
+              url="https://example.com"
+            >
               Visit Site
             </LinkButton>
           </Actions>
@@ -154,6 +158,7 @@ describe("chat-sdk JSX runtime with actual JSX syntax", () => {
         const linkBtn = result.children[0].children[0];
         expect(linkBtn.type).toBe("link-button");
         if (linkBtn.type === "link-button") {
+          expect(linkBtn.id).toBe("visit-site");
           expect(linkBtn.url).toBe("https://example.com");
           expect(linkBtn.label).toBe("Visit Site");
           expect(linkBtn.style).toBe("primary");
