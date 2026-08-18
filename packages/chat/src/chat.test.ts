@@ -24,6 +24,7 @@ import { Modal, type ModalElement, TextInput } from "./modals";
 import type {
   ActionEvent,
   Adapter,
+  Lock,
   ModalSubmitEvent,
   ReactionEvent,
   StateAdapter,
@@ -3503,6 +3504,104 @@ describe("Chat", () => {
       );
 
       expect(handler).toHaveBeenCalled();
+    });
+  });
+
+  describe("concurrency: lock lifetime", () => {
+    it.each([
+      "queue",
+      "burst",
+      "debounce",
+    ] as const)("should keep the %s lock alive while a handler is running", async (strategy) => {
+      vi.useFakeTimers();
+      try {
+        const state = createMockState();
+        const adapter = createMockAdapter("slack");
+        let activeLock: Lock | undefined;
+        let nextToken = 0;
+
+        vi.mocked(state.acquireLock).mockImplementation(
+          async (threadId, ttlMs) => {
+            if (activeLock && activeLock.expiresAt > Date.now()) {
+              return null;
+            }
+            activeLock = {
+              threadId,
+              token: `test-token-${++nextToken}`,
+              expiresAt: Date.now() + ttlMs,
+            };
+            return activeLock;
+          }
+        );
+        vi.mocked(state.extendLock).mockImplementation(async (lock, ttlMs) => {
+          if (
+            activeLock?.token !== lock.token ||
+            activeLock.expiresAt <= Date.now()
+          ) {
+            return false;
+          }
+          activeLock.expiresAt = Date.now() + ttlMs;
+          return true;
+        });
+        vi.mocked(state.releaseLock).mockImplementation(async (lock) => {
+          if (activeLock?.token === lock.token) {
+            activeLock = undefined;
+          }
+        });
+
+        const queueChat = new Chat({
+          userName: "testbot",
+          adapters: { slack: adapter },
+          state,
+          logger: mockLogger,
+          concurrency: { strategy, debounceMs: 100 },
+        });
+        await queueChat.webhooks.slack(
+          new Request("http://test.com", { method: "POST" })
+        );
+
+        let inFlight = 0;
+        let peakInFlight = 0;
+        let releaseFirstHandler: (() => void) | undefined;
+        const handler = vi.fn().mockImplementation(async (_thread, message) => {
+          inFlight++;
+          peakInFlight = Math.max(peakInFlight, inFlight);
+          if (message.id === "msg-long-1") {
+            await new Promise<void>((resolve) => {
+              releaseFirstHandler = resolve;
+            });
+          }
+          inFlight--;
+        });
+        queueChat.onNewMention(handler);
+
+        const first = queueChat.handleIncomingMessage(
+          adapter,
+          "slack:C123:1234.5678",
+          createTestMessage("msg-long-1", "Hey @slack-bot first")
+        );
+        await vi.waitFor(() => {
+          expect(handler).toHaveBeenCalledTimes(1);
+        });
+
+        await vi.advanceTimersByTimeAsync(30_001);
+        const second = queueChat.handleIncomingMessage(
+          adapter,
+          "slack:C123:1234.5678",
+          createTestMessage("msg-long-2", "Hey @slack-bot second")
+        );
+        await vi.advanceTimersByTimeAsync(200);
+
+        const callsBeforeRelease = handler.mock.calls.length;
+        releaseFirstHandler?.();
+        await Promise.all([first, second]);
+
+        expect(callsBeforeRelease).toBe(1);
+        expect(peakInFlight).toBe(1);
+        expect(vi.getTimerCount()).toBe(0);
+      } finally {
+        vi.useRealTimers();
+      }
     });
   });
 
