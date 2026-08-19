@@ -269,6 +269,65 @@ export function applyTelegramEntities(
   return result;
 }
 
+/**
+ * Describe the message kinds Telegram sends with no text and no file:
+ * locations, venues, shared contacts, polls and dice.
+ *
+ * Without this they arrive as an empty message — the content is there in the
+ * payload, but a handler reading `text` sees nothing and cannot tell an empty
+ * delivery from a shared location. The wording stays short and literal; the
+ * structured payload is still on `raw` for anyone who needs the numbers.
+ */
+function describeNonFileContent(raw: TelegramMessage): string | undefined {
+  if (raw.location) {
+    return `📍 ${raw.location.latitude}, ${raw.location.longitude}`;
+  }
+  if (raw.venue) {
+    return `📍 ${raw.venue.title}, ${raw.venue.address}`;
+  }
+  if (raw.contact) {
+    const name = [raw.contact.first_name, raw.contact.last_name]
+      .filter(Boolean)
+      .join(" ");
+    return `👤 ${name} ${raw.contact.phone_number}`.trim();
+  }
+  if (raw.poll) {
+    return `📊 ${raw.poll.question}`;
+  }
+  if (raw.dice) {
+    return `${raw.dice.emoji} ${raw.dice.value}`;
+  }
+  if (raw.game) {
+    return `🎮 ${raw.game.title}`;
+  }
+  if (raw.invoice) {
+    // total_amount is in the currency's smallest unit.
+    const amount = (raw.invoice.total_amount / 100).toFixed(2);
+    return `🧾 ${raw.invoice.title} — ${amount} ${raw.invoice.currency}`;
+  }
+  if (raw.story) {
+    return "📖 Story";
+  }
+  return undefined;
+}
+
+/**
+ * Sticker formats: a still sticker is WebP, a video sticker WebM, and an
+ * animated (Lottie) one the TGS container.
+ */
+function stickerMimeType(sticker: {
+  is_animated?: boolean;
+  is_video?: boolean;
+}): string {
+  if (sticker.is_video) {
+    return "video/webm";
+  }
+  if (sticker.is_animated) {
+    return "application/x-tgsticker";
+  }
+  return "image/webp";
+}
+
 export class TelegramAdapter
   implements Adapter<TelegramThreadId, TelegramRawMessage>
 {
@@ -281,6 +340,7 @@ export class TelegramAdapter
   protected readonly staticBotToken?: string;
   protected readonly apiBaseUrl: string;
   protected readonly secretToken?: string;
+  protected readonly mentionOnReply: boolean;
   private botIdentityPromise: Promise<void> | null = null;
   private webhookScope?: string;
   private warnedNoVerification = false;
@@ -342,6 +402,8 @@ export class TelegramAdapter
     );
     this.secretToken =
       config.secretToken ?? process.env.TELEGRAM_WEBHOOK_SECRET_TOKEN;
+    this.mentionOnReply =
+      config.mentionOnReply ?? process.env.TELEGRAM_MENTION_ON_REPLY === "true";
     const allowedUserIds =
       config.allowedUserIds ??
       process.env.TELEGRAM_ALLOWED_USER_IDS?.split(",");
@@ -1100,7 +1162,8 @@ export class TelegramAdapter
 
   async postMessage(
     threadId: string,
-    message: AdapterPostableMessage
+    message: AdapterPostableMessage,
+    replyToMessageId?: string
   ): Promise<RawMessage<TelegramRawMessage>> {
     const parsedThread = this.resolveThreadId(threadId);
 
@@ -1161,7 +1224,8 @@ export class TelegramAdapter
                 text,
                 plainText,
                 replyMarkup,
-                parseMode
+                parseMode,
+                replyToMessageId
               ),
             ]
           : await this.sendDocumentMediaGroup(
@@ -1170,7 +1234,8 @@ export class TelegramAdapter
               text,
               plainText,
               replyMarkup,
-              parseMode
+              parseMode,
+              replyToMessageId
             );
     } else if (attachments.length > 0) {
       const [attachment] = attachments;
@@ -1190,7 +1255,8 @@ export class TelegramAdapter
                 text,
                 plainText,
                 replyMarkup,
-                parseMode
+                parseMode,
+                replyToMessageId
               ),
             ]
           : await this.sendAttachmentMediaGroup(
@@ -1199,7 +1265,8 @@ export class TelegramAdapter
               text,
               plainText,
               replyMarkup,
-              parseMode
+              parseMode,
+              replyToMessageId
             );
     } else {
       if (!text.trim()) {
@@ -1213,7 +1280,8 @@ export class TelegramAdapter
           plainText,
           parseMode,
           replyMarkup,
-          threadId
+          threadId,
+          replyToMessageId
         );
 
       rawMessages = [
@@ -1227,6 +1295,10 @@ export class TelegramAdapter
                     markdown: rich.markdown,
                   },
                   reply_markup: replyMarkup,
+                  reply_parameters: this.buildReplyParameters(
+                    replyToMessageId,
+                    parsedThread.chatId
+                  ),
                 }),
               sendRegular,
               {
@@ -1279,6 +1351,22 @@ export class TelegramAdapter
     message: AdapterPostableMessage
   ): Promise<RawMessage<TelegramRawMessage>> {
     return this.postMessage(channelId, message);
+  }
+
+  /**
+   * Post a message as a native Telegram reply to `messageId`.
+   *
+   * Telegram threads the answer to its question with `reply_parameters`, which
+   * is what `Thread.reply()` expects an adapter to provide. Only the first
+   * message carries the reference when content spans several sends, matching
+   * the behaviour of the other adapters.
+   */
+  async reply(
+    threadId: string,
+    messageId: string,
+    message: AdapterPostableMessage
+  ): Promise<RawMessage<TelegramRawMessage>> {
+    return this.postMessage(threadId, message, messageId);
   }
 
   async editMessage(
@@ -2087,6 +2175,11 @@ export class TelegramAdapter
       content?.text ??
       raw.text ??
       raw.caption ??
+      // A sticker carries no text, only the emoji it stands for. Without this
+      // a sticker reaches the handler as an empty message and looks like a
+      // delivery that lost its body.
+      raw.sticker?.emoji ??
+      describeNonFileContent(raw) ??
       (raw.rich_message ? richMessageToText(raw.rich_message) : "");
     const entities = raw.entities ?? raw.caption_entities ?? [];
     const text = content?.text
@@ -2208,6 +2301,35 @@ export class TelegramAdapter
       );
     }
 
+    // An animation is Telegram's GIF: an MP4 without sound.
+    if (raw.animation) {
+      attachments.push(
+        this.createAttachment("video", raw.animation.file_id, {
+          size: raw.animation.file_size,
+          width: raw.animation.width,
+          height: raw.animation.height,
+          name: raw.animation.file_name,
+          mimeType: raw.animation.mime_type,
+          fileUniqueId: raw.animation.file_unique_id,
+        })
+      );
+    }
+
+    // Stickers are images (WebP, or WebM/TGS when animated). They arrive with
+    // no text at all, so without this a sticker reaches the handler as an
+    // empty message; the emoji it stands for becomes the message text.
+    if (raw.sticker) {
+      attachments.push(
+        this.createAttachment("image", raw.sticker.file_id, {
+          size: raw.sticker.file_size,
+          width: raw.sticker.width,
+          height: raw.sticker.height,
+          mimeType: stickerMimeType(raw.sticker),
+          fileUniqueId: raw.sticker.file_unique_id,
+        })
+      );
+    }
+
     if (raw.rich_message) {
       for (const media of richMessageMedia(raw.rich_message)) {
         attachments.push(
@@ -2309,7 +2431,8 @@ export class TelegramAdapter
     text: string,
     plainText: string,
     replyMarkup?: TelegramInlineKeyboardMarkup,
-    parseMode: TelegramParseMode = "plain"
+    parseMode: TelegramParseMode = "plain",
+    replyToMessageId?: string
   ): Promise<TelegramMessage> {
     const buffer = await this.toTelegramBuffer(file.data);
 
@@ -2324,7 +2447,8 @@ export class TelegramAdapter
             buffer,
             resolvedText,
             replyMarkup,
-            resolvedParseMode
+            resolvedParseMode,
+            replyToMessageId
           )
         ),
       {
@@ -2345,10 +2469,18 @@ export class TelegramAdapter
     buffer: Buffer,
     text: string,
     replyMarkup?: TelegramInlineKeyboardMarkup,
-    parseMode: TelegramParseMode = "plain"
+    parseMode: TelegramParseMode = "plain",
+    replyToMessageId?: string
   ): FormData {
     const formData = new FormData();
     formData.append("chat_id", thread.chatId);
+    const replyParameters = this.buildReplyParameters(
+      replyToMessageId,
+      thread.chatId
+    );
+    if (replyParameters) {
+      formData.append("reply_parameters", JSON.stringify(replyParameters));
+    }
     if (typeof thread.messageThreadId === "number") {
       formData.append("message_thread_id", String(thread.messageThreadId));
     }
@@ -2381,7 +2513,8 @@ export class TelegramAdapter
     text: string,
     plainText: string,
     replyMarkup?: TelegramInlineKeyboardMarkup,
-    parseMode: TelegramParseMode = "plain"
+    parseMode: TelegramParseMode = "plain",
+    replyToMessageId?: string
   ): Promise<TelegramMessage> {
     const upload = ATTACHMENT_UPLOADS[attachment.type];
     const data =
@@ -2433,6 +2566,13 @@ export class TelegramAdapter
 
           if (replyMarkup) {
             payload.reply_markup = replyMarkup;
+            const urlReplyParameters = this.buildReplyParameters(
+              replyToMessageId,
+              thread.chatId
+            );
+            if (urlReplyParameters) {
+              payload.reply_parameters = urlReplyParameters;
+            }
           }
 
           return this.telegramFetch<TelegramMessage>(upload.method, payload);
@@ -2476,6 +2616,16 @@ export class TelegramAdapter
         if (replyMarkup) {
           formData.append("reply_markup", JSON.stringify(replyMarkup));
         }
+        const bufferReplyParameters = this.buildReplyParameters(
+          replyToMessageId,
+          thread.chatId
+        );
+        if (bufferReplyParameters) {
+          formData.append(
+            "reply_parameters",
+            JSON.stringify(bufferReplyParameters)
+          );
+        }
 
         return this.telegramFetch<TelegramMessage>(upload.method, formData);
       },
@@ -2494,7 +2644,8 @@ export class TelegramAdapter
     text: string,
     plainText: string,
     replyMarkup?: TelegramInlineKeyboardMarkup,
-    parseMode: TelegramParseMode = "plain"
+    parseMode: TelegramParseMode = "plain",
+    replyToMessageId?: string
   ): Promise<TelegramMessage[]> {
     this.validateMediaGroupLength(files.length);
 
@@ -2525,7 +2676,8 @@ export class TelegramAdapter
             thread,
             parts,
             resolvedText,
-            resolvedParseMode
+            resolvedParseMode,
+            replyToMessageId
           )
         ),
       {
@@ -2543,7 +2695,8 @@ export class TelegramAdapter
     text: string,
     plainText: string,
     replyMarkup?: TelegramInlineKeyboardMarkup,
-    parseMode: TelegramParseMode = "plain"
+    parseMode: TelegramParseMode = "plain",
+    replyToMessageId?: string
   ): Promise<TelegramMessage[]> {
     this.validateMediaGroupLength(attachments.length);
     this.validateAttachmentMediaGroupTypes(attachments);
@@ -2597,7 +2750,8 @@ export class TelegramAdapter
             thread,
             parts,
             resolvedText,
-            resolvedParseMode
+            resolvedParseMode,
+            replyToMessageId
           )
         ),
       {
@@ -2613,10 +2767,18 @@ export class TelegramAdapter
     thread: TelegramThreadId,
     parts: TelegramMediaGroupPart[],
     text: string,
-    parseMode: TelegramParseMode
+    parseMode: TelegramParseMode,
+    replyToMessageId?: string
   ): FormData {
     const formData = new FormData();
     formData.append("chat_id", thread.chatId);
+    const replyParameters = this.buildReplyParameters(
+      replyToMessageId,
+      thread.chatId
+    );
+    if (replyParameters) {
+      formData.append("reply_parameters", JSON.stringify(replyParameters));
+    }
     if (typeof thread.messageThreadId === "number") {
       formData.append("message_thread_id", String(thread.messageThreadId));
     }
@@ -2830,6 +2992,29 @@ export class TelegramAdapter
     return `${chatId}:${messageId}`;
   }
 
+  /**
+   * Build Bot API `reply_parameters` for an optional reply target.
+   *
+   * `allow_sending_without_reply` keeps delivery working when the target was
+   * deleted in the meantime: the message arrives unthreaded instead of the
+   * send failing outright.
+   */
+  protected buildReplyParameters(
+    replyToMessageId: string | undefined,
+    expectedChatId: string
+  ): { message_id: number; allow_sending_without_reply: boolean } | undefined {
+    if (!replyToMessageId) {
+      return undefined;
+    }
+
+    const { messageId } = this.decodeCompositeMessageId(
+      replyToMessageId,
+      expectedChatId
+    );
+
+    return { message_id: messageId, allow_sending_without_reply: true };
+  }
+
   protected decodeCompositeMessageId(
     messageId: string,
     expectedChatId?: string
@@ -2919,6 +3104,19 @@ export class TelegramAdapter
   }
 
   protected isBotMentioned(message: TelegramMessage, text: string): boolean {
+    // Replying to one of the bot's own messages addresses it as directly as an
+    // @mention does — it is how Telegram users continue a conversation without
+    // repeating the handle. Opt-in, and checked before the empty-text guard so
+    // a reply carrying only a photo or a document still counts.
+    if (
+      this.mentionOnReply &&
+      this._botUserId &&
+      message.reply_to_message?.from &&
+      String(message.reply_to_message.from.id) === this._botUserId
+    ) {
+      return true;
+    }
+
     if (!text) {
       return false;
     }
@@ -3087,7 +3285,8 @@ export class TelegramAdapter
     plainText: string,
     parseMode: TelegramParseMode,
     replyMarkup: TelegramInlineKeyboardMarkup | undefined,
-    threadId: string
+    threadId: string,
+    replyToMessageId?: string
   ): Promise<TelegramMessage> {
     return this.withTelegramMarkdownFallback(
       parseMode,
@@ -3098,6 +3297,10 @@ export class TelegramAdapter
           text: resolvedText,
           reply_markup: replyMarkup,
           parse_mode: toBotApiParseMode(resolvedParseMode),
+          reply_parameters: this.buildReplyParameters(
+            replyToMessageId,
+            thread.chatId
+          ),
         }),
       {
         initialText: text,
