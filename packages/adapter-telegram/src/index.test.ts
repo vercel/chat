@@ -5856,3 +5856,66 @@ describe("mention regex caching", () => {
     expect(adapter.checkMention("hi @first_bot")).toBe(false);
   });
 });
+
+describe("reply", () => {
+  function createReplyAdapter() {
+    return createTelegramAdapter({
+      botToken: "token",
+      mode: "webhook",
+      logger: mockLogger,
+      userName: "mybot",
+    });
+  }
+
+  it("threads a text message to its target", async () => {
+    mockFetch
+      .mockResolvedValueOnce(
+        telegramOk({ id: 1, is_bot: true, username: "mybot" })
+      )
+      .mockResolvedValueOnce(telegramOk(sampleMessage({ message_id: 11 })));
+
+    const adapter = createReplyAdapter();
+    await adapter.initialize(createMockChat());
+
+    await adapter.reply("telegram:123", "123:7", { markdown: "hello" });
+
+    const body = JSON.parse(
+      String((mockFetch.mock.calls[1]?.[1] as RequestInit).body)
+    );
+    expect(body.reply_parameters).toEqual({
+      message_id: 7,
+      allow_sending_without_reply: true,
+    });
+  });
+
+  it("leaves a plain postMessage unthreaded", async () => {
+    mockFetch
+      .mockResolvedValueOnce(
+        telegramOk({ id: 1, is_bot: true, username: "mybot" })
+      )
+      .mockResolvedValueOnce(telegramOk(sampleMessage({ message_id: 12 })));
+
+    const adapter = createReplyAdapter();
+    await adapter.initialize(createMockChat());
+
+    await adapter.postMessage("telegram:123", { markdown: "hello" });
+
+    const body = JSON.parse(
+      String((mockFetch.mock.calls[1]?.[1] as RequestInit).body)
+    );
+    expect(body.reply_parameters).toBeUndefined();
+  });
+
+  it("refuses a target that belongs to another chat", async () => {
+    mockFetch.mockResolvedValueOnce(
+      telegramOk({ id: 1, is_bot: true, username: "mybot" })
+    );
+
+    const adapter = createReplyAdapter();
+    await adapter.initialize(createMockChat());
+
+    await expect(
+      adapter.reply("telegram:123", "999:7", { markdown: "hello" })
+    ).rejects.toThrow("chat mismatch");
+  });
+});
