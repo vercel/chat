@@ -1601,6 +1601,84 @@ describe("parseMessage", () => {
     });
   });
 
+  it("preserves alert attachment content as message content", async () => {
+    const event: SlackEvent = {
+      type: "message",
+      user: "U123",
+      username: "sentry",
+      channel: "C456",
+      text: "New alert",
+      ts: "1786120899.208429",
+      attachments: [
+        {
+          fallback: "[Sentry] TypeError in checkout",
+          title: "TypeError: cannot read property 'id' of undefined",
+          text: "Occurred 42 times in the last hour.",
+          fields: [
+            { title: "Project", value: "storefront", short: true },
+            { title: "Environment", value: "production", short: true },
+          ],
+        },
+      ],
+    };
+    const expected =
+      "New alert\n\n" +
+      "TypeError: cannot read property 'id' of undefined\n" +
+      "Occurred 42 times in the last hour.\n" +
+      "Project: storefront\n" +
+      "Environment: production";
+
+    const sync = adapter.parseMessage(event);
+    const internals = adapter as unknown as {
+      parseSlackMessage(
+        value: SlackEvent,
+        threadId: string
+      ): Promise<Message<unknown>>;
+    };
+    const async = await internals.parseSlackMessage(
+      event,
+      "slack:C456:1786120899.208429"
+    );
+
+    for (const message of [sync, async]) {
+      expect(message.text).toBe(expected);
+    }
+  });
+
+  it("falls back to attachment fallback only when nothing else carries content", () => {
+    const message = adapter.parseMessage({
+      type: "message",
+      user: "U123",
+      channel: "C456",
+      text: "Deploy finished",
+      ts: "1786120899.208429",
+      attachments: [{ fallback: "build #421 succeeded" }],
+    });
+
+    expect(message.text).toBe("Deploy finished\n\nbuild #421 succeeded");
+  });
+
+  it("ignores content in unfurl and app attachments", () => {
+    const message = adapter.parseMessage({
+      type: "message",
+      user: "U123",
+      channel: "C456",
+      text: "Check this out",
+      ts: "1786120899.208429",
+      attachments: [
+        { is_msg_unfurl: true, title: "Foreign title", text: "Foreign text" },
+        { is_app_unfurl: true, fallback: "Foreign fallback" },
+        { from_url: "https://example.com", title: "Preview" },
+        {
+          original_url: "https://example.com/page",
+          fields: [{ title: "Key", value: "Value" }],
+        },
+      ],
+    });
+
+    expect(message.text).toBe("Check this out");
+  });
+
   it("ignores tables in unfurl and app attachments", () => {
     const tableBlock = {
       type: "table",
