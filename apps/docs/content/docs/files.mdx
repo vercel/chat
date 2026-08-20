@@ -77,7 +77,7 @@ bot.onSubscribedMessage(async (thread, message) => {
 
     if (attachment.fetchData) {
       const data = await attachment.fetchData();
-      console.log(`Downloaded ${data.length} bytes`);
+      console.log(`Downloaded ${data.byteLength} bytes`);
     }
   }
 });
@@ -94,5 +94,5 @@ bot.onSubscribedMessage(async (thread, message) => {
 | `size` | `number` (optional) | File size in bytes |
 | `width` | `number` (optional) | Image width |
 | `height` | `number` (optional) | Image height |
-| `fetchData` | `() => Promise<Buffer>` (optional) | Download the file data |
+| `fetchData` | `() => Promise<Buffer \| ArrayBuffer>` (optional) | Download the file data |
 | `fetchMetadata` | `Record<string, string>` (optional) | Platform-specific IDs for reconstructing `fetchData` after serialization |

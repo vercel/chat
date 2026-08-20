@@ -398,7 +398,7 @@ describe("bot token resolver", () => {
 
     await (
       adapter as unknown as {
-        downloadFile(fileId: string): Promise<Buffer>;
+        downloadFile(fileId: string): Promise<Buffer | ArrayBuffer>;
       }
     ).downloadFile("file-1");
 
@@ -407,6 +407,40 @@ describe("bot token resolver", () => {
       "https://api.telegram.org/bottelegram-api-token/getFile",
       "https://api.telegram.org/file/bottelegram-file-token/documents/file.txt",
     ]);
+  });
+
+  it("downloads file bytes without the Node Buffer global", async () => {
+    const expected = new Uint8Array([0, 127, 255]);
+    mockFetch
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          ok: true,
+          result: {
+            file_id: "file-1",
+            file_path: "documents/file.bin",
+          },
+        }),
+      } as Response)
+      .mockResolvedValueOnce({
+        ok: true,
+        arrayBuffer: async () => expected.buffer,
+      } as Response);
+    const adapter = createTelegramAdapter({
+      botToken: "telegram-token",
+      mode: "webhook",
+      logger: mockLogger,
+    });
+    vi.stubGlobal("Buffer", undefined);
+
+    const data = await (
+      adapter as unknown as {
+        downloadFile(fileId: string): Promise<Buffer | ArrayBuffer>;
+      }
+    ).downloadFile("file-1");
+
+    expect(data).toBeInstanceOf(ArrayBuffer);
+    expect(new Uint8Array(data)).toEqual(expected);
   });
 
   it("scopes webhook deduplication with the stable bot identity", async () => {
