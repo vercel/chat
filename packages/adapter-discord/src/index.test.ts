@@ -4,7 +4,7 @@
 
 import { generateKeyPairSync, sign } from "node:crypto";
 import { EventEmitter } from "node:events";
-import { ValidationError } from "@chat-adapter/shared";
+import { NetworkError, ValidationError } from "@chat-adapter/shared";
 import {
   createMockChatInstance,
   mockLogger,
@@ -2223,19 +2223,35 @@ describe("thread starter message routing", () => {
     logger: mockLogger,
   });
 
-  it("routes text-channel starter operations to the parent channel", async () => {
-    const fetchSpy = vi.spyOn(globalThis, "fetch").mockImplementation(() =>
-      Promise.resolve(
-        Response.json({
-          id: "starter123",
-          channel_id: "channel456",
-          content: "updated",
-        })
-      )
-    );
+  it("routes forum starter operations to the thread", async () => {
+    const fetchSpy = vi
+      .spyOn(globalThis, "fetch")
+      .mockImplementation((input) => {
+        // Forum and media channels contain no messages, so Discord rejects
+        // message routes against them with a channel type error, not 10008.
+        if (String(input).includes("/channels/forum456/")) {
+          return Promise.resolve(
+            Response.json(
+              {
+                code: 50_024,
+                message: "Cannot execute action on this channel type",
+              },
+              { status: 400 }
+            )
+          );
+        }
+
+        return Promise.resolve(
+          Response.json({
+            id: "starter123",
+            channel_id: "starter123",
+            content: "updated",
+          })
+        );
+      });
 
     try {
-      const threadId = "discord:guild1:channel456:starter123";
+      const threadId = "discord:guild1:forum456:starter123";
       await adapter.editMessage(threadId, "starter123", "updated");
       await adapter.deleteMessage(threadId, "starter123");
       await adapter.addReaction(threadId, "starter123", "heart");
@@ -2249,19 +2265,19 @@ describe("thread starter message routing", () => {
           .map(([input, init]) => [String(input), init?.method])
       ).toEqual([
         [
-          "https://discord.com/api/v10/channels/channel456/messages/starter123",
+          "https://discord.com/api/v10/channels/starter123/messages/starter123",
           "PATCH",
         ],
         [
-          "https://discord.com/api/v10/channels/channel456/messages/starter123",
+          "https://discord.com/api/v10/channels/starter123/messages/starter123",
           "DELETE",
         ],
         [
-          "https://discord.com/api/v10/channels/channel456/messages/starter123/reactions/%E2%9D%A4%EF%B8%8F/@me",
+          "https://discord.com/api/v10/channels/starter123/messages/starter123/reactions/%E2%9D%A4%EF%B8%8F/@me",
           "PUT",
         ],
         [
-          "https://discord.com/api/v10/channels/channel456/messages/starter123/reactions/%E2%9D%A4%EF%B8%8F/@me",
+          "https://discord.com/api/v10/channels/starter123/messages/starter123/reactions/%E2%9D%A4%EF%B8%8F/@me",
           "DELETE",
         ],
       ]);
@@ -2270,27 +2286,58 @@ describe("thread starter message routing", () => {
     }
   });
 
-  it("retries a forum starter against the thread on unknown message", async () => {
+  it("falls back to the parent channel for a text-channel starter", async () => {
     const fetchSpy = vi
       .spyOn(globalThis, "fetch")
-      .mockResolvedValueOnce(
-        Response.json(
-          { code: 10_008, message: "Unknown Message" },
-          { status: 404 }
-        )
-      )
-      .mockResolvedValueOnce(new Response(null, { status: 204 }));
+      .mockImplementation((input) => {
+        // A text-channel thread's starter message lives in the parent
+        // channel, so the thread itself reports it as unknown.
+        if (String(input).includes("/channels/starter123/")) {
+          return Promise.resolve(
+            Response.json(
+              { code: 10_008, message: "Unknown Message" },
+              { status: 404 }
+            )
+          );
+        }
+
+        return Promise.resolve(
+          Response.json({
+            id: "starter123",
+            channel_id: "channel456",
+            content: "updated",
+          })
+        );
+      });
 
     try {
-      await adapter.addReaction(
-        "discord:guild1:forum456:starter123",
-        "starter123",
-        "heart"
-      );
+      const threadId = "discord:guild1:channel456:starter123";
+      await adapter.editMessage(threadId, "starter123", "updated");
+      await adapter.addReaction(threadId, "starter123", "heart");
 
-      expect(fetchSpy.mock.calls.map(([input]) => String(input))).toEqual([
-        "https://discord.com/api/v10/channels/forum456/messages/starter123/reactions/%E2%9D%A4%EF%B8%8F/@me",
-        "https://discord.com/api/v10/channels/starter123/messages/starter123/reactions/%E2%9D%A4%EF%B8%8F/@me",
+      expect(
+        fetchSpy.mock.calls
+          .filter(([input]) =>
+            String(input).startsWith("https://discord.com/api/v10/")
+          )
+          .map(([input, init]) => [String(input), init?.method])
+      ).toEqual([
+        [
+          "https://discord.com/api/v10/channels/starter123/messages/starter123",
+          "PATCH",
+        ],
+        [
+          "https://discord.com/api/v10/channels/channel456/messages/starter123",
+          "PATCH",
+        ],
+        [
+          "https://discord.com/api/v10/channels/starter123/messages/starter123/reactions/%E2%9D%A4%EF%B8%8F/@me",
+          "PUT",
+        ],
+        [
+          "https://discord.com/api/v10/channels/channel456/messages/starter123/reactions/%E2%9D%A4%EF%B8%8F/@me",
+          "PUT",
+        ],
       ]);
     } finally {
       fetchSpy.mockRestore();
@@ -5422,57 +5469,81 @@ describe("createDiscordThread 160004 recovery", () => {
   });
 
   it("should recover when Discord returns 160004 (thread already exists)", async () => {
-    const { NetworkError } = await import("@chat-adapter/shared");
-
-    const spy = vi
-      .spyOn(adapter as any, "discordFetch")
-      .mockRejectedValue(
-        new NetworkError(
-          "discord",
-          'Discord API error: 400 {"code": 160004, "message": "A thread has already been created for this message"}'
-        )
-      );
-
-    const result = await (adapter as any).createDiscordThread(
-      "channel123",
-      "msg456"
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      Response.json(
+        {
+          code: 160_004,
+          message: "A thread has already been created for this message",
+        },
+        { status: 400 }
+      )
     );
 
-    expect(result.id).toBe("msg456");
-    expect(result.name).toContain("Thread ");
+    try {
+      const result = await (adapter as any).createDiscordThread(
+        "channel123",
+        "msg456"
+      );
 
-    spy.mockRestore();
+      expect(result.id).toBe("msg456");
+      expect(result.name).toContain("Thread ");
+    } finally {
+      fetchSpy.mockRestore();
+    }
+  });
+
+  it("should not recover when 160004 only appears elsewhere in the body", async () => {
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      Response.json(
+        {
+          code: 429,
+          message: "You are being rate limited.",
+          retry_after: 160_004,
+        },
+        { status: 429 }
+      )
+    );
+
+    try {
+      await expect(
+        (adapter as any).createDiscordThread("channel123", "msg456")
+      ).rejects.toThrow(NetworkError);
+    } finally {
+      fetchSpy.mockRestore();
+    }
   });
 
   it("should propagate non-160004 NetworkErrors", async () => {
-    const { NetworkError } = await import("@chat-adapter/shared");
-
-    const spy = vi
-      .spyOn(adapter as any, "discordFetch")
-      .mockRejectedValue(
-        new NetworkError(
-          "discord",
-          'Discord API error: 403 {"code": 50001, "message": "Missing Access"}'
+    const fetchSpy = vi
+      .spyOn(globalThis, "fetch")
+      .mockResolvedValue(
+        Response.json(
+          { code: 50_001, message: "Missing Access" },
+          { status: 403 }
         )
       );
 
-    await expect(
-      (adapter as any).createDiscordThread("channel123", "msg456")
-    ).rejects.toThrow(NetworkError);
-
-    spy.mockRestore();
+    try {
+      await expect(
+        (adapter as any).createDiscordThread("channel123", "msg456")
+      ).rejects.toThrow(NetworkError);
+    } finally {
+      fetchSpy.mockRestore();
+    }
   });
 
   it("should propagate non-NetworkError errors", async () => {
-    const spy = vi
-      .spyOn(adapter as any, "discordFetch")
+    const fetchSpy = vi
+      .spyOn(globalThis, "fetch")
       .mockRejectedValue(new Error("Connection failed"));
 
-    await expect(
-      (adapter as any).createDiscordThread("channel123", "msg456")
-    ).rejects.toThrow("Connection failed");
-
-    spy.mockRestore();
+    try {
+      await expect(
+        (adapter as any).createDiscordThread("channel123", "msg456")
+      ).rejects.toThrow("Connection failed");
+    } finally {
+      fetchSpy.mockRestore();
+    }
   });
 });
 

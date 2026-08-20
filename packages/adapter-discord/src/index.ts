@@ -98,6 +98,7 @@ import {
 const DISCORD_API_BASE = "https://discord.com/api/v10";
 const DISCORD_MAX_CONTENT_LENGTH = 2000;
 const DISCORD_UNKNOWN_MESSAGE = 10_008;
+const DISCORD_THREAD_ALREADY_CREATED = 160_004;
 const HEX_64_PATTERN = /^[0-9a-f]{64}$/;
 const HEX_PATTERN = /^[0-9a-f]+$/;
 
@@ -1437,9 +1438,8 @@ export class DiscordAdapter implements Adapter<DiscordThreadId, unknown> {
       // Recover by using the existing thread (its ID equals the parent message ID).
       if (
         error instanceof NetworkError &&
-        typeof error.message === "string" &&
-        error.message.includes('"code"') &&
-        error.message.includes("160004")
+        error.originalError instanceof DiscordApiError &&
+        error.originalError.code === DISCORD_THREAD_ALREADY_CREATED
       ) {
         this.logger.debug(
           "Thread already exists for message, reusing existing thread",
@@ -1674,8 +1674,15 @@ export class DiscordAdapter implements Adapter<DiscordThreadId, unknown> {
       return operation(targetChannelId);
     }
 
+    // A thread whose ID equals the message ID is a starter message, and where
+    // that message lives depends on the parent channel. Forum and media posts
+    // keep it inside the thread; threads on a text channel keep it in the
+    // parent channel. Try the thread first and fall back to the parent on
+    // "Unknown Message". Forum channels reject message routes with a channel
+    // type error rather than 10008, so probing them first would not be
+    // recoverable.
     try {
-      return await operation(channelId);
+      return await operation(discordThreadId);
     } catch (error) {
       if (
         !(
@@ -1686,7 +1693,7 @@ export class DiscordAdapter implements Adapter<DiscordThreadId, unknown> {
       ) {
         throw error;
       }
-      return operation(discordThreadId);
+      return operation(channelId);
     }
   }
 
