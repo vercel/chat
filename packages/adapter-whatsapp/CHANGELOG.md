@@ -1,5 +1,14 @@
 # @chat-adapter/whatsapp
 
+## 4.38.2
+
+### Patch Changes
+
+- 3e6e866: support business-scoped user IDs for inbound and outbound WhatsApp messages
+- Updated dependencies [929878b]
+  - chat@4.38.2
+  - @chat-adapter/shared@4.38.2
+
 ## 4.38.1
 
 ### Patch Changes
