@@ -1,5 +1,11 @@
 # chat
 
+## 4.38.2
+
+### Patch Changes
+
+- 929878b: Allow JSX link buttons to include an explicit action ID.
+
 ## 4.38.1
 
 ### Patch Changes
