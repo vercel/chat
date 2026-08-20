@@ -1006,6 +1006,10 @@ export const ADAPTERS = {
           "Optional webhook secret token."
         ),
         env("TELEGRAM_BOT_USERNAME", "Bot username for mention detection."),
+        env(
+          "TELEGRAM_MENTION_ON_REPLY",
+          'Set to "true" to treat a reply to the bot as a mention.'
+        ),
         urlEnv("TELEGRAM_API_BASE_URL", "Override the Telegram API base URL."),
       ],
       required: [secretEnv("TELEGRAM_BOT_TOKEN", "Telegram bot token.")],

@@ -21,6 +21,17 @@ export interface TelegramAdapterConfig {
   /** Optional long-polling configuration for getUpdates flow. */
   longPolling?: TelegramLongPollingConfig;
   /**
+   * Treat a reply to one of the bot's own messages as a mention.
+   *
+   * Telegram users continue a conversation by replying rather than repeating
+   * the handle, so a bot that only reacts to `@name` looks unresponsive in a
+   * group. Off by default: turning it on changes which messages report
+   * `isMention`, and a bot that deliberately answers mentions only should keep
+   * the stricter behaviour. Defaults to the `TELEGRAM_MENTION_ON_REPLY`
+   * environment variable when set to `"true"`.
+   */
+  mentionOnReply?: boolean;
+  /**
    * Adapter runtime mode:
    * - auto: choose webhook vs polling based on webhook registration/runtime (default)
    * - webhook: webhook-only mode
@@ -442,6 +453,13 @@ export interface TelegramRichMessage {
  * @see https://core.telegram.org/bots/api#message
  */
 export interface TelegramMessage {
+  animation?: TelegramFile & {
+    duration?: number;
+    width?: number;
+    height?: number;
+    mime_type?: string;
+    file_name?: string;
+  };
   audio?: TelegramFile & {
     duration?: number;
     performer?: string;
@@ -464,7 +482,13 @@ export interface TelegramMessage {
   reply_to_message?: TelegramMessage;
   rich_message?: TelegramRichMessage;
   sender_chat?: TelegramChat;
-  sticker?: TelegramFile & { emoji?: string };
+  sticker?: TelegramFile & {
+    emoji?: string;
+    width?: number;
+    height?: number;
+    is_animated?: boolean;
+    is_video?: boolean;
+  };
   text?: string;
   video?: TelegramVideo;
   video_note?: TelegramFile & { length?: number; duration?: number };
