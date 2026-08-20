@@ -26,6 +26,7 @@ const DATE_CONTROL_PATTERN = /[\^|>]/;
 const SLACK_ID_PATTERN = /^[A-Z0-9_]+$/;
 const SLACK_USER_TOKEN_PATTERN = /(?<![<\w])@([A-Z][A-Z0-9_]+)/g;
 const TEXT_OBJECT_MAX_LENGTH = 3000;
+const CODE_FENCE = "```";
 
 export function escapeSlackText(text: string): string {
   return text
@@ -110,7 +111,7 @@ export function formatSlackDate(
 }
 
 export function slackMrkdwnToMarkdown(mrkdwn: string): string {
-  let markdown = mrkdwn;
+  let markdown = normalizeSlackCodeFences(mrkdwn);
   markdown = markdown.replace(/<@([A-Z0-9_]+)\|([^<>]+)>/g, "@$2");
   markdown = markdown.replace(/<@([A-Z0-9_]+)>/g, "@$1");
   markdown = markdown.replace(/<#([A-Z0-9_]+)\|([^<>]+)>/g, "#$2 ($1)");
@@ -124,6 +125,49 @@ export function slackMrkdwnToMarkdown(mrkdwn: string): string {
   markdown = markdown.replace(/(?<![_*\\])\*([^*\n]+)\*(?![_*])/g, "**$1**");
   markdown = markdown.replace(/(?<!~)~([^~\n]+)~(?!~)/g, "~~$1~~");
   return unescapeSlackText(markdown);
+}
+
+/**
+ * Slack treats text immediately after an opening fence as code, while
+ * CommonMark treats it as the fence's info string. Put Slack fences on their
+ * own lines so the Markdown parser preserves all code block content.
+ */
+function normalizeSlackCodeFences(mrkdwn: string): string {
+  let result = "";
+  let cursor = 0;
+  let opening = true;
+
+  while (cursor < mrkdwn.length) {
+    const fenceIndex = mrkdwn.indexOf(CODE_FENCE, cursor);
+    if (fenceIndex === -1) {
+      result += mrkdwn.slice(cursor);
+      break;
+    }
+
+    result += mrkdwn.slice(cursor, fenceIndex);
+    if (opening) {
+      if (result.length > 0 && !result.endsWith("\n")) {
+        result += "\n";
+      }
+      result += CODE_FENCE;
+      cursor = fenceIndex + CODE_FENCE.length;
+      if (cursor < mrkdwn.length && mrkdwn[cursor] !== "\n") {
+        result += "\n";
+      }
+    } else {
+      if (!result.endsWith("\n")) {
+        result += "\n";
+      }
+      result += CODE_FENCE;
+      cursor = fenceIndex + CODE_FENCE.length;
+      if (cursor < mrkdwn.length && mrkdwn[cursor] !== "\n") {
+        result += "\n";
+      }
+    }
+    opening = !opening;
+  }
+
+  return result;
 }
 
 export function markdownBoldToSlackMrkdwn(markdown: string): string {
