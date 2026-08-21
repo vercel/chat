@@ -229,6 +229,8 @@ Incoming thread IDs preserve the Teams conversation type when the legacy ID-pref
 
 Incoming inline images and files are exposed through `message.attachments` with a lazy `fetchData()` method. The adapter authenticates connector-hosted inline attachments through the configured Teams bot client, while [Teams file download cards](https://learn.microsoft.com/en-us/microsoftteams/platform/bots/how-to/bots-filesv4) use their direct download URL without the bot token.
 
+Anonymous downloads require HTTPS URLs on Microsoft 365 SharePoint or OneDrive for Business hosts. Redirects are revalidated and responses are limited to 25 MB. Override `createFetchDataFn()` in a subclass to support another trusted host.
+
 ### User lookup
 
 The adapter supports looking up user profiles via the Microsoft Graph API. To enable it:
