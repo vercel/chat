@@ -527,7 +527,7 @@ export class ChannelImpl<TState = Record<string, unknown>>
         }
         editPostable = await self.processCallbackUrls(editPostable);
         await adapter.editMessage(threadId, messageId, editPostable);
-        return self.createSentMessage(messageId, editPostable);
+        return self.createSentMessage(messageId, editPostable, threadId);
       },
 
       async delete(): Promise<void> {

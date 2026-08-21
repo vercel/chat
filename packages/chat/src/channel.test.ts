@@ -865,8 +865,10 @@ describe("ChannelImpl.post error cases", () => {
     });
 
     const result = await channel.post("Hello!");
+    const edited = await result.edit("Updated!");
 
     expect(result.threadId).toBe("slack:C123:new-thread");
+    expect(edited.threadId).toBe("slack:C123:new-thread");
   });
 
   it("should return a SentMessage with edit/delete capabilities", async () => {
