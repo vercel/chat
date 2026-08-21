@@ -807,6 +807,41 @@ describe("TeamsAdapter", () => {
       expect(anonymousFetch).not.toHaveBeenCalled();
     });
 
+    it("rejects internal file download URLs from activities", async () => {
+      const adapter = createTeamsAdapter({
+        appId: "test-app",
+        appPassword: "test",
+        logger,
+      });
+      const anonymousFetch = vi.fn(async () => new Response("private data"));
+      vi.stubGlobal("fetch", anonymousFetch);
+      const url = "http://169.254.169.254/latest/meta-data";
+      const activity = {
+        type: "message",
+        id: "msg-107",
+        text: "file",
+        from: { id: "user-1", name: "Alice" },
+        conversation: { id: "19:abc@thread.tacv2" },
+        serviceUrl: TEST_SERVICE_URL,
+        attachments: [
+          {
+            contentType: "application/vnd.microsoft.teams.file.download.info",
+            content: {
+              downloadUrl: url,
+              fileType: ".txt",
+            },
+            name: "file.txt",
+          },
+        ],
+      };
+
+      const message = adapter.parseMessage(activity);
+      await expect(message.attachments[0].fetchData?.()).rejects.toThrow(
+        "Refusing to fetch an internal attachment URL"
+      );
+      expect(anonymousFetch).not.toHaveBeenCalled();
+    });
+
     it("preserves anonymous fetch overrides during rehydration", async () => {
       const overriddenFetch = vi.fn(async () => Buffer.from("overridden"));
 

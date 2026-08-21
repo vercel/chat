@@ -1,5 +1,6 @@
 import { NetworkError } from "@chat-adapter/shared";
 import type { Attachment } from "chat";
+import { download } from "./fetch";
 
 const FILE_DOWNLOAD_INFO_CONTENT_TYPE =
   "application/vnd.microsoft.teams.file.download.info";
@@ -99,14 +100,18 @@ export function createAnonymousAttachmentFetchData(
   url: string
 ): () => Promise<Buffer> {
   return async () => {
-    const response = await fetch(url);
-    if (!response.ok) {
+    try {
+      return await download(url);
+    } catch (error) {
+      if (error instanceof NetworkError) {
+        throw error;
+      }
       throw new NetworkError(
         "teams",
-        `Failed to fetch file: ${response.status} ${response.statusText}`
+        "Failed to fetch attachment",
+        error instanceof Error ? error : undefined
       );
     }
-    return Buffer.from(await response.arrayBuffer());
   };
 }
 
