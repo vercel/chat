@@ -506,12 +506,66 @@ function eventTables(event: SlackEvent): SlackEventTables {
   };
 }
 
+/**
+ * Legacy attachment content. Alerting integrations (Sentry, PagerDuty, GitHub)
+ * put the real payload in `title`/`text`/`fields` rather than in blocks, so
+ * without this the normalized message keeps only the one-line summary.
+ */
+function attachmentContent(
+  attachment: NonNullable<SlackEvent["attachments"]>[number]
+): string[] {
+  const lines: string[] = [];
+  const push = (value: string | undefined) => {
+    const trimmed = value?.trim();
+    if (trimmed) {
+      lines.push(trimmed);
+    }
+  };
+
+  push(attachment.title);
+  push(attachment.text);
+  for (const field of attachment.fields ?? []) {
+    const title = field.title?.trim();
+    const value = field.value?.trim();
+    push(title && value ? `${title}: ${value}` : title || value);
+  }
+
+  // `fallback` is a plain-text stand-in for content rendered elsewhere, so it
+  // only adds anything when nothing else on the attachment carried it.
+  const hasBlocks =
+    Array.isArray(attachment.blocks) && attachment.blocks.length > 0;
+  if (lines.length === 0 && !hasBlocks) {
+    push(attachment.fallback);
+  }
+  return lines;
+}
+
+/**
+ * Attachment content from the author, in attachment order. Unfurls are skipped
+ * for the same reason their blocks are: the content is not theirs.
+ */
+function eventAttachmentContent(event: SlackEvent): string[] {
+  return (event.attachments ?? [])
+    .filter((attachment) => !isForeignAttachment(attachment))
+    .flatMap(attachmentContent);
+}
+
+/** Append attachment content below the message text. */
+function withAttachmentContent(text: string, lines: string[]): string {
+  if (lines.length === 0) {
+    return text;
+  }
+  const joined = lines.join("\n");
+  return text ? `${text}\n\n${joined}` : joined;
+}
+
 /** Slack event payload (raw message format) */
 export interface SlackEvent {
   /** Legacy attachments (unfurl previews, app unfurls, etc.) */
   attachments?: Array<{
     blocks?: SlackMessageBlock[];
     fallback?: string;
+    fields?: Array<{ title?: string; value?: string; short?: boolean }>;
     from_url?: string;
     image_url?: string;
     is_app_unfurl?: boolean;
@@ -5661,7 +5715,10 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
   }
 
   protected content(event: SlackEvent, text: string): FormattedContent {
-    return this.assembleContent(text, eventTables(event));
+    return this.assembleContent(
+      withAttachmentContent(text, eventAttachmentContent(event)),
+      eventTables(event)
+    );
   }
 
   /**
@@ -5687,7 +5744,12 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
     });
 
     const { leading, trailing } = eventTables(event);
-    return this.assembleContent(text, {
+    const attachmentLines = await Promise.all(
+      eventAttachmentContent(event).map((line) =>
+        this.resolveInlineMentions(line, skipSelfMention)
+      )
+    );
+    return this.assembleContent(withAttachmentContent(text, attachmentLines), {
       leading: await Promise.all(leading.map(resolve)),
       trailing: await Promise.all(trailing.map(resolve)),
     });
