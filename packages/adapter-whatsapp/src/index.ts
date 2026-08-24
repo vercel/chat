@@ -5,6 +5,7 @@ import {
   extractCard,
   extractFiles,
   extractPostableAttachments,
+  NetworkError,
   type PlatformName,
   toBuffer,
   ValidationError,
@@ -71,6 +72,27 @@ const WHATSAPP_MESSAGE_LIMIT = 4096;
 
 /** Maximum caption length for WhatsApp media messages */
 const WHATSAPP_CAPTION_LIMIT = 1024;
+
+const WHATSAPP_MEDIA_HOSTS = ["fbcdn.net", "fbsbx.com"];
+
+function isWhatsAppMediaUrl(url: string, graphApiUrl: string): boolean {
+  try {
+    const mediaUrl = new URL(url);
+    if (mediaUrl.origin === new URL(graphApiUrl).origin) {
+      return true;
+    }
+    return (
+      mediaUrl.protocol === "https:" &&
+      mediaUrl.port === "" &&
+      WHATSAPP_MEDIA_HOSTS.some(
+        (host) =>
+          mediaUrl.hostname === host || mediaUrl.hostname.endsWith(`.${host}`)
+      )
+    );
+  } catch {
+    return false;
+  }
+}
 
 /** WhatsApp media message types supported for outbound sends */
 export type WhatsAppMediaType = "image" | "document" | "video" | "audio";
@@ -1148,6 +1170,13 @@ export class WhatsAppAdapter
 
     const mediaInfo: WhatsAppMediaResponse =
       (await metaResponse.json()) as WhatsAppMediaResponse;
+
+    if (!isWhatsAppMediaUrl(mediaInfo.url, this.graphApiUrl)) {
+      throw new NetworkError(
+        "whatsapp",
+        "Refusing to send the access token to an untrusted media URL"
+      );
+    }
 
     // Step 2: Download the actual file
     const dataResponse = await fetch(mediaInfo.url, {

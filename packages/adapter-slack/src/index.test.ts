@@ -1259,6 +1259,49 @@ describe("parseMessage", () => {
     expect(message.attachments?.[0].height).toBe(600);
   });
 
+  it("downloads external message files without resolving the bot token", async () => {
+    const token = vi.fn().mockResolvedValue("xoxb-test");
+    const adapter = createSlackAdapter({
+      botToken: token,
+      signingSecret: "test-secret",
+      logger: mockLogger,
+    });
+    const message = adapter.parseMessage({
+      type: "message",
+      user: "U123",
+      channel: "C456",
+      text: "External file",
+      ts: "1234567890.123456",
+      files: [
+        {
+          id: "F123",
+          mimetype: "application/vnd.slack-remote",
+          url_private: "https://docs.google.com/document/d/external",
+        },
+      ],
+    });
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(new ArrayBuffer(8), {
+        status: 200,
+        headers: { "content-type": "application/octet-stream" },
+      })
+    );
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = fetchMock as unknown as typeof globalThis.fetch;
+
+    try {
+      await message.attachments?.[0].fetchData?.();
+
+      expect(token).not.toHaveBeenCalled();
+      expect(fetchMock).toHaveBeenCalledWith(
+        "https://docs.google.com/document/d/external",
+        { headers: undefined }
+      );
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
   it("handles different file types", () => {
     const createEvent = (mimetype: string) => ({
       type: "message",
@@ -2653,6 +2696,52 @@ describe("installationProvider", () => {
         expect.objectContaining({
           headers: { Authorization: "Bearer xoxb-rehydrate-token" },
         })
+      );
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
+  it("rehydrateAttachment does not send installation tokens off Slack", async () => {
+    const mockProvider = {
+      getInstallation: vi.fn().mockResolvedValue({
+        botToken: "xoxb-rehydrate-token",
+        botUserId: "U_BOT_REHYDRATE",
+      }),
+    };
+    const adapter = createSlackAdapter({
+      signingSecret: secret,
+      logger: mockLogger,
+      installationProvider: mockProvider,
+    });
+    await adapter.initialize(
+      createMockChatInstance({ state: createMockState() })
+    );
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(new ArrayBuffer(8), {
+        status: 200,
+        headers: { "content-type": "application/octet-stream" },
+      })
+    );
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = fetchMock as unknown as typeof globalThis.fetch;
+
+    try {
+      const rehydrated = adapter.rehydrateAttachment({
+        type: "file",
+        url: "https://attacker.example/file.txt",
+        fetchMetadata: {
+          url: "https://attacker.example/file.txt",
+          teamId: "T_REHYDRATE",
+        },
+      });
+
+      await rehydrated.fetchData?.();
+
+      expect(mockProvider.getInstallation).not.toHaveBeenCalled();
+      expect(fetchMock).toHaveBeenCalledWith(
+        "https://attacker.example/file.txt",
+        { headers: undefined }
       );
     } finally {
       globalThis.fetch = originalFetch;

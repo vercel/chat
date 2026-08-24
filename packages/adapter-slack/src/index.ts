@@ -75,6 +75,7 @@ import {
   encryptToken,
   isEncryptedTokenData,
 } from "./crypto";
+import { isSlackAuthUrl } from "./file";
 import { SlackFormatConverter } from "./markdown";
 import {
   decodeModalMetadata,
@@ -3899,14 +3900,21 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
       fetchMetadata: Object.keys(fetchMeta).length > 0 ? fetchMeta : undefined,
       fetchData: url
         ? async () =>
-            this.fetchSlackFile(url, ctxToken ?? (await this.getToken()))
+            this.fetchSlackFile(url, () => ctxToken ?? this.getToken())
         : undefined,
     };
   }
 
-  protected async fetchSlackFile(url: string, token: string): Promise<Buffer> {
+  protected async fetchSlackFile(
+    url: string,
+    token: SlackBotToken
+  ): Promise<Buffer> {
+    let value: string | undefined;
+    if (isSlackAuthUrl(url, this.slackApiUrl)) {
+      value = typeof token === "function" ? await token() : token;
+    }
     const response = await fetch(url, {
-      headers: { Authorization: `Bearer ${token}` },
+      headers: value ? { Authorization: `Bearer ${value}` } : undefined,
     });
     if (!response.ok) {
       throw new NetworkError(
@@ -3939,29 +3947,28 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
     return {
       ...attachment,
       fetchData: async () => {
-        let token: string;
-        const installationId = isEnterpriseInstall ? enterpriseId : teamId;
-        if (installationId) {
-          // Route through resolveTokenForTeam so installationProvider (when
-          // configured) is honored — otherwise this falls back to internal
-          // state via getInstallation, matching the prior behavior.
-          const ctx = await this.resolveTokenForTeam(
-            installationId,
-            isEnterpriseInstall
-          );
-          if (!ctx) {
-            throw new AuthenticationError(
-              "slack",
-              `Installation not found for ${
-                isEnterpriseInstall ? "enterprise" : "team"
-              } ${installationId}`
+        return this.fetchSlackFile(url, async () => {
+          const installationId = isEnterpriseInstall ? enterpriseId : teamId;
+          if (installationId) {
+            // Route through resolveTokenForTeam so installationProvider (when
+            // configured) is honored — otherwise this falls back to internal
+            // state via getInstallation, matching the prior behavior.
+            const ctx = await this.resolveTokenForTeam(
+              installationId,
+              isEnterpriseInstall
             );
+            if (!ctx) {
+              throw new AuthenticationError(
+                "slack",
+                `Installation not found for ${
+                  isEnterpriseInstall ? "enterprise" : "team"
+                } ${installationId}`
+              );
+            }
+            return ctx.token;
           }
-          token = ctx.token;
-        } else {
-          token = await this.getToken();
-        }
-        return this.fetchSlackFile(url, token);
+          return this.getToken();
+        });
       },
     };
   }
