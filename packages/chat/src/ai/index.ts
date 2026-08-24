@@ -311,14 +311,17 @@ export function createChatTools({
     );
   }
 
-    const guard = createScopeGuard(chat, scope, strictScope);
+  const guard = createScopeGuard(chat, scope, strictScope);
+
   const approval = (name: ChatWriteToolName) => ({
     needsApproval: resolveApproval(name, requireApproval),
   });
+
   const allowed = preset ? resolvePresetTools(preset) : null;
 
   // SECURITY FIX: Apply scope guard to BOTH read and write tools
   // Previously only read tools checked scope, write tools could IDOR to arbitrary threadId
+
   const factories = {
     fetchMessages: () => fetchMessages(chat, guard),
     fetchChannelMessages: () => fetchChannelMessages(chat, guard),
@@ -328,98 +331,155 @@ export function createChatTools({
     getChannelInfo: () => getChannelInfo(chat, guard),
     getUser: () => getUser(chat),
     startTyping: () => startTyping(chat),
+
     // FIXED: Write tools now also enforce scope guard
     postMessage: () => {
       const base = postMessage(chat, approval("postMessage"));
       const origExecute = base.execute;
+
       return {
         ...base,
         execute: async (input: any, opts: any) => {
           guard?.(input.threadId);
+
+          if (!origExecute) {
+            throw new Error("postMessage tool is missing execute handler");
+          }
+
           return origExecute(input, opts);
         },
-      };
+      } as typeof base;
     },
+
     postChannelMessage: () => {
       const base = postChannelMessage(chat, approval("postChannelMessage"));
       const origExecute = base.execute;
+
       return {
         ...base,
         execute: async (input: any, opts: any) => {
           guard?.(input.channelId);
+
+          if (!origExecute) {
+            throw new Error("postChannelMessage tool is missing execute handler");
+          }
+
           return origExecute(input, opts);
         },
-      };
+      } as typeof base;
     },
+
     sendDirectMessage: () => {
       const base = sendDirectMessage(chat, approval("sendDirectMessage"));
       return base; // DM is per-user, no channel scope needed
     },
+
     editMessage: () => {
       const base = editMessage(chat, approval("editMessage"));
       const origExecute = base.execute;
+
       return {
         ...base,
         execute: async (input: any, opts: any) => {
           guard?.(input.threadId);
+
+          if (!origExecute) {
+            throw new Error("editMessage tool is missing execute handler");
+          }
+
           return origExecute(input, opts);
         },
-      };
+      } as typeof base;
     },
+
     deleteMessage: () => {
       const base = deleteMessage(chat, approval("deleteMessage"));
       const origExecute = base.execute;
+
       return {
         ...base,
         execute: async (input: any, opts: any) => {
           guard?.(input.threadId);
+
+          if (!origExecute) {
+            throw new Error("deleteMessage tool is missing execute handler");
+          }
+
           return origExecute(input, opts);
         },
-      };
+      } as typeof base;
     },
+
     addReaction: () => {
       const base = addReaction(chat, approval("addReaction"));
       const origExecute = base.execute;
+
       return {
         ...base,
         execute: async (input: any, opts: any) => {
           guard?.(input.threadId);
+
+          if (!origExecute) {
+            throw new Error("addReaction tool is missing execute handler");
+          }
+
           return origExecute(input, opts);
         },
-      };
+      } as typeof base;
     },
+
     removeReaction: () => {
       const base = removeReaction(chat, approval("removeReaction"));
       const origExecute = base.execute;
+
       return {
         ...base,
         execute: async (input: any, opts: any) => {
           guard?.(input.threadId);
+
+          if (!origExecute) {
+            throw new Error("removeReaction tool is missing execute handler");
+          }
+
           return origExecute(input, opts);
         },
-      };
+      } as typeof base;
     },
+
     subscribeThread: () => {
       const base = subscribeThread(chat, approval("subscribeThread"));
       const origExecute = base.execute;
+
       return {
         ...base,
         execute: async (input: any, opts: any) => {
           guard?.(input.threadId);
+
+          if (!origExecute) {
+            throw new Error("subscribeThread tool is missing execute handler");
+          }
+
           return origExecute(input, opts);
         },
-      };
+      } as typeof base;
     },
+
     unsubscribeThread: () => {
       const base = unsubscribeThread(chat, approval("unsubscribeThread"));
       const origExecute = base.execute;
+
       return {
         ...base,
         execute: async (input: any, opts: any) => {
           guard?.(input.threadId);
+
+          if (!origExecute) {
+            throw new Error("unsubscribeThread tool is missing execute handler");
+          }
+
           return origExecute(input, opts);
         },
-      };
+      } as typeof base;
     },
   } satisfies Record<ChatToolName, () => unknown>;
 
