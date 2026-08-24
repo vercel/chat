@@ -1,5 +1,6 @@
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
+import { cacheLife } from "next/cache";
 import adaptersJson from "@/adapters.json";
 
 const LOCAL_PACKAGE_PATTERN = /github\.com\/vercel\/chat\/tree\/[^/]+\/(.+)/;
@@ -48,9 +49,11 @@ const truncate = (content: string): string =>
     : `${content.slice(0, MAX_README_BYTES)}\n\n> _README truncated — view the full version on GitHub._`;
 
 const fetchGitHubReadme = async (url: string): Promise<string | undefined> => {
+  "use cache";
+  cacheLife("hours");
+
   const response = await fetch(url, {
     headers: { Accept: "application/vnd.github.raw+json" },
-    next: { revalidate: 3600 },
   });
   if (response.ok) {
     return response.text();

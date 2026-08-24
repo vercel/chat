@@ -77,6 +77,7 @@ export const GlobalFeatureMatrix = ({
                       <Link
                         className="font-normal text-primary no-underline"
                         href={adapter.href}
+                        prefetch={true}
                       >
                         {adapter.name}
                       </Link>
