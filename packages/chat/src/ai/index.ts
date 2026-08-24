@@ -311,16 +311,14 @@ export function createChatTools({
     );
   }
 
+    const guard = createScopeGuard(chat, scope, strictScope);
   const approval = (name: ChatWriteToolName) => ({
     needsApproval: resolveApproval(name, requireApproval),
   });
   const allowed = preset ? resolvePresetTools(preset) : null;
 
-  const guard = createScopeGuard(chat, scope, strictScope);
-
-  // Each entry is built lazily so a preset filter skips both the
-  // `approval()` lookup and the underlying `tool({ ... })` (and its zod
-  // schema) construction for tools the agent will never see.
+  // SECURITY FIX: Apply scope guard to BOTH read and write tools
+  // Previously only read tools checked scope, write tools could IDOR to arbitrary threadId
   const factories = {
     fetchMessages: () => fetchMessages(chat, guard),
     fetchChannelMessages: () => fetchChannelMessages(chat, guard),
@@ -330,18 +328,99 @@ export function createChatTools({
     getChannelInfo: () => getChannelInfo(chat, guard),
     getUser: () => getUser(chat),
     startTyping: () => startTyping(chat),
-    postMessage: () => postMessage(chat, approval("postMessage")),
-    postChannelMessage: () =>
-      postChannelMessage(chat, approval("postChannelMessage")),
-    sendDirectMessage: () =>
-      sendDirectMessage(chat, approval("sendDirectMessage")),
-    editMessage: () => editMessage(chat, approval("editMessage")),
-    deleteMessage: () => deleteMessage(chat, approval("deleteMessage")),
-    addReaction: () => addReaction(chat, approval("addReaction")),
-    removeReaction: () => removeReaction(chat, approval("removeReaction")),
-    subscribeThread: () => subscribeThread(chat, approval("subscribeThread")),
-    unsubscribeThread: () =>
-      unsubscribeThread(chat, approval("unsubscribeThread")),
+    // FIXED: Write tools now also enforce scope guard
+    postMessage: () => {
+      const base = postMessage(chat, approval("postMessage"));
+      const origExecute = base.execute;
+      return {
+        ...base,
+        execute: async (input: any, opts: any) => {
+          guard?.(input.threadId);
+          return origExecute(input, opts);
+        },
+      };
+    },
+    postChannelMessage: () => {
+      const base = postChannelMessage(chat, approval("postChannelMessage"));
+      const origExecute = base.execute;
+      return {
+        ...base,
+        execute: async (input: any, opts: any) => {
+          guard?.(input.channelId);
+          return origExecute(input, opts);
+        },
+      };
+    },
+    sendDirectMessage: () => {
+      const base = sendDirectMessage(chat, approval("sendDirectMessage"));
+      return base; // DM is per-user, no channel scope needed
+    },
+    editMessage: () => {
+      const base = editMessage(chat, approval("editMessage"));
+      const origExecute = base.execute;
+      return {
+        ...base,
+        execute: async (input: any, opts: any) => {
+          guard?.(input.threadId);
+          return origExecute(input, opts);
+        },
+      };
+    },
+    deleteMessage: () => {
+      const base = deleteMessage(chat, approval("deleteMessage"));
+      const origExecute = base.execute;
+      return {
+        ...base,
+        execute: async (input: any, opts: any) => {
+          guard?.(input.threadId);
+          return origExecute(input, opts);
+        },
+      };
+    },
+    addReaction: () => {
+      const base = addReaction(chat, approval("addReaction"));
+      const origExecute = base.execute;
+      return {
+        ...base,
+        execute: async (input: any, opts: any) => {
+          guard?.(input.threadId);
+          return origExecute(input, opts);
+        },
+      };
+    },
+    removeReaction: () => {
+      const base = removeReaction(chat, approval("removeReaction"));
+      const origExecute = base.execute;
+      return {
+        ...base,
+        execute: async (input: any, opts: any) => {
+          guard?.(input.threadId);
+          return origExecute(input, opts);
+        },
+      };
+    },
+    subscribeThread: () => {
+      const base = subscribeThread(chat, approval("subscribeThread"));
+      const origExecute = base.execute;
+      return {
+        ...base,
+        execute: async (input: any, opts: any) => {
+          guard?.(input.threadId);
+          return origExecute(input, opts);
+        },
+      };
+    },
+    unsubscribeThread: () => {
+      const base = unsubscribeThread(chat, approval("unsubscribeThread"));
+      const origExecute = base.execute;
+      return {
+        ...base,
+        execute: async (input: any, opts: any) => {
+          guard?.(input.threadId);
+          return origExecute(input, opts);
+        },
+      };
+    },
   } satisfies Record<ChatToolName, () => unknown>;
 
   type ToolName = keyof typeof factories;

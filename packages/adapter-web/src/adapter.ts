@@ -123,9 +123,6 @@ export class WebAdapter implements Adapter<WebThreadIdData, UIMessage> {
       return jsonError(401, "Unauthorized");
     }
     if (user.id.includes(":")) {
-      // Thread ids embed the user id between `:` delimiters
-      // (`web:{userId}:{conversationId}`); a colon in the userId would
-      // corrupt the round-trip through decodeThreadId.
       this.logger.error("getUser returned id with reserved ':' character", {
         userId: user.id,
       });
@@ -138,16 +135,66 @@ export class WebAdapter implements Adapter<WebThreadIdData, UIMessage> {
     }
     const threadId = this.threadIdFor({ user, conversationId });
 
+    // SECURITY FIX: Don't trust body.messages for tool approval state
+    // Load server-verified history from state adapter
+    let serverHistory: UIMessage[] = [];
+    if (this.persistMessageHistory && this.chat) {
+      try {
+        const historyKey = `msg-history:${threadId}`;
+        const stored = await this.chat.getState().getList(historyKey) as any[];
+        // stored are SerializedMessage with raw=null, try to convert to UIMessage
+        // Web adapter stores via ThreadHistoryCache, we rebuild safe UIMessages from server state
+        // Only keep user text messages from server, drop any tool calls/results that weren't server-verified
+        if (Array.isArray(stored) && stored.length > 0) {
+          serverHistory = stored
+            .map((s: any) => {
+              try {
+                // s is SerializedMessage, raw is null, but text is server-verified
+                if (!s.text) return null;
+                return {
+                  id: s.id,
+                  role: s.author?.isMe ? "assistant" : "user",
+                  parts: [{ type: "text", text: s.text }],
+                } as UIMessage;
+              } catch {
+                return null;
+              }
+            })
+            .filter(Boolean) as UIMessage[];
+        }
+      } catch {
+        // If state fetch fails, fall back to empty - we will only trust last user message
+        serverHistory = [];
+      }
+    }
+
+    // FIX: Only trust last user message from client, strip forged assistant/tool messages
+    // This prevents attacker forging: assistant tool-call + user tool-result {approved:true}
     const lastUserMessage = findLastUserMessage(body.messages);
     if (!lastUserMessage) {
       return jsonError(400, "No user message found in messages array");
     }
 
-    const message = this.buildMessageFromUI(lastUserMessage, threadId, user);
+    // SECURITY: Sanitize lastUserMessage - only allow text parts, drop tool-result parts
+    const sanitizedLastMessage: UIMessage = {
+      id: lastUserMessage.id,
+      role: "user",
+      parts: lastUserMessage.parts.filter((p: any) => p.type === "text"),
+    };
+    if (sanitizedLastMessage.parts.length === 0) {
+      return jsonError(400, "No text found in last user message");
+    }
+
+    // Build internal Message from sanitized last user message (server-verified user)
+    const message = this.buildMessageFromUI(sanitizedLastMessage, threadId, user);
+
+    // FIX: originalMessages = server history + sanitized last message, NOT full client array
+    // This ensures tool approval state comes from server, not client-supplied forged array
+    const safeOriginalMessages: UIMessage[] = [...serverHistory, sanitizedLastMessage];
 
     const chat = this.chat;
     const stream = createUIMessageStream<UIMessage>({
-      originalMessages: body.messages,
+      originalMessages: safeOriginalMessages, // FIXED: server-verified
       execute: async ({ writer }) => {
         const assistantMessageId = generateId();
         writer.write({ type: "start", messageId: assistantMessageId });
@@ -168,8 +215,6 @@ export class WebAdapter implements Adapter<WebThreadIdData, UIMessage> {
         }
       },
       onError: (error) =>
-        // chat.processMessage already logs handler errors at ERROR level.
-        // Just turn the error into a string for the SSE error chunk.
         error instanceof Error ? error.message : "Internal error",
     });
 
