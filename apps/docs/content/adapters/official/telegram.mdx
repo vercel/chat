@@ -67,7 +67,7 @@ features:
 ## Quick start
 
 <Callout type="info">
-The adapter auto-detects `TELEGRAM_ALLOWED_USER_IDS`, `TELEGRAM_BOT_TOKEN`, `TELEGRAM_WEBHOOK_SECRET_TOKEN`, and `TELEGRAM_BOT_USERNAME` from the environment.
+The adapter auto-detects `TELEGRAM_ALLOWED_USER_IDS`, `TELEGRAM_BOT_TOKEN`, `TELEGRAM_WEBHOOK_SECRET_TOKEN`, `TELEGRAM_ALLOW_UNVERIFIED_WEBHOOKS`, and `TELEGRAM_BOT_USERNAME` from the environment.
 </Callout>
 
 ```typescript title="lib/bot.ts" lineNumbers
@@ -130,6 +130,12 @@ const telegram = createTelegramAdapter({
 
 <TypeTable
   type={{
+    allowUnverifiedWebhooks: {
+      type: "boolean",
+      default: "false",
+      description:
+        "Accept webhook requests without secret-token verification. Auto-detected from `TELEGRAM_ALLOW_UNVERIFIED_WEBHOOKS=true`. Use only for local development or behind a trusted verifying proxy.",
+    },
     allowedUserIds: {
       type: "Array<number | string>",
       description:
@@ -143,7 +149,7 @@ const telegram = createTelegramAdapter({
     secretToken: {
       type: "string",
       description:
-        "Optional webhook secret. Auto-detected from `TELEGRAM_WEBHOOK_SECRET_TOKEN`.",
+        "Webhook secret required in webhook mode unless unverified webhooks are explicitly allowed. Auto-detected from `TELEGRAM_WEBHOOK_SECRET_TOKEN`.",
     },
     mode: {
       type: '"auto" | "webhook" | "polling"',
@@ -181,7 +187,7 @@ const telegram = createTelegramAdapter({
   }}
 />
 
-`botToken` is required — either via config or env var.
+`botToken` is always required. Webhook mode also requires `secretToken` unless `allowUnverifiedWebhooks` is explicitly enabled. Polling mode does not require webhook verification.
 
 ## Authentication
 
@@ -255,7 +261,8 @@ Pass `{ raw: "..." }` only if you need to ship a fully pre-escaped MarkdownV2 st
 
 ### Notes
 
-- Verified webhook updates with an integer `update_id` are deduplicated for 24 hours through the configured state adapter. Configure `secretToken` and use shared durable state across serverless instances. If state is unavailable, the adapter returns 503 so Telegram retries without dispatching.
+- Accepted webhook updates with an integer `update_id` are deduplicated for 24 hours through the configured state adapter. Use shared durable state across serverless instances. If state is unavailable, the adapter returns 503 so Telegram retries without dispatching.
+- Webhook mode requires `secretToken` unless `allowUnverifiedWebhooks` is explicitly enabled. Polling mode does not require webhook verification.
 - Telegram does not expose full historical message APIs to bots. `fetchMessages` returns adapter-cached messages from the current process.
 - `listThreads` is not available for Telegram chats.
 - Telegram callback data is limited to 64 bytes — keep `Button` `id`/`value` payloads short.

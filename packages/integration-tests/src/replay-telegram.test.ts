@@ -53,6 +53,7 @@ describe("Replay Tests - Telegram", () => {
     });
 
     adapter = createTelegramAdapter({
+      allowUnverifiedWebhooks: true,
       botToken: TELEGRAM_BOT_TOKEN,
       logger: mockLogger,
       mode: "webhook",

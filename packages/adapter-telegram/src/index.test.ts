@@ -31,6 +31,7 @@ import {
 } from "./markdown";
 
 const mockFetch = vi.fn<typeof fetch>();
+process.env.TELEGRAM_ALLOW_UNVERIFIED_WEBHOOKS = "true";
 const SERVERLESS_ENV_KEYS = [
   "VERCEL",
   "AWS_LAMBDA_FUNCTION_NAME",
@@ -205,6 +206,38 @@ describe("createTelegramAdapter", () => {
     );
   });
 
+  it("requires verification in webhook mode", () => {
+    expect(() =>
+      createTelegramAdapter({
+        allowUnverifiedWebhooks: false,
+        botToken: "token",
+        mode: "webhook",
+        logger: mockLogger,
+      })
+    ).toThrow("secretToken is required in webhook mode");
+  });
+
+  it("allows explicit unverified webhook mode", () => {
+    expect(
+      createTelegramAdapter({
+        allowUnverifiedWebhooks: true,
+        botToken: "token",
+        mode: "webhook",
+        logger: mockLogger,
+      })
+    ).toBeInstanceOf(TelegramAdapter);
+  });
+
+  it("allows polling mode without webhook verification", () => {
+    expect(
+      createTelegramAdapter({
+        botToken: "token",
+        mode: "polling",
+        logger: mockLogger,
+      })
+    ).toBeInstanceOf(TelegramAdapter);
+  });
+
   it("uses env vars when config is omitted", () => {
     process.env.TELEGRAM_BOT_TOKEN = "token-from-env";
 
@@ -252,6 +285,21 @@ describe("constructor env var resolution", () => {
     process.env.TELEGRAM_WEBHOOK_SECRET_TOKEN = "env-secret";
     const adapter = new TelegramAdapter();
     expect(adapter).toBeInstanceOf(TelegramAdapter);
+  });
+
+  it("should resolve allowUnverifiedWebhooks from TELEGRAM_ALLOW_UNVERIFIED_WEBHOOKS", () => {
+    process.env.TELEGRAM_BOT_TOKEN = "env-bot-token";
+    process.env.TELEGRAM_ALLOW_UNVERIFIED_WEBHOOKS = "true";
+    const adapter = new TelegramAdapter({ mode: "webhook" });
+    expect(adapter).toBeInstanceOf(TelegramAdapter);
+  });
+
+  it("should reject TELEGRAM_ALLOW_UNVERIFIED_WEBHOOKS=false in webhook mode", () => {
+    process.env.TELEGRAM_BOT_TOKEN = "env-bot-token";
+    process.env.TELEGRAM_ALLOW_UNVERIFIED_WEBHOOKS = "false";
+    expect(() => new TelegramAdapter({ mode: "webhook" })).toThrow(
+      "secretToken is required in webhook mode"
+    );
   });
 
   it("should resolve userName from TELEGRAM_BOT_USERNAME env var", () => {
@@ -755,7 +803,7 @@ describe("TelegramAdapter", () => {
     );
   });
 
-  it("does not let unverified updates claim IDs", async () => {
+  it("deduplicates explicitly allowed unverified updates", async () => {
     mockFetch.mockResolvedValue(
       telegramOk({
         id: 999,
@@ -791,8 +839,8 @@ describe("TelegramAdapter", () => {
       request({ update_id: 1, message: sampleMessage() })
     );
 
-    expect(chat.processMessage).toHaveBeenCalledTimes(1);
-    expect(state.setIfNotExists).not.toHaveBeenCalled();
+    expect(chat.processMessage).not.toHaveBeenCalled();
+    expect(state.setIfNotExists).toHaveBeenCalledTimes(2);
   });
 
   it("scopes webhook update claims by bot identity", async () => {
@@ -894,13 +942,15 @@ describe("TelegramAdapter", () => {
 
   it("combines an incoming media group into one ordered message", async () => {
     vi.useFakeTimers();
-    mockFetch.mockResolvedValue(
-      telegramOk({
-        id: 999,
-        is_bot: true,
-        first_name: "Bot",
-        username: "mybot",
-      })
+    mockFetch.mockImplementation(() =>
+      Promise.resolve(
+        telegramOk({
+          id: 999,
+          is_bot: true,
+          first_name: "Bot",
+          username: "mybot",
+        })
+      )
     );
 
     const state = createMockState();
@@ -958,7 +1008,7 @@ describe("TelegramAdapter", () => {
     ];
 
     for (const [index, message] of messages.entries()) {
-      await adapters[index].handleWebhook(
+      const response = await adapters[index].handleWebhook(
         new Request("https://example.com/webhook", {
           method: "POST",
           headers: { "content-type": "application/json" },
@@ -966,6 +1016,7 @@ describe("TelegramAdapter", () => {
         }),
         { waitUntil }
       );
+      expect(response.status).toBe(200);
     }
 
     const processMessages = chats.map(
@@ -1022,6 +1073,7 @@ describe("TelegramAdapter", () => {
     }
 
     const adapter = new TestTelegramAdapter({
+      allowUnverifiedWebhooks: true,
       allowedUserIds: [456],
       botToken: "token",
       mode: "webhook",
@@ -1455,6 +1507,47 @@ describe("TelegramAdapter", () => {
     expect(response.status).toBe(401);
   });
 
+  it("rejects unverified callback queries before dispatch", async () => {
+    const adapter = createTelegramAdapter({
+      allowUnverifiedWebhooks: false,
+      botToken: "token",
+      mode: "auto",
+      logger: mockLogger,
+      userName: "mybot",
+    });
+    const chat = createMockChat();
+    (
+      adapter as unknown as {
+        chat: ChatInstance;
+      }
+    ).chat = chat;
+
+    const response = await adapter.handleWebhook(
+      new Request("https://example.com/webhook", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          update_id: 2,
+          callback_query: {
+            id: "callback-1",
+            from: {
+              id: 456,
+              is_bot: false,
+              first_name: "User",
+              username: "user",
+            },
+            message: sampleMessage(),
+            chat_instance: "ci_1",
+            data: encodeTelegramCallbackData("eve_input", "request-123"),
+          },
+        }),
+      })
+    );
+
+    expect(response.status).toBe(401);
+    expect(chat).not.toHaveDispatched("processAction");
+  });
+
   it("returns 400 for invalid webhook JSON", async () => {
     const adapter = createTelegramAdapter({
       botToken: "token",
@@ -1832,6 +1925,38 @@ describe("TelegramAdapter", () => {
     expect(String(mockFetch.mock.calls[1]?.[0])).toContain("/getWebhookInfo");
     expect(adapter.runtimeMode).toBe("webhook");
     expect(adapter.isPolling).toBe(false);
+  });
+
+  it("auto mode requires verification when a webhook is registered", async () => {
+    mockFetch
+      .mockResolvedValueOnce(
+        telegramOk({
+          id: 999,
+          is_bot: true,
+          first_name: "Bot",
+          username: "mybot",
+        })
+      )
+      .mockResolvedValueOnce(
+        telegramOk({
+          allowed_updates: [],
+          has_custom_certificate: false,
+          pending_update_count: 0,
+          url: "https://example.com/webhook/telegram",
+        })
+      );
+
+    const adapter = createTelegramAdapter({
+      allowUnverifiedWebhooks: false,
+      botToken: "token",
+      mode: "auto",
+      logger: mockLogger,
+      userName: "mybot",
+    });
+
+    await expect(adapter.initialize(createMockChat())).rejects.toThrow(
+      "secretToken is required in webhook mode"
+    );
   });
 
   it("auto mode stays in webhook mode on serverless runtime", async () => {
@@ -5772,6 +5897,7 @@ describe("sleep abort support", () => {
 
   const makeAdapter = () =>
     new SleepTestAdapter({
+      allowUnverifiedWebhooks: true,
       botToken: "token",
       mode: "webhook",
       logger: mockLogger,
@@ -5840,6 +5966,7 @@ describe("mention regex caching", () => {
 
   it("matches with the cached regex and recompiles when the username changes", () => {
     const adapter = new MentionTestAdapter({
+      allowUnverifiedWebhooks: true,
       botToken: "token",
       mode: "webhook",
       userName: "first_bot",

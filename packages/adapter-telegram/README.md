@@ -29,7 +29,7 @@ Visit the [adapters directory](https://chat-sdk.dev/adapters) to see other avail
 
 ## Usage
 
-The adapter auto-detects `TELEGRAM_BOT_TOKEN`, `TELEGRAM_WEBHOOK_SECRET_TOKEN`, `TELEGRAM_BOT_USERNAME`, and `TELEGRAM_API_BASE_URL` from environment variables:
+The adapter auto-detects `TELEGRAM_BOT_TOKEN`, `TELEGRAM_WEBHOOK_SECRET_TOKEN`, `TELEGRAM_ALLOW_UNVERIFIED_WEBHOOKS`, `TELEGRAM_BOT_USERNAME`, and `TELEGRAM_API_BASE_URL` from environment variables:
 
 ```typescript
 import { Chat } from "chat";
@@ -67,7 +67,7 @@ Connect does not forward Telegram webhooks. Keep
 without an inbound webhook. `TELEGRAM_BOT_TOKEN` is not needed when using the
 Connect helper. The adapter derives webhook deduplication scope from Telegram's
 stable bot identity, so token rotation does not split update claims. If bot
-identity lookup fails at startup, the next verified webhook retries it.
+identity lookup fails at startup, the next accepted webhook retries it.
 
 ## Webhook route
 
@@ -151,9 +151,10 @@ Most options are auto-detected from environment variables when not provided. `na
 
 | Option | Required | Description |
 |--------|----------|-------------|
+| `allowUnverifiedWebhooks` | No | Accept webhook requests without secret-token verification. Auto-detected from `TELEGRAM_ALLOW_UNVERIFIED_WEBHOOKS=true`. Use only for local development or behind a trusted verifying proxy |
 | `allowedUserIds` | No | Telegram user IDs allowed to trigger the adapter. Auto-detected from `TELEGRAM_ALLOWED_USER_IDS` (comma-separated). All users are allowed when omitted or empty |
 | `botToken` | No* | Telegram bot token. Auto-detected from `TELEGRAM_BOT_TOKEN` |
-| `secretToken` | No | Optional webhook secret token. Auto-detected from `TELEGRAM_WEBHOOK_SECRET_TOKEN` |
+| `secretToken` | Webhook* | Webhook secret token. Auto-detected from `TELEGRAM_WEBHOOK_SECRET_TOKEN` |
 | `mode` | No | Adapter mode: `auto` (default), `webhook`, or `polling` |
 | `longPolling` | No | Optional long polling config for `getUpdates` (`timeout`, `limit`, `allowedUpdates`, `deleteWebhook`, `dropPendingUpdates`, `retryDelayMs`) |
 | `userName` | No | Bot username used for mention detection. Auto-detected from `TELEGRAM_BOT_USERNAME` or `getMe` |
@@ -162,7 +163,7 @@ Most options are auto-detected from environment variables when not provided. `na
 | `apiUrl` | No | Telegram API base URL. Auto-detected from `TELEGRAM_API_BASE_URL`. Use `apiUrl` for cross-adapter consistency; the legacy `apiBaseUrl` alias is still accepted |
 | `logger` | No | Logger instance (defaults to `ConsoleLogger("info")`) |
 
-*`botToken` is required — either via config or env vars.
+*`botToken` is always required. Webhook mode also requires `secretToken` unless `allowUnverifiedWebhooks` is explicitly enabled. Polling mode does not require webhook verification.
 
 ## Environment variables
 
@@ -174,6 +175,8 @@ TELEGRAM_BOT_USERNAME=mybot
 # Optional (self-hosted API gateway)
 TELEGRAM_API_BASE_URL=https://api.telegram.org
 ```
+
+Set `TELEGRAM_ALLOW_UNVERIFIED_WEBHOOKS=true` only for local development or when a trusted upstream verifies every request before it reaches the adapter.
 
 ## Features
 
@@ -253,7 +256,8 @@ Behavior change in 4.27.0: previous versions used Telegram's legacy `Markdown` p
 
 ## Notes
 
-- Verified webhook updates with an integer `update_id` are deduplicated for 24 hours through the configured state adapter. Configure `secretToken` and use shared durable state across serverless instances. If state is unavailable, the adapter returns 503 so Telegram retries without dispatching.
+- Accepted webhook updates with an integer `update_id` are deduplicated for 24 hours through the configured state adapter. Use shared durable state across serverless instances. If state is unavailable, the adapter returns 503 so Telegram retries without dispatching.
+- Webhook mode requires `secretToken` unless `allowUnverifiedWebhooks` is explicitly enabled. Polling mode does not require webhook verification.
 - Telegram does not expose full historical message APIs to bots. `fetchMessages` / `fetchChannelMessages` return adapter-cached messages from the current process.
 - `listThreads` is not available for Telegram chats.
 - Polling and webhooks are mutually exclusive in Telegram.

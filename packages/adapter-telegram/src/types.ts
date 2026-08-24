@@ -10,6 +10,7 @@ import type { Logger } from "chat";
 export interface TelegramAdapterConfig {
   /** Telegram user IDs allowed to trigger the adapter. Defaults to TELEGRAM_ALLOWED_USER_IDS env var (comma-separated). All users are allowed when omitted or empty. */
   allowedUserIds?: Array<number | string>;
+  allowUnverifiedWebhooks?: boolean;
   /** Optional custom API base URL (defaults to https://api.telegram.org). Defaults to TELEGRAM_API_BASE_URL env var. */
   apiBaseUrl?: string;
   /** Override the Telegram API base URL. Alias for apiBaseUrl — apiUrl takes precedence if both are set. Defaults to TELEGRAM_API_BASE_URL env var. */
@@ -35,7 +36,7 @@ export interface TelegramAdapterConfig {
    * post-and-edit regardless of this setting.
    */
   nativeStreaming?: boolean;
-  /** Optional webhook secret token checked against x-telegram-bot-api-secret-token. Defaults to TELEGRAM_WEBHOOK_SECRET_TOKEN env var. */
+  /** Webhook secret token checked against x-telegram-bot-api-secret-token. Required in webhook mode unless unverified webhooks are explicitly allowed. Defaults to TELEGRAM_WEBHOOK_SECRET_TOKEN env var. */
   secretToken?: string;
   /**
    * Minimum interval between edits on the post-and-edit streaming path.

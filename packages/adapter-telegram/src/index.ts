@@ -83,6 +83,8 @@ import type {
 
 const TELEGRAM_API_BASE = "https://api.telegram.org";
 const TELEGRAM_SECRET_TOKEN_HEADER = "x-telegram-bot-api-secret-token";
+const TELEGRAM_WEBHOOK_VERIFICATION_ERROR =
+  "secretToken is required in webhook mode. Set TELEGRAM_WEBHOOK_SECRET_TOKEN or provide secretToken. To accept unverified webhooks, set allowUnverifiedWebhooks: true or TELEGRAM_ALLOW_UNVERIFIED_WEBHOOKS=true.";
 const MESSAGE_ID_PATTERN = /^([^:]+):(\d+)$/;
 const trimTrailingSlashes = (url: string): string => {
   let end = url.length;
@@ -277,6 +279,7 @@ export class TelegramAdapter
   readonly persistThreadHistory = true;
 
   protected readonly allowedUserIds?: Set<string>;
+  protected readonly allowUnverifiedWebhooks: boolean;
   protected readonly botTokenProvider: () => Promise<string>;
   protected readonly staticBotToken?: string;
   protected readonly apiBaseUrl: string;
@@ -342,6 +345,9 @@ export class TelegramAdapter
     );
     this.secretToken =
       config.secretToken ?? process.env.TELEGRAM_WEBHOOK_SECRET_TOKEN;
+    this.allowUnverifiedWebhooks =
+      config.allowUnverifiedWebhooks ??
+      process.env.TELEGRAM_ALLOW_UNVERIFIED_WEBHOOKS === "true";
     const allowedUserIds =
       config.allowedUserIds ??
       process.env.TELEGRAM_ALLOWED_USER_IDS?.split(",");
@@ -373,6 +379,15 @@ export class TelegramAdapter
       throw new ValidationError(
         "telegram",
         `Invalid mode: ${this.mode}. Expected "auto", "webhook", or "polling".`
+      );
+    }
+    if (
+      this.mode === "webhook" &&
+      !(this.secretToken || this.allowUnverifiedWebhooks)
+    ) {
+      throw new ValidationError(
+        "telegram",
+        TELEGRAM_WEBHOOK_VERIFICATION_ERROR
       );
     }
   }
@@ -437,6 +452,16 @@ export class TelegramAdapter
     const runtimeMode = await this.resolveRuntimeMode();
     this._runtimeMode = runtimeMode;
 
+    if (
+      runtimeMode === "webhook" &&
+      !(this.secretToken || this.allowUnverifiedWebhooks)
+    ) {
+      throw new ValidationError(
+        "telegram",
+        TELEGRAM_WEBHOOK_VERIFICATION_ERROR
+      );
+    }
+
     if (runtimeMode === "polling") {
       const pollingConfig = this.longPolling;
 
@@ -482,6 +507,12 @@ export class TelegramAdapter
     request: Request,
     options?: WebhookOptions
   ): Promise<Response> {
+    if (!(this.secretToken || this.allowUnverifiedWebhooks)) {
+      this.logger.warn(
+        "Telegram webhook rejected because verification is not configured"
+      );
+      return new Response("Webhook verification required", { status: 401 });
+    }
     if (this.secretToken) {
       const headerToken = request.headers.get(TELEGRAM_SECRET_TOKEN_HEADER);
       let valid = false;
@@ -503,9 +534,7 @@ export class TelegramAdapter
       }
     } else if (!this.warnedNoVerification) {
       this.warnedNoVerification = true;
-      this.logger.warn(
-        "Telegram webhook verification is disabled. Set TELEGRAM_WEBHOOK_SECRET_TOKEN or secretToken to verify incoming requests."
-      );
+      this.logger.warn("Telegram webhook verification is explicitly disabled");
     }
 
     let update: TelegramUpdate;
@@ -522,7 +551,7 @@ export class TelegramAdapter
       return new Response("OK", { status: 200 });
     }
 
-    if (this.secretToken && Number.isInteger(update.update_id)) {
+    if (Number.isInteger(update.update_id)) {
       let webhookScope = this.webhookScope;
       if (!webhookScope) {
         try {
