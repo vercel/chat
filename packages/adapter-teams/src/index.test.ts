@@ -1597,12 +1597,13 @@ describe("TeamsAdapter", () => {
     });
 
     it("dispatches the message when conversation member lookup fails", async () => {
-      const { adapter, chat, getMemberById } = await setup(
+      const { adapter, chat, getMemberById, mockApp } = await setup(
         new Error("Forbidden")
       );
 
       await adapter.handleIncoming(activity("activity-aad-id"), getMemberById);
 
+      expect(mockApp.graph.call).not.toHaveBeenCalled();
       expect(chat.processMessage).toHaveBeenCalledOnce();
       const message = vi.mocked(chat.processMessage).mock.calls[0]?.[2];
       expect(message?.author.email).toBeUndefined();
