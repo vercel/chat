@@ -42,6 +42,13 @@ export {
   isEncryptedTokenData,
 } from "./crypto";
 
+// Guarded downloads for untrusted attachment URLs (SSRF-safe, size- and time-limited)
+export {
+  type AttachmentTransport,
+  type DownloadAttachmentOptions,
+  downloadAttachment,
+} from "./download";
+
 // Standardized adapter errors
 export {
   AdapterError,

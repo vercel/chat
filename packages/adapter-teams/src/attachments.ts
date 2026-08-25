@@ -1,10 +1,10 @@
-import { NetworkError } from "@chat-adapter/shared";
+import { downloadAttachment, NetworkError } from "@chat-adapter/shared";
 import type { Attachment } from "chat";
-import { download } from "./fetch";
 
 const FILE_DOWNLOAD_INFO_CONTENT_TYPE =
   "application/vnd.microsoft.teams.file.download.info";
 const FILE_TYPE_PREFIX_PATTERN = /^\./;
+const LOOPBACK_HOST_PATTERN = /^(?:localhost|127(?:\.\d{1,3}){3}|\[::1\])$/i;
 const FILE_MIME_TYPES: Record<string, string> = {
   apng: "image/apng",
   avif: "image/avif",
@@ -54,14 +54,25 @@ function inferFileMimeType(name?: string, fileType?: string): string {
   return FILE_MIME_TYPES[extension] ?? "application/octet-stream";
 }
 
-function getHttpsOrigin(url?: string): string | undefined {
+function getConnectorOrigin(url?: string): string | undefined {
   if (!url) {
     return;
   }
 
   try {
     const parsed = new URL(url);
-    return parsed.protocol === "https:" ? parsed.origin : undefined;
+    if (parsed.protocol === "https:") {
+      return parsed.origin;
+    }
+    // The Bot Framework Emulator serves the connector over plain HTTP on
+    // loopback, so local development still gets the bot-auth path.
+    if (
+      parsed.protocol === "http:" &&
+      LOOPBACK_HOST_PATTERN.test(parsed.hostname)
+    ) {
+      return parsed.origin;
+    }
+    return;
   } catch {
     return;
   }
@@ -71,7 +82,7 @@ function isTrustedBotAttachmentUrl(
   url: string,
   connectorOrigin: string
 ): boolean {
-  return getHttpsOrigin(url) === connectorOrigin;
+  return getConnectorOrigin(url) === connectorOrigin;
 }
 
 function createFetchDataFn(
@@ -101,7 +112,7 @@ export function createAnonymousAttachmentFetchData(
 ): () => Promise<Buffer> {
   return async () => {
     try {
-      return await download(url);
+      return await downloadAttachment(url, { adapter: "teams" });
     } catch (error) {
       if (error instanceof NetworkError) {
         throw error;
@@ -157,7 +168,7 @@ export function createTeamsAttachment(
   const mimeType = isFileDownload
     ? inferFileMimeType(att.name, fileType)
     : att.contentType;
-  const connectorOrigin = getHttpsOrigin(serviceUrl);
+  const connectorOrigin = getConnectorOrigin(serviceUrl);
   const useBotAuth =
     !isFileDownload &&
     url !== undefined &&

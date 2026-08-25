@@ -80,40 +80,78 @@ describe("Teams attachments", () => {
     });
   });
 
-  it("rejects untrusted inline attachment downloads by default", async () => {
+  it("keeps cross-origin inline attachments anonymous", async () => {
     const fetchAuthenticated = vi.fn();
-    const urls = [
-      "https://files.example.com/image.png",
-      "http://contoso-my.sharepoint.com/image.png",
-    ];
+    const transfer = vi.fn(async () => Buffer.from("public image"));
+    const url = "https://files.example.com/image.png";
 
-    const attachments = urls.map((contentUrl) =>
-      createTeamsAttachment(
-        {
-          contentType: "image/png",
-          contentUrl,
-          name: "image.png",
-        },
-        CONNECTOR_URL,
-        createFetchers(fetchAuthenticated)
-      )
-    );
-
-    expect(attachments).toMatchObject(
-      urls.map((url) => ({
-        type: "image",
-        url,
+    const attachment = createTeamsAttachment(
+      {
+        contentType: "image/png",
+        contentUrl: url,
         name: "image.png",
-        mimeType: "image/png",
-        fetchMetadata: { url },
-      }))
+      },
+      CONNECTOR_URL,
+      createFetchers(fetchAuthenticated, transfer)
     );
-    for (const attachment of attachments) {
-      await expect(attachment.fetchData?.()).rejects.toThrow(
-        "Refusing to fetch an untrusted attachment URL"
-      );
-    }
+
+    expect(attachment).toMatchObject({
+      type: "image",
+      url,
+      name: "image.png",
+      mimeType: "image/png",
+      fetchMetadata: { url },
+    });
+    await expect(attachment.fetchData?.()).resolves.toEqual(
+      Buffer.from("public image")
+    );
+    expect(transfer).toHaveBeenCalledWith(url);
     expect(fetchAuthenticated).not.toHaveBeenCalled();
+  });
+
+  it("rejects plain-HTTP inline attachment downloads by default", async () => {
+    const fetchAuthenticated = vi.fn();
+    const url = "http://contoso-my.sharepoint.com/image.png";
+
+    const attachment = createTeamsAttachment(
+      {
+        contentType: "image/png",
+        contentUrl: url,
+        name: "image.png",
+      },
+      CONNECTOR_URL,
+      createFetchers(fetchAuthenticated)
+    );
+
+    await expect(attachment.fetchData?.()).rejects.toThrow(
+      "Refusing to fetch an untrusted attachment URL"
+    );
+    expect(fetchAuthenticated).not.toHaveBeenCalled();
+  });
+
+  it("authenticates emulator attachments on a loopback HTTP connector", async () => {
+    const fetchAuthenticated = vi.fn(async () => Buffer.from("emulator image"));
+    const url = "http://localhost:3978/v3/attachments/image/views/original";
+
+    const attachment = createTeamsAttachment(
+      {
+        contentType: "image/png",
+        contentUrl: url,
+        name: "image.png",
+      },
+      "http://localhost:3978/",
+      createFetchers(fetchAuthenticated)
+    );
+
+    expect(attachment.fetchMetadata).toEqual({
+      url,
+      auth: "bot",
+      connectorOrigin: "http://localhost:3978",
+    });
+    await expect(attachment.fetchData?.()).resolves.toEqual(
+      Buffer.from("emulator image")
+    );
+    expect(fetchAuthenticated).toHaveBeenCalledWith(url);
   });
 
   it("rehydrates both retrieval modes and revalidates bot destinations", async () => {
@@ -174,8 +212,7 @@ describe("Teams attachments", () => {
       );
     }
 
-    const anonymousUrl =
-      "https://contoso-my.sharepoint.com/personal/user/report.pdf";
+    const anonymousUrl = "https://files.example.com/report.pdf";
     const anonymous = rehydrateTeamsAttachment(
       JSON.parse(
         JSON.stringify({
