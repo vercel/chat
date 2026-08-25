@@ -66,6 +66,12 @@ export interface DownloadAttachmentOptions {
   adapter: string;
   /** Extra request headers merged over the defaults. */
   headers?: Record<string, string>;
+  /**
+   * Optional host allowlist. When set, every fetched URL (including
+   * redirect targets) must be one of these hosts or a subdomain of one;
+   * anything else is refused as untrusted. Matching is case-insensitive.
+   */
+  hosts?: readonly string[];
   /** Maximum decoded body size in bytes. Defaults to 25 MB. */
   limit?: number;
   /** Maximum redirects to follow. Defaults to 5. */
@@ -148,7 +154,8 @@ export function createResolver(
 
 export function validateAttachmentUrl(
   value: string | URL,
-  adapter: string
+  adapter: string,
+  hosts?: readonly string[]
 ): URL {
   const url = value instanceof URL ? value : new URL(value);
   const hostname = url.hostname.replace(BRACKETS, "");
@@ -156,7 +163,14 @@ export function validateAttachmentUrl(
   if (family && blocked(hostname, family)) {
     throw refusal(adapter);
   }
-  if (url.protocol !== "https:") {
+  if (
+    url.protocol !== "https:" ||
+    (hosts &&
+      !hosts.some((host) => {
+        const allowed = host.toLowerCase();
+        return hostname === allowed || hostname.endsWith(`.${allowed}`);
+      }))
+  ) {
     throw new NetworkError(
       adapter,
       "Refusing to fetch an untrusted attachment URL"
@@ -260,6 +274,7 @@ export async function downloadAttachment(
   const {
     adapter,
     headers,
+    hosts,
     limit = LIMIT,
     redirects = REDIRECTS,
     timeoutMs = TIMEOUT,
@@ -267,7 +282,7 @@ export async function downloadAttachment(
   } = options;
   const send = transport ?? createTransport(adapter, headers);
   const signal = AbortSignal.timeout(timeoutMs);
-  let url = validateAttachmentUrl(value, adapter);
+  let url = validateAttachmentUrl(value, adapter, hosts);
   try {
     for (let hop = 0; hop <= redirects; hop += 1) {
       const response = await send(url, signal);
@@ -284,7 +299,7 @@ export async function downloadAttachment(
         if (hop === redirects) {
           throw new NetworkError(adapter, "Too many attachment redirects");
         }
-        url = validateAttachmentUrl(new URL(location, url), adapter);
+        url = validateAttachmentUrl(new URL(location, url), adapter, hosts);
         continue;
       }
       if (status < 200 || status >= 300) {

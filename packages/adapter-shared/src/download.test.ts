@@ -131,6 +131,58 @@ describe("guarded attachment downloads", () => {
     ).rejects.toThrow("Refusing to fetch an internal attachment URL");
   });
 
+  it.each([
+    "https://fbsbx.com/file",
+    "https://cdn.fbsbx.com/file",
+    "https://SContent.XX.FBCDN.NET/file",
+  ])("accepts allowlisted host URL %s", (url) => {
+    expect(
+      validateAttachmentUrl(url, "test", ["fbsbx.com", "FBCDN.net"])
+    ).toBeInstanceOf(URL);
+  });
+
+  it.each([
+    "https://example.com/file",
+    "https://fbsbx.com.attacker.example/file",
+    "https://cdn.fbsbx.com./file",
+  ])("rejects off-allowlist URL %s", (url) => {
+    expect(() =>
+      validateAttachmentUrl(url, "test", ["fbsbx.com", "fbcdn.net"])
+    ).toThrow("Refusing to fetch an untrusted attachment URL");
+  });
+
+  it("applies the host allowlist to redirect targets", async () => {
+    const transport = vi.fn(async () =>
+      response("", 302, { location: "https://example.com/file" })
+    );
+
+    await expect(
+      downloadAttachment("https://cdn.fbsbx.com/file", {
+        adapter: "test",
+        hosts: ["fbsbx.com"],
+        transport,
+      })
+    ).rejects.toThrow("Refusing to fetch an untrusted attachment URL");
+    expect(transport).toHaveBeenCalledOnce();
+  });
+
+  it("follows redirects between allowlisted hosts", async () => {
+    const transport = vi
+      .fn<(url: URL, signal: AbortSignal) => Promise<IncomingMessage>>()
+      .mockResolvedValueOnce(
+        response("", 302, { location: "https://scontent.xx.fbcdn.net/file" })
+      )
+      .mockResolvedValueOnce(response("media"));
+
+    await expect(
+      downloadAttachment("https://lookaside.fbsbx.com/file", {
+        adapter: "test",
+        hosts: ["fbsbx.com", "fbcdn.net"],
+        transport,
+      })
+    ).resolves.toEqual(Buffer.from("media"));
+  });
+
   it("rejects redirects to internal addresses", async () => {
     const transport = vi.fn(async () =>
       response("", 302, {
