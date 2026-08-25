@@ -71,3 +71,15 @@
   body: '{"token":"xAbCdEfGhIjKlMnOpQrStUvW","team_id":"T00FAKE00AA","context_team_id":"T00FAKE00AA","context_enterprise_id":null,"api_app_id":"A00FAKEAPP01","event":{"type":"message","user":"U00FAKEUSER1","ts":"1786120899.208429","client_msg_id":"8f1c2d3e-45a6-47b8-9c0d-1e2f3a4b5c6d","text":"Which devices support remote firmware upgrades?","team":"T00FAKE00AA","blocks":[{"type":"rich_text","block_id":"tblQ1","elements":[{"type":"rich_text_section","elements":[{"type":"text","text":"Which devices support remote firmware upgrades?"}]}]}],"attachments":[{"id":1,"fallback":"[no preview available]","blocks":[{"type":"table","block_id":"pasted1","rows":[[{"type":"rich_text","elements":[{"type":"rich_text_section","elements":[{"type":"text","text":"Manufacturer","style":{"bold":true}}]}]},{"type":"raw_text","text":"Identifier Listed"},{"type":"raw_text","text":"Units"}],[{"type":"raw_text","text":"Samsung"},{"type":"raw_text","text":"QB55C"},{"type":"raw_number","value":3}]]}]}],"channel":"C00FAKECHAN1","event_ts":"1786120899.208429","channel_type":"channel"},"type":"event_callback","event_id":"Ev0ATABLE001","event_time":1786120899,"authorizations":[{"enterprise_id":null,"team_id":"T00FAKE00AA","user_id":"U00FAKEBOT01","is_bot":true,"is_enterprise_install":false}],"is_ext_shared_channel":false}'
 }
 ```
+
+```log
+[chat-sdk:slack] Slack webhook raw body {
+  body: '{"token":"xAbCdEfGhIjKlMnOpQrStUvW","team_id":"T00FAKE00AA","api_app_id":"A00FAKEAPP01","event":{"type":"agent_session_stopped","user":"U00FAKEUSER1","channel":"D00FAKEDM001","thread_ts":"1782234671.392669","message_ts":"1782234987.693923","event_ts":"1783536983.783769","team_id":"T00FAKE00AA"},"type":"event_callback","event_id":"Ev0AGENTSTOP1","event_time":1783536983}'
+}
+```
+
+```log
+[chat-sdk:slack] Slack webhook raw body {
+  body: '{"token":"xAbCdEfGhIjKlMnOpQrStUvW","team_id":"T00FAKE00AA","api_app_id":"A00FAKEAPP01","event":{"type":"agent_session_title_changed","user":"U00FAKEUSER1","channel":"D00FAKEDM001","thread_ts":"1782234671.392669","previous_title":"Scuba diving research","title":"Bora Bora trip prep","event_ts":"1783536983.783769","team_id":"T00FAKE00AA"},"type":"event_callback","event_id":"Ev0AGENTTITLE1","event_time":1783536983}'
+}
+```

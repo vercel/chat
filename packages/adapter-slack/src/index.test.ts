@@ -3865,7 +3865,11 @@ describe("message subtype handling", () => {
 
   it.each([
     ["a flat DM", { agentView: false }, "slack:D_DM:"],
-    ["a threaded agent_view DM", { agentView: true }, "slack:D_DM:1111.0001"],
+    [
+      "a threaded agent_view DM",
+      { agentView: true, sessionTitle: false },
+      "slack:D_DM:1111.0001",
+    ],
   ])("routes the message, its edit, and its delete to one thread id in %s", async (_, config, expected) => {
     const adapter = createSlackAdapter({
       botToken: "xoxb-test-token",
@@ -4531,6 +4535,7 @@ describe("handleWebhook - slash commands", () => {
 // ============================================================================
 
 interface MockableClient {
+  apiCall: ReturnType<typeof vi.fn>;
   assistant: {
     threads: {
       setStatus: ReturnType<typeof vi.fn>;
@@ -5690,6 +5695,89 @@ describe("agent_view DM threading", () => {
     expect(threadId).toBe("slack:D1:1771.99");
   });
 
+  it("automatically titles a top-level agent_view DM session", async () => {
+    const adapter = createSlackAdapter({
+      agentView: true,
+      botToken: "xoxb-test-token",
+      signingSecret: secret,
+      botUserId: "U_BOT",
+      logger: mockLogger,
+    });
+    const apiCall = vi.fn().mockResolvedValue({ ok: true });
+    mockClientMethod(adapter, "apiCall", apiCall);
+    await adapter.initialize(
+      createMockChatInstance({ state: createMockState() })
+    );
+    const tasks: Promise<unknown>[] = [];
+
+    await adapter.handleWebhook(createWebhookRequest(dmMessageBody(), secret), {
+      waitUntil: (task) => tasks.push(task),
+    });
+    await Promise.all(tasks);
+
+    expect(apiCall).toHaveBeenCalledWith(
+      "agents.sessions.rename",
+      expect.objectContaining({
+        channel_id: "D1",
+        thread_ts: "1771.99",
+        title: "hi",
+      })
+    );
+  });
+
+  it("skips automatic titles when sessionTitle is disabled", async () => {
+    const adapter = createSlackAdapter({
+      agentView: true,
+      sessionTitle: false,
+      botToken: "xoxb-test-token",
+      signingSecret: secret,
+      botUserId: "U_BOT",
+      logger: mockLogger,
+    });
+    const apiCall = vi.fn().mockResolvedValue({ ok: true });
+    mockClientMethod(adapter, "apiCall", apiCall);
+    await adapter.initialize(
+      createMockChatInstance({ state: createMockState() })
+    );
+    const tasks: Promise<unknown>[] = [];
+
+    await adapter.handleWebhook(createWebhookRequest(dmMessageBody(), secret), {
+      waitUntil: (task) => tasks.push(task),
+    });
+    await Promise.all(tasks);
+
+    expect(apiCall).not.toHaveBeenCalledWith(
+      "agents.sessions.rename",
+      expect.anything()
+    );
+  });
+
+  it("does not retitle an agent_view DM follow-up", async () => {
+    const adapter = createSlackAdapter({
+      agentView: true,
+      botToken: "xoxb-test-token",
+      signingSecret: secret,
+      botUserId: "U_BOT",
+      logger: mockLogger,
+    });
+    const apiCall = vi.fn().mockResolvedValue({ ok: true });
+    mockClientMethod(adapter, "apiCall", apiCall);
+    await adapter.initialize(
+      createMockChatInstance({ state: createMockState() })
+    );
+    const body = JSON.parse(dmMessageBody());
+    body.event.thread_ts = "1771.00";
+
+    await adapter.handleWebhook(
+      createWebhookRequest(JSON.stringify(body), secret)
+    );
+
+    expect(apiCall).not.toHaveBeenCalledWith(
+      "agents.sessions.rename",
+      expect.anything()
+    );
+  });
+
   it("routes a top-level agent_view DM message to the conversation-scoped thread when it is subscribed (openDM flow)", async () => {
     const adapter = createSlackAdapter({
       agentView: true,
@@ -5736,20 +5824,21 @@ describe("agent_view DM threading", () => {
       signingSecret: secret,
       logger: mockLogger,
     });
-    mockClientMethod(
-      adapter,
-      "assistant.threads.setStatus",
-      vi.fn().mockResolvedValue({ ok: true })
-    );
+    const apiCall = vi.fn().mockResolvedValue({ ok: true });
+    mockClientMethod(adapter, "apiCall", apiCall);
 
-    await adapter.startTyping("slack:D1:1771.99", "Thinking...");
+    await adapter.startTyping("slack:D1:1771.99", "Thinking...", {
+      initiatorUserId: "U1",
+    });
 
     const client = getClient(adapter);
-    expect(client.assistant.threads.setStatus).toHaveBeenCalledWith(
+    expect(client.apiCall).toHaveBeenCalledWith(
+      "agents.sessions.setStatus",
       expect.objectContaining({
         channel_id: "D1",
+        initiator_user_id: "U1",
         thread_ts: "1771.99",
-        status: "Thinking...",
+        status: "processing",
       })
     );
   });
@@ -7592,6 +7681,31 @@ describe("setAssistantStatus", () => {
       })
     );
   });
+
+  it("maps agent status text to session lifecycle states", async () => {
+    const adapter = createSlackAdapter({
+      agentView: true,
+      botToken: "xoxb-test-token",
+      signingSecret: secret,
+      logger: mockLogger,
+    });
+    const apiCall = vi.fn().mockResolvedValue({ ok: true });
+    mockClientMethod(adapter, "apiCall", apiCall);
+
+    await adapter.setAssistantStatus("D123", "1.2", "Working...");
+    await adapter.setAssistantStatus("D123", "1.2", "");
+
+    expect(apiCall).toHaveBeenNthCalledWith(
+      1,
+      "agents.sessions.setStatus",
+      expect.objectContaining({ status: "processing" })
+    );
+    expect(apiCall).toHaveBeenNthCalledWith(
+      2,
+      "agents.sessions.setStatus",
+      expect.objectContaining({ status: "active" })
+    );
+  });
 });
 
 // ============================================================================
@@ -7627,6 +7741,28 @@ describe("setAssistantTitle", () => {
         thread_ts: "1234567890.000000",
         title: "My Thread Title",
         token: "xoxb-test-token",
+      })
+    );
+  });
+
+  it("renames an agent session under agentView", async () => {
+    const adapter = createSlackAdapter({
+      agentView: true,
+      botToken: "xoxb-test-token",
+      signingSecret: secret,
+      logger: mockLogger,
+    });
+    const apiCall = vi.fn().mockResolvedValue({ ok: true });
+    mockClientMethod(adapter, "apiCall", apiCall);
+
+    await adapter.setAssistantTitle("D123", "1.2", "Agent title");
+
+    expect(apiCall).toHaveBeenCalledWith(
+      "agents.sessions.rename",
+      expect.objectContaining({
+        channel_id: "D123",
+        thread_ts: "1.2",
+        title: "Agent title",
       })
     );
   });
@@ -7727,6 +7863,104 @@ describe("handleWebhook - assistant events", () => {
         context: expect.objectContaining({
           channelId: "C_NEW_CONTEXT",
         }),
+      }),
+      undefined
+    );
+  });
+
+  it("aborts and activates an agent session when the user stops it", async () => {
+    const state = createMockState();
+    const chatInstance = createMockChatInstance({ state });
+    const adapter = createSlackAdapter({
+      agentView: true,
+      botToken: "xoxb-test-token",
+      signingSecret: secret,
+      logger: mockLogger,
+      botUserId: "U_BOT",
+    });
+    const apiCall = vi.fn().mockResolvedValue({ ok: true });
+    mockClientMethod(adapter, "apiCall", apiCall);
+    await adapter.initialize(chatInstance);
+
+    const body = JSON.stringify({
+      type: "event_callback",
+      team_id: "T123",
+      event: {
+        type: "agent_session_stopped",
+        user: "U_USER",
+        channel: "D_AGENT",
+        thread_ts: "1234567890.111111",
+        message_ts: "1234567891.222222",
+        event_ts: "1234567892.333333",
+        team_id: "T123",
+      },
+    });
+    const tasks: Promise<unknown>[] = [];
+    const response = await adapter.handleWebhook(
+      createWebhookRequest(body, secret),
+      { waitUntil: (task) => tasks.push(task) }
+    );
+    await Promise.all(tasks);
+
+    const threadId = "slack:D_AGENT:1234567890.111111";
+    expect(response.status).toBe(200);
+    expect(chatInstance.abortTurn).toHaveBeenCalledWith(threadId);
+    expect(apiCall).toHaveBeenCalledWith(
+      "agents.sessions.setStatus",
+      expect.objectContaining({
+        channel_id: "D_AGENT",
+        status: "active",
+        thread_ts: "1234567890.111111",
+      })
+    );
+    expect(chatInstance.processAgentSessionStopped).toHaveBeenCalledWith(
+      expect.objectContaining({
+        messageTs: "1234567891.222222",
+        threadId,
+        userId: "U_USER",
+      }),
+      expect.any(Object)
+    );
+    expect(state.acquireLock).not.toHaveBeenCalled();
+  });
+
+  it("dispatches agent session title changes", async () => {
+    const chatInstance = createMockChatInstance({
+      state: createMockState(),
+    });
+    const adapter = createSlackAdapter({
+      agentView: true,
+      botToken: "xoxb-test-token",
+      signingSecret: secret,
+      logger: mockLogger,
+      botUserId: "U_BOT",
+    });
+    await adapter.initialize(chatInstance);
+
+    const body = JSON.stringify({
+      type: "event_callback",
+      team_id: "T123",
+      event: {
+        type: "agent_session_title_changed",
+        user: "U_USER",
+        channel: "D_AGENT",
+        thread_ts: "1234567890.111111",
+        previous_title: "Old title",
+        title: "New title",
+        event_ts: "1234567892.333333",
+        team_id: "T123",
+      },
+    });
+    const response = await adapter.handleWebhook(
+      createWebhookRequest(body, secret)
+    );
+
+    expect(response.status).toBe(200);
+    expect(chatInstance.processAgentSessionTitleChanged).toHaveBeenCalledWith(
+      expect.objectContaining({
+        previousTitle: "Old title",
+        threadId: "slack:D_AGENT:1234567890.111111",
+        title: "New title",
       }),
       undefined
     );
@@ -9839,6 +10073,23 @@ describe("native streaming fallback", () => {
       yield part;
     }
   }
+
+  it("finishes agent streams with an active session status", async () => {
+    const { adapter } = createAdapter({ agentView: true });
+    const append = vi.fn().mockResolvedValue({ ok: true });
+    const stop = vi.fn().mockResolvedValue({ ts: "stream-ts" });
+    mockClientMethod(
+      adapter,
+      "chatStream",
+      vi.fn().mockReturnValue({ append, stop, ts: undefined })
+    );
+
+    await adapter.stream("slack:D123:1234567890.000000", textStream("hello"));
+
+    expect(stop).toHaveBeenCalledWith(
+      expect.objectContaining({ session_status: "active" })
+    );
+  });
 
   it("returns null before consuming the stream when nativeStreaming is false", async () => {
     const { adapter } = createAdapter({ nativeStreaming: false });
