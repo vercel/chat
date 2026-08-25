@@ -183,6 +183,60 @@ describe("guarded attachment downloads", () => {
     ).resolves.toEqual(Buffer.from("media"));
   });
 
+  it("resolves headers per hop and drops credentials on redirects", async () => {
+    const transport = vi
+      .fn<
+        (
+          url: URL,
+          signal: AbortSignal,
+          headers?: Record<string, string>
+        ) => Promise<IncomingMessage>
+      >()
+      .mockResolvedValueOnce(
+        response("", 302, { location: "https://cdn.example.net/file" })
+      )
+      .mockResolvedValueOnce(response("file contents"));
+
+    await expect(
+      downloadAttachment("https://files.example.com/file", {
+        adapter: "test",
+        headers: (url) =>
+          url.hostname === "files.example.com"
+            ? { authorization: "Bearer secret" }
+            : undefined,
+        transport,
+      })
+    ).resolves.toEqual(Buffer.from("file contents"));
+
+    const [firstHeaders, secondHeaders] = transport.mock.calls.map(
+      (call) => call[2]
+    );
+    expect(firstHeaders).toMatchObject({
+      authorization: "Bearer secret",
+      "user-agent": "Vercel.ChatSDK",
+    });
+    expect(secondHeaders).not.toHaveProperty("authorization");
+    expect(secondHeaders).toMatchObject({ "user-agent": "Vercel.ChatSDK" });
+  });
+
+  it("rejects responses that fail the onResponse check", async () => {
+    const transport = vi.fn(async () =>
+      response("<html>sign in</html>", 200, { "content-type": "text/html" })
+    );
+
+    await expect(
+      downloadAttachment("https://files.example.com/file", {
+        adapter: "test",
+        onResponse: (message) => {
+          if (message.headers["content-type"]?.includes("text/html")) {
+            throw new NetworkError("test", "Unexpected HTML response");
+          }
+        },
+        transport,
+      })
+    ).rejects.toThrow("Unexpected HTML response");
+  });
+
   it("rejects redirects to internal addresses", async () => {
     const transport = vi.fn(async () =>
       response("", 302, {
@@ -215,7 +269,8 @@ describe("guarded attachment downloads", () => {
     ).resolves.toEqual(Buffer.from("file contents"));
     expect(transport).toHaveBeenLastCalledWith(
       new URL("https://cdn.example.net/file"),
-      expect.any(AbortSignal)
+      expect.any(AbortSignal),
+      expect.objectContaining({ "user-agent": "Vercel.ChatSDK" })
     );
   });
 

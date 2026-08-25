@@ -8,6 +8,7 @@
 
 import { AsyncLocalStorage } from "node:async_hooks";
 import {
+  downloadAttachment,
   extractCard,
   extractFiles,
   NetworkError,
@@ -2071,25 +2072,18 @@ export class DiscordAdapter implements Adapter<DiscordThreadId, unknown> {
   }
 
   protected async downloadAttachment(url: string): Promise<Buffer> {
-    let response: Response;
     try {
-      response = await fetch(url);
+      return await downloadAttachment(url, { adapter: "discord" });
     } catch (error) {
+      if (error instanceof NetworkError) {
+        throw error;
+      }
       throw new NetworkError(
         "discord",
         "Failed to download Discord attachment",
         error instanceof Error ? error : undefined
       );
     }
-
-    if (!response.ok) {
-      throw new NetworkError(
-        "discord",
-        `Failed to download Discord attachment: ${response.status}`
-      );
-    }
-
-    return Buffer.from(await response.arrayBuffer());
   }
 
   /**

@@ -53,19 +53,27 @@ type Resolver = (
 /**
  * Issues one request and resolves with the raw response. Downloads pass an
  * AbortSignal carrying the overall deadline; honor it so timeouts propagate.
- * Supply your own transport to route downloads through a proxy or custom
- * egress.
+ * The resolved request headers for the hop are passed along. Supply your own
+ * transport to route downloads through a proxy or custom egress.
  */
 export type AttachmentTransport = (
   url: URL,
-  signal: AbortSignal
+  signal: AbortSignal,
+  headers?: Record<string, string>
 ) => Promise<IncomingMessage>;
 
 export interface DownloadAttachmentOptions {
   /** Adapter name used to tag thrown errors, e.g. "teams". */
   adapter: string;
-  /** Extra request headers merged over the defaults. */
-  headers?: Record<string, string>;
+  /**
+   * Extra request headers merged over the defaults, sent on every hop
+   * including redirect targets. Pass a function to decide per hop; when
+   * sending credentials, use the function form (or a hosts allowlist) so a
+   * redirect cannot carry them to an untrusted host.
+   */
+  headers?:
+    | Record<string, string>
+    | ((url: URL) => Record<string, string> | undefined);
   /**
    * Optional host allowlist. When set, every fetched URL (including
    * redirect targets) must be one of these hosts or a subdomain of one;
@@ -74,6 +82,12 @@ export interface DownloadAttachmentOptions {
   hosts?: readonly string[];
   /** Maximum decoded body size in bytes. Defaults to 25 MB. */
   limit?: number;
+  /**
+   * Called with the final response before its body is read; throw to reject
+   * the download (e.g. on an unexpected content type). Redirect and error
+   * statuses never reach it.
+   */
+  onResponse?: (response: IncomingMessage) => void;
   /** Maximum redirects to follow. Defaults to 5. */
   redirects?: number;
   /**
@@ -179,22 +193,15 @@ export function validateAttachmentUrl(
   return url;
 }
 
-function createTransport(
-  adapter: string,
-  headers?: Record<string, string>
-): AttachmentTransport {
+function createTransport(adapter: string): AttachmentTransport {
   const lookup = createResolver(adapter);
-  return (url, signal) =>
+  return (url, signal, headers) =>
     new Promise((fulfill, reject) => {
       const request = secure(
         url,
         {
           agent: false,
-          headers: {
-            "accept-encoding": "gzip, deflate, br",
-            "user-agent": "Vercel.ChatSDK",
-            ...headers,
-          },
+          headers,
           lookup,
           signal,
         },
@@ -276,16 +283,21 @@ export async function downloadAttachment(
     headers,
     hosts,
     limit = LIMIT,
+    onResponse,
     redirects = REDIRECTS,
     timeoutMs = TIMEOUT,
     transport,
   } = options;
-  const send = transport ?? createTransport(adapter, headers);
+  const send = transport ?? createTransport(adapter);
   const signal = AbortSignal.timeout(timeoutMs);
   let url = validateAttachmentUrl(value, adapter, hosts);
   try {
     for (let hop = 0; hop <= redirects; hop += 1) {
-      const response = await send(url, signal);
+      const response = await send(url, signal, {
+        "accept-encoding": "gzip, deflate, br",
+        "user-agent": "Vercel.ChatSDK",
+        ...(typeof headers === "function" ? headers(url) : headers),
+      });
       const status = response.statusCode ?? 0;
       if (STATUSES.has(status)) {
         const location = response.headers.location;
@@ -308,6 +320,14 @@ export async function downloadAttachment(
           adapter,
           `Failed to fetch file: ${status} ${response.statusMessage ?? ""}`.trim()
         );
+      }
+      if (onResponse) {
+        try {
+          onResponse(response);
+        } catch (error) {
+          response.destroy();
+          throw error;
+        }
       }
       return await readAttachmentBody(response, adapter, limit);
     }

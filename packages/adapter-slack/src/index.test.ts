@@ -3,7 +3,13 @@
  */
 
 import { createHmac, randomBytes } from "node:crypto";
-import { AuthenticationError, ValidationError } from "@chat-adapter/shared";
+import type { IncomingMessage } from "node:http";
+import { Readable } from "node:stream";
+import {
+  type AttachmentTransport,
+  AuthenticationError,
+  ValidationError,
+} from "@chat-adapter/shared";
 import {
   connectWebhookContract,
   createMockChatInstance,
@@ -32,6 +38,23 @@ import {
 } from "./index";
 
 const FILE_ID_PATTERN = /^file-/;
+
+// Captures guarded file downloads at the transport seam; the resolved
+// per-hop headers show which token (if any) each hop would send.
+class TransportSlackAdapter extends SlackAdapter {
+  readonly fileTransport = vi.fn(
+    async (): Promise<IncomingMessage> =>
+      Object.assign(Readable.from([Buffer.from("file-bytes")]), {
+        headers: { "content-type": "application/octet-stream" },
+        statusCode: 200,
+        statusMessage: "OK",
+      }) as IncomingMessage
+  );
+
+  protected override createFileTransport(): AttachmentTransport {
+    return this.fileTransport;
+  }
+}
 
 // Mock @slack/socket-mode
 const mockSocketStart = vi.fn().mockResolvedValue({});
@@ -1261,7 +1284,7 @@ describe("parseMessage", () => {
 
   it("downloads external message files without resolving the bot token", async () => {
     const token = vi.fn().mockResolvedValue("xoxb-test");
-    const adapter = createSlackAdapter({
+    const adapter = new TransportSlackAdapter({
       botToken: token,
       signingSecret: "test-secret",
       logger: mockLogger,
@@ -1280,26 +1303,15 @@ describe("parseMessage", () => {
         },
       ],
     });
-    const fetchMock = vi.fn().mockResolvedValue(
-      new Response(new ArrayBuffer(8), {
-        status: 200,
-        headers: { "content-type": "application/octet-stream" },
-      })
+
+    await message.attachments?.[0].fetchData?.();
+
+    expect(token).not.toHaveBeenCalled();
+    expect(adapter.fileTransport).toHaveBeenCalledWith(
+      new URL("https://docs.google.com/document/d/external"),
+      expect.any(AbortSignal),
+      expect.not.objectContaining({ authorization: expect.anything() })
     );
-    const originalFetch = globalThis.fetch;
-    globalThis.fetch = fetchMock as unknown as typeof globalThis.fetch;
-
-    try {
-      await message.attachments?.[0].fetchData?.();
-
-      expect(token).not.toHaveBeenCalled();
-      expect(fetchMock).toHaveBeenCalledWith(
-        "https://docs.google.com/document/d/external",
-        { headers: undefined }
-      );
-    } finally {
-      globalThis.fetch = originalFetch;
-    }
   });
 
   it("handles different file types", () => {
@@ -2658,48 +2670,36 @@ describe("installationProvider", () => {
 
     const state = createMockState();
     const chatInstance = createMockChatInstance({ state });
-    const adapter = createSlackAdapter({
+    const adapter = new TransportSlackAdapter({
       signingSecret: secret,
       logger: mockLogger,
       installationProvider: mockProvider,
     });
     await adapter.initialize(chatInstance);
 
-    const fetchMock = vi.fn().mockResolvedValue(
-      new Response(new ArrayBuffer(8), {
-        status: 200,
-        headers: { "content-type": "application/octet-stream" },
+    const rehydrated = adapter.rehydrateAttachment({
+      type: "image",
+      url: "https://files.slack.com/img.png",
+      fetchMetadata: {
+        url: "https://files.slack.com/img.png",
+        teamId: "T_REHYDRATE",
+      },
+    });
+
+    expect(rehydrated.fetchData).toBeDefined();
+    await rehydrated.fetchData?.();
+
+    expect(mockProvider.getInstallation).toHaveBeenCalledWith(
+      "T_REHYDRATE",
+      false
+    );
+    expect(adapter.fileTransport).toHaveBeenCalledWith(
+      new URL("https://files.slack.com/img.png"),
+      expect.any(AbortSignal),
+      expect.objectContaining({
+        authorization: "Bearer xoxb-rehydrate-token",
       })
     );
-    const originalFetch = globalThis.fetch;
-    globalThis.fetch = fetchMock as unknown as typeof globalThis.fetch;
-
-    try {
-      const rehydrated = adapter.rehydrateAttachment({
-        type: "image",
-        url: "https://files.slack.com/img.png",
-        fetchMetadata: {
-          url: "https://files.slack.com/img.png",
-          teamId: "T_REHYDRATE",
-        },
-      });
-
-      expect(rehydrated.fetchData).toBeDefined();
-      await rehydrated.fetchData?.();
-
-      expect(mockProvider.getInstallation).toHaveBeenCalledWith(
-        "T_REHYDRATE",
-        false
-      );
-      expect(fetchMock).toHaveBeenCalledWith(
-        "https://files.slack.com/img.png",
-        expect.objectContaining({
-          headers: { Authorization: "Bearer xoxb-rehydrate-token" },
-        })
-      );
-    } finally {
-      globalThis.fetch = originalFetch;
-    }
   });
 
   it("rehydrateAttachment does not send installation tokens off Slack", async () => {
@@ -2709,7 +2709,7 @@ describe("installationProvider", () => {
         botUserId: "U_BOT_REHYDRATE",
       }),
     };
-    const adapter = createSlackAdapter({
+    const adapter = new TransportSlackAdapter({
       signingSecret: secret,
       logger: mockLogger,
       installationProvider: mockProvider,
@@ -2717,35 +2717,24 @@ describe("installationProvider", () => {
     await adapter.initialize(
       createMockChatInstance({ state: createMockState() })
     );
-    const fetchMock = vi.fn().mockResolvedValue(
-      new Response(new ArrayBuffer(8), {
-        status: 200,
-        headers: { "content-type": "application/octet-stream" },
-      })
-    );
-    const originalFetch = globalThis.fetch;
-    globalThis.fetch = fetchMock as unknown as typeof globalThis.fetch;
 
-    try {
-      const rehydrated = adapter.rehydrateAttachment({
-        type: "file",
+    const rehydrated = adapter.rehydrateAttachment({
+      type: "file",
+      url: "https://attacker.example/file.txt",
+      fetchMetadata: {
         url: "https://attacker.example/file.txt",
-        fetchMetadata: {
-          url: "https://attacker.example/file.txt",
-          teamId: "T_REHYDRATE",
-        },
-      });
+        teamId: "T_REHYDRATE",
+      },
+    });
 
-      await rehydrated.fetchData?.();
+    await rehydrated.fetchData?.();
 
-      expect(mockProvider.getInstallation).not.toHaveBeenCalled();
-      expect(fetchMock).toHaveBeenCalledWith(
-        "https://attacker.example/file.txt",
-        { headers: undefined }
-      );
-    } finally {
-      globalThis.fetch = originalFetch;
-    }
+    expect(mockProvider.getInstallation).not.toHaveBeenCalled();
+    expect(adapter.fileTransport).toHaveBeenCalledWith(
+      new URL("https://attacker.example/file.txt"),
+      expect.any(AbortSignal),
+      expect.not.objectContaining({ authorization: expect.anything() })
+    );
   });
 
   it("rehydrateAttachment uses enterprise_id when isEnterpriseInstall is true", async () => {
@@ -2758,46 +2747,34 @@ describe("installationProvider", () => {
 
     const state = createMockState();
     const chatInstance = createMockChatInstance({ state });
-    const adapter = createSlackAdapter({
+    const adapter = new TransportSlackAdapter({
       signingSecret: secret,
       logger: mockLogger,
       installationProvider: mockProvider,
     });
     await adapter.initialize(chatInstance);
 
-    const fetchMock = vi.fn().mockResolvedValue(
-      new Response(new ArrayBuffer(8), {
-        status: 200,
-        headers: { "content-type": "application/octet-stream" },
+    const rehydrated = adapter.rehydrateAttachment({
+      type: "image",
+      url: "https://files.slack.com/img.png",
+      fetchMetadata: {
+        url: "https://files.slack.com/img.png",
+        teamId: "T_WORKSPACE",
+        enterpriseId: "E_ORG",
+        isEnterpriseInstall: "true",
+      },
+    });
+
+    await rehydrated.fetchData?.();
+
+    expect(mockProvider.getInstallation).toHaveBeenCalledWith("E_ORG", true);
+    expect(adapter.fileTransport).toHaveBeenCalledWith(
+      new URL("https://files.slack.com/img.png"),
+      expect.any(AbortSignal),
+      expect.objectContaining({
+        authorization: "Bearer xoxb-ent-rehydrate-token",
       })
     );
-    const originalFetch = globalThis.fetch;
-    globalThis.fetch = fetchMock as unknown as typeof globalThis.fetch;
-
-    try {
-      const rehydrated = adapter.rehydrateAttachment({
-        type: "image",
-        url: "https://files.slack.com/img.png",
-        fetchMetadata: {
-          url: "https://files.slack.com/img.png",
-          teamId: "T_WORKSPACE",
-          enterpriseId: "E_ORG",
-          isEnterpriseInstall: "true",
-        },
-      });
-
-      await rehydrated.fetchData?.();
-
-      expect(mockProvider.getInstallation).toHaveBeenCalledWith("E_ORG", true);
-      expect(fetchMock).toHaveBeenCalledWith(
-        "https://files.slack.com/img.png",
-        expect.objectContaining({
-          headers: { Authorization: "Bearer xoxb-ent-rehydrate-token" },
-        })
-      );
-    } finally {
-      globalThis.fetch = originalFetch;
-    }
   });
 
   it("rehydrateAttachment throws when installationProvider returns null", async () => {
@@ -4842,15 +4819,8 @@ describe("Attachment.fetchData token resolution", () => {
     ],
   };
 
-  function createMockFetchResponse(): Response {
-    return new Response(new ArrayBuffer(8), {
-      status: 200,
-      headers: { "content-type": "application/pdf" },
-    });
-  }
-
   it("snapshots ctx token at attachment creation in multi-workspace mode", async () => {
-    const adapter = createSlackAdapter({
+    const adapter = new TransportSlackAdapter({
       signingSecret: "test-signing-secret",
       logger: mockLogger,
     });
@@ -4867,23 +4837,15 @@ describe("Attachment.fetchData token resolution", () => {
     );
     expect(attachment).toBeDefined();
 
-    const fetchMock = vi
-      .fn()
-      .mockImplementation(() => Promise.resolve(createMockFetchResponse()));
-    const originalFetch = globalThis.fetch;
-    globalThis.fetch = fetchMock as unknown as typeof globalThis.fetch;
-    try {
-      // Call fetchData OUTSIDE the requestContext frame to confirm the
-      // captured ctxToken is used (we are no longer inside AsyncLocalStorage).
-      await attachment?.fetchData?.();
-    } finally {
-      globalThis.fetch = originalFetch;
-    }
+    // Call fetchData OUTSIDE the requestContext frame to confirm the
+    // captured ctxToken is used (we are no longer inside AsyncLocalStorage).
+    await attachment?.fetchData?.();
 
-    expect(fetchMock).toHaveBeenCalledWith(
-      "https://files.slack.com/file.pdf",
+    expect(adapter.fileTransport).toHaveBeenCalledWith(
+      new URL("https://files.slack.com/file.pdf"),
+      expect.any(AbortSignal),
       expect.objectContaining({
-        headers: { Authorization: "Bearer xoxb-team-snapshot" },
+        authorization: "Bearer xoxb-team-snapshot",
       })
     );
   });
@@ -4892,7 +4854,7 @@ describe("Attachment.fetchData token resolution", () => {
     const tokens = ["xoxb-stale", "xoxb-fresh"];
     let i = 0;
     const resolver = vi.fn(() => tokens[i++]);
-    const adapter = createSlackAdapter({
+    const adapter = new TransportSlackAdapter({
       botToken: resolver,
       signingSecret: "test-signing-secret",
       logger: mockLogger,
@@ -4904,31 +4866,24 @@ describe("Attachment.fetchData token resolution", () => {
     expect(attachment).toBeDefined();
     expect(resolver).not.toHaveBeenCalled();
 
-    const fetchMock = vi
-      .fn()
-      .mockImplementation(() => Promise.resolve(createMockFetchResponse()));
-    const originalFetch = globalThis.fetch;
-    globalThis.fetch = fetchMock as unknown as typeof globalThis.fetch;
-    try {
-      // First fetch picks up the first resolver value.
-      await attachment?.fetchData?.();
-      expect(fetchMock).toHaveBeenLastCalledWith(
-        "https://files.slack.com/file.pdf",
-        expect.objectContaining({
-          headers: { Authorization: "Bearer xoxb-stale" },
-        })
-      );
-      // A subsequent fetchData() re-invokes the resolver and picks up rotation.
-      await attachment?.fetchData?.();
-      expect(fetchMock).toHaveBeenLastCalledWith(
-        "https://files.slack.com/file.pdf",
-        expect.objectContaining({
-          headers: { Authorization: "Bearer xoxb-fresh" },
-        })
-      );
-    } finally {
-      globalThis.fetch = originalFetch;
-    }
+    // First fetch picks up the first resolver value.
+    await attachment?.fetchData?.();
+    expect(adapter.fileTransport).toHaveBeenLastCalledWith(
+      new URL("https://files.slack.com/file.pdf"),
+      expect.any(AbortSignal),
+      expect.objectContaining({
+        authorization: "Bearer xoxb-stale",
+      })
+    );
+    // A subsequent fetchData() re-invokes the resolver and picks up rotation.
+    await attachment?.fetchData?.();
+    expect(adapter.fileTransport).toHaveBeenLastCalledWith(
+      new URL("https://files.slack.com/file.pdf"),
+      expect.any(AbortSignal),
+      expect.objectContaining({
+        authorization: "Bearer xoxb-fresh",
+      })
+    );
 
     expect(resolver).toHaveBeenCalledTimes(2);
   });

@@ -2,7 +2,9 @@ import { AsyncLocalStorage } from "node:async_hooks";
 import { timingSafeEqual } from "node:crypto";
 import {
   AdapterRateLimitError,
+  type AttachmentTransport,
   AuthenticationError,
+  downloadAttachment,
   extractCard,
   extractFiles,
   NetworkError,
@@ -3913,26 +3915,46 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
     if (isSlackAuthUrl(url, this.slackApiUrl)) {
       value = typeof token === "function" ? await token() : token;
     }
-    const response = await fetch(url, {
-      headers: value ? { Authorization: `Bearer ${value}` } : undefined,
-    });
-    if (!response.ok) {
+    try {
+      return await downloadAttachment(url, {
+        adapter: "slack",
+        // The bot token is sent only on hops to trusted Slack origins, so a
+        // redirect cannot carry it to another host.
+        headers: (target) =>
+          value && isSlackAuthUrl(target.href, this.slackApiUrl)
+            ? { authorization: `Bearer ${value}` }
+            : undefined,
+        transport: this.createFileTransport(),
+        onResponse: (response) => {
+          const contentType = response.headers["content-type"] ?? "";
+          if (contentType.includes("text/html")) {
+            throw new NetworkError(
+              "slack",
+              "Failed to download file from Slack: received HTML login page instead of file data. " +
+                `Ensure your Slack app has the "files:read" OAuth scope. ` +
+                `URL: ${url}`
+            );
+          }
+        },
+      });
+    } catch (error) {
+      if (error instanceof NetworkError) {
+        throw error;
+      }
       throw new NetworkError(
         "slack",
-        `Failed to fetch file: ${response.status} ${response.statusText}`
+        "Failed to fetch Slack file",
+        error instanceof Error ? error : undefined
       );
     }
-    const contentType = response.headers.get("content-type") ?? "";
-    if (contentType.includes("text/html")) {
-      throw new NetworkError(
-        "slack",
-        "Failed to download file from Slack: received HTML login page instead of file data. " +
-          `Ensure your Slack app has the "files:read" OAuth scope. ` +
-          `URL: ${url}`
-      );
-    }
-    const arrayBuffer = await response.arrayBuffer();
-    return Buffer.from(arrayBuffer);
+  }
+
+  /**
+   * Transport used for guarded file downloads. Subclasses can return a
+   * custom AttachmentTransport, e.g. to route downloads through a proxy.
+   */
+  protected createFileTransport(): AttachmentTransport | undefined {
+    return undefined;
   }
 
   rehydrateAttachment(attachment: Attachment): Attachment {

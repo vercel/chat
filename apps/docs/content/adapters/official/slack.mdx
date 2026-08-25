@@ -612,6 +612,10 @@ The package still installs the full Slack adapter dependencies. The subpaths kee
 
 ## Advanced
 
+### Inbound attachments
+
+Incoming file attachments expose a lazy `fetchData()`. Downloads go through a guarded fetcher that refuses private and internal addresses (including after redirects), limits responses to 25 MB, and times out after 30 seconds. The bot token is sent only to trusted Slack origins and never follows a redirect to another host. Override `createFileTransport()` in a subclass to route downloads through a proxy.
+
 ### Agents
 
 Everything for building an AI agent on Slack: the Agent messaging experience (`agent_view`), the Assistants API (suggested prompts, status, titles), native streaming, and feedback buttons.

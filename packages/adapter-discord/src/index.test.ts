@@ -1438,15 +1438,36 @@ describe("rehydrateAttachment", () => {
   it("rebuilds fetchData to download the attachment from its CDN url", async () => {
     const url =
       "https://cdn.discordapp.com/attachments/1/2/photo.png?ex=abc&is=def&hm=123";
-    const fetch = vi
-      .spyOn(globalThis, "fetch")
-      .mockResolvedValue(new Response("photo", { status: 200 }));
+    const transfer = vi.fn(async () => Buffer.from("photo"));
+    class Adapter extends DiscordAdapter {
+      protected override downloadAttachment(target: string): Promise<Buffer> {
+        return transfer(target);
+      }
+    }
+    const custom = new Adapter({
+      botToken: "test-token",
+      publicKey: testPublicKey,
+      applicationId: "test-app-id",
+      logger: mockLogger,
+    });
 
-    const attachment = adapter.rehydrateAttachment({ type: "image", url });
+    const attachment = custom.rehydrateAttachment({ type: "image", url });
     const data = await attachment.fetchData?.();
 
     expect(data?.toString()).toBe("photo");
-    expect(fetch).toHaveBeenCalledWith(url);
+    expect(transfer).toHaveBeenCalledWith(url);
+  });
+
+  it("rejects internal attachment urls before the network", async () => {
+    const url = "https://169.254.169.254/latest/meta-data";
+    const fetch = vi.spyOn(globalThis, "fetch");
+
+    const attachment = adapter.rehydrateAttachment({ type: "image", url });
+
+    await expect(attachment.fetchData?.()).rejects.toThrow(
+      "Refusing to fetch an internal attachment URL"
+    );
+    expect(fetch).not.toHaveBeenCalled();
   });
 
   it("returns the attachment unchanged when it has no url", () => {

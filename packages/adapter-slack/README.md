@@ -356,6 +356,10 @@ After creating the app, go to **Basic Information** → **App Credentials** and 
 4. Set **Request URL** to `https://your-domain.com/api/webhooks/slack`
 5. Add a description and click **Save**
 
+## Inbound attachments
+
+Incoming file attachments expose a lazy `fetchData()`. Downloads go through a guarded fetcher that refuses private and internal addresses (including after redirects), limits responses to 25 MB, and times out after 30 seconds. The bot token is sent only to trusted Slack origins and never follows a redirect to another host. Override `createFileTransport()` in a subclass to route downloads through a proxy.
+
 ## Configuration
 
 All options are auto-detected from environment variables when not provided. You can call `createSlackAdapter()` with no arguments if the env vars are set.

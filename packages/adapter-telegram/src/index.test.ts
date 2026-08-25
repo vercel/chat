@@ -473,7 +473,8 @@ describe("bot token resolver", () => {
       .mockResolvedValueOnce({
         ok: true,
         arrayBuffer: async () => expected.buffer,
-      } as Response);
+        headers: new Headers(),
+      } as unknown as Response);
     const adapter = createTelegramAdapter({
       botToken: "telegram-token",
       mode: "webhook",

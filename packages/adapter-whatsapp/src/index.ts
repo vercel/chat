@@ -1,7 +1,9 @@
 import { createHmac, timingSafeEqual } from "node:crypto";
 import {
   AdapterError,
+  type AttachmentTransport,
   cardToFallbackText,
+  downloadAttachment,
   extractCard,
   extractFiles,
   extractPostableAttachments,
@@ -1150,7 +1152,10 @@ export class WhatsAppAdapter
    *
    * @see https://developers.facebook.com/docs/whatsapp/cloud-api/reference/media#download-media
    */
-  async downloadMedia(mediaId: string): Promise<Buffer> {
+  async downloadMedia(
+    mediaId: string,
+    transport?: AttachmentTransport
+  ): Promise<Buffer> {
     // Step 1: Get the media URL
     const metaResponse = await fetch(`${this.graphApiUrl}/${mediaId}`, {
       headers: { Authorization: `Bearer ${this.accessToken}` },
@@ -1178,21 +1183,26 @@ export class WhatsAppAdapter
       );
     }
 
-    // Step 2: Download the actual file
-    const dataResponse = await fetch(mediaInfo.url, {
-      headers: { Authorization: `Bearer ${this.accessToken}` },
-    });
-
-    if (!dataResponse.ok) {
-      this.logger.error("Failed to download media", {
-        status: dataResponse.status,
-        mediaId,
+    // Step 2: Download the actual file. The hosts allowlist keeps the
+    // access token from following a redirect off Meta's media hosts.
+    try {
+      return await downloadAttachment(mediaInfo.url, {
+        adapter: "whatsapp",
+        headers: { authorization: `Bearer ${this.accessToken}` },
+        hosts: [...WHATSAPP_MEDIA_HOSTS, new URL(this.graphApiUrl).hostname],
+        transport,
       });
-      throw new Error(`Failed to download media: ${dataResponse.status}`);
+    } catch (error) {
+      this.logger.error("Failed to download media", { mediaId });
+      if (error instanceof NetworkError) {
+        throw error;
+      }
+      throw new NetworkError(
+        "whatsapp",
+        `Failed to download media ${mediaId}`,
+        error instanceof Error ? error : undefined
+      );
     }
-
-    const arrayBuffer = await dataResponse.arrayBuffer();
-    return Buffer.from(arrayBuffer);
   }
 
   /**

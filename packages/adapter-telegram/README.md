@@ -145,6 +145,10 @@ void bot.initialize();
 console.log(telegram.runtimeMode); // "webhook" | "polling"
 ```
 
+## Inbound attachments
+
+Incoming file attachments expose a lazy `fetchData()` served from the configured Bot API host. Downloads are limited to 25 MB and time out after 30 seconds. They use the Web Fetch API, so file downloads keep working in runtimes like Cloudflare Workers.
+
 ## Configuration
 
 Most options are auto-detected from environment variables when not provided. `nativeStreaming` and `streamingEditIntervalMs` are config only and have no environment variables.

@@ -82,6 +82,52 @@ import type {
 } from "./types";
 
 const TELEGRAM_API_BASE = "https://api.telegram.org";
+const TELEGRAM_FILE_LIMIT = 25 * 1024 * 1024;
+const TELEGRAM_FILE_TIMEOUT_MS = 30_000;
+
+// Web-API only (no Node Buffer or streams) so file downloads keep working in
+// runtimes like Cloudflare Workers.
+async function readTelegramFile(
+  response: Response,
+  fileId: string
+): Promise<ArrayBuffer> {
+  const declared = Number(response.headers.get("content-length"));
+  if (Number.isFinite(declared) && declared > TELEGRAM_FILE_LIMIT) {
+    await response.body?.cancel();
+    throw new NetworkError(
+      "telegram",
+      `Telegram file ${fileId} exceeds the download limit`
+    );
+  }
+  const reader = response.body?.getReader();
+  if (!reader) {
+    return await response.arrayBuffer();
+  }
+  const chunks: Uint8Array[] = [];
+  let size = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) {
+      break;
+    }
+    size += value.length;
+    if (size > TELEGRAM_FILE_LIMIT) {
+      await reader.cancel();
+      throw new NetworkError(
+        "telegram",
+        `Telegram file ${fileId} exceeds the download limit`
+      );
+    }
+    chunks.push(value);
+  }
+  const data = new Uint8Array(size);
+  let offset = 0;
+  for (const chunk of chunks) {
+    data.set(chunk, offset);
+    offset += chunk.length;
+  }
+  return data.buffer;
+}
 const TELEGRAM_SECRET_TOKEN_HEADER = "x-telegram-bot-api-secret-token";
 const TELEGRAM_WEBHOOK_VERIFICATION_ERROR =
   "secretToken is required in webhook mode. Set TELEGRAM_WEBHOOK_SECRET_TOKEN or provide secretToken. To accept unverified webhooks, set allowUnverifiedWebhooks: true or TELEGRAM_ALLOW_UNVERIFIED_WEBHOOKS=true.";
@@ -2307,9 +2353,15 @@ export class TelegramAdapter
     const botToken = this.staticBotToken ?? (await this.resolveBotToken());
     const fileUrl = `${this.apiBaseUrl}/file/bot${botToken}/${file.file_path}`;
 
+    // Downloads stay on the Web Fetch API so the adapter keeps working in
+    // runtimes without Node networking (e.g. Cloudflare Workers). The host
+    // is operator-configured and the path comes from Telegram's getFile, so
+    // the guard here is the size cap and timeout.
     let response: Response;
     try {
-      response = await fetch(fileUrl);
+      response = await fetch(fileUrl, {
+        signal: AbortSignal.timeout(TELEGRAM_FILE_TIMEOUT_MS),
+      });
     } catch (error) {
       throw new NetworkError(
         "telegram",
@@ -2325,7 +2377,18 @@ export class TelegramAdapter
       );
     }
 
-    return response.arrayBuffer();
+    try {
+      return await readTelegramFile(response, fileId);
+    } catch (error) {
+      if (error instanceof NetworkError) {
+        throw error;
+      }
+      throw new NetworkError(
+        "telegram",
+        `Failed to download Telegram file ${fileId}`,
+        error instanceof Error ? error : undefined
+      );
+    }
   }
 
   protected async sendDocument(

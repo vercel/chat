@@ -162,6 +162,10 @@ From your Meta app dashboard, copy:
 
 ## Advanced
 
+### Inbound attachments
+
+Incoming media attachments expose a lazy `fetchData()`. Media is downloaded only from Meta's `fbcdn.net` and `fbsbx.com` hosts or the configured Graph origin. Downloads refuse private and internal addresses, are limited to 25 MB, and time out after 30 seconds, and the access token never follows a redirect off those hosts. Pass a custom transport to `downloadMedia()` to route downloads through a proxy.
+
 ### Webhook flow
 
 WhatsApp uses two webhook mechanisms:
