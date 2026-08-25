@@ -502,9 +502,23 @@ Internal API calls (`postMessage`, `editMessage`, `fetchMessages`, etc.) are
 unaffected — they continue to resolve tokens through the same async path
 they always have.
 
-## Slack Assistants API
+## Slack Agent messaging
 
-The adapter supports Slack's [Assistants API](https://api.slack.com/docs/apps/ai) for building AI-powered assistant experiences. This enables suggested prompts, status indicators, and thread titles in assistant DM threads.
+Enable `agentView: true` for Slack's Agent messaging experience. Slack
+deprecated `assistant_view` and will retire it in February 2027; the adapter
+keeps it available as a compatibility path when `agentView` is false.
+
+Agent Sessions provide lifecycle status, native stop, and session titles.
+Pass `thread.signal` to model APIs so clicking Slack's stop button cancels
+upstream generation:
+
+```typescript
+const result = await agent.stream({
+  prompt: message.text,
+  abortSignal: thread.signal,
+});
+await thread.post(result.fullStream);
+```
 
 ### Event handlers
 
@@ -522,19 +536,28 @@ bot.onAssistantThreadStarted(async (event) => {
 bot.onAssistantContextChanged(async (event) => {
   // User navigated to a different channel with the assistant panel open
 });
+
+bot.onAgentSessionStopped(async (event) => {
+  await releaseExternalResources(event.threadId);
+});
+
+bot.onAgentSessionTitleChanged(async (event) => {
+  await syncTitle(event.threadId, event.title);
+});
 ```
 
 ### Adapter methods
 
-The `SlackAdapter` exposes these methods for the Assistants API:
+The `SlackAdapter` exposes these methods:
 
 | Method | Description |
 |--------|-------------|
 | `setSuggestedPrompts(channelId, threadTs, prompts, title?)` | Show prompt suggestions in the thread |
-| `setAssistantStatus(channelId, threadTs, status)` | Show a thinking/status indicator |
-| `setAssistantTitle(channelId, threadTs, title)` | Set the thread title (shown in History) |
+| `setSessionStatus(channelId, threadTs, status)` | Set `processing`, `active`, `suspended`, or `closed` |
+| `setAssistantStatus(channelId, threadTs, status)` | Compatibility wrapper for session/assistant status |
+| `setAssistantTitle(channelId, threadTs, title)` | Rename the session/thread |
 | `publishHomeView(userId, view)` | Publish a Home tab view for a user |
-| `startTyping(threadId, status)` | Show a custom loading status (requires `assistant:write` scope) |
+| `startTyping(threadId, status)` | Set `processing`; custom text is legacy-only |
 
 ### Required scopes and events
 
@@ -545,12 +568,15 @@ oauth_config:
   scopes:
     bot:
       - assistant:write
+      - chat:write
 
 settings:
   event_subscriptions:
     bot_events:
-      - assistant_thread_started
-      - assistant_thread_context_changed
+      - app_home_opened
+      - app_context_changed
+      - agent_session_stopped
+      - agent_session_title_changed
 ```
 
 ### Stream with stop blocks
