@@ -277,6 +277,7 @@ export function createMockChatInstance(
   const userName = options.userName ?? "test-bot";
 
   const base = {
+    abortTurn: vi.fn().mockResolvedValue(undefined),
     processMessage: vi.fn(),
     processMessageUpdated: vi.fn(),
     processMessageDeleted: vi.fn(),
@@ -289,6 +290,8 @@ export function createMockChatInstance(
     processSlashCommand: vi.fn(),
     processMemberJoinedChannel: vi.fn(),
     processAppHomeOpened: vi.fn(),
+    processAgentSessionStopped: vi.fn(),
+    processAgentSessionTitleChanged: vi.fn(),
     processAssistantThreadStarted: vi.fn(),
     processAssistantContextChanged: vi.fn(),
     processAppContextChanged: vi.fn(),
