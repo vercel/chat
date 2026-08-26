@@ -623,7 +623,6 @@ interface SlackAgentSessionStoppedEvent {
   channel: string;
   event_ts: string;
   streaming_message_ts: string[];
-  team_id: string;
   thread_ts: string;
   type: "agent_session_stopped";
   user: string;

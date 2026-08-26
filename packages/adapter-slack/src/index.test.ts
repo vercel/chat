@@ -7892,7 +7892,6 @@ describe("handleWebhook - assistant events", () => {
         thread_ts: "1234567890.111111",
         streaming_message_ts: ["1234567891.222222", "1234567891.333333"],
         event_ts: "1234567892.333333",
-        team_id: "T123",
       },
     });
     const tasks: Promise<unknown>[] = [];
