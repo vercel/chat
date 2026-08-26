@@ -1183,12 +1183,21 @@ export class WhatsAppAdapter
       );
     }
 
-    // Step 2: Download the actual file. The hosts allowlist keeps the
-    // access token from following a redirect off Meta's media hosts.
+    // Step 2: Download the actual file. Every hop is checked against the
+    // exact-origin and Meta media host policy before the access token is
+    // attached, so a redirect cannot carry it to an off-policy host.
     try {
       return await downloadAttachment(mediaInfo.url, {
         adapter: "whatsapp",
-        headers: { authorization: `Bearer ${this.accessToken}` },
+        headers: (target) => {
+          if (!isWhatsAppMediaUrl(target.href, this.graphApiUrl)) {
+            throw new NetworkError(
+              "whatsapp",
+              "Refusing to send the access token to an untrusted media URL"
+            );
+          }
+          return { authorization: `Bearer ${this.accessToken}` };
+        },
         hosts: [...WHATSAPP_MEDIA_HOSTS, new URL(this.graphApiUrl).hostname],
         transport,
       });

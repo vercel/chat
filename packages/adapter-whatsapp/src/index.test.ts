@@ -32,10 +32,14 @@ import type {
   WhatsAppWebhookPayload,
 } from "./types";
 
-function mediaResponse(body: string): IncomingMessage {
+function mediaResponse(
+  body: string,
+  status = 200,
+  headers: IncomingMessage["headers"] = {}
+): IncomingMessage {
   return Object.assign(Readable.from([Buffer.from(body)]), {
-    headers: {},
-    statusCode: 200,
+    headers,
+    statusCode: status,
     statusMessage: "OK",
   }) as IncomingMessage;
 }
@@ -563,6 +567,44 @@ describe("downloadMedia", () => {
         expect.any(AbortSignal),
         expect.objectContaining({ authorization: "Bearer test-token" })
       );
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
+  it.each([
+    "https://sub.graph.example/media/file",
+    "https://graph.example:8443/media/file",
+  ])("refuses to send the token to off-policy redirect %s", async (location) => {
+    const adapter = new WhatsAppAdapter({
+      accessToken: "test-token",
+      apiUrl: "https://graph.example",
+      appSecret: "test-secret",
+      phoneNumberId: "123456789",
+      verifyToken: "test-verify-token",
+      userName: "test-bot",
+      logger: createMockLogger(),
+    });
+    const fetchMock = vi.fn().mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({ url: "https://graph.example/media/file" }),
+        {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        }
+      )
+    );
+    const transport = vi.fn(async () => mediaResponse("", 302, { location }));
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = fetchMock as unknown as typeof globalThis.fetch;
+
+    try {
+      await expect(
+        adapter.downloadMedia("media-123", transport)
+      ).rejects.toThrow(
+        "Refusing to send the access token to an untrusted media URL"
+      );
+      expect(transport).toHaveBeenCalledTimes(1);
     } finally {
       globalThis.fetch = originalFetch;
     }
