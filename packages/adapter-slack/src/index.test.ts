@@ -7890,7 +7890,7 @@ describe("handleWebhook - assistant events", () => {
         user: "U_USER",
         channel: "D_AGENT",
         thread_ts: "1234567890.111111",
-        message_ts: "1234567891.222222",
+        streaming_message_ts: ["1234567891.222222", "1234567891.333333"],
         event_ts: "1234567892.333333",
         team_id: "T123",
       },
@@ -7915,7 +7915,7 @@ describe("handleWebhook - assistant events", () => {
     );
     expect(chatInstance.processAgentSessionStopped).toHaveBeenCalledWith(
       expect.objectContaining({
-        messageTs: "1234567891.222222",
+        streamingMessageTs: ["1234567891.222222", "1234567891.333333"],
         threadId,
         userId: "U_USER",
       }),

@@ -2576,7 +2576,7 @@ export type SlashCommandHandler<TState = Record<string, unknown>> = (
 export interface AgentSessionStoppedEvent {
   adapter: Adapter;
   channelId: string;
-  messageTs: string;
+  streamingMessageTs: string[];
   threadId: string;
   threadTs: string;
   userId: string;

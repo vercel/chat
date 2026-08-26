@@ -622,7 +622,7 @@ interface SlackAssistantContextChangedEvent {
 interface SlackAgentSessionStoppedEvent {
   channel: string;
   event_ts: string;
-  message_ts: string;
+  streaming_message_ts: string[];
   team_id: string;
   thread_ts: string;
   type: "agent_session_stopped";
@@ -3354,7 +3354,7 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
         {
           adapter: this,
           channelId: event.channel,
-          messageTs: event.message_ts,
+          streamingMessageTs: event.streaming_message_ts,
           threadId,
           threadTs: event.thread_ts,
           userId: event.user,

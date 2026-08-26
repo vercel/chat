@@ -464,8 +464,9 @@ bot.onAgentSessionStopped(async (event) => {
 });
 ```
 
-The event contains `threadId`, `channelId`, `threadTs`, `messageTs`, `userId`,
-and `adapter`.
+The event contains `threadId`, `channelId`, `threadTs`,
+`streamingMessageTs`, `userId`, and `adapter`. `streamingMessageTs` lists the
+streaming messages Slack stopped and can be empty when no stream was active.
 
 ### onAgentSessionTitleChanged
 

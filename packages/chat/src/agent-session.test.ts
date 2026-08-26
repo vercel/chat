@@ -20,7 +20,7 @@ describe("agent session events", () => {
     const event: AgentSessionStoppedEvent = {
       adapter,
       channelId: "D1",
-      messageTs: "2.3",
+      streamingMessageTs: ["2.3"],
       threadId: "slack:D1:1.2",
       threadTs: "1.2",
       userId: "U1",

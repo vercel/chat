@@ -74,7 +74,7 @@
 
 ```log
 [chat-sdk:slack] Slack webhook raw body {
-  body: '{"token":"xAbCdEfGhIjKlMnOpQrStUvW","team_id":"T00FAKE00AA","api_app_id":"A00FAKEAPP01","event":{"type":"agent_session_stopped","user":"U00FAKEUSER1","channel":"D00FAKEDM001","thread_ts":"1782234671.392669","message_ts":"1782234987.693923","event_ts":"1783536983.783769","team_id":"T00FAKE00AA"},"type":"event_callback","event_id":"Ev0AGENTSTOP1","event_time":1783536983}'
+  body: '{"token":"xAbCdEfGhIjKlMnOpQrStUvW","team_id":"T00FAKE00AA","api_app_id":"A00FAKEAPP01","event":{"type":"agent_session_stopped","user":"U00FAKEUSER1","channel":"D00FAKEDM001","thread_ts":"1782234671.392669","streaming_message_ts":["1782234987.693923"],"event_ts":"1783536983.783769","team_id":"T00FAKE00AA"},"type":"event_callback","event_id":"Ev0AGENTSTOP1","event_time":1783536983}'
 }
 ```
 
