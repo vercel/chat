@@ -631,7 +631,7 @@ interface SlackAgentSessionStoppedEvent {
 interface SlackAgentSessionTitleChangedEvent {
   channel: string;
   event_ts: string;
-  previous_title: string;
+  previous_title?: string;
   team_id: string;
   thread_ts: string;
   title: string;

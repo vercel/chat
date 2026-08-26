@@ -7944,7 +7944,6 @@ describe("handleWebhook - assistant events", () => {
         user: "U_USER",
         channel: "D_AGENT",
         thread_ts: "1234567890.111111",
-        previous_title: "Old title",
         title: "New title",
         event_ts: "1234567892.333333",
         team_id: "T123",
@@ -7957,7 +7956,7 @@ describe("handleWebhook - assistant events", () => {
     expect(response.status).toBe(200);
     expect(chatInstance.processAgentSessionTitleChanged).toHaveBeenCalledWith(
       expect.objectContaining({
-        previousTitle: "Old title",
+        previousTitle: undefined,
         threadId: "slack:D_AGENT:1234567890.111111",
         title: "New title",
       }),

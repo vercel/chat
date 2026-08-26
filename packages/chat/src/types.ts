@@ -2589,7 +2589,7 @@ export type AgentSessionStoppedHandler = (
 export interface AgentSessionTitleChangedEvent {
   adapter: Adapter;
   channelId: string;
-  previousTitle: string;
+  previousTitle?: string;
   threadId: string;
   threadTs: string;
   title: string;

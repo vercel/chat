@@ -479,7 +479,8 @@ bot.onAgentSessionTitleChanged(async (event) => {
 ```
 
 The event contains `title`, `previousTitle`, `threadId`, `channelId`,
-`threadTs`, `userId`, and `adapter`.
+`threadTs`, `userId`, and `adapter`. `previousTitle` is omitted when the
+session did not have a title before the change.
 
 ### onAppHomeOpened
 
