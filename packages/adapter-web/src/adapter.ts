@@ -85,8 +85,10 @@ export class WebAdapter implements Adapter<WebThreadIdData, UIMessage> {
     this.threadIdFor = opts.threadIdFor ?? defaultThreadIdFor;
     // Default true: with no platform-side message API, the only way for
     // chat-sdk handlers to see prior turns (via thread/channel.messages) is
-    // through the configured state adapter. Opt out only if your handler
-    // re-derives history from the request body's `messages[]` itself.
+    // through the configured state adapter. The request body's `messages[]`
+    // is not an alternative source — it is client-controlled and ignored
+    // beyond the latest user message — so opting out leaves handlers with
+    // only the current message.
     this.persistMessageHistory = opts.persistMessageHistory ?? true;
     this.logger = opts.logger ?? new ConsoleLogger("info", "chat-adapter-web");
   }
@@ -123,6 +125,9 @@ export class WebAdapter implements Adapter<WebThreadIdData, UIMessage> {
       return jsonError(401, "Unauthorized");
     }
     if (user.id.includes(":")) {
+      // Thread ids embed the user id between `:` delimiters
+      // (`web:{userId}:{conversationId}`); a colon in the userId would
+      // corrupt the round-trip through decodeThreadId.
       this.logger.error("getUser returned id with reserved ':' character", {
         userId: user.id,
       });
@@ -135,66 +140,36 @@ export class WebAdapter implements Adapter<WebThreadIdData, UIMessage> {
     }
     const threadId = this.threadIdFor({ user, conversationId });
 
-    // SECURITY FIX: Don't trust body.messages for tool approval state
-    // Load server-verified history from state adapter
-    let serverHistory: UIMessage[] = [];
-    if (this.persistMessageHistory && this.chat) {
-      try {
-        const historyKey = `msg-history:${threadId}`;
-        const stored = await this.chat.getState().getList(historyKey) as any[];
-        // stored are SerializedMessage with raw=null, try to convert to UIMessage
-        // Web adapter stores via ThreadHistoryCache, we rebuild safe UIMessages from server state
-        // Only keep user text messages from server, drop any tool calls/results that weren't server-verified
-        if (Array.isArray(stored) && stored.length > 0) {
-          serverHistory = stored
-            .map((s: any) => {
-              try {
-                // s is SerializedMessage, raw is null, but text is server-verified
-                if (!s.text) return null;
-                return {
-                  id: s.id,
-                  role: s.author?.isMe ? "assistant" : "user",
-                  parts: [{ type: "text", text: s.text }],
-                } as UIMessage;
-              } catch {
-                return null;
-              }
-            })
-            .filter(Boolean) as UIMessage[];
-        }
-      } catch {
-        // If state fetch fails, fall back to empty - we will only trust last user message
-        serverHistory = [];
-      }
-    }
-
-    // FIX: Only trust last user message from client, strip forged assistant/tool messages
-    // This prevents attacker forging: assistant tool-call + user tool-result {approved:true}
     const lastUserMessage = findLastUserMessage(body.messages);
     if (!lastUserMessage) {
       return jsonError(400, "No user message found in messages array");
     }
 
-    // SECURITY: Sanitize lastUserMessage - only allow text parts, drop tool-result parts
-    const sanitizedLastMessage: UIMessage = {
-      id: lastUserMessage.id,
-      role: "user",
-      parts: lastUserMessage.parts.filter((p: any) => p.type === "text"),
+    // The client-supplied messages array is untrusted, so only the latest
+    // user message is consumed, with tool parts stripped so a browser can't
+    // inject forged tool-call or approval state. Text, file, and custom data
+    // parts pass through untouched. Prior turns come from the state adapter
+    // (persistMessageHistory), never from the request body.
+    const sanitizedMessage: UIMessage = {
+      ...lastUserMessage,
+      parts: lastUserMessage.parts.filter(
+        (part) =>
+          part.type === "text" ||
+          part.type === "file" ||
+          part.type.startsWith("data-")
+      ),
     };
-    if (sanitizedLastMessage.parts.length === 0) {
-      return jsonError(400, "No text found in last user message");
+    if (sanitizedMessage.parts.length === 0) {
+      return jsonError(400, "No usable content in last user message");
     }
 
-    // Build internal Message from sanitized last user message (server-verified user)
-    const message = this.buildMessageFromUI(sanitizedLastMessage, threadId, user);
-
-    // FIX: originalMessages = server history + sanitized last message, NOT full client array
-    // This ensures tool approval state comes from server, not client-supplied forged array
-    const safeOriginalMessages: UIMessage[] = [...serverHistory, sanitizedLastMessage];
+    const message = this.buildMessageFromUI(sanitizedMessage, threadId, user);
 
     const chat = this.chat;
+    // `originalMessages` is deliberately not passed: nothing registers
+    // onFinish on this stream, so the ai SDK never consumes it, and the
+    // client array must not act as a source of prior-turn state anyway.
     const stream = createUIMessageStream<UIMessage>({
-      originalMessages: safeOriginalMessages, // FIXED: server-verified
       execute: async ({ writer }) => {
         const assistantMessageId = generateId();
         writer.write({ type: "start", messageId: assistantMessageId });
@@ -215,6 +190,8 @@ export class WebAdapter implements Adapter<WebThreadIdData, UIMessage> {
         }
       },
       onError: (error) =>
+        // chat.processMessage already logs handler errors at ERROR level.
+        // Just turn the error into a string for the SSE error chunk.
         error instanceof Error ? error.message : "Internal error",
     });
 
