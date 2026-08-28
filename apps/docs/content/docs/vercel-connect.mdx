@@ -29,10 +29,6 @@ inbound traffic:
 - **Outbound** (your bot calls the provider API) — a function-form token field that resolves a fresh, short-lived token per call via `getToken`.
 - **Inbound** (the provider calls your bot) — trigger-capable helpers include a `webhookVerifier` that validates the Vercel OIDC token Connect attaches to [trigger-forwarded](https://vercel.com/docs/connect/concepts/triggers) webhooks, replacing the provider's native signature check.
 
-<Callout type="info">
-  Vercel Connect is in beta. Features and behavior, including available connectors and trigger forwarding, may change before general availability.
-</Callout>
-
 ## Install
 
 ```bash
@@ -223,6 +219,8 @@ createSlackAdapter({
 
 ## Related resources
 
+- [Vercel Connect Chat SDK documentation](https://vercel.com/docs/connect/frameworks/chat-sdk)
+- [The Complete Guide to Vercel Connect](https://vercel.com/kb/guide/vercel-connect)
 - [Vercel Connect overview](https://vercel.com/docs/connect)
 - [Vercel Connect triggers](https://vercel.com/docs/connect/concepts/triggers)
 - [`@vercel/connect` SDK reference](https://vercel.com/docs/connect/ts-sdk-reference)

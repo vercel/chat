@@ -84,6 +84,11 @@ const config: NextConfig = {
         permanent: true,
       },
       {
+        source: "/docs/conversation-history",
+        destination: "/docs/history",
+        permanent: true,
+      },
+      {
         source: "/docs/state",
         destination: "/docs/state-adapters",
         permanent: true,
