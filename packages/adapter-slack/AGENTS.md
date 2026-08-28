@@ -95,7 +95,8 @@ The package's main exports (see `src/index.ts`):
   `removeReaction`, `startTyping`, `openModal`, `getInstallation`,
   `setInstallation`, `deleteInstallation`, `handleOAuthCallback`,
   `withBotToken`, `setSuggestedPrompts`, `setAssistantStatus`,
-  `setAssistantTitle`, `publishHomeView`, `startSocketModeListener`.
+  `setSessionStatus`, `setAssistantTitle`, `publishHomeView`,
+  `startSocketModeListener`.
 - `SlackAdapterConfig`, `SlackBotToken`, `SlackInstallation`,
   `SlackThreadId`, `SlackEvent`, `SlackReactionEvent`,
   `SlackAdapterMode`, `SlackOAuthCallbackOptions` — configuration and
@@ -251,6 +252,12 @@ markdown stays valid (no half-formed tags); structured `task_update` /
 (`task_display_mode: "plan"` groups them into a plan). `stopBlocks`
 (the `StreamingPlan` `endWith` option) attach Block Kit to the final
 message on `chat.stopStream`.
+
+With `agentView` enabled, `startTyping` and stream completion manage the
+Agent Sessions lifecycle through `agents.sessions.setStatus`, and
+`agent_session_stopped` aborts the active `Thread.signal`. Keep the legacy
+`assistant.threads.*` path intact for `agentView: false` until Slack retires
+`assistant_view` in February 2027.
 
 Fallback to post-and-edit (`chat.update` deltas, throttled by
 `updateIntervalMs`) happens at three levels:

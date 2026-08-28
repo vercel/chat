@@ -15,7 +15,7 @@ const REQUIRES_CHAT_INSTANCE_REGEX = /requires a `chat` instance/;
 const NO_FETCH_CHANNEL_MESSAGES_REGEX =
   /does not support fetching channel messages/;
 const NO_LIST_THREADS_REGEX = /does not support listing threads/;
-const OUT_OF_SCOPE_REGEX = /reads are scoped to/;
+const OUT_OF_SCOPE_REGEX = /tools are scoped to/;
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 // Minimal tool execution options stub used by every test below. Derived from
@@ -733,6 +733,108 @@ describe("createChatTools", () => {
       await sleep(0);
 
       expect(outcome).toBe("blocked");
+    });
+  });
+
+  describe("write scope", () => {
+    const CALLER_THREAD = "slack:C123:1234.5678";
+    const OTHER_THREAD = "slack:C999:1111.2222";
+
+    it("blocks posting to a thread outside the scoped channel", async () => {
+      const tools = createChatTools({ chat, scope: CALLER_THREAD });
+      await expect(
+        tools.postMessage?.execute?.(
+          { threadId: OTHER_THREAD, message: "hi" },
+          TOOL_OPTIONS
+        )
+      ).rejects.toThrow(OUT_OF_SCOPE_REGEX);
+      expect(mockAdapter.postMessage).not.toHaveBeenCalled();
+    });
+
+    it("allows posting inside the scoped conversation", async () => {
+      const tools = createChatTools({ chat, scope: CALLER_THREAD });
+      await tools.postMessage?.execute?.(
+        { threadId: CALLER_THREAD, message: "hi" },
+        TOOL_OPTIONS
+      );
+      expect(mockAdapter.postMessage).toHaveBeenCalled();
+    });
+
+    it("scopes every thread- or channel-targeting write tool", async () => {
+      const tools = createChatTools({ chat, scope: CALLER_THREAD });
+      await expect(
+        tools.postChannelMessage?.execute?.(
+          { channelId: "slack:C999", message: "hi" },
+          TOOL_OPTIONS
+        )
+      ).rejects.toThrow(OUT_OF_SCOPE_REGEX);
+      await expect(
+        tools.editMessage?.execute?.(
+          { threadId: OTHER_THREAD, messageId: "m1", message: "hi" },
+          TOOL_OPTIONS
+        )
+      ).rejects.toThrow(OUT_OF_SCOPE_REGEX);
+      await expect(
+        tools.deleteMessage?.execute?.(
+          { threadId: OTHER_THREAD, messageId: "m1" },
+          TOOL_OPTIONS
+        )
+      ).rejects.toThrow(OUT_OF_SCOPE_REGEX);
+      await expect(
+        tools.addReaction?.execute?.(
+          { threadId: OTHER_THREAD, messageId: "m1", emoji: "thumbs_up" },
+          TOOL_OPTIONS
+        )
+      ).rejects.toThrow(OUT_OF_SCOPE_REGEX);
+      await expect(
+        tools.removeReaction?.execute?.(
+          { threadId: OTHER_THREAD, messageId: "m1", emoji: "thumbs_up" },
+          TOOL_OPTIONS
+        )
+      ).rejects.toThrow(OUT_OF_SCOPE_REGEX);
+      await expect(
+        tools.subscribeThread?.execute?.(
+          { threadId: OTHER_THREAD },
+          TOOL_OPTIONS
+        )
+      ).rejects.toThrow(OUT_OF_SCOPE_REGEX);
+      await expect(
+        tools.unsubscribeThread?.execute?.(
+          { threadId: OTHER_THREAD },
+          TOOL_OPTIONS
+        )
+      ).rejects.toThrow(OUT_OF_SCOPE_REGEX);
+      expect(mockAdapter.postMessage).not.toHaveBeenCalled();
+      expect(mockAdapter.editMessage).not.toHaveBeenCalled();
+      expect(mockAdapter.deleteMessage).not.toHaveBeenCalled();
+      expect(mockAdapter.addReaction).not.toHaveBeenCalled();
+      expect(mockAdapter.removeReaction).not.toHaveBeenCalled();
+    });
+
+    it("inherits the handled conversation for writes when no scope is passed", async () => {
+      const tools = createChatTools({ chat });
+      await expect(
+        runInConversation(CALLER_THREAD, () =>
+          tools.postMessage?.execute?.(
+            { threadId: OTHER_THREAD, message: "hi" },
+            TOOL_OPTIONS
+          )
+        )
+      ).rejects.toThrow(OUT_OF_SCOPE_REGEX);
+      expect(mockAdapter.postMessage).not.toHaveBeenCalled();
+    });
+
+    // sendDirectMessage targets a user id, not a thread or channel, so the
+    // conversation scope guard has nothing to check it against. Approval is
+    // its only gate.
+    it("does not scope sendDirectMessage", async () => {
+      const tools = createChatTools({ chat, scope: CALLER_THREAD });
+      await tools.sendDirectMessage?.execute?.(
+        { userId: "U42", message: "hi" },
+        TOOL_OPTIONS
+      );
+      expect(mockAdapter.openDM).toHaveBeenCalledWith("U42");
+      expect(mockAdapter.postMessage).toHaveBeenCalled();
     });
   });
 

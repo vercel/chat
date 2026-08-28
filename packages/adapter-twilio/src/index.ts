@@ -58,7 +58,7 @@ export class TwilioAdapter
   implements Adapter<TwilioThreadId, TwilioRawMessage>
 {
   readonly name = "twilio";
-  readonly lockScope = "channel" as const;
+  readonly lockScope = "thread" as const;
   readonly persistThreadHistory = true;
   readonly userName: string;
 

@@ -28,7 +28,7 @@ const POST_MESSAGE_INPUT = z.object({
 
 export const postMessage = (
   chat: ChatBinding,
-  { needsApproval = true }: ToolOptions = {}
+  { needsApproval = true, guard }: ToolOptions = {}
 ): Tool<
   z.infer<typeof POST_MESSAGE_INPUT>,
   { messageId: string; threadId: string }
@@ -39,6 +39,7 @@ export const postMessage = (
     needsApproval,
     inputSchema: POST_MESSAGE_INPUT,
     execute: async ({ threadId, message }) => {
+      guard?.(threadId);
       const thread = chat.thread(threadId);
       const sent = await thread.post(toPostable(message));
       return {
@@ -55,7 +56,7 @@ const POST_CHANNEL_MESSAGE_INPUT = z.object({
 
 export const postChannelMessage = (
   chat: ChatBinding,
-  { needsApproval = true }: ToolOptions = {}
+  { needsApproval = true, guard }: ToolOptions = {}
 ): Tool<
   z.infer<typeof POST_CHANNEL_MESSAGE_INPUT>,
   { messageId: string; threadId: string }
@@ -66,6 +67,7 @@ export const postChannelMessage = (
     needsApproval,
     inputSchema: POST_CHANNEL_MESSAGE_INPUT,
     execute: async ({ channelId, message }) => {
+      guard?.(channelId);
       const channel = chat.channel(channelId);
       const sent = await channel.post(toPostable(message));
       return {
@@ -114,7 +116,7 @@ const EDIT_MESSAGE_INPUT = z.object({
 
 export const editMessage = (
   chat: ChatBinding,
-  { needsApproval = true }: ToolOptions = {}
+  { needsApproval = true, guard }: ToolOptions = {}
 ): Tool<
   z.infer<typeof EDIT_MESSAGE_INPUT>,
   { messageId: string; threadId: string }
@@ -125,6 +127,7 @@ export const editMessage = (
     needsApproval,
     inputSchema: EDIT_MESSAGE_INPUT,
     execute: async ({ threadId, messageId, message }) => {
+      guard?.(threadId);
       const thread = chat.thread(threadId);
       const result = await thread.adapter.editMessage(
         threadId,
@@ -144,7 +147,7 @@ const DELETE_MESSAGE_INPUT = z.object({
 
 export const deleteMessage = (
   chat: ChatBinding,
-  { needsApproval = true }: ToolOptions = {}
+  { needsApproval = true, guard }: ToolOptions = {}
 ): Tool<
   z.infer<typeof DELETE_MESSAGE_INPUT>,
   { deleted: boolean; messageId: string; threadId: string }
@@ -158,6 +161,7 @@ export const deleteMessage = (
       threadId,
       messageId,
     }): Promise<{ deleted: boolean; messageId: string; threadId: string }> => {
+      guard?.(threadId);
       const thread = chat.thread(threadId);
       await thread.adapter.deleteMessage(threadId, messageId);
       return { deleted: true, messageId, threadId };

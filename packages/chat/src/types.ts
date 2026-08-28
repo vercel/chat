@@ -270,6 +270,15 @@ export interface Adapter<TThreadId = unknown, TRawMessage = unknown> {
   encodeThreadId(platformData: TThreadId): string;
 
   /**
+   * Clear a typing/processing indicator after a reply finishes.
+   *
+   * Optional because most platforms clear typing indicators automatically.
+   * Agent-session platforms can implement this to transition the session back
+   * to an active state.
+   */
+  endTyping?(threadId: string, status?: AgentSessionStatus): Promise<void>;
+
+  /**
    * Fetch channel info/metadata.
    */
   fetchChannelInfo?(channelId: string): Promise<ChannelInfo>;
@@ -547,7 +556,11 @@ export interface Adapter<TThreadId = unknown, TRawMessage = unknown> {
   ): Promise<ScheduledMessage<TRawMessage>>;
 
   /** Show typing indicator */
-  startTyping(threadId: string, status?: string): Promise<void>;
+  startTyping(
+    threadId: string,
+    status?: string,
+    options?: TypingOptions
+  ): Promise<void>;
 
   /**
    * Stream a message using platform-native streaming APIs.
@@ -571,6 +584,8 @@ export interface Adapter<TThreadId = unknown, TRawMessage = unknown> {
     textStream: AsyncIterable<string | StreamChunk>,
     options?: StreamOptions
   ): Promise<RawMessage<TRawMessage> | null>;
+  /** Whether active turns should be published for cross-process cancellation. */
+  readonly supportsTurnCancellation?: boolean;
   /** Bot username (can override global userName) */
   readonly userName: string;
 }
@@ -618,6 +633,10 @@ export interface StreamOptions {
   recipientTeamId?: string;
   /** Slack: The user ID to stream to (for AI assistant context) */
   recipientUserId?: string;
+  /** Slack: Agent session state after the stream stops. Defaults to "active". */
+  sessionStatus?: AgentSessionStatus;
+  /** Stop consuming the stream when this signal is aborted. */
+  signal?: AbortSignal;
   /** Block Kit elements to attach when stopping the stream (Slack only, via chat.stopStream) */
   stopBlocks?: unknown[];
   /**
@@ -630,8 +649,27 @@ export interface StreamOptions {
   updateIntervalMs?: number;
 }
 
+/** Lifecycle states supported by Slack Agent Sessions. */
+export type AgentSessionStatus =
+  | "active"
+  | "closed"
+  | "processing"
+  | "suspended";
+
+/** Context supplied when an adapter starts a typing/processing indicator. */
+export interface TypingOptions {
+  /** User who initiated the current turn, when known. */
+  initiatorUserId?: string;
+}
+
 /** Internal interface for Chat instance passed to adapters */
 export interface ChatInstance {
+  /**
+   * Abort active work for a conversation, including work running in another
+   * process that shares the configured state adapter.
+   */
+  abortTurn(threadId: string): Promise<void>;
+
   /** Get the configured logger, optionally with a child prefix */
   getLogger(prefix?: string): Logger;
 
@@ -658,6 +696,16 @@ export interface ChatInstance {
     event: Omit<ActionEvent, "thread" | "openModal"> & { adapter: Adapter },
     options: WebhookOptions | undefined
   ): Promise<void>;
+
+  processAgentSessionStopped(
+    event: AgentSessionStoppedEvent,
+    options?: WebhookOptions
+  ): void;
+
+  processAgentSessionTitleChanged(
+    event: AgentSessionTitleChangedEvent,
+    options?: WebhookOptions
+  ): void;
 
   processAppContextChanged(
     event: AppContextChangedEvent,
@@ -1359,6 +1407,14 @@ export interface Thread<TState = Record<string, unknown>, TRawMessage = unknown>
   ): Promise<SentMessage<TRawMessage>>;
 
   /**
+   * Aborted when the platform or application stops the active turn.
+   *
+   * Pass this to AI/model APIs so cancellation stops upstream generation, not
+   * only message delivery.
+   */
+  readonly signal: AbortSignal;
+
+  /**
    * Show typing indicator in the thread.
    *
    * Some platforms support persistent typing indicators, others just send once.
@@ -1742,7 +1798,7 @@ export interface Attachment {
    * For platforms that require authentication (like Slack private URLs),
    * this method handles the auth automatically.
    */
-  fetchData?: () => Promise<Buffer>;
+  fetchData?: () => Promise<Buffer | ArrayBuffer>;
   /**
    * Platform-specific metadata needed to reconstruct fetchData after serialization.
    * Adapters store IDs here (e.g. WhatsApp mediaId, Telegram fileId) so that
@@ -2516,6 +2572,33 @@ export type SlashCommandHandler<TState = Record<string, unknown>> = (
 // =============================================================================
 // Assistant Events (Slack Assistants API / AI Apps)
 // =============================================================================
+
+export interface AgentSessionStoppedEvent {
+  adapter: Adapter;
+  channelId: string;
+  streamingMessageTs: string[];
+  threadId: string;
+  threadTs: string;
+  userId: string;
+}
+
+export type AgentSessionStoppedHandler = (
+  event: AgentSessionStoppedEvent
+) => void | Promise<void>;
+
+export interface AgentSessionTitleChangedEvent {
+  adapter: Adapter;
+  channelId: string;
+  previousTitle?: string;
+  threadId: string;
+  threadTs: string;
+  title: string;
+  userId: string;
+}
+
+export type AgentSessionTitleChangedHandler = (
+  event: AgentSessionTitleChangedEvent
+) => void | Promise<void>;
 
 export interface AssistantThreadStartedEvent {
   adapter: Adapter;

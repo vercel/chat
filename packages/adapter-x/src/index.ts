@@ -537,9 +537,13 @@ export class XAdapter implements Adapter<XThreadId, XRawMessage> {
       });
     }
     for (const attachment of extractPostableAttachments(message)) {
-      const load = attachment.data
-        ? () => toBytes(attachment.data as Buffer | Blob)
-        : attachment.fetchData;
+      const fetchData = attachment.fetchData;
+      let load: (() => Promise<Buffer>) | undefined;
+      if (attachment.data) {
+        load = () => toBytes(attachment.data as Buffer | Blob);
+      } else if (fetchData) {
+        load = async () => toBytes(await fetchData());
+      }
       if (!load) {
         throw new ValidationError(
           "x",

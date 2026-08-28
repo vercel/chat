@@ -750,6 +750,7 @@ describe("ThreadImpl", () => {
       const streamMsg = new StreamingPlan(textStream, {
         groupTasks: "plan",
         endWith: [{ type: "actions" }],
+        sessionStatus: "suspended",
         updateIntervalMs: 1000,
       });
       await thread.post(streamMsg);
@@ -760,6 +761,7 @@ describe("ThreadImpl", () => {
         expect.objectContaining({
           taskDisplayMode: "plan",
           stopBlocks: [{ type: "actions" }],
+          sessionStatus: "suspended",
           updateIntervalMs: 1000,
         })
       );
@@ -2357,6 +2359,32 @@ describe("ThreadImpl", () => {
       expect(mockAdapter.startTyping).toHaveBeenCalledWith(
         "slack:C123:1234.5678",
         "thinking..."
+      );
+    });
+
+    it("passes the initiating user and clears processing after posting", async () => {
+      const adapter = createMockAdapter();
+      adapter.endTyping = vi.fn().mockResolvedValue(undefined);
+      const currentMessage = createTestMessage("msg-1", "Hello");
+      const thread = new ThreadImpl({
+        id: "slack:C123:1234.5678",
+        adapter,
+        channelId: "C123",
+        stateAdapter: createMockState(),
+        currentMessage,
+      });
+
+      await thread.startTyping();
+      await thread.post("Done");
+
+      expect(adapter.startTyping).toHaveBeenCalledWith(
+        "slack:C123:1234.5678",
+        undefined,
+        { initiatorUserId: currentMessage.author.userId }
+      );
+      expect(adapter.endTyping).toHaveBeenCalledWith(
+        "slack:C123:1234.5678",
+        "active"
       );
     });
   });

@@ -452,6 +452,36 @@ bot.onAssistantContextChanged(async (event) => {
 
 The event shape is identical to `onAssistantThreadStarted`.
 
+### onAgentSessionStopped
+
+Fires after a user clicks Slack's native agent-session stop button. Chat SDK
+aborts the active turn and moves the session out of `processing` before this
+handler runs.
+
+```typescript
+bot.onAgentSessionStopped(async (event) => {
+  await releaseExternalResources(event.threadId);
+});
+```
+
+The event contains `threadId`, `channelId`, `threadTs`,
+`streamingMessageTs`, `userId`, and `adapter`. `streamingMessageTs` lists the
+streaming messages Slack stopped and can be empty when no stream was active.
+
+### onAgentSessionTitleChanged
+
+Fires when a user renames a Slack agent session.
+
+```typescript
+bot.onAgentSessionTitleChanged(async (event) => {
+  await syncTitle(event.threadId, event.title);
+});
+```
+
+The event contains `title`, `previousTitle`, `threadId`, `channelId`,
+`threadTs`, `userId`, and `adapter`. `previousTitle` is omitted when the
+session did not have a title before the change.
+
 ### onAppHomeOpened
 
 Fires when a user opens the bot's Home tab in Slack. Use this to publish a dynamic Home tab view.
@@ -484,6 +514,19 @@ bot.onAppHomeOpened(async (event) => {
 />
 
 ## Utility methods
+
+### abortTurn
+
+Abort the active handler turn for a thread. Chat SDK signals work in this
+process immediately and publishes the cancellation through the configured
+state adapter for another serverless instance to observe.
+
+```typescript
+await bot.abortTurn(thread.id);
+```
+
+Platform adapters normally invoke this for native cancellation events. Model
+and tool calls must receive `thread.signal` to stop their own upstream work.
 
 ### webhooks
 

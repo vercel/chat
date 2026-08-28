@@ -355,6 +355,30 @@ For button clicks, slash commands, and modal forms, see the dedicated guides:
 
 These handlers are specific to the Slack platform and require the Slack adapter.
 
+### Handling agent session stop and title changes
+
+`onAgentSessionStopped` fires when a user clicks Slack's native stop button.
+Chat SDK aborts the active `thread.signal` and transitions the session out of
+`processing` before invoking your handler.
+
+```typescript title="lib/bot.ts" lineNumbers
+bot.onAgentSessionStopped(async (event) => {
+  await releaseExternalResources(event.threadId);
+});
+```
+
+`onAgentSessionTitleChanged` fires when a user renames a session in Slack:
+
+```typescript title="lib/bot.ts" lineNumbers
+bot.onAgentSessionTitleChanged(async (event) => {
+  await syncTitle(event.threadId, event.title);
+});
+```
+
+Subscribe to `agent_session_stopped` and `agent_session_title_changed` in the
+Slack app manifest. Model calls should receive `thread.signal` so stop also
+cancels upstream generation.
+
 ### Handling assistant threads
 
 `onAssistantThreadStarted` fires when a user opens a new assistant thread in Slack. Use it with the [Slack Assistants API](/adapters/official/slack#slack-assistants-api) to set suggested prompts and status indicators.
@@ -387,7 +411,7 @@ The `event` object includes:
 ```typescript title="lib/bot.ts" lineNumbers
 bot.onAssistantContextChanged(async (event) => {
   const slack = bot.getAdapter("slack") as SlackAdapter;
-  await slack.setStatus(event.channelId, event.threadTs, "Updating context...");
+  await slack.setAssistantStatus(event.channelId, event.threadTs, "Updating context...");
 
   // Update prompts based on new context
   const channelName = event.context.channelId ?? "general";

@@ -1,14 +1,9 @@
-import type { ReactNode } from "react";
 import { AdaptersDocsLayout } from "@/components/geistdocs/adapters-docs-layout";
 import { adaptersSource } from "@/lib/geistdocs/adapters-source";
+import { getRootLang } from "@/lib/geistdocs/root-params";
 
-interface AdapterDetailLayoutProps {
-  children: ReactNode;
-  params: Promise<{ lang: string }>;
-}
-
-const Layout = async ({ children, params }: AdapterDetailLayoutProps) => {
-  const { lang } = await params;
+const Layout = async ({ children }: LayoutProps<"/[lang]/adapters">) => {
+  const lang = await getRootLang();
 
   return (
     <div className="bg-background-200">

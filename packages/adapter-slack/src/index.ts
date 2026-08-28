@@ -2,7 +2,9 @@ import { AsyncLocalStorage } from "node:async_hooks";
 import { timingSafeEqual } from "node:crypto";
 import {
   AdapterRateLimitError,
+  type AttachmentTransport,
   AuthenticationError,
+  downloadAttachment,
   extractCard,
   extractFiles,
   NetworkError,
@@ -20,6 +22,7 @@ import type {
   ActionEvent,
   Adapter,
   AdapterPostableMessage,
+  AgentSessionStatus,
   Attachment,
   ChannelInfo,
   ChannelVisibility,
@@ -48,6 +51,7 @@ import type {
   StreamOptions,
   ThreadInfo,
   ThreadSummary,
+  TypingOptions,
   UserInfo,
   WebhookOptions,
 } from "chat";
@@ -75,6 +79,7 @@ import {
   encryptToken,
   isEncryptedTokenData,
 } from "./crypto";
+import { isSlackAuthUrl } from "./file";
 import { SlackFormatConverter } from "./markdown";
 import {
   decodeModalMetadata,
@@ -192,6 +197,7 @@ import type {
   SlackBotToken,
   SlackFeedbackButtonsOptions,
   SlackInstallation,
+  SlackSessionTitle,
   SlackSuggestedPrompts,
   SlackSuggestedPromptsContext,
 } from "./types";
@@ -202,6 +208,8 @@ export type {
   SlackBotToken,
   SlackFeedbackButtonsOptions,
   SlackInstallation,
+  SlackSessionTitle,
+  SlackSessionTitleContext,
   SlackSuggestedPrompt,
   SlackSuggestedPrompts,
   SlackSuggestedPromptsContext,
@@ -614,6 +622,26 @@ interface SlackAssistantContextChangedEvent {
   type: "assistant_thread_context_changed";
 }
 
+interface SlackAgentSessionStoppedEvent {
+  channel: string;
+  event_ts: string;
+  streaming_message_ts: string[];
+  thread_ts: string;
+  type: "agent_session_stopped";
+  user: string;
+}
+
+interface SlackAgentSessionTitleChangedEvent {
+  channel: string;
+  event_ts: string;
+  previous_title?: string;
+  team_id: string;
+  thread_ts: string;
+  title: string;
+  type: "agent_session_title_changed";
+  user: string;
+}
+
 /** Slack app_home_opened event payload */
 interface SlackAppHomeOpenedEvent {
   channel: string;
@@ -802,6 +830,7 @@ interface CachedChannel {
 export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
   readonly name = "slack";
   readonly userName: string;
+  readonly supportsTurnCancellation: boolean;
 
   protected readonly _client: WebClient;
   protected readonly tokenClientCache = new Map<string, WebClient>();
@@ -834,6 +863,7 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
   // Socket mode support
   protected readonly appToken: string | undefined;
   protected readonly agentView: boolean;
+  protected readonly sessionTitle: SlackSessionTitle;
   protected readonly suggestedPrompts?: SlackSuggestedPrompts;
   protected readonly loadingMessages?: string[];
   /** Normalized feedbackButtons config (`true` becomes `{}`). */
@@ -1014,6 +1044,8 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
 
     this.appToken = config.appToken;
     this.agentView = config.agentView ?? false;
+    this.supportsTurnCancellation = this.agentView;
+    this.sessionTitle = config.sessionTitle ?? this.agentView;
     this.suggestedPrompts = config.suggestedPrompts;
     this.loadingMessages = config.loadingMessages;
     this.nativeStreaming = config.nativeStreaming ?? true;
@@ -1931,6 +1963,16 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
       } else if (event.type === "assistant_thread_context_changed") {
         this.handleAssistantContextChanged(
           event as SlackAssistantContextChangedEvent,
+          options
+        );
+      } else if (event.type === "agent_session_stopped") {
+        this.handleAgentSessionStopped(
+          event as SlackAgentSessionStoppedEvent,
+          options
+        );
+      } else if (event.type === "agent_session_title_changed") {
+        this.handleAgentSessionTitleChanged(
+          event as SlackAgentSessionTitleChangedEvent,
           options
         );
       } else if (event.type === "app_context_changed") {
@@ -2864,18 +2906,49 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
             { error: String(error), threadId }
           );
         }
-        chat.processMessage(
-          this,
-          routedThreadId,
-          makeFactory(routedThreadId),
-          options
-        );
+        try {
+          await chat.processMessage(
+            this,
+            routedThreadId,
+            makeFactory(routedThreadId),
+            options
+          );
+        } catch (error) {
+          this.logger.warn("Agent view DM processing failed", {
+            error,
+            threadId: routedThreadId,
+          });
+        }
+        await this.applyConfiguredSessionTitle(event);
       })();
       options?.waitUntil?.(task);
       return;
     }
 
-    this.chat.processMessage(this, threadId, makeFactory(threadId), options);
+    const processTask = this.chat.processMessage(
+      this,
+      threadId,
+      makeFactory(threadId),
+      options
+    );
+    if (
+      this.agentView &&
+      isDM &&
+      !event.thread_ts &&
+      !event.subtype &&
+      event.user &&
+      !event.bot_id
+    ) {
+      const titleTask = Promise.resolve(processTask)
+        .then(() => this.applyConfiguredSessionTitle(event))
+        .catch((error) => {
+          this.logger.warn(
+            "Skipping Slack agent session title after message processing failed",
+            { error, threadId }
+          );
+        });
+      options?.waitUntil?.(titleTask);
+    }
   }
 
   protected handleMessageChanged(
@@ -3244,6 +3317,85 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
     );
   }
 
+  protected handleAgentSessionStopped(
+    event: SlackAgentSessionStoppedEvent,
+    options?: WebhookOptions
+  ): void {
+    if (!this.chat) {
+      this.logger.warn(
+        "Chat instance not initialized, ignoring agent_session_stopped"
+      );
+      return;
+    }
+
+    const threadId = this.encodeThreadId({
+      channel: event.channel,
+      threadTs: event.thread_ts,
+    });
+    const chat = this.chat;
+    const task = (async () => {
+      try {
+        await chat.abortTurn(threadId);
+      } catch (error) {
+        this.logger.warn("Failed to abort stopped Slack agent session", {
+          error,
+          threadId,
+        });
+      }
+
+      try {
+        await this.setSessionStatus(event.channel, event.thread_ts, "active");
+      } catch (error) {
+        this.logger.warn("Failed to activate stopped Slack agent session", {
+          error,
+          threadId,
+        });
+      }
+
+      chat.processAgentSessionStopped(
+        {
+          adapter: this,
+          channelId: event.channel,
+          streamingMessageTs: event.streaming_message_ts,
+          threadId,
+          threadTs: event.thread_ts,
+          userId: event.user,
+        },
+        options
+      );
+    })();
+    options?.waitUntil?.(task);
+  }
+
+  protected handleAgentSessionTitleChanged(
+    event: SlackAgentSessionTitleChangedEvent,
+    options?: WebhookOptions
+  ): void {
+    if (!this.chat) {
+      this.logger.warn(
+        "Chat instance not initialized, ignoring agent_session_title_changed"
+      );
+      return;
+    }
+
+    const threadId = this.encodeThreadId({
+      channel: event.channel,
+      threadTs: event.thread_ts,
+    });
+    this.chat.processAgentSessionTitleChanged(
+      {
+        adapter: this,
+        channelId: event.channel,
+        previousTitle: event.previous_title,
+        threadId,
+        threadTs: event.thread_ts,
+        title: event.title,
+        userId: event.user,
+      },
+      options
+    );
+  }
+
   /**
    * Handle app_home_opened events from Slack.
    * Fires when a user opens the bot's Home tab.
@@ -3438,9 +3590,54 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
     }
   }
 
+  protected async applyConfiguredSessionTitle(
+    event: SlackEvent
+  ): Promise<void> {
+    if (
+      !(
+        this.agentView &&
+        this.sessionTitle &&
+        event.channel &&
+        event.ts &&
+        event.user &&
+        event.text &&
+        !event.bot_id &&
+        !event.subtype &&
+        !event.thread_ts
+      )
+    ) {
+      return;
+    }
+
+    try {
+      const context = {
+        channelId: event.channel,
+        text: event.text,
+        threadTs: event.ts,
+        userId: event.user,
+      };
+      const resolved =
+        typeof this.sessionTitle === "function"
+          ? await this.sessionTitle(context)
+          : event.text.split("\n", 1)[0]?.trim();
+      const title = resolved?.trim().slice(0, 80);
+      if (!title) {
+        return;
+      }
+      await this.renameAgentSession(event.channel, event.ts, title);
+    } catch (error) {
+      this.logger.warn("Failed to set Slack agent session title", {
+        channelId: event.channel,
+        error,
+        threadTs: event.ts,
+      });
+    }
+  }
+
   /**
    * Set status/thinking indicator for an assistant thread.
-   * Slack Assistants API: assistant.threads.setStatus
+   * Uses Agent Sessions when `agentView` is enabled and the legacy Assistants
+   * API otherwise.
    *
    * When `loadingMessages` is omitted, falls back to the adapter-level
    * `loadingMessages` config.
@@ -3451,6 +3648,20 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
     status: string,
     loadingMessages?: string[]
   ): Promise<void> {
+    if (this.agentView) {
+      if (loadingMessages?.length || status.trim()) {
+        this.logger.debug(
+          "Slack Agent Sessions use the standard Working status; custom loading text is ignored"
+        );
+      }
+      await this.setSessionStatus(
+        channelId,
+        threadTs,
+        status.trim() ? "processing" : "active"
+      );
+      return;
+    }
+
     const effectiveLoadingMessages = loadingMessages ?? this.loadingMessages;
     await this._client.assistant.threads.setStatus(
       await this.withToken({
@@ -3465,14 +3676,56 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
   }
 
   /**
-   * Set title for an assistant thread (shown in History tab).
-   * Slack Assistants API: assistant.threads.setTitle
+   * Set a Slack Agent Session lifecycle state, creating the session if needed.
+   */
+  async setSessionStatus(
+    channelId: string,
+    threadTs: string,
+    status: AgentSessionStatus,
+    options?: { initiatorUserId?: string; title?: string }
+  ): Promise<void> {
+    await this._client.apiCall(
+      "agents.sessions.setStatus",
+      await this.withToken({
+        channel_id: channelId,
+        thread_ts: threadTs,
+        status,
+        ...(options?.initiatorUserId
+          ? { initiator_user_id: options.initiatorUserId }
+          : {}),
+        ...(options?.title ? { title: options.title } : {}),
+      })
+    );
+  }
+
+  protected async renameAgentSession(
+    channelId: string,
+    threadTs: string,
+    title: string
+  ): Promise<void> {
+    await this._client.apiCall(
+      "agents.sessions.rename",
+      await this.withToken({
+        channel_id: channelId,
+        thread_ts: threadTs,
+        title,
+      })
+    );
+  }
+
+  /**
+   * Set title for an assistant thread or agent session.
    */
   async setAssistantTitle(
     channelId: string,
     threadTs: string,
     title: string
   ): Promise<void> {
+    if (this.agentView) {
+      await this.renameAgentSession(channelId, threadTs, title);
+      return;
+    }
+
     await this._client.assistant.threads.setTitle(
       await this.withToken({
         channel_id: channelId,
@@ -3899,32 +4152,59 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
       fetchMetadata: Object.keys(fetchMeta).length > 0 ? fetchMeta : undefined,
       fetchData: url
         ? async () =>
-            this.fetchSlackFile(url, ctxToken ?? (await this.getToken()))
+            this.fetchSlackFile(url, () => ctxToken ?? this.getToken())
         : undefined,
     };
   }
 
-  protected async fetchSlackFile(url: string, token: string): Promise<Buffer> {
-    const response = await fetch(url, {
-      headers: { Authorization: `Bearer ${token}` },
-    });
-    if (!response.ok) {
+  protected async fetchSlackFile(
+    url: string,
+    token: SlackBotToken
+  ): Promise<Buffer> {
+    let value: string | undefined;
+    if (isSlackAuthUrl(url, this.slackApiUrl)) {
+      value = typeof token === "function" ? await token() : token;
+    }
+    try {
+      return await downloadAttachment(url, {
+        adapter: "slack",
+        // The bot token is sent only on hops to trusted Slack origins, so a
+        // redirect cannot carry it to another host.
+        headers: (target) =>
+          value && isSlackAuthUrl(target.href, this.slackApiUrl)
+            ? { authorization: `Bearer ${value}` }
+            : undefined,
+        transport: this.createFileTransport(),
+        onResponse: (response) => {
+          const contentType = response.headers["content-type"] ?? "";
+          if (contentType.includes("text/html")) {
+            throw new NetworkError(
+              "slack",
+              "Failed to download file from Slack: received HTML login page instead of file data. " +
+                `Ensure your Slack app has the "files:read" OAuth scope. ` +
+                `URL: ${url}`
+            );
+          }
+        },
+      });
+    } catch (error) {
+      if (error instanceof NetworkError) {
+        throw error;
+      }
       throw new NetworkError(
         "slack",
-        `Failed to fetch file: ${response.status} ${response.statusText}`
+        "Failed to fetch Slack file",
+        error instanceof Error ? error : undefined
       );
     }
-    const contentType = response.headers.get("content-type") ?? "";
-    if (contentType.includes("text/html")) {
-      throw new NetworkError(
-        "slack",
-        "Failed to download file from Slack: received HTML login page instead of file data. " +
-          `Ensure your Slack app has the "files:read" OAuth scope. ` +
-          `URL: ${url}`
-      );
-    }
-    const arrayBuffer = await response.arrayBuffer();
-    return Buffer.from(arrayBuffer);
+  }
+
+  /**
+   * Transport used for guarded file downloads. Subclasses can return a
+   * custom AttachmentTransport, e.g. to route downloads through a proxy.
+   */
+  protected createFileTransport(): AttachmentTransport | undefined {
+    return undefined;
   }
 
   rehydrateAttachment(attachment: Attachment): Attachment {
@@ -3939,29 +4219,28 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
     return {
       ...attachment,
       fetchData: async () => {
-        let token: string;
-        const installationId = isEnterpriseInstall ? enterpriseId : teamId;
-        if (installationId) {
-          // Route through resolveTokenForTeam so installationProvider (when
-          // configured) is honored — otherwise this falls back to internal
-          // state via getInstallation, matching the prior behavior.
-          const ctx = await this.resolveTokenForTeam(
-            installationId,
-            isEnterpriseInstall
-          );
-          if (!ctx) {
-            throw new AuthenticationError(
-              "slack",
-              `Installation not found for ${
-                isEnterpriseInstall ? "enterprise" : "team"
-              } ${installationId}`
+        return this.fetchSlackFile(url, async () => {
+          const installationId = isEnterpriseInstall ? enterpriseId : teamId;
+          if (installationId) {
+            // Route through resolveTokenForTeam so installationProvider (when
+            // configured) is honored — otherwise this falls back to internal
+            // state via getInstallation, matching the prior behavior.
+            const ctx = await this.resolveTokenForTeam(
+              installationId,
+              isEnterpriseInstall
             );
+            if (!ctx) {
+              throw new AuthenticationError(
+                "slack",
+                `Installation not found for ${
+                  isEnterpriseInstall ? "enterprise" : "team"
+                } ${installationId}`
+              );
+            }
+            return ctx.token;
           }
-          token = ctx.token;
-        } else {
-          token = await this.getToken();
-        }
-        return this.fetchSlackFile(url, token);
+          return this.getToken();
+        });
       },
     };
   }
@@ -4886,12 +5165,36 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
    * @param threadId - The thread to show the indicator in
    * @param status - Optional custom status message (e.g., "Searching documents...")
    */
-  async startTyping(threadId: string, status?: string): Promise<void> {
+  async startTyping(
+    threadId: string,
+    status?: string,
+    options?: TypingOptions
+  ): Promise<void> {
     const { channel, threadTs } = this.decodeThreadId(threadId);
     if (!threadTs) {
       this.logger.debug("Slack: startTyping skipped - no thread context");
       return;
     }
+    if (this.agentView) {
+      this.logger.debug("Slack API: agents.sessions.setStatus", {
+        channel,
+        threadTs,
+        status: "processing",
+      });
+      try {
+        await this.setSessionStatus(channel, threadTs, "processing", {
+          initiatorUserId: options?.initiatorUserId,
+        });
+      } catch (error) {
+        this.logger.warn("Slack API: agents.sessions.setStatus failed", {
+          channel,
+          threadTs,
+          error,
+        });
+      }
+      return;
+    }
+
     this.logger.debug("Slack API: assistant.threads.setStatus", {
       channel,
       threadTs,
@@ -4911,6 +5214,28 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
       );
     } catch (error) {
       this.logger.warn("Slack API: assistant.threads.setStatus failed", {
+        channel,
+        threadTs,
+        error,
+      });
+    }
+  }
+
+  async endTyping(
+    threadId: string,
+    status: AgentSessionStatus = "active"
+  ): Promise<void> {
+    if (!this.agentView) {
+      return;
+    }
+    const { channel, threadTs } = this.decodeThreadId(threadId);
+    if (!threadTs) {
+      return;
+    }
+    try {
+      await this.setSessionStatus(channel, threadTs, status);
+    } catch (error) {
+      this.logger.warn("Slack API: agents.sessions.setStatus failed", {
         channel,
         threadTs,
         error,
@@ -5171,6 +5496,9 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
     };
 
     for await (const chunk of textStream) {
+      if (options?.signal?.aborted) {
+        break;
+      }
       if (typeof chunk === "string") {
         renderer.push(chunk);
         await flushCommitted();
@@ -5197,6 +5525,7 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
       this.logger.debug("Slack: fallback stream complete", {
         messageId: fallback.message?.id,
       });
+      await this.endTyping(threadId, options?.sessionStatus ?? "active");
       return fallback.message;
     }
 
@@ -5212,9 +5541,14 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
     try {
       result = await streamer.stop({
         token,
+        ...(this.agentView
+          ? { session_status: options?.sessionStatus ?? "active" }
+          : {}),
         ...(stopBlocks.length > 0
           ? { blocks: stopBlocks as ChatStopStreamArguments["blocks"] }
           : {}),
+      } as ChatStopStreamArguments & {
+        session_status?: AgentSessionStatus;
       });
     } catch (error) {
       if (fallback.nativeRendered) {
@@ -5229,6 +5563,7 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
       this.logger.debug("Slack: fallback stream complete", {
         messageId: fallback.message?.id,
       });
+      await this.endTyping(threadId, options?.sessionStatus ?? "active");
       return fallback.message;
     }
     const messageTs = (result.message?.ts ?? result.ts) as string;
@@ -6318,6 +6653,7 @@ export function createSlackAdapter(config?: SlackAdapterConfig): SlackAdapter {
     loadingMessages: config?.loadingMessages,
     logger: config?.logger ?? new ConsoleLogger("info").child("slack"),
     nativeStreaming: config?.nativeStreaming,
+    sessionTitle: config?.sessionTitle,
     suggestedPrompts: config?.suggestedPrompts,
     socketForwardingSecret:
       config?.socketForwardingSecret ??

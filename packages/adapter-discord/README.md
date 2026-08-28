@@ -215,6 +215,10 @@ Discord caps a Components v2 message at 40 total components and 4000 characters
 across all text. When a card exceeds either limit the adapter throws a
 `ValidationError` rather than letting Discord reject the request.
 
+## Inbound attachments
+
+Incoming attachments expose a lazy `fetchData()` that downloads from Discord's CDN anonymously. Downloads refuse private and internal addresses (including after redirects), are limited to 25 MB, and time out after 30 seconds.
+
 ## Configuration
 
 All options are auto-detected from environment variables when not provided.

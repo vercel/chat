@@ -1,6 +1,16 @@
+@import "tailwindcss";
+@import "fumadocs-ui/css/shadcn.css";
+@import "fumadocs-ui/css/preset.css";
+@import "tw-animate-css";
+
+/* Geist design layer from the package. theme.css already @sources the package
+   dist and streamdown, so don't re-@source those here; only @source your own
+   files if Tailwind misses them. Keep app-only deltas below. */
+@import "@vercel/geistdocs/theme.css";
+
 /*
- * Chat SDK-specific styles layered on top of @vercel/geistdocs/styles.css.
- * The package stylesheet owns the Geist design tokens, fumadocs overrides,
+ * Chat SDK-specific styles layered on top of @vercel/geistdocs/theme.css.
+ * The package theme owns the Geist design tokens, fumadocs overrides,
  * typography/material utilities, and the Shiki palette.
  */
 
@@ -159,7 +169,7 @@
     @apply px-6;
   }
 
-  #nd-page > .text-fd-muted-foreground:first-child {
+  #nd-page > .text-gray-900:first-child {
     @apply hidden;
   }
 }

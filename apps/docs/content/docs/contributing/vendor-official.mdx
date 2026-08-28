@@ -9,6 +9,7 @@ related:
   - /docs/adapters
   - /docs/create-chat-sdk
   - /docs/contributing/documenting
+  - /docs/vercel-connect
 ---
 
 A vendor-official adapter is built and maintained by the company behind the platform (or the primary maintainer of that platform's API). You implement the same `Adapter` interface as a [community adapter](/docs/contributing/building). After Vercel accepts your listing, your adapter appears in:
@@ -46,6 +47,17 @@ Before you open a listing PR, confirm that you can meet all of these:
 - Your primary product docs cover the adapter
 - You have announced the adapter in a blog post, changelog, or on social media
 - The adapter does not depend on platform APIs that are in private or closed beta
+- The adapter accepts credentials as resolver functions, not only static strings
+
+### Support non-static credentials
+
+Credential fields in your adapter config must accept a function alongside a plain string, and the adapter must resolve it on each outbound API call rather than caching the result:
+
+```typescript
+accessToken: string | (() => string | Promise<string>);
+```
+
+This lets developers supply rotating, short-lived tokens from tools like [Vercel Connect](/docs/vercel-connect) instead of long-lived secrets. The official adapters that work with Vercel Connect follow this pattern; see the outbound fields in the [Vercel Connect adapter table](/docs/vercel-connect#adapter-support) for examples.
 
 If you don't represent the platform vendor, [list as community](/docs/contributing/publishing#listing-on-chat-sdkdev) instead.
 
@@ -93,6 +105,7 @@ Reviewers check that:
 - Install snippets, factory exports, and env vars match the published package and README
 - The README link is pinned to a commit or tag
 - Catalog peer dependencies match what the docs tell people to install
+- Credential fields accept function-form values and are resolved per call
 - The adapter appears in both the docs registry and the `chat/adapters` catalog
 
 ## Keep the listing current

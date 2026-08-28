@@ -1,7 +1,7 @@
 import { createDocsMarkdownRoute } from "@vercel/geistdocs/routes/llms";
 import { geistdocsSource } from "@/lib/geistdocs/source";
 
-export const { GET, generateStaticParams, revalidate } =
-  createDocsMarkdownRoute({
-    source: geistdocsSource,
-  });
+export const { GET, generateStaticParams } = createDocsMarkdownRoute({
+  notFound: {},
+  sources: [geistdocsSource],
+});

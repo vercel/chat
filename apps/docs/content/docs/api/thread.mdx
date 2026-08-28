@@ -194,7 +194,10 @@ await thread.setState({ aiMode: false }, { replace: true });
 
 ## startTyping
 
-Show a typing indicator in the thread. No-op on platforms that don't support it. On Slack, you can pass an optional `status` string to show a custom loading message (requires `assistant:write` scope).
+Show a typing indicator in the thread. No-op on platforms that don't support
+it. With Slack Agent messaging, this sets the session to `processing` and
+shows Slack's standard Working state plus a native stop button. Custom status
+text only applies to legacy `assistant_view`.
 
 ```typescript
 await thread.startTyping();
@@ -202,6 +205,25 @@ await thread.startTyping();
 // With custom status (Slack only)
 await thread.startTyping("Searching documents...");
 ```
+
+## signal
+
+An `AbortSignal` for the active turn. Slack aborts it when the user clicks the
+native agent-session stop button, including when the stop webhook reaches a
+different serverless instance sharing the same state adapter.
+
+Pass it to model and tool APIs so cancellation stops upstream work:
+
+```typescript
+const result = await agent.stream({
+  prompt: message.text,
+  abortSignal: thread.signal,
+});
+await thread.post(result.fullStream);
+```
+
+Threads created outside an incoming handler expose a signal that remains
+unaborted.
 
 ## markAsRead
 

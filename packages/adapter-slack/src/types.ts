@@ -90,6 +90,25 @@ export type SlackSuggestedPrompts =
       | undefined
       | Promise<SlackSuggestedPromptsOptions | null | undefined>);
 
+/** Context passed to a dynamic agent-session title resolver. */
+export interface SlackSessionTitleContext {
+  channelId: string;
+  text: string;
+  threadTs: string;
+  userId: string;
+}
+
+/**
+ * Automatic agent-session title configuration. `true` uses the first line of
+ * the root message, `false` disables automatic titles, and a resolver can
+ * provide a custom title or return null to skip it.
+ */
+export type SlackSessionTitle =
+  | boolean
+  | ((
+      context: SlackSessionTitleContext
+    ) => string | null | Promise<string | null>);
+
 export interface SlackAdapterConfig {
   /**
    * Enable Slack's Agent messaging experience (`agent_view` manifest mode).
@@ -165,6 +184,12 @@ export interface SlackAdapterConfig {
    * the workspace rejects the first native call.
    */
   nativeStreaming?: boolean;
+  /**
+   * Automatically title new agent sessions from their root user message.
+   * Defaults to true when `agentView` is enabled. Pass false to disable or a
+   * resolver to customize the title.
+   */
+  sessionTitle?: SlackSessionTitle;
   /** Signing secret for webhook verification. Defaults to SLACK_SIGNING_SECRET env var. */
   signingSecret?: string;
   /** Shared secret for authenticating forwarded socket mode events. Auto-detected from SLACK_SOCKET_FORWARDING_SECRET. Falls back to appToken if not set. */

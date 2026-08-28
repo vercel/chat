@@ -58,6 +58,7 @@ export const AdapterSlugList = () => {
                   <DynamicLink
                     className="font-mono text-primary text-xs no-underline"
                     href={adapterHref(adapter)}
+                    prefetch={true}
                   >
                     {adapter.slug}
                   </DynamicLink>

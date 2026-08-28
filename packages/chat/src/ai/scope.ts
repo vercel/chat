@@ -2,7 +2,7 @@ import { activeConversation } from "../context";
 import type { ChatBinding } from "./types";
 
 /**
- * The conversation a toolset's reads are confined to. Pass the `Thread` or
+ * The conversation a toolset is confined to. Pass the `Thread` or
  * `Channel` the agent is running in, or a raw thread/channel id.
  */
 export type ReadScope = string | { id: string };
@@ -18,20 +18,21 @@ function channelOf(chat: ChatBinding, id: string): string {
 }
 
 /**
- * Build the guard read tools call before touching the platform.
+ * Build the guard tools call before touching the platform. Read tools and
+ * thread/channel-targeting write tools both run it on their target id.
  *
  * The scope resolves per call: an explicit one wins, and a toolset built
  * without one inherits the conversation currently being handled. Returns
  * `undefined` only when the caller opted out with `scope: false`.
  *
- * By default a read is allowed when it resolves to the same channel as the
+ * By default a call is allowed when it resolves to the same channel as the
  * scoped conversation, so a thread scope still permits sibling threads in its
  * channel. Pass `strict` to confine a thread scope to that thread alone,
  * rejecting sibling threads and the parent channel; a channel scope is
  * unaffected and still allows any thread within it.
  *
  * When no scope resolves (no explicit scope and no conversation being handled,
- * e.g. a cron job or queued work), reads run workspace-wide but warn once.
+ * e.g. a cron job or queued work), tools run workspace-wide but warn once.
  */
 export function createScopeGuard(
   chat: ChatBinding,
@@ -57,7 +58,7 @@ export function createScopeGuard(
         chat
           .getLogger()
           .warn(
-            `Agent read tool ran unscoped: "${id}" was read workspace-wide because no conversation is being handled and no \`scope\` was set. Pass \`scope\` to createChatTools to confine reads.`
+            `Agent tool ran unscoped: "${id}" was accessed workspace-wide because no conversation is being handled and no \`scope\` was set. Pass \`scope\` to createChatTools to confine tools.`
           );
       }
       return;
@@ -69,7 +70,7 @@ export function createScopeGuard(
     // Same channel is always required. Under strict a thread scope additionally
     // requires the exact scoped conversation, so both sibling threads and the
     // parent channel are rejected: on per-thread-ACL platforms the channel is
-    // the widest read available (a GitHub channel is the whole repo), so
+    // the widest surface available (a GitHub channel is the whole repo), so
     // allowing it would defeat the point of confining to one thread. A channel
     // scope is unaffected and still permits anything within it.
     const sameChannel = targetChannel === activeChannel;
@@ -78,7 +79,7 @@ export function createScopeGuard(
 
     if (!inScope) {
       throw new Error(
-        `Tool call blocked: reads are scoped to "${active}", but "${id}" resolves outside it.`
+        `Tool call blocked: tools are scoped to "${active}", but "${id}" resolves outside it.`
       );
     }
   };

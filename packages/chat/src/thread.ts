@@ -29,6 +29,7 @@ import type {
   PostableMessage,
   PostableObject,
   PostEphemeralOptions,
+  RawMessage,
   ScheduledMessage,
   SentMessage,
   StateAdapter,
@@ -66,6 +67,7 @@ interface ThreadImplConfigWithAdapter {
   isDM?: boolean;
   isSubscribedContext?: boolean;
   logger?: Logger;
+  signal?: AbortSignal;
   stateAdapter: StateAdapter;
   streamingUpdateIntervalMs?: number;
   threadHistory?: ThreadHistoryCache;
@@ -86,6 +88,7 @@ interface ThreadImplConfigLazy {
   isDM?: boolean;
   isSubscribedContext?: boolean;
   logger?: Logger;
+  signal?: AbortSignal;
   streamingUpdateIntervalMs?: number;
 }
 
@@ -111,6 +114,43 @@ function isAsyncIterable(
   );
 }
 
+const NEVER_ABORTED_SIGNAL = new AbortController().signal;
+
+async function* takeUntilAborted<T>(
+  source: AsyncIterable<T>,
+  signal: AbortSignal
+): AsyncIterable<T> {
+  const iterator = source[Symbol.asyncIterator]();
+  let onAbort: (() => void) | undefined;
+  try {
+    while (!signal.aborted) {
+      const aborted = new Promise<IteratorResult<T>>((resolve) => {
+        onAbort = () =>
+          resolve({ done: true, value: undefined as unknown as T });
+        signal.addEventListener("abort", onAbort, { once: true });
+      });
+      const next = iterator.next();
+      const result = await Promise.race([next, aborted]);
+      if (onAbort) {
+        signal.removeEventListener("abort", onAbort);
+      }
+      if (result.done || signal.aborted) {
+        return;
+      }
+      yield result.value;
+    }
+  } finally {
+    if (onAbort) {
+      signal.removeEventListener("abort", onAbort);
+    }
+    if (iterator.return) {
+      iterator.return().catch(() => {
+        // Cancellation is best-effort. Model APIs should also receive signal.
+      });
+    }
+  }
+}
+
 export class ThreadImpl<TState = Record<string, unknown>>
   implements Thread<TState>
 {
@@ -118,6 +158,7 @@ export class ThreadImpl<TState = Record<string, unknown>>
   readonly channelId: string;
   readonly isDM: boolean;
   readonly channelVisibility: ChannelVisibility;
+  readonly signal: AbortSignal;
 
   /** Direct adapter instance (if provided) */
   private _adapter?: Adapter;
@@ -138,12 +179,14 @@ export class ThreadImpl<TState = Record<string, unknown>>
   /** Thread history cache (set only for adapters with persistThreadHistory) */
   private readonly _threadHistory?: ThreadHistoryCache;
   private readonly _logger?: Logger;
+  private _typingStarted = false;
 
   constructor(config: ThreadImplConfig) {
     this.id = config.id;
     this.channelId = config.channelId;
     this.isDM = config.isDM ?? false;
     this.channelVisibility = config.channelVisibility ?? "unknown";
+    this.signal = config.signal ?? NEVER_ABORTED_SIGNAL;
     this._isSubscribedContext = config.isSubscribedContext ?? false;
     this._currentMessage = config.currentMessage;
     this._logger = config.logger;
@@ -421,6 +464,7 @@ export class ThreadImpl<TState = Record<string, unknown>>
           options: {
             groupTasks?: "plan" | "timeline";
             endWith?: unknown[];
+            sessionStatus?: StreamOptions["sessionStatus"];
             updateIntervalMs?: number;
           };
         };
@@ -432,6 +476,9 @@ export class ThreadImpl<TState = Record<string, unknown>>
             ? { taskDisplayMode: data.options.groupTasks }
             : {}),
           ...(data.options.endWith ? { stopBlocks: data.options.endWith } : {}),
+          ...(data.options.sessionStatus
+            ? { sessionStatus: data.options.sessionStatus }
+            : {}),
         };
         await this.handleStream(data.stream, streamOptions);
         return message;
@@ -460,7 +507,12 @@ export class ThreadImpl<TState = Record<string, unknown>>
 
     postable = await this.processCallbackUrls(postable);
 
-    const rawMessage = await this.adapter.postMessage(this.id, postable);
+    let rawMessage: RawMessage<unknown>;
+    try {
+      rawMessage = await this.adapter.postMessage(this.id, postable);
+    } finally {
+      await this.finishTyping();
+    }
 
     // Create a SentMessage with edit/delete capabilities
     const result = this.createSentMessage(
@@ -478,13 +530,17 @@ export class ThreadImpl<TState = Record<string, unknown>>
   }
 
   private async handlePostableObject(obj: PostableObject): Promise<void> {
-    await postPostableObject(
-      obj,
-      this.adapter,
-      this.id,
-      (threadId, message) => this.adapter.postMessage(threadId, message),
-      this._logger
-    );
+    try {
+      await postPostableObject(
+        obj,
+        this.adapter,
+        this.id,
+        (threadId, message) => this.adapter.postMessage(threadId, message),
+        this._logger
+      );
+    } finally {
+      await this.finishTyping();
+    }
   }
 
   async postEphemeral(
@@ -674,9 +730,10 @@ export class ThreadImpl<TState = Record<string, unknown>>
     callerOptions?: StreamOptions
   ): Promise<SentMessage> {
     // Normalize: handles plain strings, AI SDK fullStream events, and StreamChunk objects
-    const textStream = fromFullStream(rawStream);
+    const textStream = takeUntilAborted(fromFullStream(rawStream), this.signal);
     // Build streaming options from current message context + caller options
     const options: StreamOptions = {
+      signal: this.signal,
       updateIntervalMs: this._streamingUpdateIntervalMs,
       ...callerOptions,
       ...(this._fallbackStreamingPlaceholderText !== undefined
@@ -722,8 +779,15 @@ export class ThreadImpl<TState = Record<string, unknown>>
         },
       };
 
-      const raw = await this.adapter.stream(this.id, wrappedStream, options);
+      let raw: RawMessage<unknown> | null;
+      try {
+        raw = await this.adapter.stream(this.id, wrappedStream, options);
+      } catch (error) {
+        await this.finishTyping();
+        throw error;
+      }
       if (raw) {
+        this._typingStarted = false;
         const sent = this.createSentMessage(
           raw.id,
           { markdown: accumulated },
@@ -808,7 +872,24 @@ export class ThreadImpl<TState = Record<string, unknown>>
   }
 
   async startTyping(status?: string): Promise<void> {
+    const initiatorUserId = this._currentMessage?.author.userId;
+    if (initiatorUserId) {
+      await this.adapter.startTyping(this.id, status, { initiatorUserId });
+      this._typingStarted = true;
+      return;
+    }
     await this.adapter.startTyping(this.id, status);
+    this._typingStarted = true;
+  }
+
+  private async finishTyping(
+    status: StreamOptions["sessionStatus"] = "active"
+  ): Promise<void> {
+    if (!this._typingStarted) {
+      return;
+    }
+    this._typingStarted = false;
+    await this.adapter.endTyping?.(this.id, status);
   }
 
   async markAsRead(message?: string | Message): Promise<void> {
@@ -848,6 +929,17 @@ export class ThreadImpl<TState = Record<string, unknown>>
    * Schedules next update only after current edit completes to avoid overwhelming slow services.
    */
   private async fallbackStream(
+    textStream: AsyncIterable<string>,
+    options?: StreamOptions
+  ): Promise<SentMessage> {
+    try {
+      return await this.runFallbackStream(textStream, options);
+    } finally {
+      await this.finishTyping(options?.sessionStatus);
+    }
+  }
+
+  private async runFallbackStream(
     textStream: AsyncIterable<string>,
     options?: StreamOptions
   ): Promise<SentMessage> {

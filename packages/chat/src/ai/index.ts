@@ -178,21 +178,23 @@ export interface ChatToolsOptions {
    */
   requireApproval?: ApprovalConfig;
   /**
-   * Confine read tools to a single conversation, so a thread or channel id
-   * the model supplies that resolves elsewhere is rejected.
+   * Confine tools to a single conversation, so a thread or channel id the
+   * model supplies that resolves elsewhere is rejected. Applies to read tools
+   * and to write tools that target a thread or channel; `sendDirectMessage`
+   * targets a user id and is gated by approval instead.
    *
-   * Scoping is channel-level: a read is allowed when it resolves to the same
+   * Scoping is channel-level: a call is allowed when it resolves to the same
    * channel as the scoped conversation, so a thread scope still permits sibling
    * threads within that channel. Set {@link ChatToolsOptions.strictScope} to
    * tighten a thread scope to that thread alone.
    *
    * Defaults to the conversation being handled, so tools created inside a
    * handler are already confined to it. Set this when the agent runs outside
-   * a handler and still reads on a user's behalf, or pass a channel id to read
-   * channel-wide.
+   * a handler and still acts on a user's behalf, or pass a channel id to
+   * operate channel-wide.
    *
-   * Pass `false` to read across every conversation the bot can see. When no
-   * scope resolves (outside a handler, no explicit scope), reads run
+   * Pass `false` to reach every conversation the bot can see. When no
+   * scope resolves (outside a handler, no explicit scope), tools run
    * workspace-wide and a warning is logged.
    *
    * @example
@@ -206,13 +208,13 @@ export interface ChatToolsOptions {
   /**
    * Tighten `scope` from channel-level (default) to conversation-level.
    *
-   * By default a read is in scope when it resolves to the same channel as the
-   * scoped conversation, so a thread scope still permits reading sibling
-   * threads in that channel. Set `true` to confine a thread scope to that
-   * thread alone: sibling threads and the parent channel are both rejected,
-   * which matters on platforms where a channel is the widest read available
-   * (a GitHub channel is an entire repo). A channel scope is unaffected; it
-   * still allows any thread within the channel.
+   * By default a call is in scope when it resolves to the same channel as the
+   * scoped conversation, so a thread scope still permits sibling threads in
+   * that channel. Set `true` to confine a thread scope to that thread alone:
+   * sibling threads and the parent channel are both rejected, which matters
+   * on platforms where a channel is the widest surface available (a GitHub
+   * channel is an entire repo). A channel scope is unaffected; it still
+   * allows any thread within the channel.
    *
    * @default false
    */
@@ -311,12 +313,19 @@ export function createChatTools({
     );
   }
 
+  const guard = createScopeGuard(chat, scope, strictScope);
+
   const approval = (name: ChatWriteToolName) => ({
     needsApproval: resolveApproval(name, requireApproval),
   });
-  const allowed = preset ? resolvePresetTools(preset) : null;
+  // Write tools take the same guard as reads so a thread/channel id the model
+  // supplies that resolves outside the scoped conversation is rejected.
+  const guardedApproval = (name: ChatWriteToolName) => ({
+    ...approval(name),
+    guard,
+  });
 
-  const guard = createScopeGuard(chat, scope, strictScope);
+  const allowed = preset ? resolvePresetTools(preset) : null;
 
   // Each entry is built lazily so a preset filter skips both the
   // `approval()` lookup and the underlying `tool({ ... })` (and its zod
@@ -330,18 +339,23 @@ export function createChatTools({
     getChannelInfo: () => getChannelInfo(chat, guard),
     getUser: () => getUser(chat),
     startTyping: () => startTyping(chat),
-    postMessage: () => postMessage(chat, approval("postMessage")),
+    postMessage: () => postMessage(chat, guardedApproval("postMessage")),
     postChannelMessage: () =>
-      postChannelMessage(chat, approval("postChannelMessage")),
+      postChannelMessage(chat, guardedApproval("postChannelMessage")),
+    // sendDirectMessage targets a user id, not a conversation, so the
+    // conversation-scope guard has nothing to check it against. Approval is
+    // the only gate; see ChatToolsOptions.scope.
     sendDirectMessage: () =>
       sendDirectMessage(chat, approval("sendDirectMessage")),
-    editMessage: () => editMessage(chat, approval("editMessage")),
-    deleteMessage: () => deleteMessage(chat, approval("deleteMessage")),
-    addReaction: () => addReaction(chat, approval("addReaction")),
-    removeReaction: () => removeReaction(chat, approval("removeReaction")),
-    subscribeThread: () => subscribeThread(chat, approval("subscribeThread")),
+    editMessage: () => editMessage(chat, guardedApproval("editMessage")),
+    deleteMessage: () => deleteMessage(chat, guardedApproval("deleteMessage")),
+    addReaction: () => addReaction(chat, guardedApproval("addReaction")),
+    removeReaction: () =>
+      removeReaction(chat, guardedApproval("removeReaction")),
+    subscribeThread: () =>
+      subscribeThread(chat, guardedApproval("subscribeThread")),
     unsubscribeThread: () =>
-      unsubscribeThread(chat, approval("unsubscribeThread")),
+      unsubscribeThread(chat, guardedApproval("unsubscribeThread")),
   } satisfies Record<ChatToolName, () => unknown>;
 
   type ToolName = keyof typeof factories;

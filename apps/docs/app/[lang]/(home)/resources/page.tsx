@@ -1,9 +1,8 @@
 import { get } from "@vercel/edge-config";
 import type { Metadata } from "next";
+import { cacheLife } from "next/cache";
 import localData from "@/resources-edge-config.json";
 import { type Resource, ResourceCard } from "./components/resource-card";
-
-export const revalidate = 86400;
 
 export const metadata: Metadata = {
   title: "Resources",
@@ -27,6 +26,9 @@ export const metadata: Metadata = {
 };
 
 const getResources = async (): Promise<Resource[]> => {
+  "use cache";
+  cacheLife("days");
+
   if (process.env.NODE_ENV === "development") {
     return localData.resources as Resource[];
   }

@@ -94,7 +94,7 @@ function isTextMimeType(mimeType: string): boolean {
 
 /**
  * Build an AI SDK content part from an attachment.
- * Uses fetchData to get base64 data when available.
+ * Uses fetchData to get attachment bytes when available.
  * Returns null for unsupported attachments or when fetchData is unavailable.
  */
 async function attachmentToPart(
@@ -103,11 +103,14 @@ async function attachmentToPart(
   if (att.type === "image") {
     if (att.fetchData) {
       try {
-        const buffer = await att.fetchData();
+        const data = await att.fetchData();
         const mimeType = att.mimeType ?? "image/png";
         return {
           type: "file",
-          data: `data:${mimeType};base64,${buffer.toString("base64")}`,
+          data:
+            data instanceof ArrayBuffer
+              ? data
+              : `data:${mimeType};base64,${data.toString("base64")}`,
           mediaType: mimeType,
           filename: att.name,
         };
@@ -122,10 +125,13 @@ async function attachmentToPart(
   if (att.type === "file" && att.mimeType && isTextMimeType(att.mimeType)) {
     if (att.fetchData) {
       try {
-        const buffer = await att.fetchData();
+        const data = await att.fetchData();
         return {
           type: "file",
-          data: `data:${att.mimeType};base64,${buffer.toString("base64")}`,
+          data:
+            data instanceof ArrayBuffer
+              ? data
+              : `data:${att.mimeType};base64,${data.toString("base64")}`,
           filename: att.name,
           mediaType: att.mimeType,
         };
@@ -150,7 +156,7 @@ async function attachmentToPart(
  * - Uses `message.text` for content
  * - Appends link metadata when available
  * - Includes image attachments and text files as `FilePart`
- * - Uses `fetchData()` when available to include attachment data inline (base64)
+ * - Uses `fetchData()` when available to include attachment data inline
  * - Warns on unsupported attachment types (video, audio)
  *
  * Works with `FetchResult.messages`, `thread.recentMessages`, or collected iterables.
