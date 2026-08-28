@@ -33,6 +33,12 @@ export {
   renderGfmTable,
 } from "./card-utils";
 
+// Slack-style ``` fence normalization for CommonMark parsing
+export {
+  type NormalizeCodeFencesOptions,
+  normalizeCodeFences,
+} from "./code-fences";
+
 // Token encryption helpers (AES-256-GCM)
 export {
   decodeKey,
