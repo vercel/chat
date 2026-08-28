@@ -5,8 +5,6 @@ import {
   getAdapterLLMText,
 } from "@/lib/geistdocs/adapters-source";
 
-export const revalidate = false;
-
 export async function GET(
   _req: Request,
   { params }: RouteContext<"/[lang]/adapters.mdx/[[...slug]]">

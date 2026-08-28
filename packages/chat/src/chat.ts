@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import {
   decodeCallbackValue,
   postToCallbackUrl,
@@ -21,6 +22,10 @@ import type {
   ActionEvent,
   ActionHandler,
   Adapter,
+  AgentSessionStoppedEvent,
+  AgentSessionStoppedHandler,
+  AgentSessionTitleChangedEvent,
+  AgentSessionTitleChangedHandler,
   AppContextChangedEvent,
   AppContextChangedHandler,
   AppHomeOpenedEvent,
@@ -76,10 +81,27 @@ import type {
 import { ChatError, ConsoleLogger, LockError } from "./types";
 
 const DEFAULT_LOCK_TTL_MS = 30_000; // 30 seconds
+const ACTIVE_TURN_TTL_MS = 60 * 60 * 1000; // 1 hour
+const ABORT_POLL_INTERVAL_MS = 250;
 
 /** Promise-based sleep for debounce timing. */
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function sleepUntilAbort(ms: number, signal: AbortSignal): Promise<void> {
+  if (signal.aborted) {
+    return Promise.resolve();
+  }
+  return new Promise((resolve) => {
+    const done = (): void => {
+      clearTimeout(timer);
+      signal.removeEventListener("abort", done);
+      resolve();
+    };
+    const timer = setTimeout(done, ms);
+    signal.addEventListener("abort", done, { once: true });
+  });
 }
 const SLACK_USER_ID_REGEX = /^[UW][A-Z0-9]+$/;
 const DISCORD_SNOWFLAKE_REGEX = /^\d{17,19}$/;
@@ -280,10 +302,18 @@ export class Chat<
     [];
   private readonly assistantContextChangedHandlers: AssistantContextChangedHandler[] =
     [];
+  private readonly agentSessionStoppedHandlers: AgentSessionStoppedHandler[] =
+    [];
+  private readonly agentSessionTitleChangedHandlers: AgentSessionTitleChangedHandler[] =
+    [];
   private readonly appHomeOpenedHandlers: AppHomeOpenedHandler[] = [];
   private readonly appContextChangedHandlers: AppContextChangedHandler[] = [];
   private readonly memberJoinedChannelHandlers: MemberJoinedChannelHandler[] =
     [];
+  private readonly activeTurnControllers = new Map<
+    string,
+    Map<string, AbortController>
+  >();
 
   /** Initialization state */
   private initPromise: Promise<void> | null = null;
@@ -899,6 +929,16 @@ export class Chat<
     this.logger.debug("Registered assistant context changed handler");
   }
 
+  onAgentSessionStopped(handler: AgentSessionStoppedHandler): void {
+    this.agentSessionStoppedHandlers.push(handler);
+    this.logger.debug("Registered agent session stopped handler");
+  }
+
+  onAgentSessionTitleChanged(handler: AgentSessionTitleChangedHandler): void {
+    this.agentSessionTitleChangedHandlers.push(handler);
+    this.logger.debug("Registered agent session title changed handler");
+  }
+
   onAppHomeOpened(handler: AppHomeOpenedHandler): void {
     this.appHomeOpenedHandlers.push(handler);
     this.logger.debug("Registered app home opened handler");
@@ -1287,6 +1327,62 @@ export class Chat<
 
     if (options?.waitUntil) {
       options.waitUntil(task);
+    }
+  }
+
+  processAgentSessionStopped(
+    event: AgentSessionStoppedEvent,
+    options?: WebhookOptions
+  ): void {
+    const task = runInConversation(event.threadId, async () => {
+      for (const handler of this.agentSessionStoppedHandlers) {
+        await handler(event);
+      }
+    }).catch((err) => {
+      this.logger.error("Agent session stopped handler error", {
+        error: err,
+        threadId: event.threadId,
+      });
+    });
+
+    options?.waitUntil?.(task);
+  }
+
+  processAgentSessionTitleChanged(
+    event: AgentSessionTitleChangedEvent,
+    options?: WebhookOptions
+  ): void {
+    const task = runInConversation(event.threadId, async () => {
+      for (const handler of this.agentSessionTitleChangedHandlers) {
+        await handler(event);
+      }
+    }).catch((err) => {
+      this.logger.error("Agent session title changed handler error", {
+        error: err,
+        threadId: event.threadId,
+      });
+    });
+
+    options?.waitUntil?.(task);
+  }
+
+  async abortTurn(threadId: string): Promise<void> {
+    const localControllers = this.activeTurnControllers.get(threadId);
+    if (localControllers) {
+      for (const controller of localControllers.values()) {
+        controller.abort();
+      }
+    }
+
+    const activeTurnId = await this._stateAdapter.get<string>(
+      this.activeTurnKey(threadId)
+    );
+    if (activeTurnId) {
+      await this._stateAdapter.set(
+        this.abortTurnKey(threadId),
+        activeTurnId,
+        ACTIVE_TURN_TTL_MS
+      );
     }
   }
 
@@ -2700,6 +2796,123 @@ export class Chat<
     message: Message,
     context?: MessageContext
   ): Promise<void> {
+    const turnId = randomUUID();
+    const controller = new AbortController();
+    let controllers = this.activeTurnControllers.get(threadId);
+    if (!controllers) {
+      controllers = new Map();
+      this.activeTurnControllers.set(threadId, controllers);
+    }
+    controllers.set(turnId, controller);
+
+    if (adapter.supportsTurnCancellation) {
+      try {
+        await this._stateAdapter.set(
+          this.activeTurnKey(threadId),
+          turnId,
+          ACTIVE_TURN_TTL_MS
+        );
+      } catch (error) {
+        this.logger.warn("Could not publish active turn for cancellation", {
+          error,
+          threadId,
+        });
+      }
+    }
+
+    const monitorStop = new AbortController();
+    const monitor = adapter.supportsTurnCancellation
+      ? this.monitorTurnAbort(threadId, turnId, controller, monitorStop.signal)
+      : Promise.resolve();
+    try {
+      await this.dispatchToHandlersWithSignal(
+        adapter,
+        threadId,
+        message,
+        controller.signal,
+        context
+      );
+    } finally {
+      monitorStop.abort();
+      await monitor;
+      controllers.delete(turnId);
+      if (controllers.size === 0) {
+        this.activeTurnControllers.delete(threadId);
+      }
+      if (adapter.supportsTurnCancellation) {
+        await this.clearTurnMarkers(threadId, turnId);
+      }
+    }
+  }
+
+  private activeTurnKey(threadId: string): string {
+    return `active-turn:${threadId}`;
+  }
+
+  private abortTurnKey(threadId: string): string {
+    return `abort-turn:${threadId}`;
+  }
+
+  private async monitorTurnAbort(
+    threadId: string,
+    turnId: string,
+    controller: AbortController,
+    stopSignal: AbortSignal
+  ): Promise<void> {
+    while (!(stopSignal.aborted || controller.signal.aborted)) {
+      try {
+        const abortedTurnId = await this._stateAdapter.get<string>(
+          this.abortTurnKey(threadId)
+        );
+        if (abortedTurnId === turnId) {
+          controller.abort();
+          return;
+        }
+      } catch (error) {
+        this.logger.warn("Could not poll turn cancellation state", {
+          error,
+          threadId,
+        });
+        return;
+      }
+      if (!stopSignal.aborted) {
+        await sleepUntilAbort(ABORT_POLL_INTERVAL_MS, stopSignal);
+      }
+    }
+  }
+
+  private async clearTurnMarkers(
+    threadId: string,
+    turnId: string
+  ): Promise<void> {
+    try {
+      const activeTurnId = await this._stateAdapter.get<string>(
+        this.activeTurnKey(threadId)
+      );
+      if (activeTurnId === turnId) {
+        await this._stateAdapter.delete(this.activeTurnKey(threadId));
+      }
+      const abortedTurnId = await this._stateAdapter.get<string>(
+        this.abortTurnKey(threadId)
+      );
+      if (abortedTurnId === turnId) {
+        await this._stateAdapter.delete(this.abortTurnKey(threadId));
+      }
+    } catch (error) {
+      this.logger.warn("Could not clear turn cancellation state", {
+        error,
+        threadId,
+      });
+    }
+  }
+
+  private async dispatchToHandlersWithSignal(
+    adapter: Adapter,
+    threadId: string,
+    message: Message,
+    signal: AbortSignal,
+    context?: MessageContext
+  ): Promise<void> {
     const hasMention = this.setMentionFlags(adapter, message, context);
 
     // Check subscription status (needed for createThread optimization)
@@ -2715,7 +2928,8 @@ export class Chat<
       adapter,
       threadId,
       message,
-      isSubscribed
+      isSubscribed,
+      signal
     );
 
     await this.resolveMessageIdentity(adapter, threadId, message);
@@ -2849,7 +3063,8 @@ export class Chat<
     adapter: Adapter,
     threadId: string,
     initialMessage: Message | undefined,
-    isSubscribedContext = false
+    isSubscribedContext = false,
+    signal?: AbortSignal
   ): Thread<TState> {
     // Parse thread ID to get channel ID with adapter
     const channelId = adapter.channelIdFromThreadId(threadId);
@@ -2871,6 +3086,7 @@ export class Chat<
       isDM,
       channelVisibility,
       currentMessage: initialMessage,
+      signal,
       logger: this.logger,
       streamingUpdateIntervalMs: this._streamingUpdateIntervalMs,
       fallbackStreamingPlaceholderText: this._fallbackStreamingPlaceholderText,

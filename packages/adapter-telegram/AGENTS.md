@@ -74,7 +74,7 @@ Main exports from `src/index.ts`:
   never the potentially rotating token. Failed startup identity lookups retry
   lazily on later verified webhooks.
 - `TelegramAdapter` class — implements `Adapter<TelegramThreadId,
-  unknown>`. Public methods: `handleWebhook`, `postMessage`,
+  unknown>`. Public methods: `handleWebhook`, `postMessage`, `reply`,
   `editMessage`, `deleteMessage`, `addReaction`, `removeReaction`,
   `startTyping`, `fetchThread`, `fetchMessages`, `fetchSingleMessage`,
   `fetchChannelInfo`, `postChannelMessage`, `openDM`, `setWebhook`,

@@ -372,6 +372,67 @@ describe("Chat", () => {
     expect(resolved).toBe(true);
   });
 
+  it("aborts an active thread signal from another Chat instance", async () => {
+    const sharedState = createMockState();
+    const cancellableAdapter = {
+      ...mockAdapter,
+      supportsTurnCancellation: true,
+    };
+    const processingChat = new Chat({
+      userName: "testbot",
+      adapters: { slack: cancellableAdapter },
+      state: sharedState,
+      logger: mockLogger,
+    });
+    const stoppingChat = new Chat({
+      userName: "testbot",
+      adapters: {
+        slack: {
+          ...createMockAdapter("slack"),
+          supportsTurnCancellation: true,
+        },
+      },
+      state: sharedState,
+      logger: mockLogger,
+    });
+    const threadId = "slack:C123:agent-stop.1";
+    let signal: AbortSignal | undefined;
+    let notifyStarted: () => void = () => {
+      throw new Error("notifyStarted not assigned");
+    };
+    const started = new Promise<void>((resolve) => {
+      notifyStarted = resolve;
+    });
+
+    processingChat.onNewMention(async (thread) => {
+      signal = thread.signal;
+      notifyStarted();
+      await new Promise<void>((resolve) => {
+        if (thread.signal.aborted) {
+          resolve();
+          return;
+        }
+        thread.signal.addEventListener("abort", () => resolve(), {
+          once: true,
+        });
+      });
+    });
+
+    const message = createTestMessage("agent-stop-message", "@testbot stop");
+    message.isMention = true;
+    const processing = processingChat.processMessage(
+      cancellableAdapter,
+      threadId,
+      message
+    );
+    await started;
+
+    await stoppingChat.abortTurn(threadId);
+    await processing;
+
+    expect(signal?.aborted).toBe(true);
+  });
+
   it("should dispatch message updates without normal message routing", async () => {
     const updateHandler = vi.fn().mockResolvedValue(undefined);
     const mentionHandler = vi.fn().mockResolvedValue(undefined);

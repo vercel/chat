@@ -1,10 +1,13 @@
 import { createHmac, timingSafeEqual } from "node:crypto";
 import {
   AdapterError,
+  type AttachmentTransport,
   cardToFallbackText,
+  downloadAttachment,
   extractCard,
   extractFiles,
   extractPostableAttachments,
+  NetworkError,
   type PlatformName,
   toBuffer,
   ValidationError,
@@ -71,6 +74,27 @@ const WHATSAPP_MESSAGE_LIMIT = 4096;
 
 /** Maximum caption length for WhatsApp media messages */
 const WHATSAPP_CAPTION_LIMIT = 1024;
+
+const WHATSAPP_MEDIA_HOSTS = ["fbcdn.net", "fbsbx.com"];
+
+function isWhatsAppMediaUrl(url: string, graphApiUrl: string): boolean {
+  try {
+    const mediaUrl = new URL(url);
+    if (mediaUrl.origin === new URL(graphApiUrl).origin) {
+      return true;
+    }
+    return (
+      mediaUrl.protocol === "https:" &&
+      mediaUrl.port === "" &&
+      WHATSAPP_MEDIA_HOSTS.some(
+        (host) =>
+          mediaUrl.hostname === host || mediaUrl.hostname.endsWith(`.${host}`)
+      )
+    );
+  } catch {
+    return false;
+  }
+}
 
 /** WhatsApp media message types supported for outbound sends */
 export type WhatsAppMediaType = "image" | "document" | "video" | "audio";
@@ -1128,7 +1152,10 @@ export class WhatsAppAdapter
    *
    * @see https://developers.facebook.com/docs/whatsapp/cloud-api/reference/media#download-media
    */
-  async downloadMedia(mediaId: string): Promise<Buffer> {
+  async downloadMedia(
+    mediaId: string,
+    transport?: AttachmentTransport
+  ): Promise<Buffer> {
     // Step 1: Get the media URL
     const metaResponse = await fetch(`${this.graphApiUrl}/${mediaId}`, {
       headers: { Authorization: `Bearer ${this.accessToken}` },
@@ -1149,21 +1176,42 @@ export class WhatsAppAdapter
     const mediaInfo: WhatsAppMediaResponse =
       (await metaResponse.json()) as WhatsAppMediaResponse;
 
-    // Step 2: Download the actual file
-    const dataResponse = await fetch(mediaInfo.url, {
-      headers: { Authorization: `Bearer ${this.accessToken}` },
-    });
-
-    if (!dataResponse.ok) {
-      this.logger.error("Failed to download media", {
-        status: dataResponse.status,
-        mediaId,
-      });
-      throw new Error(`Failed to download media: ${dataResponse.status}`);
+    if (!isWhatsAppMediaUrl(mediaInfo.url, this.graphApiUrl)) {
+      throw new NetworkError(
+        "whatsapp",
+        "Refusing to send the access token to an untrusted media URL"
+      );
     }
 
-    const arrayBuffer = await dataResponse.arrayBuffer();
-    return Buffer.from(arrayBuffer);
+    // Step 2: Download the actual file. Every hop is checked against the
+    // exact-origin and Meta media host policy before the access token is
+    // attached, so a redirect cannot carry it to an off-policy host.
+    try {
+      return await downloadAttachment(mediaInfo.url, {
+        adapter: "whatsapp",
+        headers: (target) => {
+          if (!isWhatsAppMediaUrl(target.href, this.graphApiUrl)) {
+            throw new NetworkError(
+              "whatsapp",
+              "Refusing to send the access token to an untrusted media URL"
+            );
+          }
+          return { authorization: `Bearer ${this.accessToken}` };
+        },
+        hosts: [...WHATSAPP_MEDIA_HOSTS, new URL(this.graphApiUrl).hostname],
+        transport,
+      });
+    } catch (error) {
+      this.logger.error("Failed to download media", { mediaId });
+      if (error instanceof NetworkError) {
+        throw error;
+      }
+      throw new NetworkError(
+        "whatsapp",
+        `Failed to download media ${mediaId}`,
+        error instanceof Error ? error : undefined
+      );
+    }
   }
 
   /**

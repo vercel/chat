@@ -5,8 +5,6 @@ import { title } from "@/geistdocs";
 import { adaptersSource } from "@/lib/geistdocs/adapters-source";
 import { source } from "@/lib/geistdocs/source";
 
-export const revalidate = false;
-
 const baseUrl = "https://chat-sdk.dev";
 
 const DESCRIPTION =

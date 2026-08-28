@@ -117,14 +117,16 @@ The adapter's `handleWebhook(request, options)` is mounted at the
 chat route (typically `/api/chat`). It:
 
 1. Calls `getUser(request)`. Returning `null` produces HTTP 401.
-2. Decodes the `useChat` request body to extract `id`, `messages[]`,
-   and any client-supplied metadata.
+2. Decodes the `useChat` request body to extract `id` and `messages[]`.
+   Only the latest user message is consumed (the rest of the array is
+   untrusted client state), and tool parts are stripped from it so a
+   browser can't inject forged tool-call or approval state. Text,
+   file, and `data-*` parts pass through.
 3. Resolves the thread id via `threadIdFor` (default
    `web:{user.id}:{conversationId}`).
-4. Persists the inbound `messages[]` into the configured state
-   adapter when `persistMessageHistory: true`.
-5. Routes to `chat.handleIncomingMessage`.
-6. Streams the handler's `thread.post` output back to the browser as
+4. Routes to `chat.processMessage`, which persists the message into
+   the configured state adapter when `persistMessageHistory: true`.
+5. Streams the handler's `thread.post` output back to the browser as
    SSE chunks following the AI message stream protocol.
 
 `request.signal` is plumbed through `als.ts` so calling `stop()` from
@@ -187,8 +189,10 @@ adapter — there's no platform-specific rewriting.
 `persistMessageHistory` defaults to `true`. The Web adapter has no
 platform-side history API, so the only way for handlers to see prior
 turns via `thread.messages` is through the state adapter's cache.
-Set it to `false` only if your handler re-derives history from the
-request body's `messages[]` (e.g. by trusting the client snapshot).
+The request body's `messages[]` is not an alternative source: the
+adapter deliberately ignores everything except the latest user
+message because a browser controls the array. Setting the flag to
+`false` leaves handlers with only the current message.
 
 ## React hook
 

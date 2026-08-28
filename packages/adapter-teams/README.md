@@ -213,6 +213,8 @@ Incoming thread IDs preserve the Teams conversation type when the legacy ID-pref
 
 Incoming inline images and files are exposed through `message.attachments` with a lazy `fetchData()` method. The adapter authenticates connector-hosted inline attachments through the configured Teams bot client, while [Teams file download cards](https://learn.microsoft.com/en-us/microsoftteams/platform/bots/how-to/bots-filesv4) use their direct download URL without the bot token.
 
+Anonymous downloads require HTTPS URLs that resolve to public addresses; private and internal hosts are refused, including after redirects. Responses are limited to 25 MB and downloads time out after 30 seconds. Inline attachments served by the connector use bot authentication instead, including the Bot Framework Emulator's plain-HTTP loopback connector. To change the limits or route downloads through a proxy, override `createFetchDataFn()` in a subclass and call `downloadAttachment` from `@chat-adapter/shared` with your own options.
+
 ## User lookup (`getUser`)
 
 The adapter supports looking up user profiles via the Microsoft Graph API. To enable it:
@@ -226,7 +228,7 @@ console.log(user?.email);    // "alice@contoso.com"
 console.log(user?.fullName); // "Alice Smith"
 ```
 
-Incoming message authors also include `email` when Graph resolves the sender. The adapter uses the activity's Azure AD object ID first and falls back to its cached ID, so missing permissions or lookup failures leave `message.author.email` undefined without preventing message delivery. This applies to live incoming messages only — authors on edited-message events and messages returned by `fetchMessages` are not hydrated with an email. Resolved profiles are cached in the state adapter for 1 hour (failed lookups for 5 minutes), so busy conversations don't trigger a Graph call per message.
+Incoming message authors also include `email` when the Teams conversation members API resolves the sender. This lookup uses the bot's access to the current conversation and does not require Microsoft Graph permissions. Lookup failures leave `message.author.email` undefined without preventing message delivery. This applies to live incoming messages only. Authors on edited-message events and messages returned by `fetchMessages` are not hydrated with an email. Resolved profiles are cached in the state adapter for 1 hour, so busy conversations don't trigger a lookup per message.
 
 The adapter caches each user's Azure AD object ID from incoming activities for later `getUser` calls. `getUser` returns `null` if the user hasn't been seen or the Graph call fails.
 

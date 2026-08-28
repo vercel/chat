@@ -82,8 +82,62 @@ import type {
 } from "./types";
 
 const TELEGRAM_API_BASE = "https://api.telegram.org";
+const TELEGRAM_FILE_LIMIT = 25 * 1024 * 1024;
+const TELEGRAM_FILE_TIMEOUT_MS = 30_000;
+
+// Web-API only (no Node Buffer or streams) so file downloads keep working in
+// runtimes like Cloudflare Workers.
+async function readTelegramFile(
+  response: Response,
+  fileId: string
+): Promise<ArrayBuffer> {
+  const declared = Number(response.headers.get("content-length"));
+  if (Number.isFinite(declared) && declared > TELEGRAM_FILE_LIMIT) {
+    await response.body?.cancel();
+    throw new NetworkError(
+      "telegram",
+      `Telegram file ${fileId} exceeds the download limit`
+    );
+  }
+  const reader = response.body?.getReader();
+  if (!reader) {
+    return await response.arrayBuffer();
+  }
+  const chunks: Uint8Array[] = [];
+  let size = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) {
+      break;
+    }
+    size += value.length;
+    if (size > TELEGRAM_FILE_LIMIT) {
+      await reader.cancel();
+      throw new NetworkError(
+        "telegram",
+        `Telegram file ${fileId} exceeds the download limit`
+      );
+    }
+    chunks.push(value);
+  }
+  const data = new Uint8Array(size);
+  let offset = 0;
+  for (const chunk of chunks) {
+    data.set(chunk, offset);
+    offset += chunk.length;
+  }
+  return data.buffer;
+}
 const TELEGRAM_SECRET_TOKEN_HEADER = "x-telegram-bot-api-secret-token";
+const TELEGRAM_WEBHOOK_VERIFICATION_ERROR =
+  "secretToken is required in webhook mode. Set TELEGRAM_WEBHOOK_SECRET_TOKEN or provide secretToken. To accept unverified webhooks, set allowUnverifiedWebhooks: true or TELEGRAM_ALLOW_UNVERIFIED_WEBHOOKS=true.";
 const MESSAGE_ID_PATTERN = /^([^:]+):(\d+)$/;
+const BARE_MESSAGE_ID_PATTERN = /^\d+$/;
+
+interface TelegramReplyParameters {
+  allow_sending_without_reply: boolean;
+  message_id: number;
+}
 const trimTrailingSlashes = (url: string): string => {
   let end = url.length;
   while (end > 0 && url[end - 1] === "/") {
@@ -269,6 +323,99 @@ export function applyTelegramEntities(
   return result;
 }
 
+/**
+ * Describe the message kinds Telegram sends with no text and no file:
+ * locations, venues, shared contacts, polls and dice.
+ *
+ * Without this they arrive as an empty message — the content is there in the
+ * payload, but a handler reading `text` sees nothing and cannot tell an empty
+ * delivery from a shared location. The wording stays short and literal; the
+ * structured payload is still on `raw` for anyone who needs the numbers.
+ */
+function describeNonFileContent(raw: TelegramMessage): string | undefined {
+  // Telegram sets `location` alongside `venue` for backward compatibility,
+  // so the venue check has to come first or every venue renders as bare
+  // coordinates.
+  if (raw.venue) {
+    return `📍 ${raw.venue.title}, ${raw.venue.address}`;
+  }
+  if (raw.location) {
+    return `📍 ${raw.location.latitude}, ${raw.location.longitude}`;
+  }
+  if (raw.contact) {
+    const name = [raw.contact.first_name, raw.contact.last_name]
+      .filter(Boolean)
+      .join(" ");
+    return `👤 ${name} ${raw.contact.phone_number}`.trim();
+  }
+  if (raw.poll) {
+    return `📊 ${raw.poll.question}`;
+  }
+  if (raw.dice) {
+    return `${raw.dice.emoji} ${raw.dice.value}`;
+  }
+  if (raw.game) {
+    return `🎮 ${raw.game.title}`;
+  }
+  if (raw.invoice) {
+    const amount = formatInvoiceAmount(
+      raw.invoice.total_amount,
+      raw.invoice.currency
+    );
+    return `🧾 ${raw.invoice.title} — ${amount} ${raw.invoice.currency}`;
+  }
+  if (raw.story) {
+    return "📖 Story";
+  }
+  return undefined;
+}
+
+// An invoice's total_amount is in the currency's smallest unit, and the
+// exponent varies per currency: Telegram's own list
+// (https://core.telegram.org/bots/payments/currencies.json) has these seven
+// at 0 and three at 3, with everything else at 2. XTR (Telegram Stars) is
+// not in that list and counts whole Stars.
+const ZERO_EXPONENT_CURRENCIES = new Set([
+  "CLP",
+  "ISK",
+  "JPY",
+  "KRW",
+  "PYG",
+  "UGX",
+  "VND",
+  "XTR",
+]);
+const THREE_EXPONENT_CURRENCIES = new Set(["BHD", "IQD", "JOD"]);
+
+function formatInvoiceAmount(totalAmount: number, currency: string): string {
+  let exponent = 2;
+  if (ZERO_EXPONENT_CURRENCIES.has(currency)) {
+    exponent = 0;
+  } else if (THREE_EXPONENT_CURRENCIES.has(currency)) {
+    exponent = 3;
+  }
+  return (totalAmount / 10 ** exponent).toFixed(exponent);
+}
+
+/**
+ * Sticker formats: a still sticker is WebP, a video sticker WebM, and an
+ * animated (Lottie) one the TGS container. The attachment type has to follow
+ * the real format — a WebM typed "image" gets routed through sendPhoto by
+ * type-driven consumers, which Telegram rejects.
+ */
+function stickerAttachmentFormat(sticker: {
+  is_animated?: boolean;
+  is_video?: boolean;
+}): { type: Attachment["type"]; mimeType: string } {
+  if (sticker.is_video) {
+    return { type: "video", mimeType: "video/webm" };
+  }
+  if (sticker.is_animated) {
+    return { type: "file", mimeType: "application/x-tgsticker" };
+  }
+  return { type: "image", mimeType: "image/webp" };
+}
+
 export class TelegramAdapter
   implements Adapter<TelegramThreadId, TelegramRawMessage>
 {
@@ -277,10 +424,12 @@ export class TelegramAdapter
   readonly persistThreadHistory = true;
 
   protected readonly allowedUserIds?: Set<string>;
+  protected readonly allowUnverifiedWebhooks: boolean;
   protected readonly botTokenProvider: () => Promise<string>;
   protected readonly staticBotToken?: string;
   protected readonly apiBaseUrl: string;
   protected readonly secretToken?: string;
+  protected readonly mentionOnReply: boolean;
   private botIdentityPromise: Promise<void> | null = null;
   private webhookScope?: string;
   private warnedNoVerification = false;
@@ -342,6 +491,11 @@ export class TelegramAdapter
     );
     this.secretToken =
       config.secretToken ?? process.env.TELEGRAM_WEBHOOK_SECRET_TOKEN;
+    this.allowUnverifiedWebhooks =
+      config.allowUnverifiedWebhooks ??
+      process.env.TELEGRAM_ALLOW_UNVERIFIED_WEBHOOKS === "true";
+    this.mentionOnReply =
+      config.mentionOnReply ?? process.env.TELEGRAM_MENTION_ON_REPLY === "true";
     const allowedUserIds =
       config.allowedUserIds ??
       process.env.TELEGRAM_ALLOWED_USER_IDS?.split(",");
@@ -373,6 +527,15 @@ export class TelegramAdapter
       throw new ValidationError(
         "telegram",
         `Invalid mode: ${this.mode}. Expected "auto", "webhook", or "polling".`
+      );
+    }
+    if (
+      this.mode === "webhook" &&
+      !(this.secretToken || this.allowUnverifiedWebhooks)
+    ) {
+      throw new ValidationError(
+        "telegram",
+        TELEGRAM_WEBHOOK_VERIFICATION_ERROR
       );
     }
   }
@@ -437,6 +600,16 @@ export class TelegramAdapter
     const runtimeMode = await this.resolveRuntimeMode();
     this._runtimeMode = runtimeMode;
 
+    if (
+      runtimeMode === "webhook" &&
+      !(this.secretToken || this.allowUnverifiedWebhooks)
+    ) {
+      throw new ValidationError(
+        "telegram",
+        TELEGRAM_WEBHOOK_VERIFICATION_ERROR
+      );
+    }
+
     if (runtimeMode === "polling") {
       const pollingConfig = this.longPolling;
 
@@ -482,6 +655,12 @@ export class TelegramAdapter
     request: Request,
     options?: WebhookOptions
   ): Promise<Response> {
+    if (!(this.secretToken || this.allowUnverifiedWebhooks)) {
+      this.logger.warn(
+        "Telegram webhook rejected because verification is not configured"
+      );
+      return new Response("Webhook verification required", { status: 401 });
+    }
     if (this.secretToken) {
       const headerToken = request.headers.get(TELEGRAM_SECRET_TOKEN_HEADER);
       let valid = false;
@@ -503,9 +682,7 @@ export class TelegramAdapter
       }
     } else if (!this.warnedNoVerification) {
       this.warnedNoVerification = true;
-      this.logger.warn(
-        "Telegram webhook verification is disabled. Set TELEGRAM_WEBHOOK_SECRET_TOKEN or secretToken to verify incoming requests."
-      );
+      this.logger.warn("Telegram webhook verification is explicitly disabled");
     }
 
     let update: TelegramUpdate;
@@ -522,7 +699,7 @@ export class TelegramAdapter
       return new Response("OK", { status: 200 });
     }
 
-    if (this.secretToken && Number.isInteger(update.update_id)) {
+    if (Number.isInteger(update.update_id)) {
       let webhookScope = this.webhookScope;
       if (!webhookScope) {
         try {
@@ -1100,9 +1277,16 @@ export class TelegramAdapter
 
   async postMessage(
     threadId: string,
-    message: AdapterPostableMessage
+    message: AdapterPostableMessage,
+    replyToMessageId?: string
   ): Promise<RawMessage<TelegramRawMessage>> {
     const parsedThread = this.resolveThreadId(threadId);
+    // Resolve the reply target once so a malformed id fails before any
+    // rendering or attachment downloads, and every send path threads it.
+    const replyParameters = this.buildReplyParameters(
+      replyToMessageId,
+      parsedThread.chatId
+    );
 
     const card = extractCard(message);
     const replyMarkup = card ? cardToTelegramInlineKeyboard(card) : undefined;
@@ -1161,7 +1345,8 @@ export class TelegramAdapter
                 text,
                 plainText,
                 replyMarkup,
-                parseMode
+                parseMode,
+                replyParameters
               ),
             ]
           : await this.sendDocumentMediaGroup(
@@ -1170,7 +1355,8 @@ export class TelegramAdapter
               text,
               plainText,
               replyMarkup,
-              parseMode
+              parseMode,
+              replyParameters
             );
     } else if (attachments.length > 0) {
       const [attachment] = attachments;
@@ -1190,7 +1376,8 @@ export class TelegramAdapter
                 text,
                 plainText,
                 replyMarkup,
-                parseMode
+                parseMode,
+                replyParameters
               ),
             ]
           : await this.sendAttachmentMediaGroup(
@@ -1199,7 +1386,8 @@ export class TelegramAdapter
               text,
               plainText,
               replyMarkup,
-              parseMode
+              parseMode,
+              replyParameters
             );
     } else {
       if (!text.trim()) {
@@ -1213,7 +1401,8 @@ export class TelegramAdapter
           plainText,
           parseMode,
           replyMarkup,
-          threadId
+          threadId,
+          replyParameters
         );
 
       rawMessages = [
@@ -1227,6 +1416,7 @@ export class TelegramAdapter
                     markdown: rich.markdown,
                   },
                   reply_markup: replyMarkup,
+                  reply_parameters: replyParameters,
                 }),
               sendRegular,
               {
@@ -1279,6 +1469,22 @@ export class TelegramAdapter
     message: AdapterPostableMessage
   ): Promise<RawMessage<TelegramRawMessage>> {
     return this.postMessage(channelId, message);
+  }
+
+  /**
+   * Post a message as a native Telegram reply to `messageId`.
+   *
+   * Telegram threads the answer to its question with `reply_parameters`, which
+   * is what `Thread.reply()` expects an adapter to provide. Every Telegram
+   * send is a single API call (text is truncated, media groups are one
+   * request), so the reference always rides on that one call.
+   */
+  async reply(
+    threadId: string,
+    messageId: string,
+    message: AdapterPostableMessage
+  ): Promise<RawMessage<TelegramRawMessage>> {
+    return this.postMessage(threadId, message, messageId);
   }
 
   async editMessage(
@@ -2087,6 +2293,14 @@ export class TelegramAdapter
       content?.text ??
       raw.text ??
       raw.caption ??
+      // A sticker carries no text, only the emoji it stands for. Without this
+      // a sticker reaches the handler as an empty message and looks like a
+      // delivery that lost its body. The emoji itself is optional, so fall
+      // back to the sticker set's name, then to a plain label — never empty.
+      (raw.sticker
+        ? (raw.sticker.emoji ?? raw.sticker.set_name ?? "sticker")
+        : undefined) ??
+      describeNonFileContent(raw) ??
       (raw.rich_message ? richMessageToText(raw.rich_message) : "");
     const entities = raw.entities ?? raw.caption_entities ?? [];
     const text = content?.text
@@ -2186,7 +2400,9 @@ export class TelegramAdapter
       );
     }
 
-    if (raw.document) {
+    // When a message carries an animation, Telegram also sets `document` for
+    // backward compatibility — it's the same file, so don't report it twice.
+    if (raw.document && !raw.animation) {
       attachments.push(
         this.createAttachment("file", raw.document.file_id, {
           size: raw.document.file_size,
@@ -2204,6 +2420,35 @@ export class TelegramAdapter
           width: raw.video_note.length,
           height: raw.video_note.length,
           fileUniqueId: raw.video_note.file_unique_id,
+        })
+      );
+    }
+
+    // An animation is Telegram's GIF: an MP4 without sound.
+    if (raw.animation) {
+      attachments.push(
+        this.createAttachment("video", raw.animation.file_id, {
+          size: raw.animation.file_size,
+          width: raw.animation.width,
+          height: raw.animation.height,
+          name: raw.animation.file_name,
+          mimeType: raw.animation.mime_type,
+          fileUniqueId: raw.animation.file_unique_id,
+        })
+      );
+    }
+
+    // A still sticker is a WebP image; a video sticker is WebM and a Lottie
+    // one the TGS container, neither of which renders as an image.
+    if (raw.sticker) {
+      const format = stickerAttachmentFormat(raw.sticker);
+      attachments.push(
+        this.createAttachment(format.type, raw.sticker.file_id, {
+          size: raw.sticker.file_size,
+          width: raw.sticker.width,
+          height: raw.sticker.height,
+          mimeType: format.mimeType,
+          fileUniqueId: raw.sticker.file_unique_id,
         })
       );
     }
@@ -2266,7 +2511,7 @@ export class TelegramAdapter
     };
   }
 
-  protected async downloadFile(fileId: string): Promise<Buffer> {
+  protected async downloadFile(fileId: string): Promise<Buffer | ArrayBuffer> {
     const file = await this.telegramFetch<TelegramFile>("getFile", {
       file_id: fileId,
     });
@@ -2278,9 +2523,15 @@ export class TelegramAdapter
     const botToken = this.staticBotToken ?? (await this.resolveBotToken());
     const fileUrl = `${this.apiBaseUrl}/file/bot${botToken}/${file.file_path}`;
 
+    // Downloads stay on the Web Fetch API so the adapter keeps working in
+    // runtimes without Node networking (e.g. Cloudflare Workers). The host
+    // is operator-configured and the path comes from Telegram's getFile, so
+    // the guard here is the size cap and timeout.
     let response: Response;
     try {
-      response = await fetch(fileUrl);
+      response = await fetch(fileUrl, {
+        signal: AbortSignal.timeout(TELEGRAM_FILE_TIMEOUT_MS),
+      });
     } catch (error) {
       throw new NetworkError(
         "telegram",
@@ -2296,7 +2547,18 @@ export class TelegramAdapter
       );
     }
 
-    return Buffer.from(await response.arrayBuffer());
+    try {
+      return await readTelegramFile(response, fileId);
+    } catch (error) {
+      if (error instanceof NetworkError) {
+        throw error;
+      }
+      throw new NetworkError(
+        "telegram",
+        `Failed to download Telegram file ${fileId}`,
+        error instanceof Error ? error : undefined
+      );
+    }
   }
 
   protected async sendDocument(
@@ -2309,7 +2571,8 @@ export class TelegramAdapter
     text: string,
     plainText: string,
     replyMarkup?: TelegramInlineKeyboardMarkup,
-    parseMode: TelegramParseMode = "plain"
+    parseMode: TelegramParseMode = "plain",
+    replyParameters?: TelegramReplyParameters
   ): Promise<TelegramMessage> {
     const buffer = await this.toTelegramBuffer(file.data);
 
@@ -2324,7 +2587,8 @@ export class TelegramAdapter
             buffer,
             resolvedText,
             replyMarkup,
-            resolvedParseMode
+            resolvedParseMode,
+            replyParameters
           )
         ),
       {
@@ -2345,10 +2609,12 @@ export class TelegramAdapter
     buffer: Buffer,
     text: string,
     replyMarkup?: TelegramInlineKeyboardMarkup,
-    parseMode: TelegramParseMode = "plain"
+    parseMode: TelegramParseMode = "plain",
+    replyParameters?: TelegramReplyParameters
   ): FormData {
     const formData = new FormData();
     formData.append("chat_id", thread.chatId);
+    this.appendReplyParameters(formData, replyParameters);
     if (typeof thread.messageThreadId === "number") {
       formData.append("message_thread_id", String(thread.messageThreadId));
     }
@@ -2381,7 +2647,8 @@ export class TelegramAdapter
     text: string,
     plainText: string,
     replyMarkup?: TelegramInlineKeyboardMarkup,
-    parseMode: TelegramParseMode = "plain"
+    parseMode: TelegramParseMode = "plain",
+    replyParameters?: TelegramReplyParameters
   ): Promise<TelegramMessage> {
     const upload = ATTACHMENT_UPLOADS[attachment.type];
     const data =
@@ -2404,6 +2671,7 @@ export class TelegramAdapter
           const payload: Record<string, unknown> = {
             chat_id: thread.chatId,
             [upload.field]: attachment.url,
+            reply_parameters: replyParameters,
           };
 
           if (typeof thread.messageThreadId === "number") {
@@ -2476,6 +2744,7 @@ export class TelegramAdapter
         if (replyMarkup) {
           formData.append("reply_markup", JSON.stringify(replyMarkup));
         }
+        this.appendReplyParameters(formData, replyParameters);
 
         return this.telegramFetch<TelegramMessage>(upload.method, formData);
       },
@@ -2494,7 +2763,8 @@ export class TelegramAdapter
     text: string,
     plainText: string,
     replyMarkup?: TelegramInlineKeyboardMarkup,
-    parseMode: TelegramParseMode = "plain"
+    parseMode: TelegramParseMode = "plain",
+    replyParameters?: TelegramReplyParameters
   ): Promise<TelegramMessage[]> {
     this.validateMediaGroupLength(files.length);
 
@@ -2525,7 +2795,8 @@ export class TelegramAdapter
             thread,
             parts,
             resolvedText,
-            resolvedParseMode
+            resolvedParseMode,
+            replyParameters
           )
         ),
       {
@@ -2543,7 +2814,8 @@ export class TelegramAdapter
     text: string,
     plainText: string,
     replyMarkup?: TelegramInlineKeyboardMarkup,
-    parseMode: TelegramParseMode = "plain"
+    parseMode: TelegramParseMode = "plain",
+    replyParameters?: TelegramReplyParameters
   ): Promise<TelegramMessage[]> {
     this.validateMediaGroupLength(attachments.length);
     this.validateAttachmentMediaGroupTypes(attachments);
@@ -2597,7 +2869,8 @@ export class TelegramAdapter
             thread,
             parts,
             resolvedText,
-            resolvedParseMode
+            resolvedParseMode,
+            replyParameters
           )
         ),
       {
@@ -2613,10 +2886,12 @@ export class TelegramAdapter
     thread: TelegramThreadId,
     parts: TelegramMediaGroupPart[],
     text: string,
-    parseMode: TelegramParseMode
+    parseMode: TelegramParseMode,
+    replyParameters?: TelegramReplyParameters
   ): FormData {
     const formData = new FormData();
     formData.append("chat_id", thread.chatId);
+    this.appendReplyParameters(formData, replyParameters);
     if (typeof thread.messageThreadId === "number") {
       formData.append("message_thread_id", String(thread.messageThreadId));
     }
@@ -2830,6 +3105,41 @@ export class TelegramAdapter
     return `${chatId}:${messageId}`;
   }
 
+  /**
+   * Build Bot API `reply_parameters` for an optional reply target.
+   *
+   * `allow_sending_without_reply` keeps delivery working when the target was
+   * deleted in the meantime: the message arrives unthreaded instead of the
+   * send failing outright. The same applies to a message id that never
+   * existed in the chat or lives in another forum topic — only the chat half
+   * of a composite target is validated here, so those deliver unthreaded
+   * without an error.
+   */
+  protected buildReplyParameters(
+    replyToMessageId: string | undefined,
+    expectedChatId: string
+  ): TelegramReplyParameters | undefined {
+    if (!replyToMessageId) {
+      return undefined;
+    }
+
+    const { messageId } = this.decodeCompositeMessageId(
+      replyToMessageId,
+      expectedChatId
+    );
+
+    return { message_id: messageId, allow_sending_without_reply: true };
+  }
+
+  private appendReplyParameters(
+    formData: FormData,
+    replyParameters: TelegramReplyParameters | undefined
+  ): void {
+    if (replyParameters) {
+      formData.append("reply_parameters", JSON.stringify(replyParameters));
+    }
+  }
+
   protected decodeCompositeMessageId(
     messageId: string,
     expectedChatId?: string
@@ -2861,13 +3171,13 @@ export class TelegramAdapter
       );
     }
 
-    const parsedMessageId = Number.parseInt(messageId, 10);
-    if (!Number.isFinite(parsedMessageId)) {
+    if (!BARE_MESSAGE_ID_PATTERN.test(messageId)) {
       throw new ValidationError(
         "telegram",
         `Invalid Telegram message ID: ${messageId}`
       );
     }
+    const parsedMessageId = Number.parseInt(messageId, 10);
 
     return {
       chatId: expectedChatId,
@@ -2919,6 +3229,29 @@ export class TelegramAdapter
   }
 
   protected isBotMentioned(message: TelegramMessage, text: string): boolean {
+    // Replying to one of the bot's own messages addresses it as directly as an
+    // @mention does — it is how Telegram users continue a conversation without
+    // repeating the handle. Opt-in, and checked before the empty-text guard so
+    // a reply carrying only a photo or a document still counts.
+    //
+    // Two payload shapes look like a reply to the bot but are not one:
+    // - In forum topics every message carries reply_to_message pointing at the
+    //   topic-creation service message (its message_id equals
+    //   message_thread_id), authored by whoever created the topic — the bot,
+    //   when it did. Only an explicit reply to a different message counts.
+    // - The Bot API echoes the bot's own outbound replies back in send
+    //   responses; the bot replying to itself is not a user addressing it.
+    if (
+      this.mentionOnReply &&
+      this._botUserId &&
+      message.reply_to_message?.from &&
+      String(message.reply_to_message.from.id) === this._botUserId &&
+      message.reply_to_message.message_id !== message.message_thread_id &&
+      !(message.from && String(message.from.id) === this._botUserId)
+    ) {
+      return true;
+    }
+
     if (!text) {
       return false;
     }
@@ -3087,7 +3420,8 @@ export class TelegramAdapter
     plainText: string,
     parseMode: TelegramParseMode,
     replyMarkup: TelegramInlineKeyboardMarkup | undefined,
-    threadId: string
+    threadId: string,
+    replyParameters?: TelegramReplyParameters
   ): Promise<TelegramMessage> {
     return this.withTelegramMarkdownFallback(
       parseMode,
@@ -3098,6 +3432,7 @@ export class TelegramAdapter
           text: resolvedText,
           reply_markup: replyMarkup,
           parse_mode: toBotApiParseMode(resolvedParseMode),
+          reply_parameters: replyParameters,
         }),
       {
         initialText: text,
@@ -3118,12 +3453,18 @@ export class TelegramAdapter
       message.includes("method") && message.includes("not found");
     const unsupportedRich =
       message.includes("rich message") && message.includes("unsupported");
+    // A gateway that predates reply support may reject the extra
+    // `reply_parameters` field; degrade to a regular send, which threads it.
+    const rejectedReplyParameters = message.includes("reply_parameters");
 
     return (
       (method.startsWith("sendRichMessage") &&
         error instanceof ResourceNotFoundError) ||
       (error instanceof ValidationError &&
-        (message.includes("can't parse") || missingMethod || unsupportedRich))
+        (message.includes("can't parse") ||
+          missingMethod ||
+          unsupportedRich ||
+          rejectedReplyParameters))
     );
   }
 
@@ -3221,6 +3562,21 @@ export class TelegramAdapter
         );
 
         consecutiveFailures = 0;
+
+        // A failed startup getMe leaves _botUserId unset, which silently
+        // disables identity-based checks (text_mention, mentionOnReply).
+        // Webhook mode retries lazily per update; do the same here now that a
+        // successful getUpdates proves the API is reachable again.
+        if (updates.length > 0 && !this.webhookScope) {
+          try {
+            await this.ensureBotIdentity();
+          } catch (error) {
+            this.logger.warn(
+              "Telegram polling could not resolve bot identity",
+              { error: String(error) }
+            );
+          }
+        }
 
         for (const update of updates) {
           offset = update.update_id + 1;

@@ -403,3 +403,43 @@ BSUID. This is the payload that links the previous and current values.
 ```
 GET /api/webhooks/whatsapp?hub.mode=subscribe&hub.verify_token=my_verify_token&hub.challenge=1158201444
 ```
+
+## Text message with a code block
+
+```json
+{
+  "object": "whatsapp_business_account",
+  "entry": [
+    {
+      "id": "000000000000000",
+      "changes": [
+        {
+          "value": {
+            "messaging_product": "whatsapp",
+            "metadata": {
+              "display_phone_number": "15550000000",
+              "phone_number_id": "000000000000000"
+            },
+            "contacts": [
+              {
+                "profile": { "name": "Test User" },
+                "wa_id": "15551234567"
+              }
+            ],
+            "messages": [
+              {
+                "from": "15551234567",
+                "id": "wamid.HBgNMTU1NTEyMzQ1NjcVAgASGBQzQUYwMDAwMDAwMDAwMDAwMEFB",
+                "timestamp": "1787654321",
+                "text": { "body": "Here you go:\n```first line\nsecond line```" },
+                "type": "text"
+              }
+            ]
+          },
+          "field": "messages"
+        }
+      ]
+    }
+  ]
+}
+```

@@ -171,12 +171,15 @@ bot.onNewMention(async (thread, message) => {
   if (AI_MENTION_REGEX.test(message.text)) {
     await thread.setState({ aiMode: true });
     // Also respond to the initial message with AI (including any image attachments).
-    // No explicit status: on Slack this falls back to the adapter-level
-    // `loadingMessages` rotation (see SLACK_AGENT_OPTIONS in adapters.ts).
+    // Slack agent_view shows its standard Agent Sessions working state;
+    // legacy assistant_view uses the configured loadingMessages rotation.
     await thread.startTyping();
     try {
       const history = await toAiMessages([message]);
-      const result = await agent.stream({ prompt: history });
+      const result = await agent.stream({
+        prompt: history,
+        abortSignal: thread.signal,
+      });
       await thread.post(result.fullStream);
     } catch (err) {
       console.error("Error in AI response:", err);
@@ -309,7 +312,10 @@ bot.onDirectMessage(async (thread, message, channel) => {
   }
 
   try {
-    const result = await agent.stream({ prompt: history });
+    const result = await agent.stream({
+      prompt: history,
+      abortSignal: thread.signal,
+    });
     await thread.post(result.fullStream);
     // Persist the assistant reply so the next turn sees both sides.
     if (message.userKey) {
@@ -1368,11 +1374,14 @@ bot.onSubscribedMessage(async (thread, message) => {
       );
     }
 
-    // No explicit status: on Slack this falls back to the adapter-level
-    // `loadingMessages` rotation (see SLACK_AGENT_OPTIONS in adapters.ts).
+    // Slack agent_view shows its standard Agent Sessions working state;
+    // legacy assistant_view uses the configured loadingMessages rotation.
     await thread.startTyping();
     try {
-      const result = await agent.stream({ prompt: history });
+      const result = await agent.stream({
+        prompt: history,
+        abortSignal: thread.signal,
+      });
       await thread.post(result.fullStream);
       const responseText = await result.text;
       // Persist the assistant reply alongside the user message, so the next

@@ -159,6 +159,15 @@ export async function POST(request: Request) {
 | DMs | Yes (DM-only platform) |
 | Postbacks | Yes |
 
+### Inbound attachments
+
+Inbound attachment URLs remain available as `attachment.url`. The adapter's
+`fetchData` function downloads media only from Meta's `fbsbx.com` and
+`fbcdn.net` hosts, refuses private and internal addresses (including after
+redirects), limits responses to 25 MB, and times out after 30 seconds.
+External fallback and link-share URLs are preserved but rejected before any
+network request.
+
 ### Read receipts
 
 Use `thread.markAsRead()` in a message handler to send Messenger's `mark_seen` sender action:

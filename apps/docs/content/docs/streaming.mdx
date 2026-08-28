@@ -25,10 +25,18 @@ const agent = new ToolLoopAgent({
 });
 
 bot.onNewMention(async (thread, message) => {
-  const result = await agent.stream({ prompt: message.text });
+  const result = await agent.stream({
+    prompt: message.text,
+    abortSignal: thread.signal,
+  });
   await thread.post(result.fullStream);
 });
 ```
+
+Passing `thread.signal` lets platform cancellation stop model generation. In
+Slack Agent messaging, clicking the native stop button aborts this signal even
+when the stop webhook is handled by another serverless instance using the same
+state adapter.
 
 ### Why `fullStream` over `textStream`?
 
@@ -42,6 +50,17 @@ await thread.post(result.fullStream);
 
 // Also works: textStream for single-step generation
 await thread.post(result.textStream);
+```
+
+For a human-in-the-loop turn, wrap the stream in `StreamingPlan` and leave the
+Slack Agent Session suspended after the final chunk:
+
+```typescript
+await thread.post(
+  new StreamingPlan(result.fullStream, {
+    sessionStatus: "suspended",
+  })
+);
 ```
 
 ## Custom streams

@@ -3,7 +3,12 @@ import {
   type PostableObject,
   type PostableObjectContext,
 } from "./postable-object";
-import type { Adapter, StreamChunk, StreamEvent } from "./types";
+import type {
+  Adapter,
+  AgentSessionStatus,
+  StreamChunk,
+  StreamEvent,
+} from "./types";
 
 export interface StreamingPlanOptions {
   /**
@@ -17,6 +22,11 @@ export interface StreamingPlanOptions {
    * - `"timeline"` - individual task cards shown inline with text (default)
    */
   groupTasks?: "plan" | "timeline";
+  /**
+   * Slack Agent Session state after streaming stops. Defaults to `"active"`.
+   * Use `"suspended"` when the agent needs user input or approval.
+   */
+  sessionStatus?: AgentSessionStatus;
   /**
    * Minimum interval between updates in ms (default: 500).
    * Used by post+edit streaming paths.

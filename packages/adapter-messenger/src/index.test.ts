@@ -1449,67 +1449,55 @@ describe("MessengerAdapter", () => {
     });
 
     it("downloads attachment successfully", async () => {
-      const adapter = createAdapter();
+      class Adapter extends MessengerAdapter {
+        protected override downloadAttachment(url: string): Promise<Buffer> {
+          expect(url).toBe("https://cdn.fbsbx.com/img.jpg");
+          return Promise.resolve(Buffer.from("fake-image-data"));
+        }
+      }
+      const adapter = new Adapter({
+        appSecret: "test-app-secret",
+        pageAccessToken: "test-page-token",
+        verifyToken: "test-verify-token",
+        logger: mockLogger,
+      });
       const event = sampleMessagingEvent({
         message: {
           mid: "mid.dl",
           text: "photo",
           attachments: [
-            { type: "image", payload: { url: "https://example.com/img.jpg" } },
+            {
+              type: "image",
+              payload: { url: "https://cdn.fbsbx.com/img.jpg" },
+            },
           ],
         },
       });
 
       const parsed = adapter.parseMessage(event);
       const attachment = parsed.attachments[0];
-
-      const imageData = Buffer.from("fake-image-data");
-      mockFetch.mockResolvedValueOnce(new Response(imageData, { status: 200 }));
 
       const result = await attachment.fetchData?.();
-      expect(result).toBeInstanceOf(Buffer);
+      expect(result).toEqual(Buffer.from("fake-image-data"));
     });
 
-    it("throws NetworkError when attachment download fails", async () => {
+    it("rejects external fallback downloads before the network", async () => {
       const adapter = createAdapter();
+      const url = "https://169.254.169.254/latest/meta-data";
       const event = sampleMessagingEvent({
         message: {
-          mid: "mid.dlerr",
-          text: "photo",
-          attachments: [
-            { type: "image", payload: { url: "https://example.com/img.jpg" } },
-          ],
+          mid: "mid.fallback",
+          text: "link",
+          attachments: [{ type: "fallback", payload: { url } }],
         },
       });
 
-      const parsed = adapter.parseMessage(event);
-      const attachment = parsed.attachments[0];
+      const attachment = adapter.parseMessage(event).attachments[0];
+      mockFetch.mockResolvedValueOnce(new Response("secret", { status: 200 }));
 
-      mockFetch.mockRejectedValueOnce(new Error("Network failure"));
-
+      expect(attachment.url).toBe(url);
       await expect(attachment.fetchData?.()).rejects.toThrow(NetworkError);
-    });
-
-    it("throws NetworkError when attachment download returns non-ok", async () => {
-      const adapter = createAdapter();
-      const event = sampleMessagingEvent({
-        message: {
-          mid: "mid.dl404",
-          text: "photo",
-          attachments: [
-            { type: "image", payload: { url: "https://example.com/img.jpg" } },
-          ],
-        },
-      });
-
-      const parsed = adapter.parseMessage(event);
-      const attachment = parsed.attachments[0];
-
-      mockFetch.mockResolvedValueOnce(
-        new Response("Not Found", { status: 404 })
-      );
-
-      await expect(attachment.fetchData?.()).rejects.toThrow(NetworkError);
+      expect(mockFetch).not.toHaveBeenCalled();
     });
 
     it("maps location attachment type to file", () => {

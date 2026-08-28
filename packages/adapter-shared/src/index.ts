@@ -33,6 +33,12 @@ export {
   renderGfmTable,
 } from "./card-utils";
 
+// Slack-style ``` fence normalization for CommonMark parsing
+export {
+  type NormalizeCodeFencesOptions,
+  normalizeCodeFences,
+} from "./code-fences";
+
 // Token encryption helpers (AES-256-GCM)
 export {
   decodeKey,
@@ -41,6 +47,13 @@ export {
   encryptToken,
   isEncryptedTokenData,
 } from "./crypto";
+
+// Guarded downloads for untrusted attachment URLs (SSRF-safe, size- and time-limited)
+export {
+  type AttachmentTransport,
+  type DownloadAttachmentOptions,
+  downloadAttachment,
+} from "./download";
 
 // Standardized adapter errors
 export {

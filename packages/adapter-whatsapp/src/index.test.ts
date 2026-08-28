@@ -1,4 +1,7 @@
 import { createHmac } from "node:crypto";
+import type { IncomingMessage } from "node:http";
+import { Readable } from "node:stream";
+import { NetworkError } from "@chat-adapter/shared";
 import {
   createMockChatInstance,
   createMockLogger,
@@ -28,6 +31,18 @@ import type {
   WhatsAppUserIdUpdate,
   WhatsAppWebhookPayload,
 } from "./types";
+
+function mediaResponse(
+  body: string,
+  status = 200,
+  headers: IncomingMessage["headers"] = {}
+): IncomingMessage {
+  return Object.assign(Readable.from([Buffer.from(body)]), {
+    headers,
+    statusCode: status,
+    statusMessage: "OK",
+  }) as IncomingMessage;
+}
 
 const NOT_SUPPORTED_PATTERN = /not support/i;
 const ACCESS_TOKEN_PATTERN = /accessToken/i;
@@ -493,6 +508,142 @@ describe("parseMessage - media attachments", () => {
     };
     const message = adapter.parseMessage(raw);
     expect(message.attachments).toHaveLength(0);
+  });
+});
+
+describe("downloadMedia", () => {
+  it.each([
+    "https://attacker.example/media",
+    "http://lookaside.fbsbx.com/whatsapp/media",
+    "https://evilfbsbx.com/whatsapp/media",
+    "https://lookaside.fbsbx.com.attacker.example/whatsapp/media",
+    "https://lookaside.fbsbx.com:8443/whatsapp/media",
+  ])("rejects untrusted media URL %s", async (url) => {
+    const adapter = createTestAdapter();
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ url }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        })
+      )
+      .mockResolvedValueOnce(new Response("leaked", { status: 200 }));
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = fetchMock as unknown as typeof globalThis.fetch;
+
+    try {
+      await expect(adapter.downloadMedia("media-123")).rejects.toBeInstanceOf(
+        NetworkError
+      );
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
+  it.each([
+    "https://lookaside.fbsbx.com/whatsapp/media",
+    "https://scontent.xx.fbcdn.net/whatsapp/media",
+  ])("downloads media from trusted Meta URL %s", async (url) => {
+    const adapter = createTestAdapter();
+    const fetchMock = vi.fn().mockResolvedValueOnce(
+      new Response(JSON.stringify({ url }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      })
+    );
+    const transport = vi.fn(async () => mediaResponse("media"));
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = fetchMock as unknown as typeof globalThis.fetch;
+
+    try {
+      const data = await adapter.downloadMedia("media-123", transport);
+
+      expect(data.toString()).toBe("media");
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+      expect(transport).toHaveBeenCalledWith(
+        new URL(url),
+        expect.any(AbortSignal),
+        expect.objectContaining({ authorization: "Bearer test-token" })
+      );
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
+  it.each([
+    "https://sub.graph.example/media/file",
+    "https://graph.example:8443/media/file",
+  ])("refuses to send the token to off-policy redirect %s", async (location) => {
+    const adapter = new WhatsAppAdapter({
+      accessToken: "test-token",
+      apiUrl: "https://graph.example",
+      appSecret: "test-secret",
+      phoneNumberId: "123456789",
+      verifyToken: "test-verify-token",
+      userName: "test-bot",
+      logger: createMockLogger(),
+    });
+    const fetchMock = vi.fn().mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({ url: "https://graph.example/media/file" }),
+        {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        }
+      )
+    );
+    const transport = vi.fn(async () => mediaResponse("", 302, { location }));
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = fetchMock as unknown as typeof globalThis.fetch;
+
+    try {
+      await expect(
+        adapter.downloadMedia("media-123", transport)
+      ).rejects.toThrow(
+        "Refusing to send the access token to an untrusted media URL"
+      );
+      expect(transport).toHaveBeenCalledTimes(1);
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
+  it("downloads media from the configured Graph origin", async () => {
+    const adapter = new WhatsAppAdapter({
+      accessToken: "test-token",
+      apiUrl: "https://graph.example",
+      appSecret: "test-secret",
+      phoneNumberId: "123456789",
+      verifyToken: "test-verify-token",
+      userName: "test-bot",
+      logger: createMockLogger(),
+    });
+    const fetchMock = vi.fn().mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({ url: "https://graph.example/media/file" }),
+        {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        }
+      )
+    );
+    const transport = vi.fn(async () => mediaResponse("media"));
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = fetchMock as unknown as typeof globalThis.fetch;
+
+    try {
+      await adapter.downloadMedia("media-123", transport);
+
+      expect(transport).toHaveBeenCalledWith(
+        new URL("https://graph.example/media/file"),
+        expect.any(AbortSignal),
+        expect.objectContaining({ authorization: "Bearer test-token" })
+      );
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
   });
 });
 

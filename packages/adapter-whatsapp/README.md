@@ -73,6 +73,10 @@ From your Meta app dashboard, copy:
 
 For production, generate a permanent **System User Token** instead of the temporary access token.
 
+## Inbound attachments
+
+Incoming media attachments expose a lazy `fetchData()`. Media is downloaded only from Meta's `fbcdn.net` and `fbsbx.com` hosts or the configured Graph origin. Downloads refuse private and internal addresses, are limited to 25 MB, and time out after 30 seconds, and the access token never follows a redirect off those hosts. Pass a custom transport to `downloadMedia()` to route downloads through a proxy.
+
 ## Configuration
 
 All options are auto-detected from environment variables when not provided. You can call `createWhatsAppAdapter()` with no arguments if the env vars are set.

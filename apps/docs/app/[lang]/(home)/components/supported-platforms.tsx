@@ -71,6 +71,7 @@ export const SupportedPlatforms = () => (
             className="flex size-12 items-center justify-center"
             href={`/adapters/official/${platform.slug}`}
             key={platform.slug}
+            prefetch={true}
           >
             <platform.icon className="size-9" />
           </Link>
