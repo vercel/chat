@@ -58,7 +58,8 @@ export interface ConnectEnvVar {
  * When the user opts into Connect (`--connect` or the interactive auth-mode
  * prompt), the generated bot spreads the matching helper from
  * `@vercel/connect/chat` into the adapter factory and reads the connector UID
- * from `connectorEnvVar`, replacing the adapter's native provider secrets.
+ * from `connectorEnvVar`, replacing outbound provider credentials. Native
+ * webhook verification variables can remain in `extraEnv`.
  */
 export interface AdapterConnectSpec {
   /** Environment variable holding the Vercel Connect connector UID. */
@@ -67,6 +68,11 @@ export interface AdapterConnectSpec {
   extraEnv?: readonly ConnectEnvVar[];
   /** Helper exported from `@vercel/connect/chat`, e.g. `connectSlackAdapter`. */
   helper: string;
+  /**
+   * How inbound webhooks reach the generated app. Defaults to Connect trigger
+   * forwarding; use `native` when Connect supplies outbound credentials only.
+   */
+  inbound?: "connect-triggers" | "native";
 }
 
 /**
@@ -75,7 +81,7 @@ export interface AdapterConnectSpec {
 export interface CliScaffoldSpec {
   /**
    * Vercel Connect code-generation policy. Present only for adapters that
-   * support Connect (Slack, GitHub, Linear).
+   * support Connect (Slack, Discord, GitHub, Linear, Notion, Telegram).
    */
   connect?: AdapterConnectSpec;
   /**
@@ -146,6 +152,10 @@ export const CLI_SCAFFOLD_SPEC = {
     },
   },
   discord: {
+    connect: {
+      connectorEnvVar: "DISCORD_CONNECTOR",
+      helper: "connectDiscordAdapter",
+    },
     invocation: { kind: "zero-arg" },
     serverExternalPackages: [
       "discord.js",
@@ -245,6 +255,18 @@ export const CLI_SCAFFOLD_SPEC = {
     invocation: { kind: "zero-arg" },
   },
   notion: {
+    connect: {
+      connectorEnvVar: "NOTION_CONNECTOR",
+      extraEnv: [
+        {
+          description:
+            "Webhook HMAC key from the Notion subscription verification handshake",
+          key: "NOTION_VERIFICATION_TOKEN",
+        },
+      ],
+      helper: "connectNotionAdapter",
+      inbound: "native",
+    },
     invocation: { kind: "zero-arg" },
   },
   novu: {
@@ -300,6 +322,17 @@ export const CLI_SCAFFOLD_SPEC = {
     },
   },
   telegram: {
+    connect: {
+      connectorEnvVar: "TELEGRAM_CONNECTOR",
+      extraEnv: [
+        {
+          description: "Native Telegram webhook secret token",
+          key: "TELEGRAM_WEBHOOK_SECRET_TOKEN",
+        },
+      ],
+      helper: "connectTelegramAdapter",
+      inbound: "native",
+    },
     invocation: { kind: "zero-arg" },
   },
   twilio: {

@@ -270,6 +270,15 @@ export interface Adapter<TThreadId = unknown, TRawMessage = unknown> {
   encodeThreadId(platformData: TThreadId): string;
 
   /**
+   * Clear a typing/processing indicator after a reply finishes.
+   *
+   * Optional because most platforms clear typing indicators automatically.
+   * Agent-session platforms can implement this to transition the session back
+   * to an active state.
+   */
+  endTyping?(threadId: string, status?: AgentSessionStatus): Promise<void>;
+
+  /**
    * Fetch channel info/metadata.
    */
   fetchChannelInfo?(channelId: string): Promise<ChannelInfo>;
@@ -388,6 +397,25 @@ export interface Adapter<TThreadId = unknown, TRawMessage = unknown> {
    * Can be overridden by `ChatConfig.lockScope`.
    */
   readonly lockScope?: LockScope;
+
+  /**
+   * Send a read receipt for an inbound message.
+   *
+   * Optional: `Thread.markAsRead()` throws `NotImplementedError` when an
+   * adapter leaves this out. The full message is passed alongside its ID when
+   * the caller has one, so adapters can read platform data off `message.raw`
+   * instead of resolving the ID themselves.
+   *
+   * @param threadId - Thread containing the message
+   * @param messageId - ID of the message to acknowledge
+   * @param message - The message itself, when the caller has it
+   */
+  markAsRead?(
+    threadId: string,
+    messageId: string,
+    message?: Message<TRawMessage>
+  ): Promise<void>;
+
   /** Unique name for this adapter (e.g., "slack", "teams") */
   readonly name: string;
 
@@ -504,6 +532,12 @@ export interface Adapter<TThreadId = unknown, TRawMessage = unknown> {
   /** Render formatted content to platform-specific string */
   renderFormatted(content: FormattedContent): string;
 
+  reply?(
+    threadId: string,
+    messageId: string,
+    message: AdapterPostableMessage
+  ): Promise<RawMessage<TRawMessage>>;
+
   /**
    * Schedule a message for future delivery.
    *
@@ -522,7 +556,11 @@ export interface Adapter<TThreadId = unknown, TRawMessage = unknown> {
   ): Promise<ScheduledMessage<TRawMessage>>;
 
   /** Show typing indicator */
-  startTyping(threadId: string, status?: string): Promise<void>;
+  startTyping(
+    threadId: string,
+    status?: string,
+    options?: TypingOptions
+  ): Promise<void>;
 
   /**
    * Stream a message using platform-native streaming APIs.
@@ -546,6 +584,8 @@ export interface Adapter<TThreadId = unknown, TRawMessage = unknown> {
     textStream: AsyncIterable<string | StreamChunk>,
     options?: StreamOptions
   ): Promise<RawMessage<TRawMessage> | null>;
+  /** Whether active turns should be published for cross-process cancellation. */
+  readonly supportsTurnCancellation?: boolean;
   /** Bot username (can override global userName) */
   readonly userName: string;
 }
@@ -593,6 +633,10 @@ export interface StreamOptions {
   recipientTeamId?: string;
   /** Slack: The user ID to stream to (for AI assistant context) */
   recipientUserId?: string;
+  /** Slack: Agent session state after the stream stops. Defaults to "active". */
+  sessionStatus?: AgentSessionStatus;
+  /** Stop consuming the stream when this signal is aborted. */
+  signal?: AbortSignal;
   /** Block Kit elements to attach when stopping the stream (Slack only, via chat.stopStream) */
   stopBlocks?: unknown[];
   /**
@@ -605,8 +649,27 @@ export interface StreamOptions {
   updateIntervalMs?: number;
 }
 
+/** Lifecycle states supported by Slack Agent Sessions. */
+export type AgentSessionStatus =
+  | "active"
+  | "closed"
+  | "processing"
+  | "suspended";
+
+/** Context supplied when an adapter starts a typing/processing indicator. */
+export interface TypingOptions {
+  /** User who initiated the current turn, when known. */
+  initiatorUserId?: string;
+}
+
 /** Internal interface for Chat instance passed to adapters */
 export interface ChatInstance {
+  /**
+   * Abort active work for a conversation, including work running in another
+   * process that shares the configured state adapter.
+   */
+  abortTurn(threadId: string): Promise<void>;
+
   /** Get the configured logger, optionally with a child prefix */
   getLogger(prefix?: string): Logger;
 
@@ -633,6 +696,16 @@ export interface ChatInstance {
     event: Omit<ActionEvent, "thread" | "openModal"> & { adapter: Adapter },
     options: WebhookOptions | undefined
   ): Promise<void>;
+
+  processAgentSessionStopped(
+    event: AgentSessionStoppedEvent,
+    options?: WebhookOptions
+  ): void;
+
+  processAgentSessionTitleChanged(
+    event: AgentSessionTitleChangedEvent,
+    options?: WebhookOptions
+  ): void;
 
   processAppContextChanged(
     event: AppContextChangedEvent,
@@ -814,6 +887,13 @@ export interface ConcurrencyConfig {
   debounceMs?: number;
   /** Max concurrent handlers per thread (concurrent strategy). Default: Infinity. */
   maxConcurrent?: number;
+  /**
+   * Max total time one handler run may keep renewing its thread lock, in
+   * milliseconds (drop/queue/debounce/burst strategies). After this, renewal
+   * stops and the lock lapses at its TTL, so a hung handler cannot block the
+   * thread forever. Default: 600000 (10 minutes).
+   */
+  maxLockLifetimeMs?: number;
   /** Max queued messages per thread (queue/burst strategy). Default: 10. */
   maxQueueSize?: number;
   /** What to do when queue is full. Default: 'drop-oldest'. */
@@ -885,7 +965,12 @@ export interface StateAdapter {
     maxSize: number
   ): Promise<number>;
 
-  /** Extend a lock's TTL */
+  /**
+   * Extend a held lock's TTL. Implementations must compare the lock token
+   * and only extend a lock that is still held with that token — never create
+   * or resurrect one. Returns false when the lock is no longer held with
+   * this token (expired, released, or taken over).
+   */
   extendLock(lock: Lock, ttlMs: number): Promise<boolean>;
 
   /**
@@ -1186,6 +1271,21 @@ export interface Thread<TState = Record<string, unknown>, TRawMessage = unknown>
   isSubscribed(): Promise<boolean>;
 
   /**
+   * Send a read receipt for an inbound message.
+   *
+   * Defaults to the message being handled, so it takes no argument inside a
+   * message handler. Pass a `Message` or a message ID to target one explicitly;
+   * a `Message` must belong to this thread.
+   *
+   * Platforms may treat the receipt as a watermark and mark earlier messages
+   * read along with the target.
+   *
+   * @param message - Message or message ID to acknowledge; defaults to the current message
+   * @throws NotImplementedError when the adapter does not support read receipts
+   */
+  markAsRead(message?: string | Message<TRawMessage>): Promise<void>;
+
+  /**
    * Get a platform-specific mention string for a user.
    * Use this to @-mention a user in a message.
    * @example
@@ -1287,6 +1387,44 @@ export interface Thread<TState = Record<string, unknown>, TRawMessage = unknown>
    * Fetches the latest 50 messages and updates `recentMessages`.
    */
   refresh(): Promise<void>;
+
+  /**
+   * Reply to a specific message in this thread, using the platform's native
+   * reply (quote, threaded reply) rather than posting a loose message.
+   *
+   * Throws `NotImplementedError` on adapters without native reply support.
+   *
+   * @param target - The message to reply to, or its id. Prefer passing the
+   *   `Message`: it is checked against this thread, and it is carried through
+   *   to `SentMessage.replyTo` and cached thread history. A raw id is resolved
+   *   only if it matches a message this thread already holds (`recentMessages`
+   *   or the message being handled); otherwise the reply is still sent, but
+   *   `replyTo` is left undefined and no cross-thread check happens.
+   * @param message - Reply content. Streams are buffered and posted as one
+   *   message rather than streamed edit-by-edit.
+   *
+   * @example
+   * ```typescript
+   * chat.onNewMessage(async (thread, message) => {
+   *   await thread.reply(message, 'Got it');
+   * });
+   * ```
+   */
+  reply(
+    target: string | Message<TRawMessage>,
+    message:
+      | AdapterPostableMessage
+      | AsyncIterable<string | StreamChunk | StreamEvent>
+      | ChatElement
+  ): Promise<SentMessage<TRawMessage>>;
+
+  /**
+   * Aborted when the platform or application stops the active turn.
+   *
+   * Pass this to AI/model APIs so cancellation stops upstream generation, not
+   * only message delivery.
+   */
+  readonly signal: AbortSignal;
 
   /**
    * Show typing indicator in the thread.
@@ -1672,7 +1810,7 @@ export interface Attachment {
    * For platforms that require authentication (like Slack private URLs),
    * this method handles the auth automatically.
    */
-  fetchData?: () => Promise<Buffer>;
+  fetchData?: () => Promise<Buffer | ArrayBuffer>;
   /**
    * Platform-specific metadata needed to reconstruct fetchData after serialization.
    * Adapters store IDs here (e.g. WhatsApp mediaId, Telegram fileId) so that
@@ -2446,6 +2584,33 @@ export type SlashCommandHandler<TState = Record<string, unknown>> = (
 // =============================================================================
 // Assistant Events (Slack Assistants API / AI Apps)
 // =============================================================================
+
+export interface AgentSessionStoppedEvent {
+  adapter: Adapter;
+  channelId: string;
+  streamingMessageTs: string[];
+  threadId: string;
+  threadTs: string;
+  userId: string;
+}
+
+export type AgentSessionStoppedHandler = (
+  event: AgentSessionStoppedEvent
+) => void | Promise<void>;
+
+export interface AgentSessionTitleChangedEvent {
+  adapter: Adapter;
+  channelId: string;
+  previousTitle?: string;
+  threadId: string;
+  threadTs: string;
+  title: string;
+  userId: string;
+}
+
+export type AgentSessionTitleChangedHandler = (
+  event: AgentSessionTitleChangedEvent
+) => void | Promise<void>;
 
 export interface AssistantThreadStartedEvent {
   adapter: Adapter;

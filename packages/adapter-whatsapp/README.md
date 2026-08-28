@@ -73,6 +73,10 @@ From your Meta app dashboard, copy:
 
 For production, generate a permanent **System User Token** instead of the temporary access token.
 
+## Inbound attachments
+
+Incoming media attachments expose a lazy `fetchData()`. Media is downloaded only from Meta's `fbcdn.net` and `fbsbx.com` hosts or the configured Graph origin. Downloads refuse private and internal addresses, are limited to 25 MB, and time out after 30 seconds, and the access token never follows a redirect off those hosts. Pass a custom transport to `downloadMedia()` to route downloads through a proxy.
+
 ## Configuration
 
 All options are auto-detected from environment variables when not provided. You can call `createWhatsAppAdapter()` with no arguments if the env vars are set.
@@ -173,6 +177,16 @@ WhatsApp-specific behavior:
 - If there is no inbound message context, `startTyping()` no-ops.
 - The typing indicator is dismissed when the bot sends its reply, or after the WhatsApp platform timeout.
 
+### Read receipts
+
+Use `thread.markAsRead()` in a message handler to acknowledge the current inbound message:
+
+```typescript
+await thread.markAsRead();
+```
+
+You can also pass an inbound `Message` or its ID. WhatsApp marks that message and earlier messages in the conversation as read. It does not allow outgoing message IDs to be marked as read and recommends acknowledging inbound messages within 30 days.
+
 ### Incoming message types
 
 | Type | Supported |
@@ -236,6 +250,16 @@ await adapter.sendTemplate(threadId, {
 
 Templates must be created and approved in [WhatsApp Manager](https://business.facebook.com/wa/manage/message-templates/) before they can be sent. Quick reply button taps on a template arrive as button responses and are dispatched to your `onAction` handlers.
 
+## User identity
+
+WhatsApp messages include a [business-scoped user ID](https://developers.facebook.com/documentation/business-messaging/whatsapp/business-scoped-user-ids/) in `from_user_id` and `contacts[].user_id`. Users with a username may omit the phone-based `from` and `wa_id` fields.
+
+The adapter accepts either identifier. When both are available, it preserves an existing phone-based thread ID and stores the BSUID as an alias. Replies include both `to` and `recipient`, with the phone number taking precedence according to Meta's API. BSUID-only threads send through `recipient`.
+
+Meta does not support BSUID recipients for one-tap, zero-tap, or copy-code authentication templates. Those templates require the user's phone number.
+
+Use a persistent state adapter in production so identity aliases survive restarts. The adapter preserves the canonical thread when Meta rotates a BSUID by consuming `user_changed_number` and `user_changed_user_id` system messages plus the `user_id_update` webhook, which carries the previous and current BSUID. Subscribe your Meta app to the `user_id_update` webhook field so rotations reach the adapter. Current phone, BSUID, parent BSUID, and username fields remain available through `message.raw`.
+
 ## Thread ID format
 
 ```
@@ -243,6 +267,8 @@ whatsapp:{phoneNumberId}:{userWaId}
 ```
 
 Example: `whatsapp:1234567890:15551234567`
+
+The final segment is the adapter's canonical user identifier. It may contain a phone number, a BSUID such as `US.13491208655302741918`, or a previously observed identifier retained for thread continuity.
 
 ## Troubleshooting
 

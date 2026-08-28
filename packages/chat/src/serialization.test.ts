@@ -610,6 +610,49 @@ describe("Serialization", () => {
       // fetchMessage is not preserved across serialization
       expect(restored.links[0]?.fetchMessage).toBeUndefined();
     });
+
+    it("should round-trip replied-to message context", () => {
+      const replyTo = createTestMessage("msg-original", "Original message", {
+        raw: { platformId: "original-1" },
+        author: {
+          userId: "U456",
+          userName: "original-author",
+          fullName: "Original Author",
+          isBot: false,
+          isMe: false,
+        },
+        metadata: {
+          dateSent: new Date("2024-01-14T10:30:00.000Z"),
+          edited: false,
+        },
+        attachments: [
+          {
+            type: "file",
+            name: "original.pdf",
+            fetchMetadata: { fileId: "file-1" },
+          },
+        ],
+      });
+      const original = createTestMessage("msg-reply", "Reply", { replyTo });
+
+      const restored = Message.fromJSON(original.toJSON());
+
+      expect(restored.replyTo).toBeInstanceOf(Message);
+      expect(restored.replyTo?.id).toBe("msg-original");
+      expect(restored.replyTo?.text).toBe("Original message");
+      expect(restored.replyTo?.author.userName).toBe("original-author");
+      expect(restored.replyTo?.raw).toEqual({ platformId: "original-1" });
+      expect(restored.replyTo?.metadata.dateSent).toEqual(
+        new Date("2024-01-14T10:30:00.000Z")
+      );
+      expect(restored.replyTo?.attachments).toEqual([
+        {
+          type: "file",
+          name: "original.pdf",
+          fetchMetadata: { fileId: "file-1" },
+        },
+      ]);
+    });
   });
 
   describe("chat.reviver()", () => {

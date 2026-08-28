@@ -1,3 +1,4 @@
+import { toPlainText } from "chat";
 import { describe, expect, it } from "vitest";
 import { SlackFormatConverter } from "./markdown";
 
@@ -5,6 +6,65 @@ describe("SlackFormatConverter", () => {
   const converter = new SlackFormatConverter();
 
   describe("toMarkdown (mrkdwn -> markdown)", () => {
+    it("preserves code starting immediately after the opening fence", () => {
+      const ast = converter.toAst("```first line\nsecond line\n```");
+
+      expect(ast.children[0]).toMatchObject({
+        type: "code",
+        lang: null,
+        meta: null,
+        value: "first line\nsecond line",
+      });
+      expect(toPlainText(ast)).toBe("first line\nsecond line");
+    });
+
+    it("parses a code block pasted into a message", () => {
+      // From sample-messages.md: a fence with a first line, mid-message.
+      const ast = converter.toAst(
+        "Here you go:\n```first line\nsecond line```"
+      );
+
+      expect(ast.children[0]).toMatchObject({ type: "paragraph" });
+      expect(ast.children[1]).toMatchObject({
+        type: "code",
+        lang: null,
+        value: "first line\nsecond line",
+      });
+    });
+
+    it("does not swallow text after an unpaired fence", () => {
+      const ast = converter.toAst("use ``` to fence code, *see*?");
+
+      expect(ast.children).toHaveLength(1);
+      expect(ast.children[0]).toMatchObject({ type: "paragraph" });
+      expect(toPlainText(ast)).toBe("use ``` to fence code, see?");
+    });
+
+    it("keeps a quoted fence inside the blockquote", () => {
+      const ast = converter.toAst("&gt; a ```c``` b");
+
+      expect(ast.children).toHaveLength(1);
+      expect(ast.children[0]).toMatchObject({ type: "blockquote" });
+      expect(toPlainText(ast)).toBe("a c b");
+    });
+
+    it("keeps trailing text after a code block as a paragraph", () => {
+      const ast = converter.toAst("```x``` &gt; note");
+
+      expect(ast.children[0]).toMatchObject({ type: "code", value: "x" });
+      expect(ast.children[1]).toMatchObject({ type: "paragraph" });
+      expect(toPlainText(ast)).toBe("x\n\n> note");
+    });
+
+    it("keeps code content verbatim inside the fence", () => {
+      const ast = converter.toAst("```int *a = *b;```");
+
+      expect(ast.children[0]).toMatchObject({
+        type: "code",
+        value: "int *a = *b;",
+      });
+    });
+
     it("should convert bold", () => {
       expect(converter.toMarkdown("Hello *world*!")).toContain("**world**");
     });

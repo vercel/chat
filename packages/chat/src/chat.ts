@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import {
   decodeCallbackValue,
   postToCallbackUrl,
@@ -21,6 +22,10 @@ import type {
   ActionEvent,
   ActionHandler,
   Adapter,
+  AgentSessionStoppedEvent,
+  AgentSessionStoppedHandler,
+  AgentSessionTitleChangedEvent,
+  AgentSessionTitleChangedHandler,
   AppContextChangedEvent,
   AppContextChangedHandler,
   AppHomeOpenedEvent,
@@ -76,10 +81,36 @@ import type {
 import { ChatError, ConsoleLogger, LockError } from "./types";
 
 const DEFAULT_LOCK_TTL_MS = 30_000; // 30 seconds
+const DEFAULT_MAX_LOCK_LIFETIME_MS = 600_000; // 10 minutes
+const ACTIVE_TURN_TTL_MS = 60 * 60 * 1000; // 1 hour
+const ABORT_POLL_INTERVAL_MS = 250;
+
+/** Handle returned by startLockHeartbeat for the duration of a held lock. */
+interface LockHeartbeat {
+  /** True once this instance can no longer assume it still owns the lock. */
+  isOwnershipLost: () => boolean;
+  /** Stop renewing. Waits for any in-flight extend so it cannot land after release. */
+  stop: () => Promise<void>;
+}
 
 /** Promise-based sleep for debounce timing. */
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function sleepUntilAbort(ms: number, signal: AbortSignal): Promise<void> {
+  if (signal.aborted) {
+    return Promise.resolve();
+  }
+  return new Promise((resolve) => {
+    const done = (): void => {
+      clearTimeout(timer);
+      signal.removeEventListener("abort", done);
+      resolve();
+    };
+    const timer = setTimeout(done, ms);
+    signal.addEventListener("abort", done, { once: true });
+  });
 }
 const SLACK_USER_ID_REGEX = /^[UW][A-Z0-9]+$/;
 const DISCORD_SNOWFLAKE_REGEX = /^\d{17,19}$/;
@@ -280,10 +311,18 @@ export class Chat<
     [];
   private readonly assistantContextChangedHandlers: AssistantContextChangedHandler[] =
     [];
+  private readonly agentSessionStoppedHandlers: AgentSessionStoppedHandler[] =
+    [];
+  private readonly agentSessionTitleChangedHandlers: AgentSessionTitleChangedHandler[] =
+    [];
   private readonly appHomeOpenedHandlers: AppHomeOpenedHandler[] = [];
   private readonly appContextChangedHandlers: AppContextChangedHandler[] = [];
   private readonly memberJoinedChannelHandlers: MemberJoinedChannelHandler[] =
     [];
+  private readonly activeTurnControllers = new Map<
+    string,
+    Map<string, AbortController>
+  >();
 
   /** Initialization state */
   private initPromise: Promise<void> | null = null;
@@ -322,6 +361,7 @@ export class Chat<
         this._concurrencyConfig = {
           debounceMs: 1500,
           maxConcurrent: Number.POSITIVE_INFINITY,
+          maxLockLifetimeMs: DEFAULT_MAX_LOCK_LIFETIME_MS,
           maxQueueSize: 10,
           onQueueFull: "drop-oldest",
           queueEntryTtlMs: 90_000,
@@ -347,6 +387,8 @@ export class Chat<
         this._concurrencyConfig = {
           debounceMs: concurrency.debounceMs ?? 1500,
           maxConcurrent: concurrency.maxConcurrent ?? Number.POSITIVE_INFINITY,
+          maxLockLifetimeMs:
+            concurrency.maxLockLifetimeMs ?? DEFAULT_MAX_LOCK_LIFETIME_MS,
           maxQueueSize: concurrency.maxQueueSize ?? 10,
           onQueueFull: concurrency.onQueueFull ?? "drop-oldest",
           queueEntryTtlMs: concurrency.queueEntryTtlMs ?? 90_000,
@@ -357,6 +399,7 @@ export class Chat<
       this._concurrencyConfig = {
         debounceMs: 1500,
         maxConcurrent: Number.POSITIVE_INFINITY,
+        maxLockLifetimeMs: DEFAULT_MAX_LOCK_LIFETIME_MS,
         maxQueueSize: 10,
         onQueueFull: "drop-oldest",
         queueEntryTtlMs: 90_000,
@@ -899,6 +942,16 @@ export class Chat<
     this.logger.debug("Registered assistant context changed handler");
   }
 
+  onAgentSessionStopped(handler: AgentSessionStoppedHandler): void {
+    this.agentSessionStoppedHandlers.push(handler);
+    this.logger.debug("Registered agent session stopped handler");
+  }
+
+  onAgentSessionTitleChanged(handler: AgentSessionTitleChangedHandler): void {
+    this.agentSessionTitleChangedHandlers.push(handler);
+    this.logger.debug("Registered agent session title changed handler");
+  }
+
   onAppHomeOpened(handler: AppHomeOpenedHandler): void {
     this.appHomeOpenedHandlers.push(handler);
     this.logger.debug("Registered app home opened handler");
@@ -1287,6 +1340,62 @@ export class Chat<
 
     if (options?.waitUntil) {
       options.waitUntil(task);
+    }
+  }
+
+  processAgentSessionStopped(
+    event: AgentSessionStoppedEvent,
+    options?: WebhookOptions
+  ): void {
+    const task = runInConversation(event.threadId, async () => {
+      for (const handler of this.agentSessionStoppedHandlers) {
+        await handler(event);
+      }
+    }).catch((err) => {
+      this.logger.error("Agent session stopped handler error", {
+        error: err,
+        threadId: event.threadId,
+      });
+    });
+
+    options?.waitUntil?.(task);
+  }
+
+  processAgentSessionTitleChanged(
+    event: AgentSessionTitleChangedEvent,
+    options?: WebhookOptions
+  ): void {
+    const task = runInConversation(event.threadId, async () => {
+      for (const handler of this.agentSessionTitleChangedHandlers) {
+        await handler(event);
+      }
+    }).catch((err) => {
+      this.logger.error("Agent session title changed handler error", {
+        error: err,
+        threadId: event.threadId,
+      });
+    });
+
+    options?.waitUntil?.(task);
+  }
+
+  async abortTurn(threadId: string): Promise<void> {
+    const localControllers = this.activeTurnControllers.get(threadId);
+    if (localControllers) {
+      for (const controller of localControllers.values()) {
+        controller.abort();
+      }
+    }
+
+    const activeTurnId = await this._stateAdapter.get<string>(
+      this.activeTurnKey(threadId)
+    );
+    if (activeTurnId) {
+      await this._stateAdapter.set(
+        this.abortTurnKey(threadId),
+        activeTurnId,
+        ACTIVE_TURN_TTL_MS
+      );
     }
   }
 
@@ -2360,12 +2469,9 @@ export class Chat<
       token: lock.token,
     });
 
-    try {
-      await this.dispatchToHandlers(adapter, threadId, message);
-    } finally {
-      await this._stateAdapter.releaseLock(lock);
-      this.logger.debug("Lock released", { threadId, lockKey });
-    }
+    await this.withHeldLock(lock, threadId, lockKey, () =>
+      this.dispatchToHandlers(adapter, threadId, message)
+    );
   }
 
   /**
@@ -2435,7 +2541,7 @@ export class Chat<
       token: lock.token,
     });
 
-    try {
+    await this.withHeldLock(lock, threadId, lockKey, async (heartbeat) => {
       if (strategy === "debounce") {
         // Debounce: enqueue our own message and enter the debounce loop
         await this._stateAdapter.enqueue(
@@ -2453,7 +2559,7 @@ export class Chat<
           messageId: message.id,
           debounceMs,
         });
-        await this.debounceLoop(lock, adapter, threadId, lockKey);
+        await this.debounceLoop(heartbeat, adapter, lockKey);
       } else if (strategy === "burst") {
         await this._stateAdapter.enqueue(
           lockKey,
@@ -2471,17 +2577,125 @@ export class Chat<
           debounceMs,
         });
         await sleep(debounceMs);
-        await this._stateAdapter.extendLock(lock, DEFAULT_LOCK_TTL_MS);
-        await this.drainQueue(lock, adapter, threadId, lockKey);
+        await this.drainQueue(heartbeat, adapter, lockKey);
       } else {
         // Queue: process our message immediately, then drain any queued messages
         await this.dispatchToHandlers(adapter, threadId, message);
-        await this.drainQueue(lock, adapter, threadId, lockKey);
+        await this.drainQueue(heartbeat, adapter, lockKey);
       }
+    });
+  }
+
+  /**
+   * Run `fn` while keeping `lock` alive with a renewal heartbeat, then stop
+   * the heartbeat and release the lock. Every lock-holding path must go
+   * through this so acquiring a lock is never paired with a missing
+   * heartbeat.
+   */
+  private async withHeldLock(
+    lock: Lock,
+    threadId: string,
+    lockKey: string,
+    fn: (heartbeat: LockHeartbeat) => Promise<void>
+  ): Promise<void> {
+    const heartbeat = this.startLockHeartbeat(lock);
+    try {
+      await fn(heartbeat);
     } finally {
+      await heartbeat.stop();
       await this._stateAdapter.releaseLock(lock);
       this.logger.debug("Lock released", { threadId, lockKey });
     }
+  }
+
+  private startLockHeartbeat(lock: Lock): LockHeartbeat {
+    const { maxLockLifetimeMs } = this._concurrencyConfig;
+    const startedAt = Date.now();
+    let stopped = false;
+    let ownershipLost = false;
+    let inFlight: Promise<void> | undefined;
+    // Latest instant we know the lock is still ours; refreshed on each
+    // successful extend. Once it passes, the lock has lapsed on the backend.
+    let heldUntil = lock.expiresAt;
+
+    const heartbeat = setInterval(() => {
+      if (inFlight) {
+        // The previous extend is still in flight (degraded backend) —
+        // don't stack concurrent calls onto it.
+        return;
+      }
+      if (Date.now() - startedAt >= maxLockLifetimeMs) {
+        // Renewal cap: let the lock lapse at its TTL so a hung handler
+        // can't block the thread forever.
+        clearInterval(heartbeat);
+        this.logger.warn(
+          "Lock heartbeat reached maxLockLifetimeMs — the lock will lapse at its TTL",
+          {
+            threadId: lock.threadId,
+            token: lock.token,
+            maxLockLifetimeMs,
+          }
+        );
+        return;
+      }
+      inFlight = this._stateAdapter
+        .extendLock(lock, DEFAULT_LOCK_TTL_MS)
+        .then((extended) => {
+          if (extended) {
+            heldUntil = Date.now() + DEFAULT_LOCK_TTL_MS;
+            return;
+          }
+          ownershipLost = true;
+          clearInterval(heartbeat);
+          if (!stopped) {
+            this.logger.warn(
+              "Lock heartbeat stopped after ownership was lost",
+              {
+                threadId: lock.threadId,
+                token: lock.token,
+              }
+            );
+          }
+        })
+        .catch((error) => {
+          if (stopped) {
+            return;
+          }
+          if (Date.now() >= heldUntil) {
+            ownershipLost = true;
+            clearInterval(heartbeat);
+            this.logger.warn(
+              "Lock lapsed while the heartbeat could not reach the state backend",
+              {
+                error,
+                threadId: lock.threadId,
+                token: lock.token,
+              }
+            );
+          } else {
+            this.logger.warn("Lock heartbeat failed", {
+              error,
+              threadId: lock.threadId,
+              token: lock.token,
+            });
+          }
+        })
+        .finally(() => {
+          inFlight = undefined;
+        });
+    }, DEFAULT_LOCK_TTL_MS / 3);
+    // Don't pin the process for a hung handler nothing else is waiting on —
+    // on exit the lock lapses at its TTL and another instance takes over.
+    heartbeat.unref?.();
+
+    return {
+      isOwnershipLost: () => ownershipLost || Date.now() >= heldUntil,
+      stop: async () => {
+        stopped = true;
+        clearInterval(heartbeat);
+        await inFlight;
+      },
+    };
   }
 
   /**
@@ -2489,9 +2703,8 @@ export class Chat<
    * repeat until no new messages, then process the final message.
    */
   private async debounceLoop(
-    lock: Lock,
+    heartbeat: LockHeartbeat,
     adapter: Adapter,
-    threadId: string,
     lockKey: string
   ): Promise<void> {
     const { debounceMs } = this._concurrencyConfig;
@@ -2499,7 +2712,14 @@ export class Chat<
 
     while (true) {
       await sleep(debounceMs);
-      await this._stateAdapter.extendLock(lock, DEFAULT_LOCK_TTL_MS);
+      if (heartbeat.isOwnershipLost()) {
+        // Another instance may hold the lock now — leave the queue to it.
+        this.logger.warn(
+          "Stopping debounce loop after lock ownership was lost",
+          { lockKey }
+        );
+        return;
+      }
 
       // Atomically take pending messages
       const pending: Array<{ message: Message; expiresAt: number }> = [];
@@ -2513,7 +2733,7 @@ export class Chat<
           pending.push({ message: msg, expiresAt: entry.expiresAt });
         } else {
           this.logger.info("message-expired", {
-            threadId,
+            threadId: msg.threadId,
             lockKey,
             messageId: msg.id,
           });
@@ -2536,7 +2756,7 @@ export class Chat<
         // Newer message superseded this one — loop again
         skipped.push(latest.message);
         this.logger.info("message-superseded", {
-          threadId,
+          threadId: latest.message.threadId,
           lockKey,
           droppedId: latest.message.id,
         });
@@ -2544,16 +2764,22 @@ export class Chat<
       }
 
       // Nothing new — this is the final message in the burst
+      const messageThreadId = latest.message.threadId;
+      const messageSkipped = skipped.filter(
+        (message) => message.threadId === messageThreadId
+      );
       this.logger.info("message-dequeued", {
-        threadId,
+        threadId: messageThreadId,
         lockKey,
         messageId: latest.message.id,
       });
-      await this.dispatchToHandlers(adapter, threadId, latest.message, {
-        skipped,
-        totalSinceLastHandler: skipped.length + 1,
+      await this.dispatchToHandlers(adapter, messageThreadId, latest.message, {
+        skipped: messageSkipped,
+        totalSinceLastHandler: messageSkipped.length + 1,
       });
-      break;
+      skipped.length = 0;
+      // Loop again: a message enqueued while the handler ran must be
+      // debounced and processed, not stranded until the next webhook.
     }
   }
 
@@ -2562,12 +2788,19 @@ export class Chat<
    * skipped context, then check for more.
    */
   private async drainQueue(
-    lock: Lock,
+    heartbeat: LockHeartbeat,
     adapter: Adapter,
-    threadId: string,
     lockKey: string
   ): Promise<void> {
     while (true) {
+      if (heartbeat.isOwnershipLost()) {
+        // Another instance may hold the lock now — leave the queue to it.
+        this.logger.warn("Stopping queue drain after lock ownership was lost", {
+          lockKey,
+        });
+        return;
+      }
+
       // Collect all pending messages, rehydrating after JSON roundtrip
       const pending: Array<{ message: Message; expiresAt: number }> = [];
       while (true) {
@@ -2580,7 +2813,7 @@ export class Chat<
           pending.push({ message: msg, expiresAt: entry.expiresAt });
         } else {
           this.logger.info("message-expired", {
-            threadId,
+            threadId: msg.threadId,
             lockKey,
             messageId: msg.id,
           });
@@ -2591,30 +2824,36 @@ export class Chat<
         return;
       }
 
-      await this._stateAdapter.extendLock(lock, DEFAULT_LOCK_TTL_MS);
-
       // Latest message is the one we process
       const latest = pending.at(-1);
       if (!latest) {
         return;
       }
-      // Everything before it is "skipped" context
-      const skipped = pending.slice(0, -1).map((e) => e.message);
+      const messageThreadId = latest.message.threadId;
+      const skipped = pending
+        .slice(0, -1)
+        .map((entry) => entry.message)
+        .filter((message) => message.threadId === messageThreadId);
 
       this.logger.info("message-dequeued", {
-        threadId,
+        threadId: messageThreadId,
         lockKey,
         messageId: latest.message.id,
         skippedCount: skipped.length,
-        totalSinceLastHandler: pending.length,
+        totalSinceLastHandler: skipped.length + 1,
       });
 
       const context: MessageContext = {
         skipped,
-        totalSinceLastHandler: pending.length,
+        totalSinceLastHandler: skipped.length + 1,
       };
 
-      await this.dispatchToHandlers(adapter, threadId, latest.message, context);
+      await this.dispatchToHandlers(
+        adapter,
+        messageThreadId,
+        latest.message,
+        context
+      );
 
       // After processing, check if MORE messages arrived during this handler
       // (loop continues)
@@ -2690,6 +2929,123 @@ export class Chat<
     message: Message,
     context?: MessageContext
   ): Promise<void> {
+    const turnId = randomUUID();
+    const controller = new AbortController();
+    let controllers = this.activeTurnControllers.get(threadId);
+    if (!controllers) {
+      controllers = new Map();
+      this.activeTurnControllers.set(threadId, controllers);
+    }
+    controllers.set(turnId, controller);
+
+    if (adapter.supportsTurnCancellation) {
+      try {
+        await this._stateAdapter.set(
+          this.activeTurnKey(threadId),
+          turnId,
+          ACTIVE_TURN_TTL_MS
+        );
+      } catch (error) {
+        this.logger.warn("Could not publish active turn for cancellation", {
+          error,
+          threadId,
+        });
+      }
+    }
+
+    const monitorStop = new AbortController();
+    const monitor = adapter.supportsTurnCancellation
+      ? this.monitorTurnAbort(threadId, turnId, controller, monitorStop.signal)
+      : Promise.resolve();
+    try {
+      await this.dispatchToHandlersWithSignal(
+        adapter,
+        threadId,
+        message,
+        controller.signal,
+        context
+      );
+    } finally {
+      monitorStop.abort();
+      await monitor;
+      controllers.delete(turnId);
+      if (controllers.size === 0) {
+        this.activeTurnControllers.delete(threadId);
+      }
+      if (adapter.supportsTurnCancellation) {
+        await this.clearTurnMarkers(threadId, turnId);
+      }
+    }
+  }
+
+  private activeTurnKey(threadId: string): string {
+    return `active-turn:${threadId}`;
+  }
+
+  private abortTurnKey(threadId: string): string {
+    return `abort-turn:${threadId}`;
+  }
+
+  private async monitorTurnAbort(
+    threadId: string,
+    turnId: string,
+    controller: AbortController,
+    stopSignal: AbortSignal
+  ): Promise<void> {
+    while (!(stopSignal.aborted || controller.signal.aborted)) {
+      try {
+        const abortedTurnId = await this._stateAdapter.get<string>(
+          this.abortTurnKey(threadId)
+        );
+        if (abortedTurnId === turnId) {
+          controller.abort();
+          return;
+        }
+      } catch (error) {
+        this.logger.warn("Could not poll turn cancellation state", {
+          error,
+          threadId,
+        });
+        return;
+      }
+      if (!stopSignal.aborted) {
+        await sleepUntilAbort(ABORT_POLL_INTERVAL_MS, stopSignal);
+      }
+    }
+  }
+
+  private async clearTurnMarkers(
+    threadId: string,
+    turnId: string
+  ): Promise<void> {
+    try {
+      const activeTurnId = await this._stateAdapter.get<string>(
+        this.activeTurnKey(threadId)
+      );
+      if (activeTurnId === turnId) {
+        await this._stateAdapter.delete(this.activeTurnKey(threadId));
+      }
+      const abortedTurnId = await this._stateAdapter.get<string>(
+        this.abortTurnKey(threadId)
+      );
+      if (abortedTurnId === turnId) {
+        await this._stateAdapter.delete(this.abortTurnKey(threadId));
+      }
+    } catch (error) {
+      this.logger.warn("Could not clear turn cancellation state", {
+        error,
+        threadId,
+      });
+    }
+  }
+
+  private async dispatchToHandlersWithSignal(
+    adapter: Adapter,
+    threadId: string,
+    message: Message,
+    signal: AbortSignal,
+    context?: MessageContext
+  ): Promise<void> {
     const hasMention = this.setMentionFlags(adapter, message, context);
 
     // Check subscription status (needed for createThread optimization)
@@ -2705,7 +3061,8 @@ export class Chat<
       adapter,
       threadId,
       message,
-      isSubscribed
+      isSubscribed,
+      signal
     );
 
     await this.resolveMessageIdentity(adapter, threadId, message);
@@ -2839,7 +3196,8 @@ export class Chat<
     adapter: Adapter,
     threadId: string,
     initialMessage: Message | undefined,
-    isSubscribedContext = false
+    isSubscribedContext = false,
+    signal?: AbortSignal
   ): Thread<TState> {
     // Parse thread ID to get channel ID with adapter
     const channelId = adapter.channelIdFromThreadId(threadId);
@@ -2861,6 +3219,7 @@ export class Chat<
       isDM,
       channelVisibility,
       currentMessage: initialMessage,
+      signal,
       logger: this.logger,
       streamingUpdateIntervalMs: this._streamingUpdateIntervalMs,
       fallbackStreamingPlaceholderText: this._fallbackStreamingPlaceholderText,
@@ -2930,51 +3289,48 @@ export class Chat<
     raw: Message | Record<string, unknown>,
     adapter?: Adapter
   ): Message {
-    if (raw instanceof Message) {
-      if (adapter) {
-        setMessageAdapter(raw, adapter);
-      }
-      return raw;
-    }
-    // After JSON roundtrip, Message.toJSON() was called during stringify,
-    // so the shape matches SerializedMessage
-    const obj = raw as Record<string, unknown>;
     let msg: Message;
-    if (obj._type === "chat:Message") {
-      msg = Message.fromJSON(obj as unknown as SerializedMessage);
+    if (raw instanceof Message) {
+      msg = raw;
     } else {
-      // Fallback: plain object that wasn't serialized via toJSON (e.g., in-memory state)
-      // Reconstruct with defensive defaults
-      const metadata = obj.metadata as Record<string, unknown>;
-      const dateSent = metadata.dateSent;
-      const editedAt = metadata.editedAt;
-      msg = new Message({
-        id: obj.id as string,
-        threadId: obj.threadId as string,
-        text: obj.text as string,
-        formatted: obj.formatted as FormattedContent,
-        raw: obj.raw,
-        author: obj.author as Author,
-        metadata: {
-          dateSent:
-            dateSent instanceof Date ? dateSent : new Date(dateSent as string),
-          edited: metadata.edited as boolean,
-          editedAt: editedAt
-            ? new Date(
-                editedAt instanceof Date
-                  ? editedAt.toISOString()
-                  : (editedAt as string)
-              )
-            : undefined,
-        },
-        attachments: (obj.attachments as Attachment[]) ?? [],
-        isMention: obj.isMention as boolean | undefined,
-        links: (obj.links as LinkPreview[] | undefined) ?? [],
-      });
-    }
-
-    if (adapter) {
-      setMessageAdapter(msg, adapter);
+      // After JSON roundtrip, Message.toJSON() was called during stringify,
+      // so the shape matches SerializedMessage
+      const obj = raw as Record<string, unknown>;
+      if (obj._type === "chat:Message") {
+        msg = Message.fromJSON(obj as unknown as SerializedMessage);
+      } else {
+        // Fallback: plain object that wasn't serialized via toJSON (e.g., in-memory state)
+        // Reconstruct with defensive defaults
+        const metadata = obj.metadata as Record<string, unknown>;
+        const dateSent = metadata.dateSent;
+        const editedAt = metadata.editedAt;
+        msg = new Message({
+          id: obj.id as string,
+          threadId: obj.threadId as string,
+          text: obj.text as string,
+          formatted: obj.formatted as FormattedContent,
+          raw: obj.raw,
+          author: obj.author as Author,
+          metadata: {
+            dateSent:
+              dateSent instanceof Date
+                ? dateSent
+                : new Date(dateSent as string),
+            edited: metadata.edited as boolean,
+            editedAt: editedAt
+              ? new Date(
+                  editedAt instanceof Date
+                    ? editedAt.toISOString()
+                    : (editedAt as string)
+                )
+              : undefined,
+          },
+          attachments: (obj.attachments as Attachment[]) ?? [],
+          replyTo: obj.replyTo as Message | undefined,
+          isMention: obj.isMention as boolean | undefined,
+          links: (obj.links as LinkPreview[] | undefined) ?? [],
+        });
+      }
     }
 
     const rehydrate = adapter?.rehydrateAttachment?.bind(adapter);
@@ -2982,6 +3338,14 @@ export class Chat<
       msg.attachments = msg.attachments.map((att) =>
         att.fetchData ? att : rehydrate(att)
       );
+    }
+
+    if (msg.replyTo) {
+      msg.replyTo = this.rehydrateMessage(msg.replyTo, adapter);
+    }
+
+    if (adapter) {
+      setMessageAdapter(msg, adapter);
     }
 
     return msg;

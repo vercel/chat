@@ -88,6 +88,26 @@ export async function POST(request: Request): Promise<Response> {
 }
 ```
 
+## Vercel Connect
+
+Use Vercel Connect for the outbound Notion access token:
+
+```typescript title="lib/bot.ts" lineNumbers
+import { createNotionAdapter } from "@chat-adapter/notion";
+import { connectNotionAdapter } from "@vercel/connect/chat";
+
+const notion = createNotionAdapter({
+  ...connectNotionAdapter("notion/acme-notion"),
+  verificationToken: process.env.NOTION_VERIFICATION_TOKEN,
+});
+```
+
+<Callout type="info">
+  Connect does not forward Notion webhooks. Configure the subscription directly
+  in Notion and retain `NOTION_VERIFICATION_TOKEN` for native HMAC verification.
+  `NOTION_TOKEN` is not needed when using `connectNotionAdapter`.
+</Callout>
+
 ## Connection setup
 
 The adapter targets a **single workspace** via an [access-token connection](https://developers.notion.com/docs/getting-started).
@@ -137,9 +157,9 @@ Event-id dedupe is **best-effort**: in-memory plus state-backed when a Chat stat
 <TypeTable
   type={{
     token: {
-      type: "string",
+      type: "string | (() => string | Promise<string>)",
       description:
-        "Connection access token. Auto-detected from `NOTION_TOKEN`.",
+        "Connection access token or resolver invoked per API request. Auto-detected from `NOTION_TOKEN`.",
     },
     verificationToken: {
       type: "string",

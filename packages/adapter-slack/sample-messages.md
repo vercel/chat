@@ -65,3 +65,33 @@
   body: '{"token":"xAbCdEfGhIjKlMnOpQrStUvW","team_id":"T00FAKE00AA","api_app_id":"A00FAKEAPP01","event":{"type":"message","user":"USLACK","channel":"D00FAKEDM001","channel_type":"im","text":"<@U00FAKEUSER1> archived the channel <#C00FAKECHAN1>","ts":"1771460800.444100","event_ts":"1771460800.444100"},"type":"event_callback","event_id":"Ev0ASYSTEM01","event_time":1771460800}'
 }
 ```
+
+```log
+[chat-sdk:slack] Slack webhook raw body {
+  body: '{"token":"xAbCdEfGhIjKlMnOpQrStUvW","team_id":"T00FAKE00AA","context_team_id":"T00FAKE00AA","context_enterprise_id":null,"api_app_id":"A00FAKEAPP01","event":{"type":"message","user":"U00FAKEUSER1","ts":"1786120899.208429","client_msg_id":"8f1c2d3e-45a6-47b8-9c0d-1e2f3a4b5c6d","text":"Which devices support remote firmware upgrades?","team":"T00FAKE00AA","blocks":[{"type":"rich_text","block_id":"tblQ1","elements":[{"type":"rich_text_section","elements":[{"type":"text","text":"Which devices support remote firmware upgrades?"}]}]}],"attachments":[{"id":1,"fallback":"[no preview available]","blocks":[{"type":"table","block_id":"pasted1","rows":[[{"type":"rich_text","elements":[{"type":"rich_text_section","elements":[{"type":"text","text":"Manufacturer","style":{"bold":true}}]}]},{"type":"raw_text","text":"Identifier Listed"},{"type":"raw_text","text":"Units"}],[{"type":"raw_text","text":"Samsung"},{"type":"raw_text","text":"QB55C"},{"type":"raw_number","value":3}]]}]}],"channel":"C00FAKECHAN1","event_ts":"1786120899.208429","channel_type":"channel"},"type":"event_callback","event_id":"Ev0ATABLE001","event_time":1786120899,"authorizations":[{"enterprise_id":null,"team_id":"T00FAKE00AA","user_id":"U00FAKEBOT01","is_bot":true,"is_enterprise_install":false}],"is_ext_shared_channel":false}'
+}
+```
+
+```log
+[chat-sdk:slack] Slack webhook raw body {
+  body: '{"token":"xAbCdEfGhIjKlMnOpQrStUvW","team_id":"T00FAKE00AA","api_app_id":"A00FAKEAPP01","event":{"type":"agent_session_stopped","user":"U00FAKEUSER1","channel":"D00FAKEDM001","thread_ts":"1782234671.392669","streaming_message_ts":["1782234987.693923"],"event_ts":"1783536983.783769"},"type":"event_callback","event_id":"Ev0AGENTSTOP1","event_time":1783536983}'
+}
+```
+
+```log
+[chat-sdk:slack] Slack webhook raw body {
+  body: '{"token":"xAbCdEfGhIjKlMnOpQrStUvW","team_id":"T00FAKE00AA","api_app_id":"A00FAKEAPP01","event":{"type":"agent_session_title_changed","user":"U00FAKEUSER1","channel":"D00FAKEDM001","thread_ts":"1782234671.392669","previous_title":"Scuba diving research","title":"Bora Bora trip prep","event_ts":"1783536983.783769","team_id":"T00FAKE00AA"},"type":"event_callback","event_id":"Ev0AGENTTITLE1","event_time":1783536983}'
+}
+```
+
+```log
+[chat-sdk:slack] Slack webhook raw body {
+  body: '{"token":"xAbCdEfGhIjKlMnOpQrStUvW","team_id":"T00FAKE00AA","context_team_id":"T00FAKE00AA","context_enterprise_id":null,"api_app_id":"A00FAKEAPP01","event":{"type":"message","user":"U00FAKEUSER1","ts":"1787654321.123456","client_msg_id":"3d9b7c6a-21e0-4f5b-8a4d-9c8e7f6a5b4c","text":"Here you go:\\n```first line\\nsecond line```","team":"T00FAKE00AA","blocks":[{"type":"rich_text","block_id":"code1","elements":[{"type":"rich_text_section","elements":[{"type":"text","text":"Here you go:\\n"}]},{"type":"rich_text_preformatted","elements":[{"type":"text","text":"first line\\nsecond line"}],"border":0}]}],"channel":"C00FAKECHAN1","event_ts":"1787654321.123456","channel_type":"channel"},"type":"event_callback","event_id":"Ev0ACODEFNC1","event_time":1787654321,"authorizations":[{"enterprise_id":null,"team_id":"T00FAKE00AA","user_id":"U00FAKEBOT01","is_bot":true,"is_enterprise_install":false}],"is_ext_shared_channel":false}'
+}
+```
+
+```log
+[chat-sdk:slack] Slack webhook raw body {
+  body: '{"token":"xAbCdEfGhIjKlMnOpQrStUvW","team_id":"T00FAKE00AA","context_team_id":"T00FAKE00AA","context_enterprise_id":null,"api_app_id":"A00FAKEAPP01","event":{"type":"message","subtype":"bot_message","ts":"1786292411.318219","text":"","bot_id":"B00FAKEALRT1","username":"Sentry","icons":{"image_48":"https:\\/\\/avatars.slack-edge.com\\/sentry_48.png"},"attachments":[{"id":1,"color":"e03e2f","fallback":"[storefront] TypeError: cannot read property \'id\' of undefined","title":"TypeError: cannot read property \'id\' of undefined","title_link":"https:\\/\\/fake-org.sentry.io\\/issues\\/4501234567\\/?referrer=slack","text":"celery.app.trace in _trace_task\\n\\ncheckout\\/views.py in line 42","fields":[{"title":"Project","value":"storefront","short":true},{"title":"Environment","value":"production","short":true}],"footer":"STOREFRONT-8Q3","ts":1786292410,"mrkdwn_in":["text"]}],"channel":"C00FAKECHAN1","event_ts":"1786292411.318219","channel_type":"channel"},"type":"event_callback","event_id":"Ev0AALERT001","event_time":1786292411,"authorizations":[{"enterprise_id":null,"team_id":"T00FAKE00AA","user_id":"U00FAKEBOT01","is_bot":true,"is_enterprise_install":false}],"is_ext_shared_channel":false}'
+}
+```

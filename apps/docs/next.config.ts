@@ -4,9 +4,8 @@ import type { NextConfig } from "next";
 const withMDX = createMDX();
 
 const config: NextConfig = {
-  experimental: {
-    turbopackFileSystemCacheForDev: true,
-  },
+  cacheComponents: true,
+  partialPrefetching: true,
 
   async rewrites() {
     return [

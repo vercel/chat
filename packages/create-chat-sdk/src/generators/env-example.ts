@@ -119,10 +119,17 @@ const connectNoteLines = (config: ProjectConfig): string[] => {
   if (!usesConnect(config)) {
     return [];
   }
+  const usesNativeWebhooks = config.platformAdapters.some(
+    (adapter) => getAdapterConnectSpec(adapter.slug)?.inbound === "native"
+  );
   return [
     "# Vercel Connect",
-    "# Adapters marked (Vercel Connect) below authenticate with a connector",
-    "# instead of stored secrets. Vercel injects VERCEL_OIDC_TOKEN at runtime;",
+    "# Adapters marked (Vercel Connect) below use a connector for outbound API",
+    "# credentials.",
+    ...(usesNativeWebhooks
+      ? ["# Native webhook adapters still require verification secrets below."]
+      : []),
+    "# Vercel injects VERCEL_OIDC_TOKEN at runtime;",
     "# for local development run `vercel env pull` to populate it. Set each",
     "# connector UID below (or in your Vercel project's environment variables).",
     "",

@@ -373,7 +373,8 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
 
     const message = this.parseTeamsMessage(activity, threadId);
     const user = activity.from?.aadObjectId
-      ? await this.getUserByAadObjectId(
+      ? await this.getIncomingUser(
+          ctx,
           message.author.userId,
           activity.from.aadObjectId
         )
@@ -945,6 +946,45 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
         userId,
         error,
       });
+      return null;
+    }
+  }
+
+  private async getIncomingUser(
+    ctx: IActivityContext<IMessageActivity>,
+    userId: string,
+    aadObjectId: string
+  ): Promise<UserInfo | null> {
+    const cacheKey = `teams:userInfo:${aadObjectId}`;
+    const cached = await this.readCachedUserInfo(cacheKey);
+    if (cached && cached !== USER_INFO_NEGATIVE_SENTINEL) {
+      return { ...cached, userId };
+    }
+
+    try {
+      const member = await ctx.api.conversations.getMemberById(
+        ctx.activity.conversation.id,
+        userId
+      );
+      const userInfo: UserInfo = {
+        avatarUrl: undefined,
+        email: member.email ?? member.userPrincipalName ?? undefined,
+        fullName: member.name ?? aadObjectId,
+        isBot: false,
+        userId,
+        userName:
+          member.userPrincipalName ?? member.email ?? member.name ?? userId,
+      };
+      this.chat
+        ?.getState()
+        .set(cacheKey, JSON.stringify(userInfo), USER_INFO_CACHE_TTL_MS)
+        .catch(() => {});
+      return userInfo;
+    } catch (error) {
+      this.logger.warn(
+        "Failed to fetch user info from Teams conversation members API",
+        { userId, error }
+      );
       return null;
     }
   }

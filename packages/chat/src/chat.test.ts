@@ -12,6 +12,7 @@ import { Chat } from "./chat";
 import { getEmoji } from "./emoji";
 import { LockError } from "./errors";
 import { jsx } from "./jsx-runtime";
+import { Message } from "./message";
 import {
   createMockAdapter,
   createMockState,
@@ -23,6 +24,7 @@ import { Modal, type ModalElement, TextInput } from "./modals";
 import type {
   ActionEvent,
   Adapter,
+  Lock,
   ModalSubmitEvent,
   ReactionEvent,
   StateAdapter,
@@ -369,6 +371,67 @@ describe("Chat", () => {
     resolveHandler();
     await tracker;
     expect(resolved).toBe(true);
+  });
+
+  it("aborts an active thread signal from another Chat instance", async () => {
+    const sharedState = createMockState();
+    const cancellableAdapter = {
+      ...mockAdapter,
+      supportsTurnCancellation: true,
+    };
+    const processingChat = new Chat({
+      userName: "testbot",
+      adapters: { slack: cancellableAdapter },
+      state: sharedState,
+      logger: mockLogger,
+    });
+    const stoppingChat = new Chat({
+      userName: "testbot",
+      adapters: {
+        slack: {
+          ...createMockAdapter("slack"),
+          supportsTurnCancellation: true,
+        },
+      },
+      state: sharedState,
+      logger: mockLogger,
+    });
+    const threadId = "slack:C123:agent-stop.1";
+    let signal: AbortSignal | undefined;
+    let notifyStarted: () => void = () => {
+      throw new Error("notifyStarted not assigned");
+    };
+    const started = new Promise<void>((resolve) => {
+      notifyStarted = resolve;
+    });
+
+    processingChat.onNewMention(async (thread) => {
+      signal = thread.signal;
+      notifyStarted();
+      await new Promise<void>((resolve) => {
+        if (thread.signal.aborted) {
+          resolve();
+          return;
+        }
+        thread.signal.addEventListener("abort", () => resolve(), {
+          once: true,
+        });
+      });
+    });
+
+    const message = createTestMessage("agent-stop-message", "@testbot stop");
+    message.isMention = true;
+    const processing = processingChat.processMessage(
+      cancellableAdapter,
+      threadId,
+      message
+    );
+    await started;
+
+    await stoppingChat.abortTurn(threadId);
+    await processing;
+
+    expect(signal?.aborted).toBe(true);
   });
 
   it("should dispatch message updates without normal message routing", async () => {
@@ -3505,6 +3568,169 @@ describe("Chat", () => {
     });
   });
 
+  describe("concurrency: lock lifetime", () => {
+    // Token-checked, expiry-aware lock semantics matching the real state
+    // adapters (createMockState's lock mock ignores expiry entirely).
+    function installTokenLockMock(state: MockStateAdapter): void {
+      let activeLock: Lock | undefined;
+      let nextToken = 0;
+
+      vi.mocked(state.acquireLock).mockImplementation(
+        async (threadId, ttlMs) => {
+          if (activeLock && activeLock.expiresAt > Date.now()) {
+            return null;
+          }
+          activeLock = {
+            threadId,
+            token: `test-token-${++nextToken}`,
+            expiresAt: Date.now() + ttlMs,
+          };
+          return activeLock;
+        }
+      );
+      vi.mocked(state.extendLock).mockImplementation(async (lock, ttlMs) => {
+        if (
+          activeLock?.token !== lock.token ||
+          activeLock.expiresAt <= Date.now()
+        ) {
+          return false;
+        }
+        activeLock.expiresAt = Date.now() + ttlMs;
+        return true;
+      });
+      vi.mocked(state.releaseLock).mockImplementation(async (lock) => {
+        if (activeLock?.token === lock.token) {
+          activeLock = undefined;
+        }
+      });
+    }
+
+    it.each([
+      "queue",
+      "burst",
+      "debounce",
+    ] as const)("should keep the %s lock alive while a handler is running", async (strategy) => {
+      vi.useFakeTimers();
+      try {
+        const state = createMockState();
+        const adapter = createMockAdapter("slack");
+        installTokenLockMock(state);
+
+        const queueChat = new Chat({
+          userName: "testbot",
+          adapters: { slack: adapter },
+          state,
+          logger: mockLogger,
+          concurrency: { strategy, debounceMs: 100 },
+        });
+        await queueChat.webhooks.slack(
+          new Request("http://test.com", { method: "POST" })
+        );
+
+        let inFlight = 0;
+        let peakInFlight = 0;
+        let releaseFirstHandler: (() => void) | undefined;
+        const handler = vi.fn().mockImplementation(async (_thread, message) => {
+          inFlight++;
+          peakInFlight = Math.max(peakInFlight, inFlight);
+          if (message.id === "msg-long-1") {
+            await new Promise<void>((resolve) => {
+              releaseFirstHandler = resolve;
+            });
+          }
+          inFlight--;
+        });
+        queueChat.onNewMention(handler);
+
+        const first = queueChat.handleIncomingMessage(
+          adapter,
+          "slack:C123:1234.5678",
+          createTestMessage("msg-long-1", "Hey @slack-bot first")
+        );
+        await vi.waitFor(() => {
+          expect(handler).toHaveBeenCalledTimes(1);
+        });
+
+        await vi.advanceTimersByTimeAsync(30_001);
+        const second = queueChat.handleIncomingMessage(
+          adapter,
+          "slack:C123:1234.5678",
+          createTestMessage("msg-long-2", "Hey @slack-bot second")
+        );
+        await vi.advanceTimersByTimeAsync(200);
+
+        const callsBeforeRelease = handler.mock.calls.length;
+        releaseFirstHandler?.();
+        await vi.waitFor(() => {
+          expect(handler).toHaveBeenCalledTimes(2);
+        });
+        await vi.advanceTimersByTimeAsync(200);
+        await Promise.all([first, second]);
+
+        expect(callsBeforeRelease).toBe(1);
+        expect(handler.mock.calls[1]?.[1]?.id).toBe("msg-long-2");
+        expect(peakInFlight).toBe(1);
+        expect(vi.getTimerCount()).toBe(0);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it("should stop renewing after maxLockLifetimeMs so a hung handler frees the thread", async () => {
+      vi.useFakeTimers();
+      try {
+        const state = createMockState();
+        const adapter = createMockAdapter("slack");
+        installTokenLockMock(state);
+
+        const queueChat = new Chat({
+          userName: "testbot",
+          adapters: { slack: adapter },
+          state,
+          logger: mockLogger,
+          concurrency: { strategy: "queue", maxLockLifetimeMs: 60_000 },
+        });
+        await queueChat.webhooks.slack(
+          new Request("http://test.com", { method: "POST" })
+        );
+
+        const handler = vi.fn().mockImplementation(async (_thread, message) => {
+          if (message.id === "msg-hung-1") {
+            // Hangs forever — simulates a handler stuck on an external call
+            await new Promise<void>(() => {
+              // Intentionally never resolves
+            });
+          }
+        });
+        queueChat.onNewMention(handler);
+
+        queueChat.handleIncomingMessage(
+          adapter,
+          "slack:C123:1234.5678",
+          createTestMessage("msg-hung-1", "Hey @slack-bot first")
+        );
+        await vi.waitFor(() => {
+          expect(handler).toHaveBeenCalledTimes(1);
+        });
+
+        // Renewal stops at 60s; the lock lapses one TTL (30s) later
+        await vi.advanceTimersByTimeAsync(90_001);
+
+        await queueChat.handleIncomingMessage(
+          adapter,
+          "slack:C123:1234.5678",
+          createTestMessage("msg-hung-2", "Hey @slack-bot second")
+        );
+
+        expect(handler).toHaveBeenCalledTimes(2);
+        expect(handler.mock.calls[1]?.[1]?.id).toBe("msg-hung-2");
+        expect(vi.getTimerCount()).toBe(0);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+  });
+
   describe("concurrency: queue", () => {
     it("should process queued messages with skipped context after handler finishes", async () => {
       const state = createMockState();
@@ -3767,6 +3993,13 @@ describe("Chat", () => {
         ...att,
         fetchData: mockFetchData,
       }));
+      const mockSubject = {
+        type: "issue",
+        id: "ENG-1",
+        title: "Original message subject",
+        raw: {},
+      };
+      adapter.fetchSubject = vi.fn().mockResolvedValue(mockSubject);
 
       const queueChat = new Chat({
         userName: "testbot",
@@ -3781,9 +4014,15 @@ describe("Chat", () => {
       );
 
       const receivedAttachments: unknown[] = [];
+      let receivedReplyTo: Message | undefined;
+      let receivedReplyToSubject: unknown;
       queueChat.onNewMention(
         vi.fn().mockImplementation(async (_thread, message) => {
           receivedAttachments.push(message.attachments);
+          if (message.replyTo) {
+            receivedReplyTo = message.replyTo;
+            receivedReplyToSubject = await message.replyTo.subject;
+          }
         })
       );
 
@@ -3800,6 +4039,17 @@ describe("Chat", () => {
             fetchData: () => Promise.resolve(Buffer.from("original")),
           },
         ],
+        replyTo: createTestMessage("msg-original", "Original", {
+          raw: { reply: true },
+          attachments: [
+            {
+              type: "file" as const,
+              name: "reply.pdf",
+              fetchMetadata: { url: "https://example.com/reply.pdf" },
+              fetchData: () => Promise.resolve(Buffer.from("original")),
+            },
+          ],
+        }),
       });
 
       await queueChat.handleIncomingMessage(
@@ -3833,6 +4083,10 @@ describe("Chat", () => {
       ) as { fetchData?: () => Promise<Buffer> }[];
       expect(queuedAttachments).toBeDefined();
       expect(queuedAttachments[0].fetchData).toBe(mockFetchData);
+      expect(receivedReplyTo).toBeInstanceOf(Message);
+      expect(receivedReplyTo?.attachments[0]?.fetchData).toBe(mockFetchData);
+      expect(receivedReplyToSubject).toEqual(mockSubject);
+      expect(adapter.fetchSubject).toHaveBeenCalledWith({ reply: true });
     });
 
     it("should skip rehydration for attachments that already have fetchData", async () => {
@@ -4370,8 +4624,9 @@ describe("Chat", () => {
       // Handler should NOT be called yet (debounce timer hasn't fired)
       expect(handler).not.toHaveBeenCalled();
 
-      // Advance past debounce window
-      await vi.advanceTimersByTimeAsync(150);
+      // Advance past the debounce window, plus the empty-queue check that
+      // follows the dispatch
+      await vi.advanceTimersByTimeAsync(250);
       await promise;
 
       expect(handler).toHaveBeenCalledTimes(1);
@@ -4470,7 +4725,7 @@ describe("Chat", () => {
           createTestMessage("msg-d-skip-mention-2", "please help")
         );
 
-        await vi.advanceTimersByTimeAsync(150);
+        await vi.advanceTimersByTimeAsync(250);
         await promise;
 
         expect(handler).toHaveBeenCalledTimes(1);
@@ -5237,6 +5492,146 @@ describe("Chat", () => {
       expect(enqueueCalls.length).toBe(2);
       for (const call of enqueueCalls) {
         expect(call[0]).toBe("telegram:C123");
+      }
+    });
+
+    it("should isolate queued messages across channel-scoped threads", async () => {
+      const state = createMockState();
+      const adapter = createMockAdapter("telegram");
+      (adapter as { lockScope: string }).lockScope = "channel";
+
+      const queueChat = new Chat({
+        userName: "testbot",
+        adapters: { telegram: adapter },
+        state,
+        logger: mockLogger,
+        concurrency: "queue",
+      });
+
+      await queueChat.webhooks.telegram(
+        new Request("http://test.com", { method: "POST" })
+      );
+
+      const first = "telegram:C123:topic1";
+      const second = "telegram:C123:topic2";
+      const mentions = vi.fn().mockResolvedValue(undefined);
+      const subscribed = vi.fn().mockImplementation(async (thread, message) => {
+        await thread.setState({ request: message.text });
+      });
+      queueChat.onNewMention(mentions);
+      queueChat.onSubscribedMessage(subscribed);
+      await state.subscribe(second);
+      await state.acquireLock("telegram:C123", 30000);
+
+      await queueChat.handleIncomingMessage(
+        adapter,
+        first,
+        createTestMessage("msg-isolation-1", "Hey @telegram-bot", {
+          threadId: first,
+        })
+      );
+      await queueChat.handleIncomingMessage(
+        adapter,
+        second,
+        createTestMessage("msg-isolation-2", "private request", {
+          threadId: second,
+        })
+      );
+
+      await state.forceReleaseLock("telegram:C123");
+      await queueChat.handleIncomingMessage(
+        adapter,
+        first,
+        createTestMessage("msg-isolation-3", "Hey @telegram-bot", {
+          threadId: first,
+        })
+      );
+
+      expect(mentions).toHaveBeenCalledTimes(1);
+      expect(subscribed).toHaveBeenCalledTimes(1);
+      expect(subscribed.mock.calls[0][0].id).toBe(second);
+      expect(subscribed.mock.calls[0][1].threadId).toBe(second);
+      expect(subscribed.mock.calls[0][2]).toEqual({
+        skipped: [],
+        totalSinceLastHandler: 1,
+      });
+      expect(state.cache.get(`thread-state:${second}`)).toEqual({
+        request: "private request",
+      });
+      expect(state.cache.has(`thread-state:${first}`)).toBe(false);
+      expect(mockLogger.info).toHaveBeenCalledWith(
+        "message-dequeued",
+        expect.objectContaining({
+          threadId: second,
+          messageId: "msg-isolation-2",
+        })
+      );
+    });
+
+    it("should isolate debounced messages across channel-scoped threads", async () => {
+      vi.useFakeTimers();
+      try {
+        const state = createMockState();
+        const adapter = createMockAdapter("telegram");
+        (adapter as { lockScope: string }).lockScope = "channel";
+
+        const debounceChat = new Chat({
+          userName: "testbot",
+          adapters: { telegram: adapter },
+          state,
+          logger: mockLogger,
+          concurrency: { strategy: "debounce", debounceMs: 100 },
+        });
+
+        await debounceChat.webhooks.telegram(
+          new Request("http://test.com", { method: "POST" })
+        );
+
+        const first = "telegram:C123:topic1";
+        const second = "telegram:C123:topic2";
+        const mentions = vi.fn().mockResolvedValue(undefined);
+        const subscribed = vi.fn().mockResolvedValue(undefined);
+        debounceChat.onNewMention(mentions);
+        debounceChat.onSubscribedMessage(subscribed);
+        await state.subscribe(second);
+
+        const pending = debounceChat.handleIncomingMessage(
+          adapter,
+          first,
+          createTestMessage("msg-debounce-isolation-1", "Hey @telegram-bot", {
+            threadId: first,
+          })
+        );
+        await debounceChat.handleIncomingMessage(
+          adapter,
+          second,
+          createTestMessage("msg-debounce-isolation-2", "private request", {
+            threadId: second,
+          })
+        );
+
+        // Advance past the debounce window, plus the empty-queue check that
+        // follows the dispatch
+        await vi.advanceTimersByTimeAsync(250);
+        await pending;
+
+        expect(mentions).not.toHaveBeenCalled();
+        expect(subscribed).toHaveBeenCalledTimes(1);
+        expect(subscribed.mock.calls[0][0].id).toBe(second);
+        expect(subscribed.mock.calls[0][1].threadId).toBe(second);
+        expect(subscribed.mock.calls[0][2]).toEqual({
+          skipped: [],
+          totalSinceLastHandler: 1,
+        });
+        expect(mockLogger.info).toHaveBeenCalledWith(
+          "message-dequeued",
+          expect.objectContaining({
+            threadId: second,
+            messageId: "msg-debounce-isolation-2",
+          })
+        );
+      } finally {
+        vi.useRealTimers();
       }
     });
   });

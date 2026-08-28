@@ -215,15 +215,20 @@ Discord caps a Components v2 message at 40 total components and 4000 characters
 across all text. When a card exceeds either limit the adapter throws a
 `ValidationError` rather than letting Discord reject the request.
 
+## Inbound attachments
+
+Incoming attachments expose a lazy `fetchData()` that downloads from Discord's CDN anonymously. Downloads refuse private and internal addresses (including after redirects), are limited to 25 MB, and time out after 30 seconds.
+
 ## Configuration
 
 All options are auto-detected from environment variables when not provided.
 
 | Option | Required | Description |
 |--------|----------|-------------|
-| `botToken` | No* | Discord bot token. Auto-detected from `DISCORD_BOT_TOKEN` |
+| `botToken` | No* | Discord bot token or async resolver. Auto-detected from `DISCORD_BOT_TOKEN` |
 | `publicKey` | No* | Application public key. Auto-detected from `DISCORD_PUBLIC_KEY` |
-| `applicationId` | No* | Discord application ID. Auto-detected from `DISCORD_APPLICATION_ID` |
+| `applicationId` | No* | Discord application ID or async resolver. Auto-detected from `DISCORD_APPLICATION_ID` |
+| `webhookVerifier` | No | Custom webhook verifier that replaces Discord's Ed25519 `publicKey` verification |
 | `contentFormat` | No | Render Chat SDK cards as `DiscordContentFormat.Embeds` or `DiscordContentFormat.ComponentsV2`. Defaults to `DiscordContentFormat.Embeds` |
 | `mentionRoleIds` | No | Array of role IDs that trigger mention handlers. Auto-detected from `DISCORD_MENTION_ROLE_IDS` (comma-separated) |
 | `respondToChannelIds` | No | Parent channel IDs whose non-bot messages, including messages in child threads, trigger mention handlers without an @mention. Top-level messages use the adapter's normal per-message Discord thread. Auto-detected from `DISCORD_RESPOND_TO_CHANNEL_IDS` (comma-separated). Defaults to `[]` |
@@ -232,7 +237,25 @@ All options are auto-detected from environment variables when not provided.
 | `apiUrl` | No | Override the Discord API base URL. Auto-detected from `DISCORD_API_URL` |
 | `logger` | No | Logger instance (defaults to `ConsoleLogger("info")`) |
 
-*`botToken`, `publicKey`, and `applicationId` are required — either via config or env vars.
+*`botToken` and `applicationId` are required via config or env vars. Provide either `publicKey` or `webhookVerifier` for inbound webhook verification.
+
+### Vercel Connect
+
+Use `connectDiscordAdapter` to resolve the bot token and application ID from a
+Vercel Connect Discord connector and verify trigger-forwarded interactions with
+Vercel OIDC:
+
+```typescript
+import { createDiscordAdapter } from "@chat-adapter/discord";
+import { connectDiscordAdapter } from "@vercel/connect/chat";
+
+const discord = createDiscordAdapter({
+  ...connectDiscordAdapter("discord/acme-discord"),
+});
+```
+
+No `DISCORD_BOT_TOKEN`, `DISCORD_PUBLIC_KEY`, or `DISCORD_APPLICATION_ID` is
+needed in this mode.
 
 ## Discord thread channel names
 

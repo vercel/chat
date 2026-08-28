@@ -82,8 +82,9 @@ bot.onNewMention(async (thread, message) => {
 <TypeTable
   type={{
     botToken: {
-      type: "string",
-      description: "Discord bot token. Auto-detected from `DISCORD_BOT_TOKEN`.",
+      type: "string | (() => string | Promise<string>)",
+      description:
+        "Discord bot token or resolver invoked per API call. Auto-detected from `DISCORD_BOT_TOKEN`.",
     },
     publicKey: {
       type: "string",
@@ -91,9 +92,14 @@ bot.onNewMention(async (thread, message) => {
         "Application public key. Auto-detected from `DISCORD_PUBLIC_KEY`.",
     },
     applicationId: {
-      type: "string",
+      type: "string | (() => string | Promise<string>)",
       description:
-        "Discord application ID. Auto-detected from `DISCORD_APPLICATION_ID`.",
+        "Discord application ID or resolver. Auto-detected from `DISCORD_APPLICATION_ID`.",
+    },
+    webhookVerifier: {
+      type: "(request: Request, body: string) => unknown | Promise<unknown>",
+      description:
+        "Custom webhook verifier used instead of Discord's Ed25519 public key.",
     },
     contentFormat: {
       type: "DiscordContentFormat",
@@ -127,7 +133,8 @@ bot.onNewMention(async (thread, message) => {
   }}
 />
 
-`botToken`, `publicKey`, and `applicationId` are required.
+`botToken` and `applicationId` are required. Provide either `publicKey` or
+`webhookVerifier`.
 
 ## Components cards
 
@@ -201,6 +208,10 @@ In **OAuth2** then **URL Generator**, select scopes `bot` and `applications.comm
 Call `discord.setThreadTitle(thread.id, title)` to rename an existing Discord thread channel. The bot needs the **Manage Threads** permission.
 
 ## Advanced
+
+### Inbound attachments
+
+Incoming attachments expose a lazy `fetchData()` that downloads from Discord's CDN anonymously. Downloads refuse private and internal addresses (including after redirects), are limited to 25 MB, and time out after 30 seconds.
 
 ### HTTP Interactions vs Gateway
 

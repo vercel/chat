@@ -85,8 +85,10 @@ export class WebAdapter implements Adapter<WebThreadIdData, UIMessage> {
     this.threadIdFor = opts.threadIdFor ?? defaultThreadIdFor;
     // Default true: with no platform-side message API, the only way for
     // chat-sdk handlers to see prior turns (via thread/channel.messages) is
-    // through the configured state adapter. Opt out only if your handler
-    // re-derives history from the request body's `messages[]` itself.
+    // through the configured state adapter. The request body's `messages[]`
+    // is not an alternative source — it is client-controlled and ignored
+    // beyond the latest user message — so opting out leaves handlers with
+    // only the current message.
     this.persistMessageHistory = opts.persistMessageHistory ?? true;
     this.logger = opts.logger ?? new ConsoleLogger("info", "chat-adapter-web");
   }
@@ -143,11 +145,31 @@ export class WebAdapter implements Adapter<WebThreadIdData, UIMessage> {
       return jsonError(400, "No user message found in messages array");
     }
 
-    const message = this.buildMessageFromUI(lastUserMessage, threadId, user);
+    // The client-supplied messages array is untrusted, so only the latest
+    // user message is consumed, with tool parts stripped so a browser can't
+    // inject forged tool-call or approval state. Text, file, and custom data
+    // parts pass through untouched. Prior turns come from the state adapter
+    // (persistMessageHistory), never from the request body.
+    const sanitizedMessage: UIMessage = {
+      ...lastUserMessage,
+      parts: lastUserMessage.parts.filter(
+        (part) =>
+          part.type === "text" ||
+          part.type === "file" ||
+          part.type.startsWith("data-")
+      ),
+    };
+    if (sanitizedMessage.parts.length === 0) {
+      return jsonError(400, "No usable content in last user message");
+    }
+
+    const message = this.buildMessageFromUI(sanitizedMessage, threadId, user);
 
     const chat = this.chat;
+    // `originalMessages` is deliberately not passed: nothing registers
+    // onFinish on this stream, so the ai SDK never consumes it, and the
+    // client array must not act as a source of prior-turn state anyway.
     const stream = createUIMessageStream<UIMessage>({
-      originalMessages: body.messages,
       execute: async ({ writer }) => {
         const assistantMessageId = generateId();
         writer.write({ type: "start", messageId: assistantMessageId });

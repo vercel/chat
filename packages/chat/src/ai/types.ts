@@ -1,5 +1,6 @@
 import type { Tool } from "ai";
 import type { Chat } from "../chat";
+import type { ScopeGuard } from "./scope";
 
 /**
  * The Chat instance used by all tools to dispatch operations.
@@ -13,6 +14,8 @@ export type ChatBinding = Chat<any, any>;
  * Common options for write tools that may require approval before executing.
  */
 export interface ToolOptions {
+  /** Scope guard the tool calls on its target id before executing. */
+  guard?: ScopeGuard;
   needsApproval?: boolean;
 }
 

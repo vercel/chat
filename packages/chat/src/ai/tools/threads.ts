@@ -250,7 +250,7 @@ const SUBSCRIBE_THREAD_INPUT = z.object({
 
 export const subscribeThread = (
   chat: ChatBinding,
-  { needsApproval = true }: ToolOptions = {}
+  { needsApproval = true, guard }: ToolOptions = {}
 ): Tool<
   z.infer<typeof SUBSCRIBE_THREAD_INPUT>,
   { subscribed: boolean; threadId: string }
@@ -263,6 +263,7 @@ export const subscribeThread = (
     execute: async ({
       threadId,
     }): Promise<{ subscribed: boolean; threadId: string }> => {
+      guard?.(threadId);
       const thread = chat.thread(threadId);
       await thread.subscribe();
       return { subscribed: true, threadId };
@@ -275,7 +276,7 @@ const UNSUBSCRIBE_THREAD_INPUT = z.object({
 
 export const unsubscribeThread = (
   chat: ChatBinding,
-  { needsApproval = true }: ToolOptions = {}
+  { needsApproval = true, guard }: ToolOptions = {}
 ): Tool<
   z.infer<typeof UNSUBSCRIBE_THREAD_INPUT>,
   { subscribed: boolean; threadId: string }
@@ -288,6 +289,7 @@ export const unsubscribeThread = (
     execute: async ({
       threadId,
     }): Promise<{ subscribed: boolean; threadId: string }> => {
+      guard?.(threadId);
       const thread = chat.thread(threadId);
       await thread.unsubscribe();
       return { subscribed: false, threadId };

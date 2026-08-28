@@ -225,6 +225,7 @@ export const generateMetadata = async ({
       card: "summary_large_image",
     },
     alternates: {
+      canonical: `/adapters/community/${slug}`,
       types: {
         "text/markdown": `/adapters/community/${slug}.md`,
       },

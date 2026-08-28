@@ -113,6 +113,85 @@ describe("Vercel Connect generation", () => {
     );
   });
 
+  it("scaffolds Discord with Connect credentials instead of native secrets", () => {
+    const botTs = generateBotTs(connectConfig(["discord"]));
+    expect(botTs).toContain(
+      'import { connectDiscordAdapter } from "@vercel/connect/chat";'
+    );
+    expect(botTs).toContain("discord: createDiscordAdapter({");
+    expect(botTs).toContain(
+      '...connectDiscordAdapter(requireEnv("DISCORD_CONNECTOR")),'
+    );
+
+    const envExample = generateEnvExample(connectConfig(["discord"]));
+    expect(envExample).toContain("DISCORD_CONNECTOR=");
+    expect(envExample).toContain("CRON_SECRET=");
+    expect(envExample).not.toContain("DISCORD_BOT_TOKEN=");
+    expect(envExample).not.toContain("DISCORD_PUBLIC_KEY=");
+    expect(envExample).not.toContain("DISCORD_APPLICATION_ID=");
+
+    const readme = generateReadme(connectConfig(["discord"]));
+    expect(readme).toContain("outbound credentials for Discord");
+    expect(readme).toContain("DISCORD_CONNECTOR");
+    expect(readme).toContain("Discord Gateway (cron)");
+  });
+
+  it("scaffolds Notion with Connect tokens and native webhook verification", () => {
+    const botTs = generateBotTs(connectConfig(["notion"]));
+    expect(botTs).toContain(
+      'import { connectNotionAdapter } from "@vercel/connect/chat";'
+    );
+    expect(botTs).toContain("notion: createNotionAdapter({");
+    expect(botTs).toContain(
+      '...connectNotionAdapter(requireEnv("NOTION_CONNECTOR")),'
+    );
+
+    const envExample = generateEnvExample(connectConfig(["notion"]));
+    expect(envExample).toContain("NOTION_CONNECTOR=");
+    expect(envExample).toContain("NOTION_VERIFICATION_TOKEN=");
+    expect(envExample).not.toContain("NOTION_TOKEN=");
+
+    const readme = generateReadme(connectConfig(["notion"]));
+    expect(readme).toContain("outbound credentials for Notion");
+    expect(readme).toContain(
+      "Configure native webhook subscriptions for Notion"
+    );
+    expect(readme).not.toContain("Enable Connect trigger forwarding");
+  });
+
+  it("scaffolds Telegram with Connect tokens and native webhook verification", () => {
+    const botTs = generateBotTs(connectConfig(["telegram"]));
+    expect(botTs).toContain(
+      'import { connectTelegramAdapter } from "@vercel/connect/chat";'
+    );
+    expect(botTs).toContain("telegram: createTelegramAdapter({");
+    expect(botTs).toContain(
+      '...connectTelegramAdapter(requireEnv("TELEGRAM_CONNECTOR")),'
+    );
+
+    const envExample = generateEnvExample(connectConfig(["telegram"]));
+    expect(envExample).toContain("TELEGRAM_CONNECTOR=");
+    expect(envExample).toContain("TELEGRAM_WEBHOOK_SECRET_TOKEN=");
+    expect(envExample).not.toContain("TELEGRAM_BOT_TOKEN=");
+
+    const readme = generateReadme(connectConfig(["telegram"]));
+    expect(readme).toContain("outbound credentials for Telegram");
+    expect(readme).toContain(
+      "Configure native webhook subscriptions for Telegram"
+    );
+    expect(readme).not.toContain("Enable Connect trigger forwarding");
+  });
+
+  it("documents mixed Connect trigger and native webhook modes", () => {
+    const readme = generateReadme(
+      connectConfig(["slack", "notion", "telegram"])
+    );
+    expect(readme).toContain("Enable Connect trigger forwarding for Slack");
+    expect(readme).toContain(
+      "Configure native webhook subscriptions for Notion, Telegram"
+    );
+  });
+
   it("fails loudly on a missing connector via requireEnv", () => {
     const result = generateBotTs(connectConfig(["slack"]));
     expect(result).toContain("const requireEnv = (name: string): string =>");
@@ -129,15 +208,24 @@ describe("Vercel Connect generation", () => {
   });
 
   it("imports every selected Connect helper, sorted", () => {
-    const result = generateBotTs(connectConfig(["slack", "github", "linear"]));
+    const result = generateBotTs(
+      connectConfig([
+        "slack",
+        "discord",
+        "github",
+        "linear",
+        "notion",
+        "telegram",
+      ])
+    );
     expect(result).toContain(
-      'import { connectGitHubAdapter, connectLinearAdapter, connectSlackAdapter } from "@vercel/connect/chat";'
+      'import { connectDiscordAdapter, connectGitHubAdapter, connectLinearAdapter, connectNotionAdapter, connectSlackAdapter, connectTelegramAdapter } from "@vercel/connect/chat";'
     );
   });
 
   it("leaves non-Connect adapters on their native factory calls", () => {
-    const result = generateBotTs(connectConfig(["slack", "discord"]));
-    expect(result).toContain("discord: createDiscordAdapter(),");
+    const result = generateBotTs(connectConfig(["slack", "gchat"]));
+    expect(result).toContain("gchat: createGoogleChatAdapter(),");
     expect(result).toContain("slack: createSlackAdapter({");
   });
 
@@ -158,7 +246,7 @@ describe("Vercel Connect generation", () => {
   it("does not add @vercel/connect without a Connect-capable adapter", () => {
     const result = generatePackageJson(
       { dependencies: {} },
-      { ...makeConfig(["discord"]), useConnect: true }
+      { ...makeConfig(["gchat"]), useConnect: true }
     );
     expect(result.dependencies?.["@vercel/connect"]).toBeUndefined();
   });
@@ -186,7 +274,7 @@ describe("Vercel Connect generation", () => {
 
   it("omits the README Connect section without a Connect-capable adapter", () => {
     const result = generateReadme({
-      ...makeConfig(["discord"]),
+      ...makeConfig(["gchat"]),
       useConnect: true,
     });
     expect(result).not.toContain("Authentication (Vercel Connect)");

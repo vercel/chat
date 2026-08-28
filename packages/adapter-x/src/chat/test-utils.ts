@@ -237,7 +237,9 @@ export async function createInitializedTestAdapter(
       addConversationKeys: vi.fn(),
       deleteMessages: vi.fn(),
       getConversationEvents: vi.fn(),
-      markConversationRead: vi.fn().mockResolvedValue({ data: {} }),
+      markConversationRead: vi
+        .fn()
+        .mockResolvedValue({ data: { success: true } }),
       sendMessage: vi.fn(),
       sendTypingIndicator: vi.fn(),
       mediaDownload: vi.fn(),

@@ -541,7 +541,7 @@ describe("GoogleChatAdapter", () => {
       );
     });
 
-    it("should fall back to downloadUri fetch when media.download fails", async () => {
+    it("should not fetch downloadUri when media.download fails", async () => {
       const { adapter } = await createInitializedAdapter();
       const mockDownload = vi
         .fn()
@@ -551,13 +551,7 @@ describe("GoogleChatAdapter", () => {
       (adapter as any).chatApi = {
         media: { download: mockDownload },
       };
-      (adapter as any).authClient = {
-        getAccessToken: vi.fn().mockResolvedValue({ token: "test-token" }),
-      };
-      const mockFetch = vi.fn().mockResolvedValue({
-        ok: true,
-        arrayBuffer: () => Promise.resolve(new ArrayBuffer(4)),
-      });
+      const mockFetch = vi.fn();
       vi.stubGlobal("fetch", mockFetch);
 
       try {
@@ -576,14 +570,11 @@ describe("GoogleChatAdapter", () => {
         });
 
         const msg = adapter.parseMessage(event);
-        const data = await msg.attachments[0].fetchData?.();
-
-        expect(data).toBeInstanceOf(Buffer);
-        expect(mockDownload).toHaveBeenCalledTimes(1);
-        expect(mockFetch).toHaveBeenCalledWith(
-          "https://example.com/photo.png",
-          { headers: { Authorization: "Bearer test-token" } }
+        await expect(msg.attachments[0].fetchData?.()).rejects.toThrow(
+          "resource expired"
         );
+        expect(mockDownload).toHaveBeenCalledTimes(1);
+        expect(mockFetch).not.toHaveBeenCalled();
       } finally {
         vi.unstubAllGlobals();
       }
@@ -619,7 +610,7 @@ describe("GoogleChatAdapter", () => {
       );
     });
 
-    it("should fall back to direct URL fetch when no attachmentDataRef", async () => {
+    it("should not provide fetchData when only downloadUri is present", async () => {
       const { adapter } = await createInitializedAdapter();
       const event = makeMessageEvent({
         attachment: [
@@ -633,9 +624,19 @@ describe("GoogleChatAdapter", () => {
       });
 
       const msg = adapter.parseMessage(event);
-      expect(msg.attachments[0].fetchData).toBeDefined();
-      // fetchData is present because downloadUri exists
+      expect(msg.attachments[0].fetchData).toBeUndefined();
       expect(msg.attachments[0].url).toBe("https://example.com/photo.png");
+    });
+
+    it("should not rehydrate fetchData from a download URL", async () => {
+      const { adapter } = await createInitializedAdapter();
+      const attachment = adapter.rehydrateAttachment({
+        type: "file",
+        url: "https://example.com/document.pdf",
+        fetchMetadata: { url: "https://example.com/document.pdf" },
+      });
+
+      expect(attachment.fetchData).toBeUndefined();
     });
 
     it("should not provide fetchData when neither resourceName nor downloadUri exist", async () => {

@@ -116,6 +116,131 @@ describe("CLI Vercel Connect mode", () => {
     expect(envExample).toContain("SLACK_CONNECTOR=");
     expect(envExample).not.toContain("SLACK_SIGNING_SECRET=");
   });
+
+  it("scaffolds Discord with Vercel Connect when --connect is passed", async () => {
+    process.exitCode = undefined;
+    const program = createProgram();
+    await program.parseAsync([
+      "node",
+      "create-chat-sdk",
+      "connect-discord-bot",
+      "--adapter",
+      "discord",
+      "memory",
+      "--connect",
+      "-yq",
+      "--skip-install",
+      "--no-git",
+    ]);
+
+    expect(process.exitCode).toBeUndefined();
+
+    const botTs = readProjectFile("connect-discord-bot", "src/lib/bot.ts");
+    expect(botTs).toContain(
+      'import { connectDiscordAdapter } from "@vercel/connect/chat";'
+    );
+    expect(botTs).toContain(
+      '...connectDiscordAdapter(requireEnv("DISCORD_CONNECTOR")),'
+    );
+
+    const packageJson = JSON.parse(
+      readProjectFile("connect-discord-bot", "package.json")
+    ) as { dependencies?: Record<string, string> };
+    expect(packageJson.dependencies?.["@vercel/connect"]).toBe("latest");
+
+    const envExample = readProjectFile("connect-discord-bot", ".env.example");
+    expect(envExample).toContain("DISCORD_CONNECTOR=");
+    expect(envExample).toContain("CRON_SECRET=");
+    expect(envExample).not.toContain("DISCORD_BOT_TOKEN=");
+    expect(envExample).not.toContain("DISCORD_PUBLIC_KEY=");
+    expect(envExample).not.toContain("DISCORD_APPLICATION_ID=");
+  });
+
+  it("scaffolds Notion with Connect tokens and native webhooks", async () => {
+    process.exitCode = undefined;
+    const program = createProgram();
+    await program.parseAsync([
+      "node",
+      "create-chat-sdk",
+      "connect-notion-bot",
+      "--adapter",
+      "notion",
+      "memory",
+      "--connect",
+      "-yq",
+      "--skip-install",
+      "--no-git",
+    ]);
+
+    expect(process.exitCode).toBeUndefined();
+
+    const botTs = readProjectFile("connect-notion-bot", "src/lib/bot.ts");
+    expect(botTs).toContain(
+      'import { connectNotionAdapter } from "@vercel/connect/chat";'
+    );
+    expect(botTs).toContain(
+      '...connectNotionAdapter(requireEnv("NOTION_CONNECTOR")),'
+    );
+
+    const packageJson = JSON.parse(
+      readProjectFile("connect-notion-bot", "package.json")
+    ) as { dependencies?: Record<string, string> };
+    expect(packageJson.dependencies?.["@vercel/connect"]).toBe("latest");
+
+    const envExample = readProjectFile("connect-notion-bot", ".env.example");
+    expect(envExample).toContain("NOTION_CONNECTOR=");
+    expect(envExample).toContain("NOTION_VERIFICATION_TOKEN=");
+    expect(envExample).not.toContain("NOTION_TOKEN=");
+
+    const readme = readProjectFile("connect-notion-bot", "README.md");
+    expect(readme).toContain(
+      "Configure native webhook subscriptions for Notion"
+    );
+    expect(readme).not.toContain("Enable Connect trigger forwarding");
+  });
+
+  it("scaffolds Telegram with Connect tokens and native webhooks", async () => {
+    process.exitCode = undefined;
+    const program = createProgram();
+    await program.parseAsync([
+      "node",
+      "create-chat-sdk",
+      "connect-telegram-bot",
+      "--adapter",
+      "telegram",
+      "memory",
+      "--connect",
+      "-yq",
+      "--skip-install",
+      "--no-git",
+    ]);
+
+    expect(process.exitCode).toBeUndefined();
+
+    const botTs = readProjectFile("connect-telegram-bot", "src/lib/bot.ts");
+    expect(botTs).toContain(
+      'import { connectTelegramAdapter } from "@vercel/connect/chat";'
+    );
+    expect(botTs).toContain(
+      '...connectTelegramAdapter(requireEnv("TELEGRAM_CONNECTOR")),'
+    );
+
+    const packageJson = JSON.parse(
+      readProjectFile("connect-telegram-bot", "package.json")
+    ) as { dependencies?: Record<string, string> };
+    expect(packageJson.dependencies?.["@vercel/connect"]).toBe("latest");
+
+    const envExample = readProjectFile("connect-telegram-bot", ".env.example");
+    expect(envExample).toContain("TELEGRAM_CONNECTOR=");
+    expect(envExample).toContain("TELEGRAM_WEBHOOK_SECRET_TOKEN=");
+    expect(envExample).not.toContain("TELEGRAM_BOT_TOKEN=");
+
+    const readme = readProjectFile("connect-telegram-bot", "README.md");
+    expect(readme).toContain(
+      "Configure native webhook subscriptions for Telegram"
+    );
+    expect(readme).not.toContain("Enable Connect trigger forwarding");
+  });
 });
 
 describe("CLI agent mode", () => {

@@ -4,7 +4,7 @@
 
 import { generateKeyPairSync, sign } from "node:crypto";
 import { EventEmitter } from "node:events";
-import { ValidationError } from "@chat-adapter/shared";
+import { NetworkError, ValidationError } from "@chat-adapter/shared";
 import {
   createMockChatInstance,
   mockLogger,
@@ -143,8 +143,48 @@ describe("constructor env var resolution", () => {
 
   it("should throw when publicKey is missing and env var not set", () => {
     expect(() => new DiscordAdapter({ botToken: "test" })).toThrow(
-      "publicKey is required"
+      "publicKey or webhookVerifier is required"
     );
+  });
+
+  it("accepts resolver credentials with a custom webhook verifier", async () => {
+    const botToken = vi.fn().mockResolvedValue("resolved-token");
+    const applicationId = vi.fn().mockResolvedValue("resolved-app-id");
+    const adapter = new DiscordAdapter({
+      botToken,
+      applicationId,
+      webhookVerifier: () => true,
+      logger: mockLogger,
+    });
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          id: "user-id",
+          username: "test-user",
+          global_name: "Test User",
+        }),
+        { status: 200, headers: { "Content-Type": "application/json" } }
+      )
+    );
+
+    try {
+      await adapter.initialize(createMockChatInstance());
+      await adapter.getUser("user-id");
+
+      expect(adapter.botUserId).toBe("resolved-app-id");
+      expect(applicationId).toHaveBeenCalledTimes(1);
+      expect(botToken).toHaveBeenCalledTimes(1);
+      expect(fetchSpy).toHaveBeenCalledWith(
+        "https://discord.com/api/v10/users/user-id",
+        expect.objectContaining({
+          headers: expect.objectContaining({
+            Authorization: "Bot resolved-token",
+          }),
+        })
+      );
+    } finally {
+      fetchSpy.mockRestore();
+    }
   });
 
   it("should throw when applicationId is missing and env var not set", () => {
@@ -355,6 +395,66 @@ describe("handleWebhook - signature verification", () => {
 
     const response = await adapter.handleWebhook(request);
     expect(response.status).toBe(200);
+  });
+});
+
+describe("handleWebhook - custom webhook verifier", () => {
+  it("uses the custom verifier without Discord signature headers", async () => {
+    const verifier = vi.fn().mockResolvedValue(true);
+    const adapter = createDiscordAdapter({
+      botToken: "test-token",
+      applicationId: async () => "test-app-id",
+      webhookVerifier: verifier,
+      logger: mockLogger,
+    });
+    const body = JSON.stringify({ type: InteractionType.Ping });
+    const request = new Request("https://example.com/webhook", {
+      method: "POST",
+      headers: { authorization: "Bearer connect-token" },
+      body,
+    });
+
+    const response = await adapter.handleWebhook(request);
+
+    expect(response.status).toBe(200);
+    expect(verifier).toHaveBeenCalledWith(request, body);
+    expect(adapter.botUserId).toBe("test-app-id");
+  });
+
+  it("rejects requests when the custom verifier returns a falsy value", async () => {
+    const adapter = createDiscordAdapter({
+      botToken: "test-token",
+      applicationId: "test-app-id",
+      webhookVerifier: () => false,
+      logger: mockLogger,
+    });
+    const request = new Request("https://example.com/webhook", {
+      method: "POST",
+      body: JSON.stringify({ type: InteractionType.Ping }),
+    });
+
+    const response = await adapter.handleWebhook(request);
+
+    expect(response.status).toBe(401);
+  });
+
+  it("rejects requests when the custom verifier throws", async () => {
+    const adapter = createDiscordAdapter({
+      botToken: "test-token",
+      applicationId: "test-app-id",
+      webhookVerifier: () => {
+        throw new Error("invalid OIDC token");
+      },
+      logger: mockLogger,
+    });
+    const request = new Request("https://example.com/webhook", {
+      method: "POST",
+      body: JSON.stringify({ type: InteractionType.Ping }),
+    });
+
+    const response = await adapter.handleWebhook(request);
+
+    expect(response.status).toBe(401);
   });
 });
 
@@ -752,6 +852,57 @@ describe("handleWebhook - APPLICATION_COMMAND", () => {
       fetchSpy.mockRestore();
     }
   });
+
+  it("uses a resolved application ID for interaction webhook responses", async () => {
+    const applicationId = vi.fn().mockResolvedValue("resolved-app-id");
+    const resolverAdapter = createDiscordAdapter({
+      botToken: "test-token",
+      applicationId,
+      webhookVerifier: () => true,
+      logger: mockLogger,
+    });
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(JSON.stringify({ id: "msg123" }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      })
+    );
+
+    try {
+      await resolverAdapter.initialize(createMockChatInstance());
+      await (
+        resolverAdapter as unknown as {
+          postSlashCommandResponse: (
+            context: {
+              channelId: string;
+              initialResponseSent: boolean;
+              interactionToken: string;
+            },
+            threadId: string,
+            payload: { content: string },
+            files: []
+          ) => Promise<unknown>;
+        }
+      ).postSlashCommandResponse(
+        {
+          channelId: "discord:guild123:channel456",
+          initialResponseSent: false,
+          interactionToken: "interaction-token",
+        },
+        "discord:guild123:channel456",
+        { content: "Pong!" },
+        []
+      );
+
+      expect(applicationId).toHaveBeenCalledTimes(1);
+      expect(fetchSpy).toHaveBeenCalledWith(
+        "https://discord.com/api/v10/webhooks/resolved-app-id/interaction-token/messages/@original",
+        expect.objectContaining({ method: "PATCH" })
+      );
+    } finally {
+      fetchSpy.mockRestore();
+    }
+  });
 });
 
 // ============================================================================
@@ -1055,6 +1206,106 @@ describe("parseMessage", () => {
     expect(message.attachments?.[0].mimeType).toBe("image/png");
     expect(message.attachments?.[0].width).toBe(800);
     expect(message.attachments?.[0].height).toBe(600);
+    expect(message.attachments?.[0].fetchData).toEqual(expect.any(Function));
+  });
+
+  it("handles a message without attachments", () => {
+    const raw = {
+      id: "message123",
+      channel_id: "channel456",
+      author: {
+        id: "user123",
+        username: "testuser",
+      },
+      content: "Message without attachments",
+      timestamp: "2021-01-01T00:00:00.000Z",
+      edited_timestamp: null,
+      tts: false,
+      mention_everyone: false,
+      mentions: [],
+      mention_roles: [],
+      embeds: [],
+      pinned: false,
+      type: 0,
+    };
+
+    const message = adapter.parseMessage(raw);
+
+    expect(message.text).toBe("Message without attachments");
+    expect(message.attachments).toEqual([]);
+  });
+
+  it("parses outer and snapshot content and attachments", () => {
+    const rawMessage = {
+      id: "message123",
+      channel_id: "channel456",
+      guild_id: "guild789",
+      author: {
+        id: "user123",
+        username: "testuser",
+        discriminator: "0001",
+      },
+      content: "Outer context",
+      timestamp: "2021-01-01T00:00:00.000Z",
+      edited_timestamp: null,
+      tts: false,
+      mention_everyone: false,
+      mentions: [],
+      mention_roles: [],
+      attachments: [
+        {
+          id: "outer123",
+          filename: "outer.txt",
+          size: 100,
+          url: "https://cdn.discord.com/outer.txt",
+          proxy_url: "https://media.discord.com/outer.txt",
+          content_type: "text/plain",
+        },
+      ],
+      embeds: [],
+      pinned: false,
+      type: 0,
+      message_reference: {
+        type: 1,
+        message_id: "source123",
+        channel_id: "source456",
+        guild_id: "guild789",
+      },
+      message_snapshots: [
+        {
+          message: {
+            type: 0,
+            content: "Forwarded voice note",
+            timestamp: "2021-01-01T00:00:00.000Z",
+            edited_timestamp: null,
+            flags: 0,
+            mentions: [],
+            mention_roles: [],
+            attachments: [
+              {
+                id: "snapshot123",
+                filename: "voice.ogg",
+                size: 1234,
+                url: "https://cdn.discord.com/voice.ogg",
+                proxy_url: "https://media.discord.com/voice.ogg",
+                content_type: "audio/ogg",
+              },
+            ],
+            embeds: [],
+            components: [],
+            sticker_items: [],
+          },
+        },
+      ],
+    };
+
+    const message = adapter.parseMessage(rawMessage);
+
+    expect(message.text).toBe("Outer context\n\nForwarded voice note");
+    expect(message.attachments?.map(({ name }) => name)).toEqual([
+      "outer.txt",
+      "voice.ogg",
+    ]);
   });
 
   it("handles different attachment types", () => {
@@ -1187,15 +1438,36 @@ describe("rehydrateAttachment", () => {
   it("rebuilds fetchData to download the attachment from its CDN url", async () => {
     const url =
       "https://cdn.discordapp.com/attachments/1/2/photo.png?ex=abc&is=def&hm=123";
-    const fetch = vi
-      .spyOn(globalThis, "fetch")
-      .mockResolvedValue(new Response("photo", { status: 200 }));
+    const transfer = vi.fn(async () => Buffer.from("photo"));
+    class Adapter extends DiscordAdapter {
+      protected override downloadAttachment(target: string): Promise<Buffer> {
+        return transfer(target);
+      }
+    }
+    const custom = new Adapter({
+      botToken: "test-token",
+      publicKey: testPublicKey,
+      applicationId: "test-app-id",
+      logger: mockLogger,
+    });
 
-    const attachment = adapter.rehydrateAttachment({ type: "image", url });
+    const attachment = custom.rehydrateAttachment({ type: "image", url });
     const data = await attachment.fetchData?.();
 
     expect(data?.toString()).toBe("photo");
-    expect(fetch).toHaveBeenCalledWith(url);
+    expect(transfer).toHaveBeenCalledWith(url);
+  });
+
+  it("rejects internal attachment urls before the network", async () => {
+    const url = "https://169.254.169.254/latest/meta-data";
+    const fetch = vi.spyOn(globalThis, "fetch");
+
+    const attachment = adapter.rehydrateAttachment({ type: "image", url });
+
+    await expect(attachment.fetchData?.()).rejects.toThrow(
+      "Refusing to fetch an internal attachment URL"
+    );
+    expect(fetch).not.toHaveBeenCalled();
   });
 
   it("returns the attachment unchanged when it has no url", () => {
@@ -2060,6 +2332,160 @@ describe("removeReaction", () => {
     );
 
     spy.mockRestore();
+  });
+});
+
+describe("thread starter message routing", () => {
+  const adapter = createDiscordAdapter({
+    botToken: "test-token",
+    publicKey: testPublicKey,
+    applicationId: "test-app-id",
+    logger: mockLogger,
+  });
+
+  it("routes forum starter operations to the thread", async () => {
+    const fetchSpy = vi
+      .spyOn(globalThis, "fetch")
+      .mockImplementation((input) => {
+        // Forum and media channels contain no messages, so Discord rejects
+        // message routes against them with a channel type error, not 10008.
+        if (String(input).includes("/channels/forum456/")) {
+          return Promise.resolve(
+            Response.json(
+              {
+                code: 50_024,
+                message: "Cannot execute action on this channel type",
+              },
+              { status: 400 }
+            )
+          );
+        }
+
+        return Promise.resolve(
+          Response.json({
+            id: "starter123",
+            channel_id: "starter123",
+            content: "updated",
+          })
+        );
+      });
+
+    try {
+      const threadId = "discord:guild1:forum456:starter123";
+      await adapter.editMessage(threadId, "starter123", "updated");
+      await adapter.deleteMessage(threadId, "starter123");
+      await adapter.addReaction(threadId, "starter123", "heart");
+      await adapter.removeReaction(threadId, "starter123", "heart");
+
+      expect(
+        fetchSpy.mock.calls
+          .filter(([input]) =>
+            String(input).startsWith("https://discord.com/api/v10/")
+          )
+          .map(([input, init]) => [String(input), init?.method])
+      ).toEqual([
+        [
+          "https://discord.com/api/v10/channels/starter123/messages/starter123",
+          "PATCH",
+        ],
+        [
+          "https://discord.com/api/v10/channels/starter123/messages/starter123",
+          "DELETE",
+        ],
+        [
+          "https://discord.com/api/v10/channels/starter123/messages/starter123/reactions/%E2%9D%A4%EF%B8%8F/@me",
+          "PUT",
+        ],
+        [
+          "https://discord.com/api/v10/channels/starter123/messages/starter123/reactions/%E2%9D%A4%EF%B8%8F/@me",
+          "DELETE",
+        ],
+      ]);
+    } finally {
+      fetchSpy.mockRestore();
+    }
+  });
+
+  it("falls back to the parent channel for a text-channel starter", async () => {
+    const fetchSpy = vi
+      .spyOn(globalThis, "fetch")
+      .mockImplementation((input) => {
+        // A text-channel thread's starter message lives in the parent
+        // channel, so the thread itself reports it as unknown.
+        if (String(input).includes("/channels/starter123/")) {
+          return Promise.resolve(
+            Response.json(
+              { code: 10_008, message: "Unknown Message" },
+              { status: 404 }
+            )
+          );
+        }
+
+        return Promise.resolve(
+          Response.json({
+            id: "starter123",
+            channel_id: "channel456",
+            content: "updated",
+          })
+        );
+      });
+
+    try {
+      const threadId = "discord:guild1:channel456:starter123";
+      await adapter.editMessage(threadId, "starter123", "updated");
+      await adapter.addReaction(threadId, "starter123", "heart");
+
+      expect(
+        fetchSpy.mock.calls
+          .filter(([input]) =>
+            String(input).startsWith("https://discord.com/api/v10/")
+          )
+          .map(([input, init]) => [String(input), init?.method])
+      ).toEqual([
+        [
+          "https://discord.com/api/v10/channels/starter123/messages/starter123",
+          "PATCH",
+        ],
+        [
+          "https://discord.com/api/v10/channels/channel456/messages/starter123",
+          "PATCH",
+        ],
+        [
+          "https://discord.com/api/v10/channels/starter123/messages/starter123/reactions/%E2%9D%A4%EF%B8%8F/@me",
+          "PUT",
+        ],
+        [
+          "https://discord.com/api/v10/channels/channel456/messages/starter123/reactions/%E2%9D%A4%EF%B8%8F/@me",
+          "PUT",
+        ],
+      ]);
+    } finally {
+      fetchSpy.mockRestore();
+    }
+  });
+
+  it("does not retry other Discord errors", async () => {
+    const fetchSpy = vi
+      .spyOn(globalThis, "fetch")
+      .mockResolvedValue(
+        Response.json(
+          { code: 50_013, message: "Missing Permissions" },
+          { status: 403 }
+        )
+      );
+
+    try {
+      await expect(
+        adapter.addReaction(
+          "discord:guild1:channel456:starter123",
+          "starter123",
+          "heart"
+        )
+      ).rejects.toThrow("50013");
+      expect(fetchSpy).toHaveBeenCalledTimes(1);
+    } finally {
+      fetchSpy.mockRestore();
+    }
   });
 });
 
@@ -3707,7 +4133,14 @@ describe("legacy gateway interactions", () => {
       channel: { isThread: () => false },
       createdAt: new Date("2021-01-01T00:00:00.000Z"),
       editedAt: null,
-      attachments: [],
+      attachments: [
+        {
+          contentType: "audio/ogg",
+          url: "https://cdn.discordapp.com/attachments/1/2/voice.ogg",
+          name: "voice.ogg",
+          size: 1234,
+        },
+      ],
     });
     await waitForGatewayHandlers();
 
@@ -3719,7 +4152,12 @@ describe("legacy gateway interactions", () => {
     expect(chat.handleIncomingMessage).toHaveBeenCalledWith(
       adapter,
       "discord:guild1:channel456:thread789",
-      expect.objectContaining({ isMention: true })
+      expect.objectContaining({
+        isMention: true,
+        attachments: [
+          expect.objectContaining({ fetchData: expect.any(Function) }),
+        ],
+      })
     );
   });
 
@@ -3763,6 +4201,67 @@ describe("legacy gateway interactions", () => {
       adapter,
       "discord:guild1:channel456:thread789",
       expect.objectContaining({ isMention: true })
+    );
+  });
+
+  it("reads content and attachments from forwarded message snapshots", async () => {
+    const adapter = new TestGatewayDiscordAdapter({
+      botToken: "test-token",
+      publicKey: testPublicKey,
+      applicationId: "test-app-id",
+      logger: mockLogger,
+      respondToChannelIds: ["channel456"],
+    });
+    const chat = createMockChatInstance();
+    await adapter.initialize(chat);
+
+    const client = createGatewayClient();
+    adapter.listen(client);
+    client.emit(Events.MessageCreate, {
+      id: "forwarded-message",
+      channelId: "thread789",
+      guildId: "guild1",
+      content: "",
+      author: {
+        id: "user789",
+        username: "testuser",
+        displayName: "Test User",
+        bot: false,
+      },
+      mentions: { everyone: false, roles: [], has: () => false },
+      channel: { isThread: () => true, parentId: "channel456" },
+      createdAt: new Date("2026-08-14T15:39:39.136Z"),
+      editedAt: null,
+      attachments: [],
+      messageSnapshots: [
+        {
+          content: "Forwarded voice note",
+          attachments: [
+            {
+              contentType: "audio/ogg",
+              url: "https://cdn.discordapp.com/attachments/1/2/voice.ogg",
+              name: "voice.ogg",
+              size: 1234,
+            },
+          ],
+        },
+      ],
+    });
+    await waitForGatewayHandlers();
+
+    expect(chat.handleIncomingMessage).toHaveBeenCalledWith(
+      adapter,
+      "discord:guild1:channel456:thread789",
+      expect.objectContaining({
+        text: "Forwarded voice note",
+        attachments: [
+          expect.objectContaining({
+            mimeType: "audio/ogg",
+            name: "voice.ogg",
+            url: "https://cdn.discordapp.com/attachments/1/2/voice.ogg",
+          }),
+        ],
+      })
     );
   });
 
@@ -3919,6 +4418,35 @@ describe("handleWebhook - forwarded gateway events", () => {
     expect(response.status).toBe(200);
   });
 
+  it("validates forwarded events with resolved credentials", async () => {
+    const botToken = vi.fn().mockResolvedValue("resolved-token");
+    const applicationId = vi.fn().mockResolvedValue("resolved-app-id");
+    const resolverAdapter = createDiscordAdapter({
+      botToken,
+      applicationId,
+      webhookVerifier: () => true,
+      logger: mockLogger,
+    });
+    const request = new Request("https://example.com/webhook", {
+      method: "POST",
+      headers: {
+        "x-discord-gateway-token": "resolved-token",
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({
+        type: "GATEWAY_UNKNOWN_EVENT",
+        timestamp: Date.now(),
+        data: {},
+      }),
+    });
+
+    const response = await resolverAdapter.handleWebhook(request);
+
+    expect(response.status).toBe(200);
+    expect(botToken).toHaveBeenCalledTimes(1);
+    expect(applicationId).toHaveBeenCalledTimes(1);
+  });
+
   it("returns 400 for invalid JSON in forwarded events", async () => {
     const request = new Request("https://example.com/webhook", {
       method: "POST",
@@ -3944,7 +4472,7 @@ describe("handleWebhook - forwarded gateway events", () => {
         id: "msg123",
         channel_id: "channel456",
         guild_id: "guild1",
-        content: "Hello from gateway",
+        content: "",
         timestamp: "2021-01-01T00:00:00.000Z",
         author: {
           id: "user789",
@@ -3953,6 +4481,22 @@ describe("handleWebhook - forwarded gateway events", () => {
         },
         mentions: [],
         attachments: [],
+        message_snapshots: [
+          {
+            message: {
+              content: "Forwarded voice note",
+              attachments: [
+                {
+                  id: "attachment123",
+                  filename: "voice.ogg",
+                  size: 1234,
+                  url: "https://cdn.discordapp.com/attachments/1/2/voice.ogg",
+                  content_type: "audio/ogg",
+                },
+              ],
+            },
+          },
+        ],
       },
     });
 
@@ -3967,7 +4511,16 @@ describe("handleWebhook - forwarded gateway events", () => {
 
     const response = await adapter.handleWebhook(request);
     expect(response.status).toBe(200);
-    expect(chat.handleIncomingMessage).toHaveBeenCalled();
+    expect(chat.handleIncomingMessage).toHaveBeenCalledWith(
+      adapter,
+      expect.any(String),
+      expect.objectContaining({
+        text: "Forwarded voice note",
+        attachments: [
+          expect.objectContaining({ fetchData: expect.any(Function) }),
+        ],
+      })
+    );
   });
 
   it("handles GATEWAY_MESSAGE_REACTION_ADD event", async () => {
@@ -5106,57 +5659,81 @@ describe("createDiscordThread 160004 recovery", () => {
   });
 
   it("should recover when Discord returns 160004 (thread already exists)", async () => {
-    const { NetworkError } = await import("@chat-adapter/shared");
-
-    const spy = vi
-      .spyOn(adapter as any, "discordFetch")
-      .mockRejectedValue(
-        new NetworkError(
-          "discord",
-          'Discord API error: 400 {"code": 160004, "message": "A thread has already been created for this message"}'
-        )
-      );
-
-    const result = await (adapter as any).createDiscordThread(
-      "channel123",
-      "msg456"
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      Response.json(
+        {
+          code: 160_004,
+          message: "A thread has already been created for this message",
+        },
+        { status: 400 }
+      )
     );
 
-    expect(result.id).toBe("msg456");
-    expect(result.name).toContain("Thread ");
+    try {
+      const result = await (adapter as any).createDiscordThread(
+        "channel123",
+        "msg456"
+      );
 
-    spy.mockRestore();
+      expect(result.id).toBe("msg456");
+      expect(result.name).toContain("Thread ");
+    } finally {
+      fetchSpy.mockRestore();
+    }
+  });
+
+  it("should not recover when 160004 only appears elsewhere in the body", async () => {
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      Response.json(
+        {
+          code: 429,
+          message: "You are being rate limited.",
+          retry_after: 160_004,
+        },
+        { status: 429 }
+      )
+    );
+
+    try {
+      await expect(
+        (adapter as any).createDiscordThread("channel123", "msg456")
+      ).rejects.toThrow(NetworkError);
+    } finally {
+      fetchSpy.mockRestore();
+    }
   });
 
   it("should propagate non-160004 NetworkErrors", async () => {
-    const { NetworkError } = await import("@chat-adapter/shared");
-
-    const spy = vi
-      .spyOn(adapter as any, "discordFetch")
-      .mockRejectedValue(
-        new NetworkError(
-          "discord",
-          'Discord API error: 403 {"code": 50001, "message": "Missing Access"}'
+    const fetchSpy = vi
+      .spyOn(globalThis, "fetch")
+      .mockResolvedValue(
+        Response.json(
+          { code: 50_001, message: "Missing Access" },
+          { status: 403 }
         )
       );
 
-    await expect(
-      (adapter as any).createDiscordThread("channel123", "msg456")
-    ).rejects.toThrow(NetworkError);
-
-    spy.mockRestore();
+    try {
+      await expect(
+        (adapter as any).createDiscordThread("channel123", "msg456")
+      ).rejects.toThrow(NetworkError);
+    } finally {
+      fetchSpy.mockRestore();
+    }
   });
 
   it("should propagate non-NetworkError errors", async () => {
-    const spy = vi
-      .spyOn(adapter as any, "discordFetch")
+    const fetchSpy = vi
+      .spyOn(globalThis, "fetch")
       .mockRejectedValue(new Error("Connection failed"));
 
-    await expect(
-      (adapter as any).createDiscordThread("channel123", "msg456")
-    ).rejects.toThrow("Connection failed");
-
-    spy.mockRestore();
+    try {
+      await expect(
+        (adapter as any).createDiscordThread("channel123", "msg456")
+      ).rejects.toThrow("Connection failed");
+    } finally {
+      fetchSpy.mockRestore();
+    }
   });
 });
 

@@ -4,6 +4,10 @@ description: Stream real-time text responses from AI models and other async sour
 type: guide
 prerequisites:
   - /docs/usage
+related:
+  - /docs/api/markdown
+  - /docs/concurrency
+  - /docs/ai
 ---
 
 Chat SDK accepts any `AsyncIterable<string>` as a message, enabling real-time streaming of AI responses and other incremental content to chat platforms. For platforms with native or structured streaming support, you can also stream `StreamChunk` objects for rich content like task progress cards and plan updates.
@@ -21,10 +25,18 @@ const agent = new ToolLoopAgent({
 });
 
 bot.onNewMention(async (thread, message) => {
-  const result = await agent.stream({ prompt: message.text });
+  const result = await agent.stream({
+    prompt: message.text,
+    abortSignal: thread.signal,
+  });
   await thread.post(result.fullStream);
 });
 ```
+
+Passing `thread.signal` lets platform cancellation stop model generation. In
+Slack Agent messaging, clicking the native stop button aborts this signal even
+when the stop webhook is handled by another serverless instance using the same
+state adapter.
 
 ### Why `fullStream` over `textStream`?
 
@@ -38,6 +50,17 @@ await thread.post(result.fullStream);
 
 // Also works: textStream for single-step generation
 await thread.post(result.textStream);
+```
+
+For a human-in-the-loop turn, wrap the stream in `StreamingPlan` and leave the
+Slack Agent Session suspended after the final chunk:
+
+```typescript
+await thread.post(
+  new StreamingPlan(result.fullStream, {
+    sessionStatus: "suspended",
+  })
+);
 ```
 
 ## Custom streams
@@ -59,7 +82,7 @@ await thread.post(stream);
 | Platform | Method | Description |
 |----------|--------|-------------|
 | Slack | Native streaming API | Uses Slack's `chatStream` for smooth, real-time updates |
-| Telegram | Private chat rich draft previews | Uses Telegram's `sendRichMessageDraft` in private chats, persists the final response with `sendRichMessage`, and falls back to post + edit elsewhere |
+| Telegram | Post + Edit | Posts a message then edits it as chunks arrive (throttled to ~1 edit/s). Set `nativeStreaming: true` to use `sendRichMessageDraft` previews in private chats instead, persisted with `sendRichMessage` |
 | Teams | Native (DMs) / Buffered (group chats) | Uses the Teams SDK's native `stream.emit()` for direct messages; accumulates chunks and posts one final message when no native streamer is active |
 | Google Chat | Post + Edit | Posts a message then edits it as chunks arrive |
 | Discord | Post + Edit | Posts a message then edits it as chunks arrive |

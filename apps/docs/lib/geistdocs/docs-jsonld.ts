@@ -8,9 +8,6 @@ const VERCEL_ORG = {
   url: "https://vercel.com",
 };
 
-/** Core docs pages that emit structured data for search and answer engines. */
-const JSON_LD_DOC_SLUGS = new Set(["getting-started", "streaming", "cards"]);
-
 interface DocsPage {
   data: {
     description?: string;
@@ -18,7 +15,6 @@ interface DocsPage {
     toc?: TableOfContents;
     type?: string;
   };
-  slugs: string[];
   url: string;
 }
 
@@ -96,16 +92,11 @@ const getTechArticleJsonLd = (
 });
 
 /**
- * Build JSON-LD for selected core documentation pages.
- * Guides (`type: guide`) emit `HowTo` with h2 sections as steps; hub pages use
- * `TechArticle`. Always includes a `BreadcrumbList`.
+ * Build JSON-LD for documentation pages.
+ * Guides (`type: guide`) emit `HowTo` with h2 sections as steps; other pages
+ * use `TechArticle`. Always includes a `BreadcrumbList`.
  */
 export const getDocsJsonLd = (page: DocsPage) => {
-  const slug = page.slugs.join("/");
-  if (!JSON_LD_DOC_SLUGS.has(slug)) {
-    return null;
-  }
-
   const pageUrl = getDocsPageUrl(page.url);
   const { description, type, toc } = page.data;
   const title = page.data.title ?? "Chat SDK";

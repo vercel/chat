@@ -1,6 +1,5 @@
 import {
   AdapterRateLimitError,
-  AuthenticationError,
   extractCard,
   extractFiles,
   NetworkError,
@@ -1707,83 +1706,32 @@ export class GoogleChatAdapter implements Adapter<GoogleChatThreadId, unknown> {
       name: att.contentName || undefined,
       mimeType: att.contentType || undefined,
       fetchMetadata: Object.keys(fetchMeta).length > 0 ? fetchMeta : undefined,
-      fetchData:
-        resourceName || url
-          ? () => this.fetchAttachmentData(resourceName, url)
-          : undefined,
+      fetchData: resourceName
+        ? () => this.fetchAttachmentData(resourceName)
+        : undefined,
     };
   }
 
-  protected async fetchAttachmentData(
-    resourceName?: string,
-    url?: string
-  ): Promise<Buffer> {
-    // Prefer media.download API (correct method for chat apps)
-    if (resourceName) {
-      try {
-        // `alt=media` (a StandardParameters field, and the documented
-        // download form for the Chat API) selects the file bytes. Without
-        // it the endpoint returns resource metadata instead, and the
-        // arraybuffer request fails with a bare 400.
-        const res = await this.chatApi.media.download(
-          { resourceName, alt: "media" },
-          { responseType: "arraybuffer" }
-        );
-        return Buffer.from(res.data as ArrayBuffer);
-      } catch (error) {
-        if (!url) {
-          this.handleGoogleChatError(error, "fetchAttachmentData");
-        }
-        this.logger.warn(
-          "GChat media.download failed, falling back to downloadUri fetch",
-          { resourceName, error }
-        );
-      }
-    }
-
-    // Direct URL fetch (downloadUri) — used when no resourceName is
-    // available, or as a fallback when media.download fails
-    if (!url) {
-      throw new NetworkError("gchat", "No URL or resourceName available");
-    }
-
-    const auth = this.authClient;
-    if (typeof auth === "string" || !auth) {
-      throw new AuthenticationError(
-        "gchat",
-        "Cannot fetch file: no auth client configured"
+  protected async fetchAttachmentData(resourceName: string): Promise<Buffer> {
+    try {
+      const res = await this.chatApi.media.download(
+        { resourceName, alt: "media" },
+        { responseType: "arraybuffer" }
       );
+      return Buffer.from(res.data as ArrayBuffer);
+    } catch (error) {
+      this.handleGoogleChatError(error, "fetchAttachmentData");
     }
-    const tokenResult = await auth.getAccessToken();
-    const token =
-      typeof tokenResult === "string" ? tokenResult : tokenResult?.token;
-    if (!token) {
-      throw new AuthenticationError("gchat", "Failed to get access token");
-    }
-    const response = await fetch(url, {
-      headers: {
-        Authorization: `Bearer ${token}`,
-      },
-    });
-    if (!response.ok) {
-      throw new NetworkError(
-        "gchat",
-        `Failed to fetch file: ${response.status} ${response.statusText}`
-      );
-    }
-    const arrayBuffer = await response.arrayBuffer();
-    return Buffer.from(arrayBuffer);
   }
 
   rehydrateAttachment(attachment: Attachment): Attachment {
     const resourceName = attachment.fetchMetadata?.resourceName;
-    const url = attachment.fetchMetadata?.url ?? attachment.url;
-    if (!(resourceName || url)) {
+    if (!resourceName) {
       return attachment;
     }
     return {
       ...attachment,
-      fetchData: () => this.fetchAttachmentData(resourceName, url),
+      fetchData: () => this.fetchAttachmentData(resourceName),
     };
   }
 

@@ -10,16 +10,28 @@ import type { Logger } from "chat";
 export interface TelegramAdapterConfig {
   /** Telegram user IDs allowed to trigger the adapter. Defaults to TELEGRAM_ALLOWED_USER_IDS env var (comma-separated). All users are allowed when omitted or empty. */
   allowedUserIds?: Array<number | string>;
+  allowUnverifiedWebhooks?: boolean;
   /** Optional custom API base URL (defaults to https://api.telegram.org). Defaults to TELEGRAM_API_BASE_URL env var. */
   apiBaseUrl?: string;
   /** Override the Telegram API base URL. Alias for apiBaseUrl — apiUrl takes precedence if both are set. Defaults to TELEGRAM_API_BASE_URL env var. */
   apiUrl?: string;
-  /** Telegram bot token from BotFather. Defaults to TELEGRAM_BOT_TOKEN env var. */
-  botToken?: string;
+  /** Telegram bot token from BotFather, or a resolver invoked for each Bot API request. Defaults to TELEGRAM_BOT_TOKEN env var. */
+  botToken?: string | (() => string | Promise<string>);
   /** Logger instance for error reporting. Defaults to ConsoleLogger. */
   logger?: Logger;
   /** Optional long-polling configuration for getUpdates flow. */
   longPolling?: TelegramLongPollingConfig;
+  /**
+   * Treat a reply to one of the bot's own messages as a mention.
+   *
+   * Telegram users continue a conversation by replying rather than repeating
+   * the handle, so a bot that only reacts to `@name` looks unresponsive in a
+   * group. Off by default: turning it on changes which messages report
+   * `isMention`, and a bot that deliberately answers mentions only should keep
+   * the stricter behaviour. Defaults to the `TELEGRAM_MENTION_ON_REPLY`
+   * environment variable when set to `"true"`.
+   */
+  mentionOnReply?: boolean;
   /**
    * Adapter runtime mode:
    * - auto: choose webhook vs polling based on webhook registration/runtime (default)
@@ -27,8 +39,23 @@ export interface TelegramAdapterConfig {
    * - polling: polling-only mode
    */
   mode?: TelegramAdapterMode;
-  /** Optional webhook secret token checked against x-telegram-bot-api-secret-token. Defaults to TELEGRAM_WEBHOOK_SECRET_TOKEN env var. */
+  /**
+   * Use Telegram's native draft previews (`sendRichMessageDraft`, persisted
+   * with `sendRichMessage`) for streamed posts in private chats. Defaults to
+   * false, so streams use post-and-edit everywhere for consistent rendering
+   * across Telegram clients. Group, supergroup, and channel streams always use
+   * post-and-edit regardless of this setting.
+   */
+  nativeStreaming?: boolean;
+  /** Webhook secret token checked against x-telegram-bot-api-secret-token. Required in webhook mode unless unverified webhooks are explicitly allowed. Defaults to TELEGRAM_WEBHOOK_SECRET_TOKEN env var. */
   secretToken?: string;
+  /**
+   * Minimum interval between edits on the post-and-edit streaming path.
+   * Defaults to 1100ms for private chats and 3100ms for other chats. Acts as a
+   * floor: a lower Chat-level `streamingUpdateIntervalMs` is raised to this
+   * value.
+   */
+  streamingEditIntervalMs?: number;
   /** Override bot username (optional). Defaults to TELEGRAM_BOT_USERNAME env var. */
   userName?: string;
 }
@@ -427,6 +454,13 @@ export interface TelegramRichMessage {
  * @see https://core.telegram.org/bots/api#message
  */
 export interface TelegramMessage {
+  animation?: TelegramFile & {
+    duration?: number;
+    width?: number;
+    height?: number;
+    mime_type?: string;
+    file_name?: string;
+  };
   audio?: TelegramFile & {
     duration?: number;
     performer?: string;
@@ -437,19 +471,55 @@ export interface TelegramMessage {
   caption?: string;
   caption_entities?: TelegramMessageEntity[];
   chat: TelegramChat;
+  contact?: {
+    first_name: string;
+    last_name?: string;
+    phone_number: string;
+    user_id?: number;
+    vcard?: string;
+  };
   date: number;
+  dice?: { emoji: string; value: number };
   document?: TelegramFile & { file_name?: string; mime_type?: string };
   edit_date?: number;
   entities?: TelegramMessageEntity[];
   from?: TelegramUser;
+  game?: { description?: string; title: string };
+  invoice?: {
+    currency: string;
+    description?: string;
+    title: string;
+    total_amount: number;
+  };
+  location?: TelegramLocation;
   media_group_id?: string;
   message_id: number;
   message_thread_id?: number;
   photo?: TelegramPhotoSize[];
+  poll?: {
+    id: string;
+    options?: { text: string; voter_count?: number }[];
+    question: string;
+    type?: string;
+  };
+  reply_to_message?: TelegramMessage;
   rich_message?: TelegramRichMessage;
   sender_chat?: TelegramChat;
-  sticker?: TelegramFile & { emoji?: string };
+  sticker?: TelegramFile & {
+    emoji?: string;
+    set_name?: string;
+    width?: number;
+    height?: number;
+    is_animated?: boolean;
+    is_video?: boolean;
+  };
+  story?: { chat?: TelegramChat; id?: number };
   text?: string;
+  venue?: {
+    address: string;
+    location: TelegramLocation;
+    title: string;
+  };
   video?: TelegramVideo;
   video_note?: TelegramFile & { length?: number; duration?: number };
   voice?: TelegramFile & { duration?: number; mime_type?: string };

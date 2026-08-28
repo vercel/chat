@@ -18,6 +18,9 @@ const adapterMap = new WeakMap<Message, Adapter>();
 
 export function setMessageAdapter(message: Message, adapter: Adapter): void {
   adapterMap.set(message, adapter);
+  if (message.replyTo) {
+    setMessageAdapter(message.replyTo, adapter);
+  }
 }
 
 /**
@@ -41,6 +44,8 @@ export interface MessageData<TRawMessage = unknown> {
   metadata: MessageMetadata;
   /** Platform-specific raw payload (escape hatch) */
   raw: TRawMessage;
+  /** Message this message replies to */
+  replyTo?: Message<TRawMessage>;
   /** Plain text content (all formatting stripped) */
   text: string;
   /** Thread this message belongs to */
@@ -88,6 +93,7 @@ export interface SerializedMessage {
     editedAt?: string; // ISO string
   };
   raw: unknown;
+  replyTo?: SerializedMessage;
   text: string;
   threadId: string;
 }
@@ -136,6 +142,8 @@ export class Message<TRawMessage = unknown> {
   metadata: MessageMetadata;
   /** Attachments */
   attachments: Attachment[];
+  /** Message this message replies to */
+  replyTo?: Message<TRawMessage>;
 
   /**
    * Whether the bot is @-mentioned in this message.
@@ -193,6 +201,7 @@ export class Message<TRawMessage = unknown> {
     this.author = data.author;
     this.metadata = data.metadata;
     this.attachments = data.attachments;
+    this.replyTo = data.replyTo;
     this.isMention = data.isMention;
     this.links = data.links ?? [];
   }
@@ -238,6 +247,7 @@ export class Message<TRawMessage = unknown> {
         height: att.height,
         fetchMetadata: att.fetchMetadata,
       })),
+      replyTo: this.replyTo?.toJSON(),
       isMention: this.isMention,
       links:
         this.links.length > 0
@@ -274,6 +284,9 @@ export class Message<TRawMessage = unknown> {
           : undefined,
       },
       attachments: json.attachments,
+      replyTo: json.replyTo
+        ? Message.fromJSON<TRawMessage>(json.replyTo)
+        : undefined,
       isMention: json.isMention,
       links: json.links,
     });

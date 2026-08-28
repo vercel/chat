@@ -57,8 +57,10 @@ describe("ThreadHistoryCache", () => {
     expect(messages[2].id).toBe("m5");
   });
 
-  it("should strip raw field on storage", async () => {
-    const msg = createTestMessage("m1", "Hello");
+  it("should strip raw fields on storage", async () => {
+    const replyTo = createTestMessage("m0", "Original");
+    replyTo.raw = { secret: "reply data" };
+    const msg = createTestMessage("m1", "Hello", { replyTo });
     msg.raw = { secret: "data", nested: { deep: true } };
 
     await cache.append("thread-1", msg);
@@ -67,9 +69,11 @@ describe("ThreadHistoryCache", () => {
     const appendedValue = (
       state.appendToList as ReturnType<typeof import("vitest").vi.fn>
     ).mock.calls[0][1] as {
+      replyTo?: { raw: unknown };
       raw: unknown;
     };
     expect(appendedValue.raw).toBeNull();
+    expect(appendedValue.replyTo?.raw).toBeNull();
   });
 
   it("should return empty array for unknown thread", async () => {

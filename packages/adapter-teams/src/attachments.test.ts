@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
   createAnonymousAttachmentFetchData,
   createTeamsAttachment,
@@ -9,24 +9,22 @@ import {
 const CONNECTOR_URL = "https://smba.trafficmanager.net/teams/";
 
 function createFetchers(
-  fetchAuthenticated: TeamsAttachmentFetchers["fetchAuthenticated"]
+  fetchAuthenticated: TeamsAttachmentFetchers["fetchAuthenticated"],
+  transfer?: (url: string) => Promise<Buffer>
 ): TeamsAttachmentFetchers {
   return {
-    createAnonymousFetchData: createAnonymousAttachmentFetchData,
+    createAnonymousFetchData: transfer
+      ? (url) => () => transfer(url)
+      : createAnonymousAttachmentFetchData,
     fetchAuthenticated,
   };
 }
 
 describe("Teams attachments", () => {
-  afterEach(() => {
-    vi.unstubAllGlobals();
-  });
-
   it("downloads file cards anonymously and infers their MIME type", async () => {
     const fetchAuthenticated = vi.fn();
-    const anonymousFetch = vi.fn(async () => new Response("file contents"));
-    vi.stubGlobal("fetch", anonymousFetch);
-    const url = "https://smba.trafficmanager.net/teams/files/download";
+    const transfer = vi.fn(async () => Buffer.from("file contents"));
+    const url = "https://contoso-my.sharepoint.com/personal/user/file.png";
 
     const attachment = createTeamsAttachment(
       {
@@ -38,7 +36,7 @@ describe("Teams attachments", () => {
         name: "diagram.png",
       },
       CONNECTOR_URL,
-      createFetchers(fetchAuthenticated)
+      createFetchers(fetchAuthenticated, transfer)
     );
 
     expect(attachment).toMatchObject({
@@ -51,7 +49,7 @@ describe("Teams attachments", () => {
     await expect(attachment.fetchData?.()).resolves.toEqual(
       Buffer.from("file contents")
     );
-    expect(anonymousFetch).toHaveBeenCalledWith(url);
+    expect(transfer).toHaveBeenCalledWith(url);
     expect(fetchAuthenticated).not.toHaveBeenCalled();
   });
 
@@ -82,50 +80,86 @@ describe("Teams attachments", () => {
     });
   });
 
-  it("keeps cross-origin and HTTP inline attachments compatible and anonymous", async () => {
+  it("keeps cross-origin inline attachments anonymous", async () => {
     const fetchAuthenticated = vi.fn();
-    const anonymousFetch = vi.fn(async () => new Response("public image"));
-    vi.stubGlobal("fetch", anonymousFetch);
-    const urls = [
-      "https://files.example.com/image.png",
-      "http://smba.trafficmanager.net/teams/image.png",
-    ];
+    const transfer = vi.fn(async () => Buffer.from("public image"));
+    const url = "https://files.example.com/image.png";
 
-    const attachments = urls.map((contentUrl) =>
-      createTeamsAttachment(
-        {
-          contentType: "image/png",
-          contentUrl,
-          name: "image.png",
-        },
-        CONNECTOR_URL,
-        createFetchers(fetchAuthenticated)
-      )
-    );
-
-    expect(attachments).toMatchObject(
-      urls.map((url) => ({
-        type: "image",
-        url,
+    const attachment = createTeamsAttachment(
+      {
+        contentType: "image/png",
+        contentUrl: url,
         name: "image.png",
-        mimeType: "image/png",
-        fetchMetadata: { url },
-      }))
+      },
+      CONNECTOR_URL,
+      createFetchers(fetchAuthenticated, transfer)
     );
-    await Promise.all(
-      attachments.map((attachment) => attachment.fetchData?.())
+
+    expect(attachment).toMatchObject({
+      type: "image",
+      url,
+      name: "image.png",
+      mimeType: "image/png",
+      fetchMetadata: { url },
+    });
+    await expect(attachment.fetchData?.()).resolves.toEqual(
+      Buffer.from("public image")
     );
-    expect(anonymousFetch).toHaveBeenCalledTimes(2);
+    expect(transfer).toHaveBeenCalledWith(url);
     expect(fetchAuthenticated).not.toHaveBeenCalled();
+  });
+
+  it("rejects plain-HTTP inline attachment downloads by default", async () => {
+    const fetchAuthenticated = vi.fn();
+    const url = "http://contoso-my.sharepoint.com/image.png";
+
+    const attachment = createTeamsAttachment(
+      {
+        contentType: "image/png",
+        contentUrl: url,
+        name: "image.png",
+      },
+      CONNECTOR_URL,
+      createFetchers(fetchAuthenticated)
+    );
+
+    await expect(attachment.fetchData?.()).rejects.toThrow(
+      "Refusing to fetch an untrusted attachment URL"
+    );
+    expect(fetchAuthenticated).not.toHaveBeenCalled();
+  });
+
+  it("authenticates emulator attachments on a loopback HTTP connector", async () => {
+    const fetchAuthenticated = vi.fn(async () => Buffer.from("emulator image"));
+    const url = "http://localhost:3978/v3/attachments/image/views/original";
+
+    const attachment = createTeamsAttachment(
+      {
+        contentType: "image/png",
+        contentUrl: url,
+        name: "image.png",
+      },
+      "http://localhost:3978/",
+      createFetchers(fetchAuthenticated)
+    );
+
+    expect(attachment.fetchMetadata).toEqual({
+      url,
+      auth: "bot",
+      connectorOrigin: "http://localhost:3978",
+    });
+    await expect(attachment.fetchData?.()).resolves.toEqual(
+      Buffer.from("emulator image")
+    );
+    expect(fetchAuthenticated).toHaveBeenCalledWith(url);
   });
 
   it("rehydrates both retrieval modes and revalidates bot destinations", async () => {
     const fetchAuthenticated = vi.fn(async () =>
       Buffer.from("rehydrated image")
     );
-    const anonymousFetch = vi.fn(async () => new Response("anonymous file"));
-    vi.stubGlobal("fetch", anonymousFetch);
-    const fetchers = createFetchers(fetchAuthenticated);
+    const transfer = vi.fn(async () => Buffer.from("anonymous file"));
+    const fetchers = createFetchers(fetchAuthenticated, transfer);
     const url =
       "https://smba.trafficmanager.net/teams/v3/attachments/image/views/original";
     const serialized = JSON.parse(
@@ -195,6 +229,26 @@ describe("Teams attachments", () => {
     );
 
     expect(fetchAuthenticated).toHaveBeenCalledTimes(1);
-    expect(anonymousFetch).toHaveBeenCalledWith(anonymousUrl);
+    expect(transfer).toHaveBeenCalledWith(anonymousUrl);
+  });
+
+  it.each([
+    "http://169.254.169.254/latest/meta-data",
+    "https://127.0.0.1/private",
+    "https://2130706433/private",
+    "https://[::1]/private",
+  ])("rejects internal anonymous URL %s after rehydration", async (url) => {
+    const attachment = rehydrateTeamsAttachment(
+      {
+        type: "file",
+        url,
+        fetchMetadata: { url },
+      },
+      createFetchers(vi.fn())
+    );
+
+    await expect(attachment.fetchData?.()).rejects.toThrow(
+      "Refusing to fetch an internal attachment URL"
+    );
   });
 });

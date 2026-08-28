@@ -546,7 +546,7 @@ function isButtonProps(props: CardJSXProps): props is ButtonProps {
  * Type guard to check if props match LinkButtonProps
  */
 function isLinkButtonProps(props: CardJSXProps): props is LinkButtonProps {
-  return "url" in props && typeof props.url === "string" && !("id" in props);
+  return "url" in props && typeof props.url === "string";
 }
 
 /**

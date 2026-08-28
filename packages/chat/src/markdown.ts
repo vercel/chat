@@ -323,15 +323,21 @@ function nodeValue(node: Content | Root): string | null {
   return null;
 }
 
-function childPlainText(node: Content | Root, separator: string): string {
+function childPlainText(
+  node: Content | Root,
+  separator: string,
+  keepEmpty = false
+): string {
   if (!("children" in node && Array.isArray(node.children))) {
     return "";
   }
 
-  return (node.children as (Content | Root)[])
-    .map((child) => plainTextNode(child))
-    .filter((text) => text.length > 0)
-    .join(separator);
+  const texts = (node.children as (Content | Root)[]).map((child) =>
+    plainTextNode(child)
+  );
+  return (keepEmpty ? texts : texts.filter((text) => text.length > 0)).join(
+    separator
+  );
 }
 
 function plainTextNode(node: Content | Root): string {
@@ -344,13 +350,21 @@ function plainTextNode(node: Content | Root): string {
     case "root":
       return childPlainText(node, "\n\n");
     case "list":
-    case "table":
       return childPlainText(node, "\n");
+    case "table": {
+      // Drop rows with no content (e.g. a placeholder header row) but keep
+      // rows that have any populated cell.
+      const rows = (node.children as Content[]).map((child) =>
+        plainTextNode(child)
+      );
+      return rows.filter((row) => row.trim().length > 0).join("\n");
+    }
     case "listItem":
     case "blockquote":
       return childPlainText(node, "\n");
     case "tableRow":
-      return childPlainText(node, "\t");
+      // Keep empty cells so columns stay aligned in the tab-separated output
+      return childPlainText(node, "\t", true);
     case "break":
       return "\n";
     case "thematicBreak":

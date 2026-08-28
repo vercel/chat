@@ -1,13 +1,16 @@
 import "../global.css";
-import { Analytics } from "@vercel/analytics/next";
 import { Footer } from "@vercel/geistdocs/footer";
 import { Navbar } from "@vercel/geistdocs/navbar";
-import { SpeedInsights } from "@vercel/speed-insights/next";
 import type { Metadata } from "next";
 import { GeistdocsProvider } from "@/components/geistdocs/provider";
 import { config } from "@/lib/geistdocs/config";
 import { mono, sans } from "@/lib/geistdocs/fonts";
+import { i18n } from "@/lib/geistdocs/i18n";
+import { getRootLang } from "@/lib/geistdocs/root-params";
 import { cn } from "@/lib/utils";
+
+export const generateStaticParams = () =>
+  i18n.languages.map((lang) => ({ lang }));
 
 export const metadata: Metadata = {
   metadataBase: new URL("https://chat-sdk.dev"),
@@ -24,8 +27,8 @@ export const metadata: Metadata = {
   },
 };
 
-const Layout = async ({ children, params }: LayoutProps<"/[lang]">) => {
-  const { lang } = await params;
+const Layout = async ({ children }: LayoutProps<"/[lang]">) => {
+  const lang = await getRootLang();
 
   return (
     <html
@@ -42,8 +45,6 @@ const Layout = async ({ children, params }: LayoutProps<"/[lang]">) => {
           {children}
           <Footer />
         </GeistdocsProvider>
-        <Analytics />
-        <SpeedInsights />
       </body>
     </html>
   );

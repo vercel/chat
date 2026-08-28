@@ -51,9 +51,15 @@ export class ThreadHistoryCache {
   async append(threadId: string, message: Message): Promise<void> {
     const key = `${KEY_PREFIX}${threadId}`;
 
-    // Serialize with raw nulled out to save storage
+    // Omit raw payloads to keep history storage bounded.
     const serialized = message.toJSON();
-    serialized.raw = null;
+    for (
+      let current: SerializedMessage | undefined = serialized;
+      current;
+      current = current.replyTo
+    ) {
+      current.raw = null;
+    }
 
     await this.state.appendToList(key, serialized, {
       maxLength: this.maxMessages,

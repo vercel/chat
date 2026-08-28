@@ -47,6 +47,25 @@ bot.onNewMention(async (thread, message) => {
 });
 ```
 
+## Vercel Connect
+
+Use `connectNotionAdapter` to resolve the outbound Notion access token from
+Vercel Connect:
+
+```typescript
+import { createNotionAdapter } from "@chat-adapter/notion";
+import { connectNotionAdapter } from "@vercel/connect/chat";
+
+const notion = createNotionAdapter({
+  ...connectNotionAdapter("notion/acme-notion"),
+  verificationToken: process.env.NOTION_VERIFICATION_TOKEN,
+});
+```
+
+Connect does not forward Notion webhooks. Configure the webhook subscription
+directly in Notion and keep `NOTION_VERIFICATION_TOKEN` for native HMAC
+verification. `NOTION_TOKEN` is not needed when using the Connect helper.
+
 ## AI Coding Agents
 
 If you use an AI coding agent such as OpenAI Codex, Claude Code, or Cursor, install the Chat SDK skill so it knows the SDK APIs, adapter patterns, and project conventions before writing code.

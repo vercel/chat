@@ -10,6 +10,7 @@ import type { AdapterFeatureValue } from "@/lib/adapter-features";
 import { getAdapterJsonLd } from "@/lib/geistdocs/adapter-jsonld";
 import { getAdapter } from "@/lib/geistdocs/adapter-readme";
 import { adaptersSource } from "@/lib/geistdocs/adapters-source";
+import { MoreAdapters } from "../../../components/more-adapters";
 
 interface AdapterFrontmatter {
   beta?: boolean;
@@ -103,6 +104,7 @@ const Page = async ({ params }: { params: Promise<PageParams> }) => {
             FeatureSupport: BoundFeatureSupport,
           })}
         />
+        <MoreAdapters page={page} />
       </DocsBody>
     </DocsPage>
   );
@@ -137,6 +139,7 @@ export const generateMetadata = async ({
       card: "summary_large_image",
     },
     alternates: {
+      canonical: `/adapters/official/${slug}`,
       types: {
         "text/markdown": `/adapters/official/${slug}.md`,
       },

@@ -1,5 +1,27 @@
 # @chat-adapter/slack
 
+## 4.38.1
+
+### Patch Changes
+
+- 764e475: preserve pasted Slack tables in parsed message content: `table` and `data_table` blocks become structured table nodes in `message.formatted` and tab-separated text in `message.text`. Table cells render mentions, channels, and links through the same mrkdwn converter as body text, unfurl and app attachments are excluded, date cells without a fallback are formatted from their timestamp, and tables pasted above the message text stay above it. Headerless pasted tables get an empty header row so GFM re-serialization doesn't promote the first data row to a header. `SlackEvent.blocks` is now typed with the exported `SlackMessageBlock` interface.
+- Updated dependencies [6cb933e]
+- Updated dependencies [764e475]
+  - chat@4.38.1
+  - @chat-adapter/shared@4.38.1
+
+## 4.38.0
+
+### Patch Changes
+
+- Updated dependencies [0f24cc3]
+- Updated dependencies [bdeb2bf]
+- Updated dependencies [a0cba02]
+- Updated dependencies [83ede7e]
+- Updated dependencies [18d4a23]
+  - chat@4.38.0
+  - @chat-adapter/shared@4.38.0
+
 ## 4.37.0
 
 ### Minor Changes
