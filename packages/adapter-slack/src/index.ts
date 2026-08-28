@@ -75,6 +75,7 @@ import {
   encryptToken,
   isEncryptedTokenData,
 } from "./crypto";
+import { escapeSlackText, unescapeSlackText } from "./format";
 import { SlackFormatConverter } from "./markdown";
 import {
   decodeModalMetadata,
@@ -165,6 +166,84 @@ function findNextMention(text: string): number {
   return Math.min(atIdx, hashIdx);
 }
 
+/** Resolved display names for mention tokens, keyed by user/channel ID. */
+interface SlackMentionNames {
+  channels: Map<string, string>;
+  users: Map<string, string>;
+}
+
+/**
+ * Collect the user and channel IDs referenced by `<@U…>` / `<#C…>` tokens.
+ * Parses by splitting on angle brackets to avoid ReDoS.
+ */
+function collectMentionIds(
+  text: string,
+  userIds: Set<string>,
+  channelIds: Set<string>
+): void {
+  for (const segment of text.split("<")) {
+    const end = segment.indexOf(">");
+    if (end === -1) {
+      continue;
+    }
+    const inner = segment.slice(0, end);
+    if (inner.startsWith("@")) {
+      const rest = inner.slice(1);
+      const pipeIdx = rest.indexOf("|");
+      const uid = pipeIdx >= 0 ? rest.slice(0, pipeIdx) : rest;
+      if (SLACK_USER_ID_PATTERN.test(uid)) {
+        userIds.add(uid);
+      }
+    } else if (inner.startsWith("#")) {
+      const rest = inner.slice(1);
+      const pipeIdx = rest.indexOf("|");
+      // Only collect bare channel IDs (no label already present)
+      if (pipeIdx === -1 && SLACK_USER_ID_PATTERN.test(rest)) {
+        channelIds.add(rest);
+      }
+    }
+  }
+}
+
+/**
+ * Replace `<@U123>`, `<@U123|old>`, and `<#C123>` with resolved names.
+ * Tokens without a resolved name are left untouched. Uses a split-based
+ * approach to avoid ReDoS on user-controlled input.
+ */
+function applyMentionNames(text: string, names: SlackMentionNames): string {
+  if (names.users.size === 0 && names.channels.size === 0) {
+    return text;
+  }
+
+  let result = "";
+  let remaining = text;
+  let startIdx = findNextMention(remaining);
+  while (startIdx !== -1) {
+    result += remaining.slice(0, startIdx);
+    remaining = remaining.slice(startIdx);
+    const endIdx = remaining.indexOf(">");
+    if (endIdx === -1) {
+      break;
+    }
+    const prefix = remaining[1]; // '@' or '#'
+    const inner = remaining.slice(2, endIdx); // after "<@" or "<#"
+    const pipeIdx = inner.indexOf("|");
+    const id = pipeIdx >= 0 ? inner.slice(0, pipeIdx) : inner;
+    if (prefix === "@" && SLACK_USER_ID_PATTERN.test(id)) {
+      const name = names.users.get(id);
+      result += name ? `<@${id}|${name}>` : remaining.slice(0, endIdx + 1);
+    } else if (prefix === "#" && pipeIdx === -1 && names.channels.has(id)) {
+      const name = names.channels.get(id);
+      result += `<#${id}|${name}>`;
+    } else {
+      result += remaining.slice(0, endIdx + 1);
+    }
+    remaining = remaining.slice(endIdx + 1);
+    startIdx = findNextMention(remaining);
+  }
+  return result + remaining;
+}
+
 /**
  * Pattern to match Slack message URLs.
  * Format: https://{workspace}.slack.com/archives/{channelId}/p{timestamp}
@@ -185,6 +264,7 @@ const SLACK_MESSAGE_URL_PATTERN =
   /^https?:\/\/[^/]+\.slack\.com\/archives\/([A-Z0-9]+)\/p(\d+)(?:\?.*)?$/;
 // Bracketed URL in message text; length-bounded to keep the scan linear.
 const BRACKETED_URL_PATTERN = /<(https?:\/\/[^>]{1,2048})>/g;
+const HTTP_URL_PREFIX_PATTERN = /^https?:\/\//;
 
 import type {
   SlackAdapterConfig,
@@ -315,12 +395,11 @@ export interface SlackMessageBlock extends SlackBlock {
   url?: string;
 }
 
-type SlackTable = Extract<
-  FormattedContent["children"][number],
-  { type: "table" }
->;
+type SlackContentNode = FormattedContent["children"][number];
+type SlackTable = Extract<SlackContentNode, { type: "table" }>;
 type SlackTableRow = SlackTable["children"][number];
 type SlackTableCell = SlackTableRow["children"][number];
+type SlackPhrasing = SlackTableCell["children"][number];
 
 /** Table extracted from a Slack table block, one mrkdwn string per cell. */
 interface SlackTableData {
@@ -477,9 +556,11 @@ function isForeignAttachment(
 }
 
 /**
- * Collect table blocks from the event, split by position. Slack flattens all
- * rich text into `event.text`, so exact interleaving can't be reconstructed;
- * tables pasted above the text at least stay above it.
+ * Collect table blocks from the message's own blocks, split by position.
+ * Slack flattens all rich text into `event.text`, so exact interleaving can't
+ * be reconstructed; tables pasted above the text at least stay above it.
+ * Attachment tables are handled per-attachment (see `attachmentContent`) so
+ * they stay adjacent to the attachment text they belong to.
  */
 function eventTables(event: SlackEvent): SlackEventTables {
   const blocks = event.blocks ?? [];
@@ -494,69 +575,157 @@ function eventTables(event: SlackEvent): SlackEventTables {
       return parsed ? [parsed] : [];
     });
 
-  const attachmentBlocks = (event.attachments ?? [])
-    .filter((attachment) => !isForeignAttachment(attachment))
-    .flatMap((attachment) =>
-      Array.isArray(attachment.blocks) ? attachment.blocks : []
-    );
-
   return {
     leading: parse(blocks.slice(0, splitIdx)),
-    trailing: [...parse(blocks.slice(splitIdx)), ...parse(attachmentBlocks)],
+    trailing: parse(blocks.slice(splitIdx)),
   };
 }
 
 /**
- * Legacy attachment content. Alerting integrations (Sentry, PagerDuty, GitHub)
- * put the real payload in `title`/`text`/`fields` rather than in blocks, so
+ * Attachments authored by the message sender, in attachment order. Unfurls
+ * are excluded everywhere author attachments are read — content, tables, and
+ * links alike — because their content is not the author's.
+ */
+function authorAttachments(
+  event: SlackEvent
+): NonNullable<SlackEvent["attachments"]> {
+  return (event.attachments ?? []).filter(
+    (attachment) => !isForeignAttachment(attachment)
+  );
+}
+
+/**
+ * One piece of attachment text. `mrkdwn` parts go through the format
+ * converter (formatting characters are markup); `literal` parts render as
+ * plain text where only Slack control sequences (`<@U…>`, `<url|label>`,
+ * entity escapes) are honored, so literal `*`/`_`/backticks survive.
+ */
+type SlackAttachmentPart = { literal: string } | { mrkdwn: string };
+
+/** Renderable content of one attachment. */
+interface SlackAttachmentContent {
+  parts: SlackAttachmentPart[];
+  tables: SlackTableData[];
+}
+
+/**
+ * Content of a legacy attachment. Alerting integrations (Sentry, PagerDuty,
+ * GitHub) put the real payload in `pretext`/`title`/`text`/`fields`, so
  * without this the normalized message keeps only the one-line summary.
+ *
+ * Slack renders these fields as plain text unless they are listed in the
+ * attachment's `mrkdwn_in` array; the parts mirror that so alert text
+ * containing shell commands or globs isn't reinterpreted as formatting.
+ * `title` is always plain text and links to `title_link` when present.
+ *
+ * When the attachment carries blocks, Slack renders only the blocks and
+ * ignores the legacy fields — mirrored here by preferring extracted tables.
+ * Block types the parser can't render fall back to the legacy fields, and
+ * `fallback` (the attachment's plain-text stand-in) fills in last so an
+ * attachment never silently contributes nothing.
  */
 function attachmentContent(
   attachment: NonNullable<SlackEvent["attachments"]>[number]
-): string[] {
-  const lines: string[] = [];
-  const push = (value: string | undefined) => {
-    const trimmed = value?.trim();
-    if (trimmed) {
-      lines.push(trimmed);
+): SlackAttachmentContent {
+  const tables = (attachment.blocks ?? []).flatMap((block) => {
+    const parsed = tableData(block);
+    return parsed ? [parsed] : [];
+  });
+
+  const parts: SlackAttachmentPart[] = [];
+  if (tables.length === 0) {
+    const mrkdwnIn = new Set(attachment.mrkdwn_in ?? []);
+    const push = (value: string | undefined, mrkdwn: boolean) => {
+      const trimmed = value?.trim();
+      if (trimmed) {
+        parts.push(mrkdwn ? { mrkdwn: trimmed } : { literal: trimmed });
+      }
+    };
+
+    push(attachment.pretext, mrkdwnIn.has("pretext"));
+    const title = attachment.title?.trim();
+    if (attachment.title_link) {
+      // Fold the link in as a control sequence so the title renders as a
+      // link node and the URL survives into the normalized message.
+      push(
+        title
+          ? `<${attachment.title_link}|${escapeSlackText(title)}>`
+          : `<${attachment.title_link}>`,
+        false
+      );
+    } else {
+      push(title, false);
     }
-  };
+    push(attachment.text, mrkdwnIn.has("text"));
+    for (const field of attachment.fields ?? []) {
+      const fieldTitle = field.title?.trim();
+      const value = field.value?.trim();
+      push(
+        fieldTitle && value ? `${fieldTitle}: ${value}` : fieldTitle || value,
+        mrkdwnIn.has("fields")
+      );
+    }
 
-  push(attachment.title);
-  push(attachment.text);
-  for (const field of attachment.fields ?? []) {
-    const title = field.title?.trim();
-    const value = field.value?.trim();
-    push(title && value ? `${title}: ${value}` : title || value);
+    if (parts.length === 0) {
+      push(attachment.fallback, false);
+    }
   }
 
-  // `fallback` is a plain-text stand-in for content rendered elsewhere, so it
-  // only adds anything when nothing else on the attachment carried it.
-  const hasBlocks =
-    Array.isArray(attachment.blocks) && attachment.blocks.length > 0;
-  if (lines.length === 0 && !hasBlocks) {
-    push(attachment.fallback);
-  }
-  return lines;
+  return { parts, tables };
 }
 
 /**
- * Attachment content from the author, in attachment order. Unfurls are skipped
- * for the same reason their blocks are: the content is not theirs.
+ * Render one line of plain-text Slack content to phrasing nodes. Control
+ * sequences are honored the same way `slackMrkdwnToMarkdown` renders them
+ * (`<@U…|name>` → `@name`, `<url|label>` → link), but nothing is parsed as
+ * markdown — formatting characters stay literal.
  */
-function eventAttachmentContent(event: SlackEvent): string[] {
-  return (event.attachments ?? [])
-    .filter((attachment) => !isForeignAttachment(attachment))
-    .flatMap(attachmentContent);
-}
+function literalPhrasing(line: string): SlackPhrasing[] {
+  const children: SlackPhrasing[] = [];
+  let plain = "";
+  const flushPlain = () => {
+    if (plain) {
+      children.push({ type: "text", value: unescapeSlackText(plain) });
+      plain = "";
+    }
+  };
 
-/** Append attachment content below the message text. */
-function withAttachmentContent(text: string, lines: string[]): string {
-  if (lines.length === 0) {
-    return text;
+  let remaining = line;
+  while (remaining.length > 0) {
+    const start = remaining.indexOf("<");
+    const end = start === -1 ? -1 : remaining.indexOf(">", start + 1);
+    if (end === -1) {
+      plain += remaining;
+      break;
+    }
+    plain += remaining.slice(0, start);
+    const token = remaining.slice(start, end + 1);
+    const inner = remaining.slice(start + 1, end);
+    remaining = remaining.slice(end + 1);
+
+    const pipeIdx = inner.indexOf("|");
+    const target = pipeIdx === -1 ? inner : inner.slice(0, pipeIdx);
+    const label = pipeIdx === -1 ? undefined : inner.slice(pipeIdx + 1);
+    const id = target.slice(1);
+    if (target.startsWith("@") && SLACK_USER_ID_PATTERN.test(id)) {
+      plain += `@${label ?? id}`;
+    } else if (target.startsWith("#") && SLACK_USER_ID_PATTERN.test(id)) {
+      plain += label ? `#${label} (${id})` : `#${id}`;
+    } else if (HTTP_URL_PREFIX_PATTERN.test(target)) {
+      flushPlain();
+      children.push({
+        type: "link",
+        url: target,
+        children: [
+          { type: "text", value: label ? unescapeSlackText(label) : target },
+        ],
+      });
+    } else {
+      plain += token;
+    }
   }
-  const joined = lines.join("\n");
-  return text ? `${text}\n\n${joined}` : joined;
+  flushPlain();
+  return children;
 }
 
 /** Slack event payload (raw message format) */
@@ -570,7 +739,10 @@ export interface SlackEvent {
     image_url?: string;
     is_app_unfurl?: boolean;
     is_msg_unfurl?: boolean;
+    /** Field names Slack renders as mrkdwn ("pretext", "text", "fields") */
+    mrkdwn_in?: string[];
     original_url?: string;
+    pretext?: string;
     service_icon?: string;
     service_name?: string;
     text?: string;
@@ -3032,23 +3204,35 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
     const threadId = this.threadIdForMessageEvent(normalized);
 
     // Slack sends the pre-edit message alongside the new one. Forward it so
-    // handlers can diff the change instead of only seeing the result.
+    // handlers can diff the change instead of only seeing the result. Parse
+    // it with the same async path as the new message so mentions render
+    // identically on both sides and unchanged content doesn't diff.
     const before = event.previous_message;
+    const parsePreviousMessage = before
+      ? async (): Promise<Message<unknown>> => {
+          const snapshot = {
+            ...before,
+            channel: before.channel ?? normalized.channel,
+            channel_type: before.channel_type ?? normalized.channel_type,
+            type: before.type ?? "message",
+          };
+          try {
+            return await this.parseSlackMessage(snapshot, threadId);
+          } catch (error) {
+            // Never let a lookup failure on the old snapshot drop the edit
+            this.logger.warn(
+              "Falling back to sync parse for pre-edit message",
+              { error, threadId }
+            );
+            return this.parseSlackMessageSync(snapshot, threadId);
+          }
+        }
+      : undefined;
     this.chat.processMessageUpdated(
       {
         adapter: this,
         message: () => this.parseSlackMessage(normalized, threadId),
-        previousMessage: before
-          ? this.parseSlackMessageSync(
-              {
-                ...before,
-                channel: before.channel ?? normalized.channel,
-                channel_type: before.channel_type ?? normalized.channel_type,
-                type: before.type ?? "message",
-              },
-              threadId
-            )
-          : undefined,
+        previousMessage: parsePreviousMessage,
         threadId,
       },
       options
@@ -3554,44 +3738,34 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
   ): Promise<string> {
     const userIds = new Set<string>();
     const channelIds = new Set<string>();
-    // Parse mentions by splitting on angle brackets to avoid ReDoS
-    for (const segment of text.split("<")) {
-      const end = segment.indexOf(">");
-      if (end === -1) {
-        continue;
-      }
-      const inner = segment.slice(0, end);
-      if (inner.startsWith("@")) {
-        const rest = inner.slice(1);
-        const pipeIdx = rest.indexOf("|");
-        const uid = pipeIdx >= 0 ? rest.slice(0, pipeIdx) : rest;
-        if (SLACK_USER_ID_PATTERN.test(uid)) {
-          userIds.add(uid);
-        }
-      } else if (inner.startsWith("#")) {
-        const rest = inner.slice(1);
-        const pipeIdx = rest.indexOf("|");
-        // Only collect bare channel IDs (no label already present)
-        if (pipeIdx === -1 && SLACK_USER_ID_PATTERN.test(rest)) {
-          channelIds.add(rest);
-        }
-      }
-    }
-    if (userIds.size === 0 && channelIds.size === 0) {
-      return text;
-    }
+    collectMentionIds(text, userIds, channelIds);
+    const names = await this.lookupMentionNames(
+      userIds,
+      channelIds,
+      skipSelfMention
+    );
+    return applyMentionNames(text, names);
+  }
 
-    // Don't resolve the bot's own mention when processing incoming webhooks —
-    // detectMention needs @botUserId in the text
+  /**
+   * Look up display names for collected mention IDs in one parallel wave.
+   * Mutates `userIds`: the bot's own ID is removed when `skipSelfMention` is
+   * set — detectMention needs @botUserId to stay in the text (see
+   * `resolveInlineMentions`).
+   */
+  private async lookupMentionNames(
+    userIds: Set<string>,
+    channelIds: Set<string>,
+    skipSelfMention: boolean
+  ): Promise<SlackMentionNames> {
     const currentBotUserId = this.botUserId;
     if (skipSelfMention && currentBotUserId) {
       userIds.delete(currentBotUserId);
     }
     if (userIds.size === 0 && channelIds.size === 0) {
-      return text;
+      return { channels: new Map(), users: new Map() };
     }
 
-    // Look up all mentioned users and channels in parallel
     const [userLookups, channelLookups] = await Promise.all([
       Promise.all(
         [...userIds].map(async (uid) => {
@@ -3606,38 +3780,7 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
         })
       ),
     ]);
-    const userNameMap = new Map(userLookups);
-    const channelNameMap = new Map(channelLookups);
-
-    // Replace <@U123>, <@U123|old>, and <#C123> with resolved names
-    // Use split-based approach to avoid ReDoS on user-controlled input
-    let result = "";
-    let remaining = text;
-    let startIdx = findNextMention(remaining);
-    while (startIdx !== -1) {
-      result += remaining.slice(0, startIdx);
-      remaining = remaining.slice(startIdx);
-      const endIdx = remaining.indexOf(">");
-      if (endIdx === -1) {
-        break;
-      }
-      const prefix = remaining[1]; // '@' or '#'
-      const inner = remaining.slice(2, endIdx); // after "<@" or "<#"
-      const pipeIdx = inner.indexOf("|");
-      const id = pipeIdx >= 0 ? inner.slice(0, pipeIdx) : inner;
-      if (prefix === "@" && SLACK_USER_ID_PATTERN.test(id)) {
-        const name = userNameMap.get(id);
-        result += name ? `<@${id}|${name}>` : `<@${id}>`;
-      } else if (prefix === "#" && pipeIdx === -1 && channelNameMap.has(id)) {
-        const name = channelNameMap.get(id);
-        result += `<#${id}|${name}>`;
-      } else {
-        result += remaining.slice(0, endIdx + 1);
-      }
-      remaining = remaining.slice(endIdx + 1);
-      startIdx = findNextMention(remaining);
-    }
-    return result + remaining;
+    return { channels: new Map(channelLookups), users: new Map(userLookups) };
   }
 
   /**
@@ -3695,6 +3838,11 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
             siteName: att.service_name,
           });
           urls.add(attUrl);
+        }
+        // Alert attachments link their title (e.g. the Sentry issue URL);
+        // surface it so handlers can reach what the Slack UI links to.
+        if (att.title_link && !isForeignAttachment(att)) {
+          urls.add(att.title_link);
         }
       }
     }
@@ -5716,48 +5864,88 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
 
   protected content(event: SlackEvent, text: string): FormattedContent {
     return this.assembleContent(
-      withAttachmentContent(text, eventAttachmentContent(event)),
-      eventTables(event)
+      text,
+      eventTables(event),
+      authorAttachments(event).flatMap((attachment) =>
+        this.attachmentNodes(attachmentContent(attachment))
+      )
     );
   }
 
   /**
    * Like `content`, but resolves user and channel mentions inside table
-   * cells the same way `resolveInlineMentions` resolves them in body text.
+   * cells and attachment content the same way `resolveInlineMentions`
+   * resolves them in body text. All mention IDs are collected up front and
+   * looked up in a single parallel wave so no ID is fetched twice.
    */
   protected async resolvedContent(
     event: SlackEvent,
     text: string,
     skipSelfMention: boolean
   ): Promise<FormattedContent> {
-    const resolve = async (data: SlackTableData): Promise<SlackTableData> => ({
+    const { leading, trailing } = eventTables(event);
+    const attachments = authorAttachments(event).map(attachmentContent);
+
+    const userIds = new Set<string>();
+    const channelIds = new Set<string>();
+    const collectTable = (data: SlackTableData) => {
+      for (const row of data.rows) {
+        for (const cell of row) {
+          collectMentionIds(cell, userIds, channelIds);
+        }
+      }
+    };
+    for (const data of [...leading, ...trailing]) {
+      collectTable(data);
+    }
+    for (const attachment of attachments) {
+      for (const data of attachment.tables) {
+        collectTable(data);
+      }
+      for (const part of attachment.parts) {
+        collectMentionIds(
+          "mrkdwn" in part ? part.mrkdwn : part.literal,
+          userIds,
+          channelIds
+        );
+      }
+    }
+    const names = await this.lookupMentionNames(
+      userIds,
+      channelIds,
+      skipSelfMention
+    );
+
+    const resolveTable = (data: SlackTableData): SlackTableData => ({
       ...data,
-      rows: await Promise.all(
-        data.rows.map((row) =>
-          Promise.all(
-            row.map((cell) =>
-              cell ? this.resolveInlineMentions(cell, skipSelfMention) : cell
-            )
-          )
-        )
+      rows: data.rows.map((row) =>
+        row.map((cell) => (cell ? applyMentionNames(cell, names) : cell))
       ),
     });
+    const resolvePart = (part: SlackAttachmentPart): SlackAttachmentPart =>
+      "mrkdwn" in part
+        ? { mrkdwn: applyMentionNames(part.mrkdwn, names) }
+        : { literal: applyMentionNames(part.literal, names) };
 
-    const { leading, trailing } = eventTables(event);
-    const attachmentLines = await Promise.all(
-      eventAttachmentContent(event).map((line) =>
-        this.resolveInlineMentions(line, skipSelfMention)
+    return this.assembleContent(
+      text,
+      {
+        leading: leading.map(resolveTable),
+        trailing: trailing.map(resolveTable),
+      },
+      attachments.flatMap((attachment) =>
+        this.attachmentNodes({
+          parts: attachment.parts.map(resolvePart),
+          tables: attachment.tables.map(resolveTable),
+        })
       )
     );
-    return this.assembleContent(withAttachmentContent(text, attachmentLines), {
-      leading: await Promise.all(leading.map(resolve)),
-      trailing: await Promise.all(trailing.map(resolve)),
-    });
   }
 
   private assembleContent(
     text: string,
-    tables: SlackEventTables
+    tables: SlackEventTables,
+    attachments: SlackContentNode[] = []
   ): FormattedContent {
     const formatted = this.formatConverter.toAst(text);
     formatted.children.unshift(
@@ -5766,7 +5954,54 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
     formatted.children.push(
       ...tables.trailing.map((data) => this.tableNode(data))
     );
+    formatted.children.push(...attachments);
     return formatted;
+  }
+
+  /**
+   * Render one attachment's content to block nodes. Literal lines share a
+   * paragraph (separated by hard breaks) so an attachment reads as one block;
+   * mrkdwn parts are parsed in isolation so an unclosed code fence in the
+   * message body or another attachment can't swallow this one's content.
+   * Tables from the attachment's blocks follow its text, keeping each
+   * attachment's content adjacent.
+   */
+  private attachmentNodes(content: SlackAttachmentContent): SlackContentNode[] {
+    const nodes: SlackContentNode[] = [];
+    let lines: SlackPhrasing[][] = [];
+    const flush = () => {
+      if (lines.length === 0) {
+        return;
+      }
+      const children: SlackPhrasing[] = [];
+      for (const line of lines) {
+        if (children.length > 0) {
+          children.push({ type: "break" });
+        }
+        children.push(...line);
+      }
+      nodes.push({ type: "paragraph", children });
+      lines = [];
+    };
+
+    for (const part of content.parts) {
+      if ("mrkdwn" in part) {
+        flush();
+        nodes.push(...this.formatConverter.toAst(part.mrkdwn).children);
+      } else {
+        for (const line of part.literal.split("\n")) {
+          if (line.trim()) {
+            lines.push(literalPhrasing(line));
+          } else {
+            // A blank line inside a literal part starts a new paragraph
+            flush();
+          }
+        }
+      }
+    }
+    flush();
+    nodes.push(...content.tables.map((data) => this.tableNode(data)));
+    return nodes;
   }
 
   private tableNode(data: SlackTableData): SlackTable {

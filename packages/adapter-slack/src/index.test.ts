@@ -1679,6 +1679,229 @@ describe("parseMessage", () => {
     expect(message.text).toBe("Check this out");
   });
 
+  it("keeps attachment formatting characters literal unless mrkdwn_in enables them", () => {
+    const attachment = {
+      title: "Cleanup failed in <module>",
+      text: "rm -rf /tmp/*cache* failed for _id_ values",
+    };
+    const literal = adapter.parseMessage({
+      type: "message",
+      user: "U123",
+      channel: "C456",
+      text: "Alert",
+      ts: "1786120899.208429",
+      attachments: [{ ...attachment }],
+    });
+
+    // Slack renders attachment text as plain text unless mrkdwn_in lists it
+    expect(literal.text).toBe(
+      "Alert\n\n" +
+        "Cleanup failed in <module>\n" +
+        "rm -rf /tmp/*cache* failed for _id_ values"
+    );
+
+    const mrkdwn = adapter.parseMessage({
+      type: "message",
+      user: "U123",
+      channel: "C456",
+      text: "Alert",
+      ts: "1786120899.208429",
+      attachments: [
+        { ...attachment, mrkdwn_in: ["text"], text: "deploy *failed* badly" },
+      ],
+    });
+
+    // With mrkdwn_in, *bold* is markup; the title stays plain text
+    expect(mrkdwn.text).toBe(
+      "Alert\n\nCleanup failed in <module>\n\ndeploy failed badly"
+    );
+    expect(mrkdwn.formatted.children).toContainEqual(
+      expect.objectContaining({
+        type: "paragraph",
+        children: expect.arrayContaining([
+          expect.objectContaining({ type: "strong" }),
+        ]),
+      })
+    );
+  });
+
+  it("keeps attachment content out of an unclosed code fence in the body", () => {
+    const message = adapter.parseMessage({
+      type: "message",
+      user: "U123",
+      channel: "C456",
+      text: "Deploy failed:\n```\nTypeError: boom",
+      ts: "1786120899.208429",
+      attachments: [
+        {
+          title: "Deploy status",
+          fields: [{ title: "Environment", value: "production" }],
+        },
+      ],
+    });
+
+    // The unclosed fence swallows the rest of the body, but the attachment
+    // parses in isolation and stays a paragraph.
+    const types = message.formatted.children.map((child) => child.type);
+    expect(types).toEqual(["paragraph", "code", "paragraph"]);
+    expect(message.text).toBe(
+      "Deploy failed:\n\nTypeError: boom\n\nDeploy status\nEnvironment: production"
+    );
+  });
+
+  it("uses the fallback when attachment blocks carry nothing renderable", () => {
+    const message = adapter.parseMessage({
+      type: "message",
+      user: "U123",
+      channel: "C456",
+      text: "Heads up",
+      ts: "1786120899.208429",
+      attachments: [
+        {
+          fallback: "Deploy failed on step 3",
+          blocks: [{ type: "section", text: "Deploy failed on step 3" }],
+        },
+      ],
+    });
+
+    expect(message.text).toBe("Heads up\n\nDeploy failed on step 3");
+  });
+
+  it("prefers attachment blocks over legacy fields, matching Slack rendering", () => {
+    const message = adapter.parseMessage({
+      type: "message",
+      user: "U123",
+      channel: "C456",
+      text: "Report",
+      ts: "1786120899.208429",
+      attachments: [
+        {
+          fallback: "table fallback",
+          title: "Legacy title Slack does not render",
+          blocks: [
+            {
+              type: "table",
+              rows: [
+                [
+                  { type: "raw_text", text: "Region" },
+                  { type: "raw_text", text: "Status" },
+                ],
+                [
+                  { type: "raw_text", text: "us-east" },
+                  { type: "raw_text", text: "down" },
+                ],
+              ],
+            },
+          ],
+        },
+      ],
+    });
+
+    expect(message.text).toBe("Report\n\nRegion\tStatus\nus-east\tdown");
+  });
+
+  it("links the attachment title to title_link and surfaces the URL", () => {
+    const message = adapter.parseMessage({
+      type: "message",
+      user: "U123",
+      channel: "C456",
+      text: "New issue",
+      ts: "1786120899.208429",
+      attachments: [
+        {
+          title: "TypeError in checkout",
+          title_link: "https://sentry.example.com/issues/123",
+        },
+      ],
+    });
+
+    expect(message.text).toBe("New issue\n\nTypeError in checkout");
+    expect(message.formatted.children[1]).toMatchObject({
+      type: "paragraph",
+      children: [
+        {
+          type: "link",
+          url: "https://sentry.example.com/issues/123",
+          children: [{ type: "text", value: "TypeError in checkout" }],
+        },
+      ],
+    });
+    expect(message.links.map((link) => link.url)).toContain(
+      "https://sentry.example.com/issues/123"
+    );
+  });
+
+  it("keeps each attachment's tables adjacent to its text", () => {
+    const table = (cell: string) => ({
+      type: "table",
+      rows: [[{ type: "raw_text", text: cell }]],
+    });
+    const message = adapter.parseMessage({
+      type: "message",
+      user: "U123",
+      channel: "C456",
+      text: "Two alerts",
+      ts: "1786120899.208429",
+      attachments: [
+        // Blocks win over legacy fields per attachment, so give each
+        // attachment either text or a table and check the interleaving.
+        { title: "Alert A" },
+        { blocks: [table("table A")] },
+        { title: "Alert B" },
+        { blocks: [table("table B")] },
+      ],
+    });
+
+    expect(message.text).toBe(
+      "Two alerts\n\nAlert A\n\ntable A\n\nAlert B\n\ntable B"
+    );
+  });
+
+  it("resolves mentions in attachment content with a single lookup per user", async () => {
+    const state = createMockState();
+    const localAdapter = createSlackAdapter({
+      botToken: "xoxb-test-token",
+      signingSecret: "test-secret",
+      logger: mockLogger,
+      botUserId: "U_BOT",
+    });
+    await localAdapter.initialize(createMockChatInstance({ state }));
+    const internals = localAdapter as unknown as {
+      _client: { users: { info: unknown } };
+      parseSlackMessage(
+        value: SlackEvent,
+        threadId: string
+      ): Promise<Message<unknown>>;
+    };
+    const usersInfo = vi.fn().mockResolvedValue({
+      user: { name: "jane", profile: { display_name: "jane" } },
+    });
+    internals._client.users.info = usersInfo;
+
+    const message = await internals.parseSlackMessage(
+      {
+        type: "message",
+        user: "U123",
+        username: "pager",
+        channel: "C456",
+        text: "Incident",
+        ts: "1786120899.208429",
+        attachments: [
+          {
+            fields: [
+              { title: "Primary", value: "<@U777>" },
+              { title: "Secondary", value: "<@U777>" },
+            ],
+          },
+        ],
+      },
+      "slack:C456:1786120899.208429"
+    );
+
+    expect(message.text).toBe("Incident\n\nPrimary: @jane\nSecondary: @jane");
+    expect(usersInfo).toHaveBeenCalledTimes(1);
+  });
+
   it("ignores tables in unfurl and app attachments", () => {
     const tableBlock = {
       type: "table",
@@ -4066,6 +4289,7 @@ describe("message subtype handling", () => {
     const before = {
       type: "message",
       user: "U_USER",
+      username: "user",
       channel: "C_CHAN",
       text: "before",
       ts: "1234567890.111111",
@@ -4095,7 +4319,10 @@ describe("message subtype handling", () => {
     const event = vi.mocked(chatInstance.processMessageUpdated).mock
       .calls[0]?.[0];
     expect(event?.previousMessage).toBeDefined();
-    expect((event?.previousMessage as Message).text).toBe("before");
+    // The pre-edit snapshot parses through the same async path as the new
+    // message so mention rendering matches on both sides of the diff.
+    const previous = await (event?.previousMessage as () => Promise<Message>)();
+    expect(previous.text).toBe("before");
   });
 
   it("ignores a message_changed where nothing actually changed", async () => {
