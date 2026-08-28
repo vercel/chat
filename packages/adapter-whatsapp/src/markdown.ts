@@ -10,6 +10,7 @@
  * @see https://faq.whatsapp.com/539178204879377
  */
 
+import { normalizeCodeFences } from "@chat-adapter/shared";
 import {
   type AdapterPostableMessage,
   BaseFormatConverter,
@@ -72,11 +73,15 @@ export class WhatsAppFormatConverter extends BaseFormatConverter {
   /**
    * Parse WhatsApp markdown into an AST.
    *
-   * Transforms WhatsApp-specific formatting to standard markdown first,
+   * Normalizes WhatsApp's ``` fences for CommonMark (the text after the
+   * opening fence is code, not an info string) and transforms
+   * WhatsApp-specific formatting to standard markdown outside the fences,
    * then parses with the standard parser.
    */
   toAst(markdown: string): Root {
-    const standardMarkdown = this.fromWhatsAppFormat(markdown);
+    const standardMarkdown = normalizeCodeFences(markdown, {
+      convertText: (text) => this.fromWhatsAppFormat(text),
+    });
     return parseMarkdown(standardMarkdown);
   }
 

@@ -39,6 +39,40 @@ describe("WhatsAppFormatConverter", () => {
       expect(ast.type).toBe("root");
     });
 
+    it("preserves code starting immediately after the opening fence", () => {
+      // From sample-messages.md: WhatsApp puts the first code line right
+      // after the ```, which CommonMark would read as an info string.
+      const ast = converter.toAst(
+        "Here you go:\n```first line\nsecond line```"
+      );
+      expect(ast.children[0]).toMatchObject({ type: "paragraph" });
+      expect(ast.children[1]).toMatchObject({
+        type: "code",
+        lang: null,
+        value: "first line\nsecond line",
+      });
+    });
+
+    it("does not rewrite bold or strikethrough inside fenced code", () => {
+      const ast = converter.toAst("```int *a = *b; ~x~```");
+      expect(ast.children[0]).toMatchObject({
+        type: "code",
+        value: "int *a = *b; ~x~",
+      });
+    });
+
+    it("keeps an unpaired ``` as literal text", () => {
+      const ast = converter.toAst("use ``` to fence *code*");
+      expect(ast.children).toHaveLength(1);
+      expect(ast.children[0]).toMatchObject({ type: "paragraph" });
+    });
+
+    it("separates a fence from surrounding text on the same line", () => {
+      const ast = converter.toAst("before ```code``` after");
+      const types = ast.children.map((child) => child.type);
+      expect(types).toEqual(["paragraph", "code", "paragraph"]);
+    });
+
     it("should parse lists", () => {
       const ast = converter.toAst("- item 1\n- item 2\n- item 3");
       expect(ast.type).toBe("root");
