@@ -1,7 +1,7 @@
-import { createMDX } from "fumadocs-mdx/next";
+import { createGeistdocs } from "@vercel/geistdocs/next";
 import type { NextConfig } from "next";
 
-const withMDX = createMDX();
+const withGeistdocs = createGeistdocs();
 
 const config: NextConfig = {
   cacheComponents: true,
@@ -123,4 +123,4 @@ const config: NextConfig = {
   },
 };
 
-export default withMDX(config);
+export default withGeistdocs(config);
