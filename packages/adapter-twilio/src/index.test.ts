@@ -1,5 +1,11 @@
-import { createMockChatInstance, threadIdContract } from "@chat-adapter/tests";
-import { Message } from "chat";
+import {
+  createMockChatInstance,
+  createMockLogger,
+  createMockState,
+  createTestMessage,
+  threadIdContract,
+} from "@chat-adapter/tests";
+import { Chat, Message } from "chat";
 import { describe, expect, it, vi } from "vitest";
 import { createTwilioAdapter, type TwilioThreadId } from "./index";
 
@@ -15,6 +21,60 @@ describe("TwilioAdapter", () => {
         "twilio:whatsapp%3A%2B15550000001:whatsapp%3A%2B15550000002"
       )
     ).toBe("twilio:whatsapp%3A%2B15550000001");
+  });
+
+  it("isolates concurrent recipients with thread-scoped locks", async () => {
+    const state = createMockState();
+    const adapter = createTwilioAdapter();
+    const chat = new Chat({
+      adapters: { twilio: adapter },
+      logger: createMockLogger(),
+      state,
+      userName: "bot",
+    });
+    const first = "twilio:%2B15550000001:%2B15550000002";
+    const second = "twilio:%2B15550000001:%2B15550000003";
+    let release = () => {};
+    const hold = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let resume = () => {};
+    const started = new Promise<void>((resolve) => {
+      resume = resolve;
+    });
+    const handled = vi.fn(async (_thread, message) => {
+      if (message.id === "SM1") {
+        resume();
+        await hold;
+      }
+    });
+    chat.onDirectMessage(handled);
+
+    const task = chat.handleIncomingMessage(
+      adapter,
+      first,
+      createTestMessage("SM1", "first", { threadId: first })
+    );
+    await started;
+
+    try {
+      await expect(
+        chat.handleIncomingMessage(
+          adapter,
+          second,
+          createTestMessage("SM2", "second", { threadId: second })
+        )
+      ).resolves.toBeUndefined();
+    } finally {
+      release();
+      await task;
+    }
+
+    expect(adapter.channelIdFromThreadId(first)).toBe("twilio:%2B15550000001");
+    expect(adapter.channelIdFromThreadId(second)).toBe("twilio:%2B15550000001");
+    expect(state.acquireLock).toHaveBeenCalledWith(first, expect.any(Number));
+    expect(state.acquireLock).toHaveBeenCalledWith(second, expect.any(Number));
+    expect(handled).toHaveBeenCalledTimes(2);
   });
 
   it("opens dms with the configured phone number", async () => {
@@ -77,6 +137,26 @@ describe("TwilioAdapter", () => {
     expect(fetch.mock.calls[0]?.[1]?.headers).toEqual({
       authorization: "Basic QUMxMjM6dG9rZW4=",
     });
+  });
+
+  it("rejects rehydrated media from an untrusted origin", async () => {
+    const fetch = mockFetch("photo");
+    const adapter = createTwilioAdapter({
+      accountSid: "AC123",
+      authToken: "token",
+      fetch,
+    });
+    const attachment = adapter.rehydrateAttachment({
+      fetchMetadata: {
+        twilioMediaUrl: "https://attacker.example/media/photo",
+      },
+      type: "image",
+    });
+
+    await expect(attachment.fetchData?.()).rejects.toThrow(
+      "configured Twilio API origin"
+    );
+    expect(fetch).not.toHaveBeenCalled();
   });
 
   it("posts SMS messages through the Messages API", async () => {

@@ -316,6 +316,41 @@ describe("Slack api primitives", () => {
     expect(request.mock.calls[0][1].headers.authorization).toBe("Bearer xoxb");
   });
 
+  it.each([
+    "https://docs.google.com/document/d/external",
+    "http://files.slack.com/files-pri/T/F/report.txt",
+    "https://files.slack.com.attacker.example/report.txt",
+    "https://files.slack.com@attacker.example/report.txt",
+  ])("fetches external URL %s without bearer auth", async (url) => {
+    const response = new Response("file", { status: 200 });
+    const request = vi.fn().mockResolvedValue(response);
+    const token = vi.fn().mockResolvedValue("xoxb");
+
+    const result = await fetchSlackFile({
+      fetch: request,
+      token,
+      url,
+    });
+
+    expect(result).toBe(response);
+    expect(token).not.toHaveBeenCalled();
+    expect(request).toHaveBeenCalledWith(url, { headers: undefined });
+  });
+
+  it("authenticates file URLs on the configured API origin", async () => {
+    const response = new Response("file", { status: 200 });
+    const request = vi.fn().mockResolvedValue(response);
+
+    await fetchSlackFile({
+      apiUrl: "https://slack-gov.com/api/",
+      fetch: request,
+      token: "xoxb",
+      url: "https://slack-gov.com/files-pri/T/F/report.txt",
+    });
+
+    expect(request.mock.calls[0][1].headers.authorization).toBe("Bearer xoxb");
+  });
+
   it("fetches thread replies with cursor metadata", async () => {
     const request = vi.fn().mockResolvedValue(
       jsonResponse({

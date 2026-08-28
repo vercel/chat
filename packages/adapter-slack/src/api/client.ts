@@ -1,3 +1,5 @@
+import { isSlackAuthUrl } from "../file";
+
 export type SlackBotToken = string | (() => Promise<string> | string);
 
 export type SlackFetch = typeof fetch;
@@ -319,12 +321,12 @@ export async function uploadSlackFiles(
 export async function fetchSlackFile(
   options: SlackFileFetchOptions
 ): Promise<Response> {
-  const token = await resolveSlackBotToken(options.token);
   const request = options.fetch ?? fetch;
+  const token = isSlackAuthUrl(options.url, options.apiUrl)
+    ? await resolveSlackBotToken(options.token)
+    : undefined;
   const response = await request(options.url, {
-    headers: {
-      authorization: `Bearer ${token}`,
-    },
+    headers: token ? { authorization: `Bearer ${token}` } : undefined,
   });
   if (!response.ok) {
     throw new SlackApiError(

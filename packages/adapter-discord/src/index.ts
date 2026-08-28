@@ -8,6 +8,7 @@
 
 import { AsyncLocalStorage } from "node:async_hooks";
 import {
+  downloadAttachment,
   extractCard,
   extractFiles,
   NetworkError,
@@ -97,8 +98,39 @@ import {
 
 const DISCORD_API_BASE = "https://discord.com/api/v10";
 const DISCORD_MAX_CONTENT_LENGTH = 2000;
+const DISCORD_UNKNOWN_MESSAGE = 10_008;
+const DISCORD_THREAD_ALREADY_CREATED = 160_004;
 const HEX_64_PATTERN = /^[0-9a-f]{64}$/;
 const HEX_PATTERN = /^[0-9a-f]+$/;
+
+class DiscordApiError extends Error {
+  readonly code?: number;
+  readonly status: number;
+
+  constructor(status: number, body: string) {
+    super(body);
+    this.name = "DiscordApiError";
+    this.status = status;
+    this.code = parseDiscordErrorCode(body);
+  }
+}
+
+function parseDiscordErrorCode(body: string): number | undefined {
+  try {
+    const data: unknown = JSON.parse(body);
+    if (
+      typeof data === "object" &&
+      data !== null &&
+      "code" in data &&
+      typeof data.code === "number"
+    ) {
+      return data.code;
+    }
+  } catch {
+    return undefined;
+  }
+  return undefined;
+}
 
 interface GatewayCommandOption {
   name: string;
@@ -111,6 +143,26 @@ interface DiscordFileUpload {
   data: Buffer | Blob | ArrayBuffer;
   filename: string;
   mimeType?: string;
+}
+
+function flatten<T>(
+  text: string,
+  files: Iterable<T>,
+  snapshots: Iterable<{
+    attachments: { values: () => IterableIterator<T> };
+    content: string;
+  }>
+): { attachments: T[]; text: string } {
+  const items = [...snapshots];
+  return {
+    attachments: [
+      ...files,
+      ...items.flatMap((item) => [...item.attachments.values()]),
+    ],
+    text: [text, ...items.map((item) => item.content)]
+      .filter(Boolean)
+      .join("\n\n"),
+  };
 }
 
 function normalizeCredentialProvider(
@@ -981,13 +1033,18 @@ export class DiscordAdapter implements Adapter<DiscordThreadId, unknown> {
       channelId: parentChannelId,
       threadId: discordThreadId,
     });
+    const content = flatten(
+      data.content,
+      data.attachments,
+      data.message_snapshots?.map(({ message }) => message) ?? []
+    );
 
     // Convert to SDK Message format
     const chatMessage = new Message({
       id: data.id,
       threadId,
-      text: data.content,
-      formatted: this.formatConverter.toAst(data.content),
+      text: content.text,
+      formatted: this.formatConverter.toAst(content.text),
       author: {
         userId: data.author.id,
         userName: data.author.username,
@@ -999,7 +1056,7 @@ export class DiscordAdapter implements Adapter<DiscordThreadId, unknown> {
         dateSent: new Date(data.timestamp),
         edited: false,
       },
-      attachments: data.attachments.map((a) =>
+      attachments: content.attachments.map((a) =>
         this.rehydrateAttachment({
           type: this.getAttachmentType(a.content_type),
           url: a.url,
@@ -1407,9 +1464,8 @@ export class DiscordAdapter implements Adapter<DiscordThreadId, unknown> {
       // Recover by using the existing thread (its ID equals the parent message ID).
       if (
         error instanceof NetworkError &&
-        typeof error.message === "string" &&
-        error.message.includes('"code"') &&
-        error.message.includes("160004")
+        error.originalError instanceof DiscordApiError &&
+        error.originalError.code === DISCORD_THREAD_ALREADY_CREATED
       ) {
         this.logger.debug(
           "Thread already exists for message, reusing existing thread",
@@ -1577,25 +1633,26 @@ export class DiscordAdapter implements Adapter<DiscordThreadId, unknown> {
     messageId: string,
     message: AdapterPostableMessage
   ): Promise<RawMessage<unknown>> {
-    const { channelId, threadId: discordThreadId } =
-      this.decodeThreadId(threadId);
-    // Use thread channel ID if in a thread, otherwise use channel ID
-    const targetChannelId = discordThreadId || channelId;
-
     const { payload } = this.buildMessagePayload(message, {
       clearContentForCard: true,
     });
 
-    this.logger.debug("Discord API: PATCH message", {
-      channelId: targetChannelId,
+    const response = await this.withMessageChannel(
+      threadId,
       messageId,
-      contentLength: payload.content?.length || 0,
-    });
+      async (channelId) => {
+        this.logger.debug("Discord API: PATCH message", {
+          channelId,
+          messageId,
+          contentLength: payload.content?.length || 0,
+        });
 
-    const response = await this.discordFetch(
-      `/channels/${targetChannelId}/messages/${messageId}`,
-      "PATCH",
-      payload
+        return this.discordFetch(
+          `/channels/${channelId}/messages/${messageId}`,
+          "PATCH",
+          payload
+        );
+      }
     );
 
     const result = (await response.json()) as APIMessage;
@@ -1615,21 +1672,79 @@ export class DiscordAdapter implements Adapter<DiscordThreadId, unknown> {
    * Delete a Discord message.
    */
   async deleteMessage(threadId: string, messageId: string): Promise<void> {
+    await this.withMessageChannel(threadId, messageId, async (channelId) => {
+      this.logger.debug("Discord API: DELETE message", {
+        channelId,
+        messageId,
+      });
+
+      return this.discordFetch(
+        `/channels/${channelId}/messages/${messageId}`,
+        "DELETE"
+      );
+    });
+
+    this.logger.debug("Discord API: DELETE message response", { ok: true });
+  }
+
+  protected async withMessageChannel<T>(
+    threadId: string,
+    messageId: string,
+    operation: (channelId: string) => Promise<T>
+  ): Promise<T> {
     const { channelId, threadId: discordThreadId } =
       this.decodeThreadId(threadId);
     const targetChannelId = discordThreadId || channelId;
 
-    this.logger.debug("Discord API: DELETE message", {
-      channelId: targetChannelId,
-      messageId,
+    if (!(discordThreadId && discordThreadId === messageId)) {
+      return operation(targetChannelId);
+    }
+
+    // A thread whose ID equals the message ID is a starter message, and where
+    // that message lives depends on the parent channel. Forum and media posts
+    // keep it inside the thread; threads on a text channel keep it in the
+    // parent channel. Try the thread first and fall back to the parent on
+    // "Unknown Message". Forum channels reject message routes with a channel
+    // type error rather than 10008, so probing them first would not be
+    // recoverable.
+    try {
+      return await operation(discordThreadId);
+    } catch (error) {
+      if (
+        !(
+          error instanceof NetworkError &&
+          error.originalError instanceof DiscordApiError &&
+          error.originalError.code === DISCORD_UNKNOWN_MESSAGE
+        )
+      ) {
+        throw error;
+      }
+      return operation(channelId);
+    }
+  }
+
+  protected async withReaction(
+    threadId: string,
+    messageId: string,
+    emoji: EmojiValue | string,
+    method: "DELETE" | "PUT"
+  ): Promise<void> {
+    const emojiEncoded = this.encodeEmoji(emoji);
+
+    await this.withMessageChannel(threadId, messageId, async (channelId) => {
+      this.logger.debug(`Discord API: ${method} reaction`, {
+        channelId,
+        messageId,
+        emoji: emojiEncoded,
+      });
+
+      return this.discordFetch(
+        `/channels/${channelId}/messages/${messageId}/reactions/${emojiEncoded}/@me`,
+        method
+      );
     });
 
-    await this.discordFetch(
-      `/channels/${targetChannelId}/messages/${messageId}`,
-      "DELETE"
-    );
-
-    this.logger.debug("Discord API: DELETE message response", { ok: true });
+    this.logger.debug(`Discord API: ${method} reaction response`, { ok: true });
   }
 
   /**
@@ -1640,23 +1755,7 @@ export class DiscordAdapter implements Adapter<DiscordThreadId, unknown> {
     messageId: string,
     emoji: EmojiValue | string
   ): Promise<void> {
-    const { channelId, threadId: discordThreadId } =
-      this.decodeThreadId(threadId);
-    const targetChannelId = discordThreadId || channelId;
-    const emojiEncoded = this.encodeEmoji(emoji);
-
-    this.logger.debug("Discord API: PUT reaction", {
-      channelId: targetChannelId,
-      messageId,
-      emoji: emojiEncoded,
-    });
-
-    await this.discordFetch(
-      `/channels/${targetChannelId}/messages/${messageId}/reactions/${emojiEncoded}/@me`,
-      "PUT"
-    );
-
-    this.logger.debug("Discord API: PUT reaction response", { ok: true });
+    await this.withReaction(threadId, messageId, emoji, "PUT");
   }
 
   /**
@@ -1667,23 +1766,7 @@ export class DiscordAdapter implements Adapter<DiscordThreadId, unknown> {
     messageId: string,
     emoji: EmojiValue | string
   ): Promise<void> {
-    const { channelId, threadId: discordThreadId } =
-      this.decodeThreadId(threadId);
-    const targetChannelId = discordThreadId || channelId;
-    const emojiEncoded = this.encodeEmoji(emoji);
-
-    this.logger.debug("Discord API: DELETE reaction", {
-      channelId: targetChannelId,
-      messageId,
-      emoji: emojiEncoded,
-    });
-
-    await this.discordFetch(
-      `/channels/${targetChannelId}/messages/${messageId}/reactions/${emojiEncoded}/@me`,
-      "DELETE"
-    );
-
-    this.logger.debug("Discord API: DELETE reaction response", { ok: true });
+    await this.withReaction(threadId, messageId, emoji, "DELETE");
   }
 
   /**
@@ -1916,12 +1999,17 @@ export class DiscordAdapter implements Adapter<DiscordThreadId, unknown> {
     const author = msg.author;
     const isBot = author.bot ?? false;
     const isMe = author.id === this.botUserId;
+    const content = flatten(
+      msg.content,
+      msg.attachments ?? [],
+      msg.message_snapshots?.map(({ message }) => message) ?? []
+    );
 
     return new Message({
       id: msg.id,
       threadId,
-      text: this.formatConverter.extractPlainText(msg.content),
-      formatted: this.formatConverter.toAst(msg.content),
+      text: this.formatConverter.extractPlainText(content.text),
+      formatted: this.formatConverter.toAst(content.text),
       raw,
       author: {
         userId: author.id,
@@ -1937,7 +2025,7 @@ export class DiscordAdapter implements Adapter<DiscordThreadId, unknown> {
           ? new Date(msg.edited_timestamp)
           : undefined,
       },
-      attachments: (msg.attachments || []).map((att) =>
+      attachments: content.attachments.map((att) =>
         this.rehydrateAttachment({
           type: this.getAttachmentType(att.content_type),
           url: att.url,
@@ -1984,25 +2072,18 @@ export class DiscordAdapter implements Adapter<DiscordThreadId, unknown> {
   }
 
   protected async downloadAttachment(url: string): Promise<Buffer> {
-    let response: Response;
     try {
-      response = await fetch(url);
+      return await downloadAttachment(url, { adapter: "discord" });
     } catch (error) {
+      if (error instanceof NetworkError) {
+        throw error;
+      }
       throw new NetworkError(
         "discord",
         "Failed to download Discord attachment",
         error instanceof Error ? error : undefined
       );
     }
-
-    if (!response.ok) {
-      throw new NetworkError(
-        "discord",
-        `Failed to download Discord attachment: ${response.status}`
-      );
-    }
-
-    return Buffer.from(await response.arrayBuffer());
   }
 
   /**
@@ -2046,7 +2127,8 @@ export class DiscordAdapter implements Adapter<DiscordThreadId, unknown> {
       });
       throw new NetworkError(
         "discord",
-        `Discord API error: ${response.status} ${errorText}`
+        `Discord API error: ${response.status} ${errorText}`,
+        new DiscordApiError(response.status, errorText)
       );
     }
 
@@ -2498,13 +2580,18 @@ export class DiscordAdapter implements Adapter<DiscordThreadId, unknown> {
       channelId: parentChannelId,
       threadId: discordThreadId,
     });
+    const content = flatten(
+      message.content,
+      message.attachments.values(),
+      message.messageSnapshots?.values() ?? []
+    );
 
     // Convert discord.js message to our Message format
     const chatMessage = new Message({
       id: message.id,
       threadId,
-      text: message.content,
-      formatted: this.formatConverter.toAst(message.content),
+      text: content.text,
+      formatted: this.formatConverter.toAst(content.text),
       author: {
         userId: message.author.id,
         userName: message.author.username,
@@ -2517,7 +2604,7 @@ export class DiscordAdapter implements Adapter<DiscordThreadId, unknown> {
         edited: message.editedAt !== null,
         editedAt: message.editedAt ?? undefined,
       },
-      attachments: message.attachments.map((a) =>
+      attachments: content.attachments.map((a) =>
         this.rehydrateAttachment({
           type: this.getAttachmentType(a.contentType),
           url: a.url,

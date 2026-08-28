@@ -171,7 +171,7 @@ All adapters return `false` if the bot ID isn't known yet. This is a safe defaul
     },
     'fetchData()': {
       description: 'Fetch the attachment data. Handles platform auth automatically.',
-      type: '() => Promise<Buffer> | undefined',
+      type: '() => Promise<Buffer | ArrayBuffer> | undefined',
     },
     fetchMetadata: {
       description: 'Platform-specific IDs for reconstructing fetchData after serialization (e.g. WhatsApp mediaId, Telegram fileId).',

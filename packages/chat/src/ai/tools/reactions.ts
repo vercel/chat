@@ -19,7 +19,7 @@ const ADD_REACTION_INPUT = z.object({
 
 export const addReaction = (
   chat: ChatBinding,
-  { needsApproval = true }: ToolOptions = {}
+  { needsApproval = true, guard }: ToolOptions = {}
 ): Tool<
   z.infer<typeof ADD_REACTION_INPUT>,
   { added: boolean; emoji: string; messageId: string; threadId: string }
@@ -39,6 +39,7 @@ export const addReaction = (
       messageId: string;
       threadId: string;
     }> => {
+      guard?.(threadId);
       const thread = chat.thread(threadId);
       await thread.adapter.addReaction(threadId, messageId, emoji);
       return { added: true, emoji, messageId, threadId };
@@ -57,7 +58,7 @@ const REMOVE_REACTION_INPUT = z.object({
 
 export const removeReaction = (
   chat: ChatBinding,
-  { needsApproval = true }: ToolOptions = {}
+  { needsApproval = true, guard }: ToolOptions = {}
 ): Tool<
   z.infer<typeof REMOVE_REACTION_INPUT>,
   { removed: boolean; emoji: string; messageId: string; threadId: string }
@@ -77,6 +78,7 @@ export const removeReaction = (
       messageId: string;
       threadId: string;
     }> => {
+      guard?.(threadId);
       const thread = chat.thread(threadId);
       await thread.adapter.removeReaction(threadId, messageId, emoji);
       return { removed: true, emoji, messageId, threadId };

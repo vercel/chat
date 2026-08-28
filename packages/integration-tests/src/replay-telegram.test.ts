@@ -53,8 +53,10 @@ describe("Replay Tests - Telegram", () => {
     });
 
     adapter = createTelegramAdapter({
+      allowUnverifiedWebhooks: true,
       botToken: TELEGRAM_BOT_TOKEN,
       logger: mockLogger,
+      mode: "webhook",
       userName: fixtures.botName,
     });
 
@@ -141,5 +143,27 @@ describe("Replay Tests - Telegram", () => {
         text: expect.stringContaining("Thanks for your message"),
       })
     );
+  });
+
+  it("streams with post and edit by default", async () => {
+    await sendWebhook(fixtures.mention);
+    mockApi.clearMocks();
+
+    const thread = captured.mentionThread;
+    if (!thread) {
+      throw new Error("Expected mention thread");
+    }
+
+    async function* stream(): AsyncIterable<string> {
+      yield "hello";
+      yield " world";
+    }
+
+    await thread.post(stream());
+
+    expect(mockApi.calls.map(({ method }) => method)).toEqual([
+      "sendMessage",
+      "editMessageText",
+    ]);
   });
 });

@@ -34,7 +34,7 @@ oauth_config:
       - reactions:write
       # User info for display names
       - users:read
-      # Agent experience (suggested prompts, thinking status) — uncomment
+      # Agent experience (suggested prompts and Agent Sessions) — uncomment
       # together with the agent_view / event blocks below.
       # - assistant:write
 
@@ -52,6 +52,8 @@ settings:
       # Agent experience events — uncomment together with agent_view above.
       # - app_home_opened
       # - app_context_changed
+      # - agent_session_stopped
+      # - agent_session_title_changed
   interactivity:
     is_enabled: false
   org_deploy_enabled: false

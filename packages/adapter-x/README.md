@@ -357,7 +357,7 @@ X_VERIFY_SIGNATURES=true           # Optional; set false to accept unverifiable 
 | Edit message | Yes (encrypted edit event targeting the original's sequence id; only the bot's own text messages). The first edit of a fresh message is held until the message is `editSafetyDelayMs` old, so receiving clients have stored the original before the edit arrives |
 | Delete message | Yes (delete-for-all: a locally signed delete action removes the message for every participant; only the bot's own messages) |
 | Streaming | Limited (message edits work, but the first edit is age-gated by `editSafetyDelayMs`, so rapid token-by-token updates are coarse) |
-| Read receipts | Yes (sent for each delivered inbound message unless `sendReadReceipts: false`; falls back to the latest conversation event) |
+| Read receipts | Yes (advances the conversation read watermark through each delivered inbound message unless `sendReadReceipts: false`; call `thread.markAsRead()` for manual control) |
 | TTL propagation | Yes (replies inherit the inbound message's disappearing-message TTL) |
 
 ### Rich content

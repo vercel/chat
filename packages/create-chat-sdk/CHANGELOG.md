@@ -1,5 +1,13 @@
 # create-chat-sdk
 
+## 0.4.0
+
+### Minor Changes
+
+- a0cba02: Add Vercel Connect credential resolvers and custom webhook verification to the Discord adapter, with `create-chat-sdk --connect` scaffolding for Discord bots.
+- 06b04ac: Add outbound-only Vercel Connect authentication for Notion while retaining native webhook verification and scaffolding.
+- 7a1150c: Add outbound-only Vercel Connect authentication for Telegram while retaining native webhook verification or polling.
+
 ## 0.3.0
 
 ### Minor Changes

@@ -1,14 +1,9 @@
-import type { ReactNode } from "react";
 import { HomeLayout } from "@/components/geistdocs/home-layout";
+import { getRootLang } from "@/lib/geistdocs/root-params";
 import { source } from "@/lib/geistdocs/source";
 
-interface AdaptersListingLayoutProps {
-  children: ReactNode;
-  params: Promise<{ lang: string }>;
-}
-
-const Layout = async ({ children, params }: AdaptersListingLayoutProps) => {
-  const { lang } = await params;
+const Layout = async ({ children }: LayoutProps<"/[lang]/adapters">) => {
+  const lang = await getRootLang();
 
   return (
     <HomeLayout tree={source.pageTree[lang]}>

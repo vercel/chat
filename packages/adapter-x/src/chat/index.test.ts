@@ -1114,6 +1114,27 @@ describe("read receipts on delivery (real crypto)", () => {
       restore();
     }
   });
+
+  it("delivers messages when an automatic read receipt fails", async () => {
+    const { adapter, mockChat, getXdkClient, restore } =
+      await createInitializedTestAdapter();
+    try {
+      const xdk = getXdkClient();
+      const request = primeFixtureDelivery(adapter, xdk);
+      xdk.chat.markConversationRead = vi
+        .fn()
+        .mockRejectedValue(new Error("receipt failed"));
+
+      const response = await adapter.handleWebhook(request);
+      expect(response.status).toBe(200);
+
+      await vi.waitFor(() => {
+        expect(mockChat.handleIncomingMessage).toHaveBeenCalledOnce();
+      });
+    } finally {
+      restore();
+    }
+  });
 });
 
 describe("withChatSdkUserAgent", () => {
@@ -1776,7 +1797,37 @@ describe("media upload/download via the XDK client (real crypto)", () => {
   });
 });
 
-describe("markAsRead fallback", () => {
+describe("markAsRead", () => {
+  it("uses message context from the shared adapter capability", async () => {
+    const { adapter, getXdkClient, restore } =
+      await createInitializedTestAdapter();
+    try {
+      const xdk = getXdkClient();
+      xdk.chat.markConversationRead = vi
+        .fn()
+        .mockResolvedValue({ data: { success: true } });
+      const message = adapter.parseMessage({
+        event: {
+          id: "evt-read",
+          conversationId: TEST_CONVERSATION_ID,
+          senderId: TEST_OTHER_USER_ID,
+          encodedEvent: "x",
+          sequenceId: "seq-77",
+        },
+        decrypted: null,
+      });
+
+      await adapter.markAsRead(TEST_THREAD_ID, message.id, message);
+
+      expect(xdk.chat.markConversationRead).toHaveBeenCalledWith(
+        TEST_OTHER_USER_ID,
+        { seenUntilSequenceId: "seq-77" }
+      );
+    } finally {
+      restore();
+    }
+  });
+
   it("falls back to the latest event sequence id when the message has none", async () => {
     const { adapter, getXdkClient, restore } =
       await createInitializedTestAdapter();
@@ -1785,7 +1836,9 @@ describe("markAsRead fallback", () => {
       xdk.chat.getConversationEvents = vi.fn().mockResolvedValue({
         data: [{ id: "evt-l", sequenceId: "seq-99" }],
       });
-      xdk.chat.markConversationRead = vi.fn().mockResolvedValue({ data: {} });
+      xdk.chat.markConversationRead = vi
+        .fn()
+        .mockResolvedValue({ data: { success: true } });
 
       const message = adapter.parseMessage({
         event: {
@@ -1802,6 +1855,141 @@ describe("markAsRead fallback", () => {
         TEST_OTHER_USER_ID,
         { seenUntilSequenceId: "seq-99" }
       );
+    } finally {
+      restore();
+    }
+  });
+
+  it("reaches the latest-event fallback when called with a message id", async () => {
+    const { adapter, getXdkClient, restore } =
+      await createInitializedTestAdapter();
+    try {
+      const xdk = getXdkClient();
+      // Serves both the history replay inside resolveSequenceId and the
+      // latest-event fallback. The event is undecryptable, so the replay
+      // caches no sequence id for our message.
+      xdk.chat.getConversationEvents = vi.fn().mockResolvedValue({
+        data: [
+          {
+            id: "evt-latest",
+            sequenceId: "seq-99",
+            senderId: TEST_OTHER_USER_ID,
+            conversationId: TEST_CONVERSATION_ID,
+            encodedEvent: "not-a-real-encrypted-event",
+          },
+        ],
+        meta: {},
+      });
+      xdk.users.getPublicKey = vi.fn().mockResolvedValue({ data: [] });
+      xdk.chat.markConversationRead = vi
+        .fn()
+        .mockResolvedValue({ data: { success: true } });
+
+      const message = adapter.parseMessage({
+        event: {
+          id: "evt-no-seq",
+          conversationId: TEST_CONVERSATION_ID,
+          senderId: TEST_OTHER_USER_ID,
+          encodedEvent: "x",
+        },
+        decrypted: null,
+      });
+
+      // The argument shape Thread.markAsRead() uses: id in slot two, message
+      // in slot three. A resolveSequenceId miss must not abort the receipt.
+      await adapter.markAsRead(TEST_THREAD_ID, message.id, message);
+
+      expect(xdk.chat.markConversationRead).toHaveBeenCalledWith(
+        TEST_OTHER_USER_ID,
+        { seenUntilSequenceId: "seq-99" }
+      );
+    } finally {
+      restore();
+    }
+  });
+
+  it("rejects an unresolved explicit message id", async () => {
+    const { adapter, getXdkClient, restore } =
+      await createInitializedTestAdapter();
+    try {
+      const xdk = getXdkClient();
+      xdk.chat.getConversationEvents = vi.fn().mockResolvedValue({
+        data: [
+          {
+            id: "evt-latest",
+            sequenceId: "seq-99",
+            senderId: TEST_OTHER_USER_ID,
+            conversationId: TEST_CONVERSATION_ID,
+            encodedEvent: "not-a-real-encrypted-event",
+          },
+        ],
+        meta: {},
+      });
+      xdk.users.getPublicKey = vi.fn().mockResolvedValue({ data: [] });
+      xdk.chat.markConversationRead = vi
+        .fn()
+        .mockResolvedValue({ data: { success: true } });
+
+      await expect(
+        adapter.markAsRead(TEST_THREAD_ID, "missing-message")
+      ).rejects.toThrow(NO_SEQUENCE_ID_RE);
+
+      expect(xdk.chat.getConversationEvents).toHaveBeenCalledOnce();
+      expect(xdk.chat.markConversationRead).not.toHaveBeenCalled();
+    } finally {
+      restore();
+    }
+  });
+
+  it("propagates explicit read receipt failures", async () => {
+    const { adapter, getXdkClient, restore } =
+      await createInitializedTestAdapter();
+    try {
+      const xdk = getXdkClient();
+      xdk.chat.markConversationRead = vi
+        .fn()
+        .mockRejectedValue(new Error("receipt failed"));
+      const message = adapter.parseMessage({
+        event: {
+          id: "evt-read-fail",
+          conversationId: TEST_CONVERSATION_ID,
+          senderId: TEST_OTHER_USER_ID,
+          encodedEvent: "x",
+          sequenceId: "seq-fail",
+        },
+        decrypted: null,
+      });
+
+      await expect(
+        adapter.markAsRead(TEST_THREAD_ID, message.id, message)
+      ).rejects.toThrow("receipt failed");
+    } finally {
+      restore();
+    }
+  });
+
+  it("rejects an unsuccessful read receipt response", async () => {
+    const { adapter, getXdkClient, restore } =
+      await createInitializedTestAdapter();
+    try {
+      const xdk = getXdkClient();
+      xdk.chat.markConversationRead = vi
+        .fn()
+        .mockResolvedValue({ data: { success: false } });
+      const message = adapter.parseMessage({
+        event: {
+          id: "evt-read-unsuccessful",
+          conversationId: TEST_CONVERSATION_ID,
+          senderId: TEST_OTHER_USER_ID,
+          encodedEvent: "x",
+          sequenceId: "seq-unsuccessful",
+        },
+        decrypted: null,
+      });
+
+      await expect(
+        adapter.markAsRead(TEST_THREAD_ID, message.id, message)
+      ).rejects.toThrow("XChat mark as read failed");
     } finally {
       restore();
     }

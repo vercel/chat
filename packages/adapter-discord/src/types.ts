@@ -446,6 +446,13 @@ export interface DiscordGatewayMessageData {
   mention_roles?: string[];
   /** Users mentioned in the message */
   mentions: Array<{ id: string; username: string }>;
+  /** Immutable content captured from a forwarded message */
+  message_snapshots?: Array<{
+    message: {
+      attachments: DiscordGatewayMessageData["attachments"];
+      content: string;
+    };
+  }>;
   /** Thread info if message is in a thread */
   thread?: {
     id: string;

@@ -103,7 +103,8 @@ export function setupWhatsAppFetchMock(
           typeof body.text === "object" && body.text !== null
             ? (body.text as { body: string }).body
             : "";
-        const to = String(body.to ?? "");
+        // BSUID-only threads address the user via `recipient` instead of `to`.
+        const to = String(body.to ?? body.recipient ?? "");
 
         mockApi.sentMessages.push({ text, to });
 

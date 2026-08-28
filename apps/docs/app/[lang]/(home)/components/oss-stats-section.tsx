@@ -1,3 +1,5 @@
+import { cacheLife } from "next/cache";
+
 const CONTRIBUTORS_LINK_REGEX = /page=(\d+)>;\s*rel="last"/;
 
 const FALLBACK = {
@@ -20,10 +22,12 @@ const formatNumber = (n: number): string => {
 };
 
 const fetchDownloads = async (): Promise<string> => {
+  "use cache";
+  cacheLife("hours");
+
   try {
     const res = await fetch(
-      "https://api.npmjs.org/downloads/point/last-week/chat",
-      { next: { revalidate: 3600 } }
+      "https://api.npmjs.org/downloads/point/last-week/chat"
     );
     if (!res.ok) {
       return FALLBACK.downloads;
@@ -36,10 +40,11 @@ const fetchDownloads = async (): Promise<string> => {
 };
 
 const fetchStars = async (): Promise<string> => {
+  "use cache";
+  cacheLife("hours");
+
   try {
-    const res = await fetch("https://api.github.com/repos/vercel/chat", {
-      next: { revalidate: 3600 },
-    });
+    const res = await fetch("https://api.github.com/repos/vercel/chat");
     if (!res.ok) {
       return FALLBACK.stars;
     }
@@ -51,10 +56,12 @@ const fetchStars = async (): Promise<string> => {
 };
 
 const fetchContributors = async (): Promise<string> => {
+  "use cache";
+  cacheLife("hours");
+
   try {
     const res = await fetch(
-      "https://api.github.com/repos/vercel/chat/contributors?per_page=1&anon=true",
-      { next: { revalidate: 3600 } }
+      "https://api.github.com/repos/vercel/chat/contributors?per_page=1&anon=true"
     );
     if (!res.ok) {
       return FALLBACK.contributors;

@@ -29,7 +29,7 @@ Visit the [adapters directory](https://chat-sdk.dev/adapters) to see other avail
 
 ## Usage
 
-The adapter auto-detects `TELEGRAM_BOT_TOKEN`, `TELEGRAM_WEBHOOK_SECRET_TOKEN`, `TELEGRAM_BOT_USERNAME`, and `TELEGRAM_API_BASE_URL` from environment variables:
+The adapter auto-detects `TELEGRAM_BOT_TOKEN`, `TELEGRAM_WEBHOOK_SECRET_TOKEN`, `TELEGRAM_ALLOW_UNVERIFIED_WEBHOOKS`, `TELEGRAM_BOT_USERNAME`, `TELEGRAM_MENTION_ON_REPLY`, and `TELEGRAM_API_BASE_URL` from environment variables:
 
 ```typescript
 import { Chat } from "chat";
@@ -67,7 +67,7 @@ Connect does not forward Telegram webhooks. Keep
 without an inbound webhook. `TELEGRAM_BOT_TOKEN` is not needed when using the
 Connect helper. The adapter derives webhook deduplication scope from Telegram's
 stable bot identity, so token rotation does not split update claims. If bot
-identity lookup fails at startup, the next verified webhook retries it.
+identity lookup fails at startup, the next accepted webhook retries it.
 
 ## Webhook route
 
@@ -145,22 +145,30 @@ void bot.initialize();
 console.log(telegram.runtimeMode); // "webhook" | "polling"
 ```
 
+## Inbound attachments
+
+Incoming file attachments expose a lazy `fetchData()` served from the configured Bot API host. Downloads are limited to 25 MB and time out after 30 seconds. They use the Web Fetch API, so file downloads keep working in runtimes like Cloudflare Workers.
+
 ## Configuration
 
-All options are auto-detected from environment variables when not provided.
+Most options are auto-detected from environment variables when not provided. `nativeStreaming` and `streamingEditIntervalMs` are config only and have no environment variables.
 
 | Option | Required | Description |
 |--------|----------|-------------|
+| `allowUnverifiedWebhooks` | No | Accept webhook requests without secret-token verification. Auto-detected from `TELEGRAM_ALLOW_UNVERIFIED_WEBHOOKS=true`. Use only for local development or behind a trusted verifying proxy |
 | `allowedUserIds` | No | Telegram user IDs allowed to trigger the adapter. Auto-detected from `TELEGRAM_ALLOWED_USER_IDS` (comma-separated). All users are allowed when omitted or empty |
 | `botToken` | No* | Telegram bot token. Auto-detected from `TELEGRAM_BOT_TOKEN` |
-| `secretToken` | No | Optional webhook secret token. Auto-detected from `TELEGRAM_WEBHOOK_SECRET_TOKEN` |
+| `secretToken` | Webhook* | Webhook secret token. Auto-detected from `TELEGRAM_WEBHOOK_SECRET_TOKEN` |
 | `mode` | No | Adapter mode: `auto` (default), `webhook`, or `polling` |
 | `longPolling` | No | Optional long polling config for `getUpdates` (`timeout`, `limit`, `allowedUpdates`, `deleteWebhook`, `dropPendingUpdates`, `retryDelayMs`) |
 | `userName` | No | Bot username used for mention detection. Auto-detected from `TELEGRAM_BOT_USERNAME` or `getMe` |
+| `mentionOnReply` | No | Treat a reply to one of the bot's own messages as a mention, so it routes to `onNewMention`. Defaults to `false`. Auto-detected from `TELEGRAM_MENTION_ON_REPLY=true`. Implicit forum-topic replies and the bot's own messages never count |
+| `nativeStreaming` | No | Stream with Telegram's native draft previews in private chats. Defaults to `false`, which uses post-and-edit in every chat type |
+| `streamingEditIntervalMs` | No | Minimum interval between edits on the post-and-edit streaming path. Defaults to `1100` in private chats and `3100` in other chats, and acts as a floor for the Chat-level `streamingUpdateIntervalMs` |
 | `apiUrl` | No | Telegram API base URL. Auto-detected from `TELEGRAM_API_BASE_URL`. Use `apiUrl` for cross-adapter consistency; the legacy `apiBaseUrl` alias is still accepted |
 | `logger` | No | Logger instance (defaults to `ConsoleLogger("info")`) |
 
-*`botToken` is required — either via config or env vars.
+*`botToken` is always required. Webhook mode also requires `secretToken` unless `allowUnverifiedWebhooks` is explicitly enabled. Polling mode does not require webhook verification.
 
 ## Environment variables
 
@@ -169,9 +177,13 @@ TELEGRAM_ALLOWED_USER_IDS=123456789,987654321
 TELEGRAM_BOT_TOKEN=123456:ABCDEF...
 TELEGRAM_WEBHOOK_SECRET_TOKEN=your-webhook-secret
 TELEGRAM_BOT_USERNAME=mybot
+# Optional (treat replies to the bot as mentions)
+TELEGRAM_MENTION_ON_REPLY=true
 # Optional (self-hosted API gateway)
 TELEGRAM_API_BASE_URL=https://api.telegram.org
 ```
+
+Set `TELEGRAM_ALLOW_UNVERIFIED_WEBHOOKS=true` only for local development or when a trusted upstream verifies every request before it reaches the adapter.
 
 ## Features
 
@@ -184,7 +196,7 @@ TELEGRAM_API_BASE_URL=https://api.telegram.org
 | Delete message | Yes |
 | File uploads | Yes (`sendDocument`, `sendMediaGroup`) |
 | Attachment uploads | Yes (`sendPhoto`, `sendAudio`, `sendVideo`, `sendDocument`, `sendMediaGroup`) |
-| Streaming | Private chat rich draft previews + post/edit fallback |
+| Streaming | Post/edit + opt-in private chat rich drafts |
 
 ### Rich content
 
@@ -223,9 +235,27 @@ TELEGRAM_API_BASE_URL=https://api.telegram.org
 | Fetch channel info | Yes |
 | Post channel message | Yes |
 
+## Streaming
+
+Streams use post-and-edit by default for consistent behavior across Telegram clients. To opt into native draft previews in private chats:
+
+```typescript
+const telegram = createTelegramAdapter({ nativeStreaming: true });
+```
+
+[Telegram clients should dismiss a draft preview](https://core.telegram.org/api/bots/ai#live-response-streaming) when the final message arrives, but draft rendering varies between clients. Keep the default when your bot must work consistently across Telegram clients.
+
+Telegram recommends at most one message per second in a single chat and limits groups to 20 messages per minute. Sends and edits share flood control, so the post-and-edit path defaults to 1100ms between operations in private chats and 3100ms in other chats. This is a floor: a lower `streamingUpdateIntervalMs` on your `Chat` instance does not push the adapter past it. Override it with `streamingEditIntervalMs`:
+
+```typescript
+const telegram = createTelegramAdapter({ streamingEditIntervalMs: 4000 });
+```
+
+If Telegram rate limits the final edit, the adapter waits and retries when the requested delay is 5 seconds or less. Longer delays and failed retries reject the post so it never reports text that Telegram did not receive.
+
 ## Markdown formatting
 
-On Telegram Bot API 10.1 and newer, explicit `{ markdown }` and `{ ast }` messages use rich messages, including native headings, lists, tables, task lists, formulas, details, and separate media blocks supported by the Bot API. Private chat streams use rich draft previews and persist the completed response as a rich message.
+On Telegram Bot API 10.1 and newer, explicit `{ markdown }` and `{ ast }` messages use rich messages, including native headings, lists, tables, task lists, formulas, details, and separate media blocks supported by the Bot API.
 
 Plain strings, raw messages, cards, and media captions retain their existing lightweight message paths. Cards and captions use Telegram's `MarkdownV2` parse mode with context-aware escaping. If an older or custom Bot API server does not support rich message methods, the adapter automatically falls back to the existing MarkdownV2 path.
 
@@ -233,7 +263,8 @@ Behavior change in 4.27.0: previous versions used Telegram's legacy `Markdown` p
 
 ## Notes
 
-- Verified webhook updates with an integer `update_id` are deduplicated for 24 hours through the configured state adapter. Configure `secretToken` and use shared durable state across serverless instances. If state is unavailable, the adapter returns 503 so Telegram retries without dispatching.
+- Accepted webhook updates with an integer `update_id` are deduplicated for 24 hours through the configured state adapter. Use shared durable state across serverless instances. If state is unavailable, the adapter returns 503 so Telegram retries without dispatching.
+- Webhook mode requires `secretToken` unless `allowUnverifiedWebhooks` is explicitly enabled. Polling mode does not require webhook verification.
 - Telegram does not expose full historical message APIs to bots. `fetchMessages` / `fetchChannelMessages` return adapter-cached messages from the current process.
 - `listThreads` is not available for Telegram chats.
 - Polling and webhooks are mutually exclusive in Telegram.

@@ -1,4 +1,5 @@
 import DynamicLink from "fumadocs-core/dynamic-link";
+import { cacheLife } from "next/cache";
 import type { CSSProperties } from "react";
 import { codeToTokens } from "shiki";
 import { Button } from "@/components/ui/button";
@@ -36,7 +37,12 @@ const parseRootStyle = (rootStyle: string): Record<string, string> => {
   return style;
 };
 
-const CodePreview = async ({ code }: { code: string }) => {
+// Shiki reads unstable values (e.g. Date.now) internally, so the highlight
+// step must run inside a cache scope to stay prerenderable.
+const getCodePreview = async (code: string) => {
+  "use cache";
+  cacheLife("max");
+
   const { tokens, rootStyle } = await codeToTokens(code, {
     lang: "tsx",
     themes: { light: "github-light", dark: "github-dark" },
@@ -47,6 +53,12 @@ const CodePreview = async ({ code }: { code: string }) => {
   if (rootStyle) {
     Object.assign(preStyle, parseRootStyle(rootStyle));
   }
+
+  return { preStyle, tokens };
+};
+
+const CodePreview = async ({ code }: { code: string }) => {
+  const { preStyle, tokens } = await getCodePreview(code);
 
   return (
     <pre
@@ -109,7 +121,9 @@ export const GetStartedSection = ({ data }: { data: Template[] }) => (
       </h2>
       <div className="flex flex-col items-stretch gap-3 sm:shrink-0 lg:flex-row lg:items-center">
         <Button asChild className="h-[42px] rounded-full px-5" size="default">
-          <DynamicLink href="/[lang]/docs">Visit Documentation</DynamicLink>
+          <DynamicLink href="/[lang]/docs" prefetch={true}>
+            Visit Documentation
+          </DynamicLink>
         </Button>
         {/* Root is `w-full items-center` by default, which would stretch and
             centre the pill while the buttons are stacked. */}

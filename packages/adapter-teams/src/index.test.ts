@@ -807,6 +807,41 @@ describe("TeamsAdapter", () => {
       expect(anonymousFetch).not.toHaveBeenCalled();
     });
 
+    it("rejects internal file download URLs from activities", async () => {
+      const adapter = createTeamsAdapter({
+        appId: "test-app",
+        appPassword: "test",
+        logger,
+      });
+      const anonymousFetch = vi.fn(async () => new Response("private data"));
+      vi.stubGlobal("fetch", anonymousFetch);
+      const url = "http://169.254.169.254/latest/meta-data";
+      const activity = {
+        type: "message",
+        id: "msg-107",
+        text: "file",
+        from: { id: "user-1", name: "Alice" },
+        conversation: { id: "19:abc@thread.tacv2" },
+        serviceUrl: TEST_SERVICE_URL,
+        attachments: [
+          {
+            contentType: "application/vnd.microsoft.teams.file.download.info",
+            content: {
+              downloadUrl: url,
+              fileType: ".txt",
+            },
+            name: "file.txt",
+          },
+        ],
+      };
+
+      const message = adapter.parseMessage(activity);
+      await expect(message.attachments[0].fetchData?.()).rejects.toThrow(
+        "Refusing to fetch an internal attachment URL"
+      );
+      expect(anonymousFetch).not.toHaveBeenCalled();
+    });
+
     it("preserves anonymous fetch overrides during rehydration", async () => {
       const overriddenFetch = vi.fn(async () => Buffer.from("overridden"));
 
@@ -1464,8 +1499,14 @@ describe("TeamsAdapter", () => {
 
   describe("incoming sender email", () => {
     class IncomingMessageTestAdapter extends TeamsAdapter {
-      handleIncoming(activity: Record<string, unknown>) {
-        return this.handleMessageActivity({ activity } as never);
+      handleIncoming(
+        activity: Record<string, unknown>,
+        getMemberById: ReturnType<typeof vi.fn>
+      ) {
+        return this.handleMessageActivity({
+          activity,
+          api: { conversations: { getMemberById } },
+        } as never);
       }
     }
 
@@ -1483,7 +1524,7 @@ describe("TeamsAdapter", () => {
     });
 
     const setup = async (
-      graphResult: Record<string, unknown> | Error,
+      userResult: Record<string, unknown> | Error,
       cachedAadObjectId?: string
     ) => {
       const adapter = new IncomingMessageTestAdapter({
@@ -1507,37 +1548,71 @@ describe("TeamsAdapter", () => {
       mockApp.initialize = vi.fn(async () => undefined);
       mockApp.graph = {
         call: vi.fn(async () => {
-          if (graphResult instanceof Error) {
-            throw graphResult;
+          if (userResult instanceof Error) {
+            throw userResult;
           }
-          return graphResult;
+          return userResult;
         }),
       };
+      const getMemberById = vi.fn(async () => {
+        if (userResult instanceof Error) {
+          throw userResult;
+        }
+        return userResult;
+      });
       await adapter.initialize(chat);
-      return { adapter, chat, mockApp, state };
+      return { adapter, chat, getMemberById, mockApp, state };
     };
 
-    it("hydrates email from the activity AAD object ID without cached state", async () => {
-      const { adapter, chat, mockApp, state } = await setup({
-        displayName: "Alice",
-        mail: "alice@example.com",
+    it("hydrates email from the conversation member without Graph", async () => {
+      const { adapter, chat, getMemberById, mockApp, state } = await setup({
+        email: "alice@example.com",
+        name: "Alice",
         userPrincipalName: "alice@contoso.com",
       });
 
-      await adapter.handleIncoming(activity("activity-aad-id"));
+      await adapter.handleIncoming(activity("activity-aad-id"), getMemberById);
 
       expect(state.get).not.toHaveBeenCalledWith(
         "teams:aadObjectId:29:user-123"
       );
-      expect(mockApp.graph.call).toHaveBeenCalledWith(expect.anything(), {
-        "user-id": "activity-aad-id",
+      expect(getMemberById).toHaveBeenCalledWith(
+        "19:abc@thread.tacv2",
+        "29:user-123"
+      );
+      expect(mockApp.graph.call).not.toHaveBeenCalled();
+      const message = vi.mocked(chat.processMessage).mock.calls[0]?.[2];
+      expect(message?.author.email).toBe("alice@example.com");
+    });
+
+    it("falls back to the conversation member user principal name", async () => {
+      const { adapter, chat, getMemberById } = await setup({
+        name: "Alice",
+        userPrincipalName: "alice@contoso.com",
       });
+
+      await adapter.handleIncoming(activity("activity-aad-id"), getMemberById);
+
+      const message = vi.mocked(chat.processMessage).mock.calls[0]?.[2];
+      expect(message?.author.email).toBe("alice@contoso.com");
+    });
+
+    it("replaces a failed Graph lookup cached for the sender", async () => {
+      const { adapter, chat, getMemberById, state } = await setup({
+        email: "alice@example.com",
+        name: "Alice",
+      });
+      state.cache.set("teams:userInfo:activity-aad-id", "unresolvable");
+
+      await adapter.handleIncoming(activity("activity-aad-id"), getMemberById);
+
+      expect(getMemberById).toHaveBeenCalledOnce();
       const message = vi.mocked(chat.processMessage).mock.calls[0]?.[2];
       expect(message?.author.email).toBe("alice@example.com");
     });
 
     it("falls back to the cached AAD object ID", async () => {
-      const { adapter, chat, mockApp } = await setup(
+      const { adapter, chat, getMemberById, mockApp } = await setup(
         {
           displayName: "Alice",
           mail: null,
@@ -1546,56 +1621,62 @@ describe("TeamsAdapter", () => {
         "cached-aad-id"
       );
 
-      await adapter.handleIncoming(activity());
+      await adapter.handleIncoming(activity(), getMemberById);
 
       expect(mockApp.graph.call).toHaveBeenCalledWith(expect.anything(), {
         "user-id": "cached-aad-id",
       });
+      expect(getMemberById).not.toHaveBeenCalled();
       const message = vi.mocked(chat.processMessage).mock.calls[0]?.[2];
       expect(message?.author.email).toBe("alice@contoso.com");
     });
 
-    it("dispatches the message when Graph lookup fails", async () => {
-      const { adapter, chat } = await setup(new Error("Forbidden"));
+    it("dispatches the message when conversation member lookup fails", async () => {
+      const { adapter, chat, getMemberById, mockApp } = await setup(
+        new Error("Forbidden")
+      );
 
-      await adapter.handleIncoming(activity("activity-aad-id"));
+      await adapter.handleIncoming(activity("activity-aad-id"), getMemberById);
 
+      expect(mockApp.graph.call).not.toHaveBeenCalled();
       expect(chat.processMessage).toHaveBeenCalledOnce();
       const message = vi.mocked(chat.processMessage).mock.calls[0]?.[2];
       expect(message?.author.email).toBeUndefined();
     });
 
-    it("caches the Graph lookup across messages", async () => {
-      const { adapter, chat, mockApp } = await setup({
-        displayName: "Alice",
-        mail: "alice@example.com",
+    it("caches the conversation member lookup across messages", async () => {
+      const { adapter, chat, getMemberById } = await setup({
+        email: "alice@example.com",
+        name: "Alice",
         userPrincipalName: "alice@contoso.com",
       });
 
-      await adapter.handleIncoming(activity("activity-aad-id"));
-      await adapter.handleIncoming(activity("activity-aad-id"));
+      await adapter.handleIncoming(activity("activity-aad-id"), getMemberById);
+      await adapter.handleIncoming(activity("activity-aad-id"), getMemberById);
 
-      expect(mockApp.graph.call).toHaveBeenCalledOnce();
+      expect(getMemberById).toHaveBeenCalledOnce();
       const message = vi.mocked(chat.processMessage).mock.calls[1]?.[2];
       expect(message?.author.email).toBe("alice@example.com");
     });
 
-    it("caches failed Graph lookups without retrying", async () => {
-      const { adapter, chat, mockApp } = await setup(new Error("Forbidden"));
+    it("does not let a failed conversation lookup suppress retries", async () => {
+      const { adapter, chat, getMemberById } = await setup(
+        new Error("Forbidden")
+      );
 
-      await adapter.handleIncoming(activity("activity-aad-id"));
-      await adapter.handleIncoming(activity("activity-aad-id"));
+      await adapter.handleIncoming(activity("activity-aad-id"), getMemberById);
+      await adapter.handleIncoming(activity("activity-aad-id"), getMemberById);
 
-      expect(mockApp.graph.call).toHaveBeenCalledOnce();
+      expect(getMemberById).toHaveBeenCalledTimes(2);
       expect(chat.processMessage).toHaveBeenCalledTimes(2);
       const message = vi.mocked(chat.processMessage).mock.calls[1]?.[2];
       expect(message?.author.email).toBeUndefined();
     });
 
     it("hydrates email on the DM path and completes processing", async () => {
-      const { adapter, chat } = await setup({
-        displayName: "Alice",
-        mail: "alice@example.com",
+      const { adapter, chat, getMemberById } = await setup({
+        email: "alice@example.com",
+        name: "Alice",
         userPrincipalName: "alice@contoso.com",
       });
       // DM handling blocks on a waitUntil-driven promise for native
@@ -1609,10 +1690,13 @@ describe("TeamsAdapter", () => {
         }
       );
 
-      await adapter.handleIncoming({
-        ...activity("activity-aad-id"),
-        conversation: { id: "a:1dm-conversation" },
-      });
+      await adapter.handleIncoming(
+        {
+          ...activity("activity-aad-id"),
+          conversation: { id: "a:1dm-conversation" },
+        },
+        getMemberById
+      );
 
       expect(chat.processMessage).toHaveBeenCalledOnce();
       const message = vi.mocked(chat.processMessage).mock.calls[0]?.[2];

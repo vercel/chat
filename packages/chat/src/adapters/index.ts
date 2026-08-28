@@ -995,6 +995,7 @@ export const ADAPTERS = {
     description:
       "Connect to Telegram with support for groups, channels, and inline keyboards.",
     env: {
+      config: ["nativeStreaming", "streamingEditIntervalMs"],
       optional: [
         env(
           "TELEGRAM_ALLOWED_USER_IDS",
@@ -1002,9 +1003,17 @@ export const ADAPTERS = {
         ),
         secretEnv(
           "TELEGRAM_WEBHOOK_SECRET_TOKEN",
-          "Optional webhook secret token."
+          "Webhook secret token required in webhook mode."
+        ),
+        env(
+          "TELEGRAM_ALLOW_UNVERIFIED_WEBHOOKS",
+          "Set to true to accept unverified webhooks for local fixtures."
         ),
         env("TELEGRAM_BOT_USERNAME", "Bot username for mention detection."),
+        env(
+          "TELEGRAM_MENTION_ON_REPLY",
+          'Set to "true" to treat a reply to the bot as a mention.'
+        ),
         urlEnv("TELEGRAM_API_BASE_URL", "Override the Telegram API base URL."),
       ],
       required: [secretEnv("TELEGRAM_BOT_TOKEN", "Telegram bot token.")],

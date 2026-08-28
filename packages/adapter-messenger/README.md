@@ -135,6 +135,7 @@ export async function POST(request: Request) {
 | Delete message | No (Messenger limitation) |
 | Streaming | Buffered (accumulates then sends) |
 | Typing indicator | Yes |
+| Mark as read | Yes |
 
 ### Rich content
 
@@ -157,6 +158,25 @@ export async function POST(request: Request) {
 | Typing indicator | Yes |
 | DMs | Yes (DM-only platform) |
 | Postbacks | Yes |
+
+### Inbound attachments
+
+Inbound attachment URLs remain available as `attachment.url`. The adapter's
+`fetchData` function downloads media only from Meta's `fbsbx.com` and
+`fbcdn.net` hosts, refuses private and internal addresses (including after
+redirects), limits responses to 25 MB, and times out after 30 seconds.
+External fallback and link-share URLs are preserved but rejected before any
+network request.
+
+### Read receipts
+
+Use `thread.markAsRead()` in a message handler to send Messenger's `mark_seen` sender action:
+
+```typescript
+await thread.markAsRead();
+```
+
+Messenger applies this action to the conversation's seen state rather than a single message, even when you pass a message or message ID.
 
 ### Message history
 

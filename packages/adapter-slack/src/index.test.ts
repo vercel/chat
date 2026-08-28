@@ -3,7 +3,13 @@
  */
 
 import { createHmac, randomBytes } from "node:crypto";
-import { AuthenticationError, ValidationError } from "@chat-adapter/shared";
+import type { IncomingMessage } from "node:http";
+import { Readable } from "node:stream";
+import {
+  type AttachmentTransport,
+  AuthenticationError,
+  ValidationError,
+} from "@chat-adapter/shared";
 import {
   connectWebhookContract,
   createMockChatInstance,
@@ -21,6 +27,7 @@ import type {
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type {
   SlackAdapterConfig,
+  SlackEvent,
   SlackInstallation,
   SlackThreadId,
 } from "./index";
@@ -31,6 +38,23 @@ import {
 } from "./index";
 
 const FILE_ID_PATTERN = /^file-/;
+
+// Captures guarded file downloads at the transport seam; the resolved
+// per-hop headers show which token (if any) each hop would send.
+class TransportSlackAdapter extends SlackAdapter {
+  readonly fileTransport = vi.fn(
+    async (): Promise<IncomingMessage> =>
+      Object.assign(Readable.from([Buffer.from("file-bytes")]), {
+        headers: { "content-type": "application/octet-stream" },
+        statusCode: 200,
+        statusMessage: "OK",
+      }) as IncomingMessage
+  );
+
+  protected override createFileTransport(): AttachmentTransport {
+    return this.fileTransport;
+  }
+}
 
 // Mock @slack/socket-mode
 const mockSocketStart = vi.fn().mockResolvedValue({});
@@ -1258,6 +1282,38 @@ describe("parseMessage", () => {
     expect(message.attachments?.[0].height).toBe(600);
   });
 
+  it("downloads external message files without resolving the bot token", async () => {
+    const token = vi.fn().mockResolvedValue("xoxb-test");
+    const adapter = new TransportSlackAdapter({
+      botToken: token,
+      signingSecret: "test-secret",
+      logger: mockLogger,
+    });
+    const message = adapter.parseMessage({
+      type: "message",
+      user: "U123",
+      channel: "C456",
+      text: "External file",
+      ts: "1234567890.123456",
+      files: [
+        {
+          id: "F123",
+          mimetype: "application/vnd.slack-remote",
+          url_private: "https://docs.google.com/document/d/external",
+        },
+      ],
+    });
+
+    await message.attachments?.[0].fetchData?.();
+
+    expect(token).not.toHaveBeenCalled();
+    expect(adapter.fileTransport).toHaveBeenCalledWith(
+      new URL("https://docs.google.com/document/d/external"),
+      expect.any(AbortSignal),
+      expect.not.objectContaining({ authorization: expect.anything() })
+    );
+  });
+
   it("handles different file types", () => {
     const createEvent = (mimetype: string) => ({
       type: "message",
@@ -1279,6 +1335,704 @@ describe("parseMessage", () => {
 
     const fileMsg = adapter.parseMessage(createEvent("application/pdf"));
     expect(fileMsg.attachments?.[0].type).toBe("file");
+  });
+
+  it("preserves pasted table attachments as message content", async () => {
+    const event: SlackEvent = {
+      type: "message",
+      user: "U123",
+      username: "alice",
+      channel: "C456",
+      text: "Which devices support remote firmware upgrades?",
+      ts: "1786120899.208429",
+      attachments: [
+        {
+          fallback: "[no preview available]",
+          blocks: [
+            {
+              type: "table",
+              rows: [
+                [
+                  {
+                    type: "rich_text",
+                    elements: [
+                      {
+                        type: "rich_text_section",
+                        elements: [
+                          {
+                            type: "text",
+                            text: "Manufacturer",
+                            style: { bold: true },
+                          },
+                        ],
+                      },
+                    ],
+                  },
+                  { type: "raw_text", text: "Identifier Listed" },
+                  { type: "raw_text", text: "Units" },
+                ],
+                [
+                  { type: "raw_text", text: "Samsung" },
+                  { type: "raw_text", text: "QB55C" },
+                  { type: "raw_number", value: 3 },
+                ],
+              ],
+            },
+          ],
+        },
+      ],
+    };
+    const expected =
+      "Which devices support remote firmware upgrades?\n\n" +
+      "Manufacturer\tIdentifier Listed\tUnits\nSamsung\tQB55C\t3";
+    const sync = adapter.parseMessage(event);
+    const internals = adapter as unknown as {
+      parseSlackMessage(
+        value: SlackEvent,
+        threadId: string
+      ): Promise<Message<unknown>>;
+    };
+    const async = await internals.parseSlackMessage(
+      event,
+      "slack:C456:1786120899.208429"
+    );
+
+    for (const message of [sync, async]) {
+      expect(message.text).toBe(expected);
+      expect(message.attachments).toEqual([]);
+      expect(message.formatted.children[1]).toMatchObject({
+        type: "table",
+        children: [
+          {
+            type: "tableRow",
+            children: [
+              { type: "tableCell", children: [{ value: "Manufacturer" }] },
+              {
+                type: "tableCell",
+                children: [{ value: "Identifier Listed" }],
+              },
+              { type: "tableCell", children: [{ value: "Units" }] },
+            ],
+          },
+          {
+            type: "tableRow",
+            children: [
+              { type: "tableCell", children: [{ value: "Samsung" }] },
+              { type: "tableCell", children: [{ value: "QB55C" }] },
+              { type: "tableCell", children: [{ value: "3" }] },
+            ],
+          },
+        ],
+      });
+    }
+  });
+
+  it("preserves table-only messages and ignores malformed table blocks", () => {
+    const message = adapter.parseMessage({
+      type: "message",
+      user: "U123",
+      channel: "C456",
+      text: "",
+      ts: "1786120899.208429",
+      blocks: [
+        { type: "table", rows: [[{ type: "raw_text", text: "Visible" }]] },
+        { type: "table", rows: "invalid" },
+      ],
+      attachments: [{ blocks: [{ type: "table" }] }],
+    });
+
+    expect(message.text).toBe("Visible");
+    expect(message.formatted.children).toHaveLength(1);
+    expect(message.formatted.children[0]?.type).toBe("table");
+  });
+
+  it("preserves inline rich text within table cells", () => {
+    const message = adapter.parseMessage({
+      type: "message",
+      user: "U123",
+      channel: "C456",
+      text: "",
+      ts: "1786120899.208429",
+      blocks: [
+        {
+          type: "table",
+          rows: [
+            [
+              {
+                type: "rich_text",
+                elements: [
+                  {
+                    type: "rich_text_quote",
+                    elements: [
+                      { type: "text", text: "See " },
+                      {
+                        type: "link",
+                        text: "details",
+                        url: "https://example.com",
+                      },
+                    ],
+                  },
+                ],
+              },
+            ],
+          ],
+        },
+      ],
+    });
+
+    expect(message.text).toBe("See details");
+    // The link URL survives in the AST as a real link node
+    expect(message.formatted.children[0]).toMatchObject({
+      type: "table",
+      children: [
+        // Headerless table: an empty header row is inserted so GFM doesn't
+        // promote the data row to a header
+        { type: "tableRow", children: [{ type: "tableCell", children: [] }] },
+        {
+          type: "tableRow",
+          children: [
+            {
+              type: "tableCell",
+              children: [
+                { type: "text", value: "See " },
+                {
+                  type: "link",
+                  url: "https://example.com",
+                  children: [{ type: "text", value: "details" }],
+                },
+              ],
+            },
+          ],
+        },
+      ],
+    });
+  });
+
+  it("preserves rich text metadata within table cells", () => {
+    const message = adapter.parseMessage({
+      type: "message",
+      user: "U123",
+      channel: "C456",
+      text: "",
+      ts: "1786120899.208429",
+      blocks: [
+        {
+          type: "table",
+          rows: [
+            [
+              {
+                type: "rich_text",
+                elements: [
+                  {
+                    type: "rich_text_section",
+                    elements: [
+                      { type: "channel", channel_id: "C789" },
+                      { type: "text", text: " " },
+                      { type: "usergroup", usergroup_id: "S789" },
+                      { type: "text", text: " " },
+                      {
+                        type: "date",
+                        timestamp: 1_720_710_212,
+                        format: "{date_num}",
+                        fallback: "July 11",
+                      },
+                      { type: "text", text: " " },
+                      { type: "color", value: "#ff0000" },
+                    ],
+                  },
+                ],
+              },
+            ],
+          ],
+        },
+      ],
+    });
+
+    // Cell tokens are rendered by the same mrkdwn converter as body text
+    expect(message.text).toBe("#C789 <!subteam^S789> July 11 #ff0000");
+  });
+
+  it("formats date cells from the timestamp when no fallback is present", () => {
+    const message = adapter.parseMessage({
+      type: "message",
+      user: "U123",
+      channel: "C456",
+      text: "",
+      ts: "1786120899.208429",
+      blocks: [
+        {
+          type: "table",
+          rows: [
+            [
+              {
+                type: "date",
+                timestamp: 1_720_710_212,
+                format: "{date_num}",
+              },
+            ],
+          ],
+        },
+      ],
+    });
+
+    expect(message.text).toBe("2024-07-11");
+    expect(message.text).not.toContain("{date_num}");
+  });
+
+  it("preserves empty and raw value cells so columns stay aligned", () => {
+    const message = adapter.parseMessage({
+      type: "message",
+      user: "U123",
+      channel: "C456",
+      text: "",
+      ts: "1786120899.208429",
+      blocks: [
+        {
+          type: "table",
+          rows: [
+            [
+              { type: "raw_text", text: "Samsung" },
+              { type: "raw_text", text: "" },
+              { type: "raw_number", value: 3 },
+            ],
+            [
+              { type: "raw_text", text: "LG" },
+              { type: "raw_boolean", value: true },
+              { type: "raw_number", value: "7" },
+            ],
+          ],
+        },
+      ],
+    });
+
+    expect(message.text).toBe("Samsung\t\t3\nLG\ttrue\t7");
+  });
+
+  it("parses data_table blocks with their header row intact", () => {
+    const message = adapter.parseMessage({
+      type: "message",
+      user: "U123",
+      channel: "C456",
+      text: "",
+      ts: "1786120899.208429",
+      blocks: [
+        {
+          type: "data_table",
+          caption: "Devices",
+          rows: [
+            [
+              { type: "raw_text", text: "Manufacturer" },
+              { type: "raw_text", text: "Units" },
+            ],
+            [
+              { type: "raw_text", text: "Samsung" },
+              { type: "raw_text", text: "3" },
+            ],
+          ],
+        },
+      ],
+    });
+
+    expect(message.text).toBe("Manufacturer\tUnits\nSamsung\t3");
+    // data_table rows always start with a header row; no placeholder is added
+    expect(message.formatted.children[0]).toMatchObject({
+      type: "table",
+      children: [
+        {
+          type: "tableRow",
+          children: [
+            { type: "tableCell", children: [{ value: "Manufacturer" }] },
+            { type: "tableCell", children: [{ value: "Units" }] },
+          ],
+        },
+        {
+          type: "tableRow",
+          children: [
+            { type: "tableCell", children: [{ value: "Samsung" }] },
+            { type: "tableCell", children: [{ value: "3" }] },
+          ],
+        },
+      ],
+    });
+  });
+
+  it("preserves alert attachment content as message content", async () => {
+    const event: SlackEvent = {
+      type: "message",
+      user: "U123",
+      username: "sentry",
+      channel: "C456",
+      text: "New alert",
+      ts: "1786120899.208429",
+      attachments: [
+        {
+          fallback: "[Sentry] TypeError in checkout",
+          title: "TypeError: cannot read property 'id' of undefined",
+          text: "Occurred 42 times in the last hour.",
+          fields: [
+            { title: "Project", value: "storefront", short: true },
+            { title: "Environment", value: "production", short: true },
+          ],
+        },
+      ],
+    };
+    const expected =
+      "New alert\n\n" +
+      "TypeError: cannot read property 'id' of undefined\n" +
+      "Occurred 42 times in the last hour.\n" +
+      "Project: storefront\n" +
+      "Environment: production";
+
+    const sync = adapter.parseMessage(event);
+    const internals = adapter as unknown as {
+      parseSlackMessage(
+        value: SlackEvent,
+        threadId: string
+      ): Promise<Message<unknown>>;
+    };
+    const async = await internals.parseSlackMessage(
+      event,
+      "slack:C456:1786120899.208429"
+    );
+
+    for (const message of [sync, async]) {
+      expect(message.text).toBe(expected);
+    }
+  });
+
+  it("falls back to attachment fallback only when nothing else carries content", () => {
+    const message = adapter.parseMessage({
+      type: "message",
+      user: "U123",
+      channel: "C456",
+      text: "Deploy finished",
+      ts: "1786120899.208429",
+      attachments: [{ fallback: "build #421 succeeded" }],
+    });
+
+    expect(message.text).toBe("Deploy finished\n\nbuild #421 succeeded");
+  });
+
+  it("ignores content in unfurl and app attachments", () => {
+    const message = adapter.parseMessage({
+      type: "message",
+      user: "U123",
+      channel: "C456",
+      text: "Check this out",
+      ts: "1786120899.208429",
+      attachments: [
+        { is_msg_unfurl: true, title: "Foreign title", text: "Foreign text" },
+        { is_app_unfurl: true, fallback: "Foreign fallback" },
+        { from_url: "https://example.com", title: "Preview" },
+        {
+          original_url: "https://example.com/page",
+          fields: [{ title: "Key", value: "Value" }],
+        },
+      ],
+    });
+
+    expect(message.text).toBe("Check this out");
+  });
+
+  it("keeps attachment formatting characters literal unless mrkdwn_in enables them", () => {
+    const attachment = {
+      title: "Cleanup failed in <module>",
+      text: "rm -rf /tmp/*cache* failed for _id_ values",
+    };
+    const literal = adapter.parseMessage({
+      type: "message",
+      user: "U123",
+      channel: "C456",
+      text: "Alert",
+      ts: "1786120899.208429",
+      attachments: [{ ...attachment }],
+    });
+
+    // Slack renders attachment text as plain text unless mrkdwn_in lists it
+    expect(literal.text).toBe(
+      "Alert\n\n" +
+        "Cleanup failed in <module>\n" +
+        "rm -rf /tmp/*cache* failed for _id_ values"
+    );
+
+    const mrkdwn = adapter.parseMessage({
+      type: "message",
+      user: "U123",
+      channel: "C456",
+      text: "Alert",
+      ts: "1786120899.208429",
+      attachments: [
+        { ...attachment, mrkdwn_in: ["text"], text: "deploy *failed* badly" },
+      ],
+    });
+
+    // With mrkdwn_in, *bold* is markup; the title stays plain text
+    expect(mrkdwn.text).toBe(
+      "Alert\n\nCleanup failed in <module>\n\ndeploy failed badly"
+    );
+    expect(mrkdwn.formatted.children).toContainEqual(
+      expect.objectContaining({
+        type: "paragraph",
+        children: expect.arrayContaining([
+          expect.objectContaining({ type: "strong" }),
+        ]),
+      })
+    );
+  });
+
+  it("keeps attachment content out of an unclosed code fence in the body", () => {
+    const message = adapter.parseMessage({
+      type: "message",
+      user: "U123",
+      channel: "C456",
+      text: "Deploy failed:\n```\nTypeError: boom",
+      ts: "1786120899.208429",
+      attachments: [
+        {
+          title: "Deploy status",
+          fields: [{ title: "Environment", value: "production" }],
+        },
+      ],
+    });
+
+    // The unclosed fence swallows the rest of the body, but the attachment
+    // parses in isolation and stays a paragraph.
+    const types = message.formatted.children.map((child) => child.type);
+    expect(types).toEqual(["paragraph", "code", "paragraph"]);
+    expect(message.text).toBe(
+      "Deploy failed:\n\nTypeError: boom\n\nDeploy status\nEnvironment: production"
+    );
+  });
+
+  it("uses the fallback when attachment blocks carry nothing renderable", () => {
+    const message = adapter.parseMessage({
+      type: "message",
+      user: "U123",
+      channel: "C456",
+      text: "Heads up",
+      ts: "1786120899.208429",
+      attachments: [
+        {
+          fallback: "Deploy failed on step 3",
+          blocks: [{ type: "section", text: "Deploy failed on step 3" }],
+        },
+      ],
+    });
+
+    expect(message.text).toBe("Heads up\n\nDeploy failed on step 3");
+  });
+
+  it("prefers attachment blocks over legacy fields, matching Slack rendering", () => {
+    const message = adapter.parseMessage({
+      type: "message",
+      user: "U123",
+      channel: "C456",
+      text: "Report",
+      ts: "1786120899.208429",
+      attachments: [
+        {
+          fallback: "table fallback",
+          title: "Legacy title Slack does not render",
+          blocks: [
+            {
+              type: "table",
+              rows: [
+                [
+                  { type: "raw_text", text: "Region" },
+                  { type: "raw_text", text: "Status" },
+                ],
+                [
+                  { type: "raw_text", text: "us-east" },
+                  { type: "raw_text", text: "down" },
+                ],
+              ],
+            },
+          ],
+        },
+      ],
+    });
+
+    expect(message.text).toBe("Report\n\nRegion\tStatus\nus-east\tdown");
+  });
+
+  it("links the attachment title to title_link and surfaces the URL", () => {
+    const message = adapter.parseMessage({
+      type: "message",
+      user: "U123",
+      channel: "C456",
+      text: "New issue",
+      ts: "1786120899.208429",
+      attachments: [
+        {
+          title: "TypeError in checkout",
+          title_link: "https://sentry.example.com/issues/123",
+        },
+      ],
+    });
+
+    expect(message.text).toBe("New issue\n\nTypeError in checkout");
+    expect(message.formatted.children[1]).toMatchObject({
+      type: "paragraph",
+      children: [
+        {
+          type: "link",
+          url: "https://sentry.example.com/issues/123",
+          children: [{ type: "text", value: "TypeError in checkout" }],
+        },
+      ],
+    });
+    expect(message.links.map((link) => link.url)).toContain(
+      "https://sentry.example.com/issues/123"
+    );
+  });
+
+  it("keeps each attachment's tables adjacent to its text", () => {
+    const table = (cell: string) => ({
+      type: "table",
+      rows: [[{ type: "raw_text", text: cell }]],
+    });
+    const message = adapter.parseMessage({
+      type: "message",
+      user: "U123",
+      channel: "C456",
+      text: "Two alerts",
+      ts: "1786120899.208429",
+      attachments: [
+        // Blocks win over legacy fields per attachment, so give each
+        // attachment either text or a table and check the interleaving.
+        { title: "Alert A" },
+        { blocks: [table("table A")] },
+        { title: "Alert B" },
+        { blocks: [table("table B")] },
+      ],
+    });
+
+    expect(message.text).toBe(
+      "Two alerts\n\nAlert A\n\ntable A\n\nAlert B\n\ntable B"
+    );
+  });
+
+  it("resolves mentions in attachment content with a single lookup per user", async () => {
+    const state = createMockState();
+    const localAdapter = createSlackAdapter({
+      botToken: "xoxb-test-token",
+      signingSecret: "test-secret",
+      logger: mockLogger,
+      botUserId: "U_BOT",
+    });
+    await localAdapter.initialize(createMockChatInstance({ state }));
+    const internals = localAdapter as unknown as {
+      _client: { users: { info: unknown } };
+      parseSlackMessage(
+        value: SlackEvent,
+        threadId: string
+      ): Promise<Message<unknown>>;
+    };
+    const usersInfo = vi.fn().mockResolvedValue({
+      user: { name: "jane", profile: { display_name: "jane" } },
+    });
+    internals._client.users.info = usersInfo;
+
+    const message = await internals.parseSlackMessage(
+      {
+        type: "message",
+        user: "U123",
+        username: "pager",
+        channel: "C456",
+        text: "Incident",
+        ts: "1786120899.208429",
+        attachments: [
+          {
+            fields: [
+              { title: "Primary", value: "<@U777>" },
+              { title: "Secondary", value: "<@U777>" },
+            ],
+          },
+        ],
+      },
+      "slack:C456:1786120899.208429"
+    );
+
+    expect(message.text).toBe("Incident\n\nPrimary: @jane\nSecondary: @jane");
+    expect(usersInfo).toHaveBeenCalledTimes(1);
+  });
+
+  it("ignores tables in unfurl and app attachments", () => {
+    const tableBlock = {
+      type: "table",
+      rows: [[{ type: "raw_text", text: "Foreign" }]],
+    };
+    const message = adapter.parseMessage({
+      type: "message",
+      user: "U123",
+      channel: "C456",
+      text: "Check this out",
+      ts: "1786120899.208429",
+      attachments: [
+        { is_msg_unfurl: true, blocks: [tableBlock] },
+        { is_app_unfurl: true, blocks: [tableBlock] },
+        { from_url: "https://example.com", blocks: [tableBlock] },
+        { original_url: "https://example.com/page", blocks: [tableBlock] },
+      ],
+    });
+
+    expect(message.text).toBe("Check this out");
+    expect(message.formatted.children).toHaveLength(1);
+  });
+
+  it("keeps tables pasted above the message text above it", () => {
+    const message = adapter.parseMessage({
+      type: "message",
+      user: "U123",
+      channel: "C456",
+      text: "The table above shows Q1",
+      ts: "1786120899.208429",
+      blocks: [
+        {
+          type: "table",
+          rows: [[{ type: "raw_text", text: "Row" }]],
+        },
+        {
+          type: "rich_text",
+          elements: [
+            {
+              type: "rich_text_section",
+              elements: [{ type: "text", text: "The table above shows Q1" }],
+            },
+          ],
+        },
+      ],
+    });
+
+    expect(message.formatted.children[0]?.type).toBe("table");
+    expect(message.formatted.children[1]?.type).toBe("paragraph");
+    expect(message.text).toBe("Row\n\nThe table above shows Q1");
+  });
+
+  it("does not leave raw bot mention tokens in table cells", () => {
+    const message = adapter.parseMessage({
+      type: "message",
+      user: "U123",
+      channel: "C456",
+      text: "",
+      ts: "1786120899.208429",
+      blocks: [
+        {
+          type: "table",
+          rows: [
+            [
+              { type: "raw_text", text: "On call" },
+              { type: "user", user_id: "UBOT123" },
+            ],
+          ],
+        },
+      ],
+    });
+
+    // Raw <@UBOT123> would false-positive Chat core's Discord-format
+    // mention fallback; the converter rewrites it like body text
+    expect(message.text).toBe("On call\t@UBOT123");
+    expect(message.text).not.toContain("<@");
   });
 });
 
@@ -2217,48 +2971,71 @@ describe("installationProvider", () => {
 
     const state = createMockState();
     const chatInstance = createMockChatInstance({ state });
-    const adapter = createSlackAdapter({
+    const adapter = new TransportSlackAdapter({
       signingSecret: secret,
       logger: mockLogger,
       installationProvider: mockProvider,
     });
     await adapter.initialize(chatInstance);
 
-    const fetchMock = vi.fn().mockResolvedValue(
-      new Response(new ArrayBuffer(8), {
-        status: 200,
-        headers: { "content-type": "application/octet-stream" },
+    const rehydrated = adapter.rehydrateAttachment({
+      type: "image",
+      url: "https://files.slack.com/img.png",
+      fetchMetadata: {
+        url: "https://files.slack.com/img.png",
+        teamId: "T_REHYDRATE",
+      },
+    });
+
+    expect(rehydrated.fetchData).toBeDefined();
+    await rehydrated.fetchData?.();
+
+    expect(mockProvider.getInstallation).toHaveBeenCalledWith(
+      "T_REHYDRATE",
+      false
+    );
+    expect(adapter.fileTransport).toHaveBeenCalledWith(
+      new URL("https://files.slack.com/img.png"),
+      expect.any(AbortSignal),
+      expect.objectContaining({
+        authorization: "Bearer xoxb-rehydrate-token",
       })
     );
-    const originalFetch = globalThis.fetch;
-    globalThis.fetch = fetchMock as unknown as typeof globalThis.fetch;
+  });
 
-    try {
-      const rehydrated = adapter.rehydrateAttachment({
-        type: "image",
-        url: "https://files.slack.com/img.png",
-        fetchMetadata: {
-          url: "https://files.slack.com/img.png",
-          teamId: "T_REHYDRATE",
-        },
-      });
+  it("rehydrateAttachment does not send installation tokens off Slack", async () => {
+    const mockProvider = {
+      getInstallation: vi.fn().mockResolvedValue({
+        botToken: "xoxb-rehydrate-token",
+        botUserId: "U_BOT_REHYDRATE",
+      }),
+    };
+    const adapter = new TransportSlackAdapter({
+      signingSecret: secret,
+      logger: mockLogger,
+      installationProvider: mockProvider,
+    });
+    await adapter.initialize(
+      createMockChatInstance({ state: createMockState() })
+    );
 
-      expect(rehydrated.fetchData).toBeDefined();
-      await rehydrated.fetchData?.();
+    const rehydrated = adapter.rehydrateAttachment({
+      type: "file",
+      url: "https://attacker.example/file.txt",
+      fetchMetadata: {
+        url: "https://attacker.example/file.txt",
+        teamId: "T_REHYDRATE",
+      },
+    });
 
-      expect(mockProvider.getInstallation).toHaveBeenCalledWith(
-        "T_REHYDRATE",
-        false
-      );
-      expect(fetchMock).toHaveBeenCalledWith(
-        "https://files.slack.com/img.png",
-        expect.objectContaining({
-          headers: { Authorization: "Bearer xoxb-rehydrate-token" },
-        })
-      );
-    } finally {
-      globalThis.fetch = originalFetch;
-    }
+    await rehydrated.fetchData?.();
+
+    expect(mockProvider.getInstallation).not.toHaveBeenCalled();
+    expect(adapter.fileTransport).toHaveBeenCalledWith(
+      new URL("https://attacker.example/file.txt"),
+      expect.any(AbortSignal),
+      expect.not.objectContaining({ authorization: expect.anything() })
+    );
   });
 
   it("rehydrateAttachment uses enterprise_id when isEnterpriseInstall is true", async () => {
@@ -2271,46 +3048,34 @@ describe("installationProvider", () => {
 
     const state = createMockState();
     const chatInstance = createMockChatInstance({ state });
-    const adapter = createSlackAdapter({
+    const adapter = new TransportSlackAdapter({
       signingSecret: secret,
       logger: mockLogger,
       installationProvider: mockProvider,
     });
     await adapter.initialize(chatInstance);
 
-    const fetchMock = vi.fn().mockResolvedValue(
-      new Response(new ArrayBuffer(8), {
-        status: 200,
-        headers: { "content-type": "application/octet-stream" },
+    const rehydrated = adapter.rehydrateAttachment({
+      type: "image",
+      url: "https://files.slack.com/img.png",
+      fetchMetadata: {
+        url: "https://files.slack.com/img.png",
+        teamId: "T_WORKSPACE",
+        enterpriseId: "E_ORG",
+        isEnterpriseInstall: "true",
+      },
+    });
+
+    await rehydrated.fetchData?.();
+
+    expect(mockProvider.getInstallation).toHaveBeenCalledWith("E_ORG", true);
+    expect(adapter.fileTransport).toHaveBeenCalledWith(
+      new URL("https://files.slack.com/img.png"),
+      expect.any(AbortSignal),
+      expect.objectContaining({
+        authorization: "Bearer xoxb-ent-rehydrate-token",
       })
     );
-    const originalFetch = globalThis.fetch;
-    globalThis.fetch = fetchMock as unknown as typeof globalThis.fetch;
-
-    try {
-      const rehydrated = adapter.rehydrateAttachment({
-        type: "image",
-        url: "https://files.slack.com/img.png",
-        fetchMetadata: {
-          url: "https://files.slack.com/img.png",
-          teamId: "T_WORKSPACE",
-          enterpriseId: "E_ORG",
-          isEnterpriseInstall: "true",
-        },
-      });
-
-      await rehydrated.fetchData?.();
-
-      expect(mockProvider.getInstallation).toHaveBeenCalledWith("E_ORG", true);
-      expect(fetchMock).toHaveBeenCalledWith(
-        "https://files.slack.com/img.png",
-        expect.objectContaining({
-          headers: { Authorization: "Bearer xoxb-ent-rehydrate-token" },
-        })
-      );
-    } finally {
-      globalThis.fetch = originalFetch;
-    }
   });
 
   it("rehydrateAttachment throws when installationProvider returns null", async () => {
@@ -3467,7 +4232,11 @@ describe("message subtype handling", () => {
 
   it.each([
     ["a flat DM", { agentView: false }, "slack:D_DM:"],
-    ["a threaded agent_view DM", { agentView: true }, "slack:D_DM:1111.0001"],
+    [
+      "a threaded agent_view DM",
+      { agentView: true, sessionTitle: false },
+      "slack:D_DM:1111.0001",
+    ],
   ])("routes the message, its edit, and its delete to one thread id in %s", async (_, config, expected) => {
     const adapter = createSlackAdapter({
       botToken: "xoxb-test-token",
@@ -3590,6 +4359,7 @@ describe("message subtype handling", () => {
     const before = {
       type: "message",
       user: "U_USER",
+      username: "user",
       channel: "C_CHAN",
       text: "before",
       ts: "1234567890.111111",
@@ -3619,7 +4389,10 @@ describe("message subtype handling", () => {
     const event = vi.mocked(chatInstance.processMessageUpdated).mock
       .calls[0]?.[0];
     expect(event?.previousMessage).toBeDefined();
-    expect((event?.previousMessage as Message).text).toBe("before");
+    // The pre-edit snapshot parses through the same async path as the new
+    // message so mention rendering matches on both sides of the diff.
+    const previous = await (event?.previousMessage as () => Promise<Message>)();
+    expect(previous.text).toBe("before");
   });
 
   it("ignores a message_changed where nothing actually changed", async () => {
@@ -4133,6 +4906,7 @@ describe("handleWebhook - slash commands", () => {
 // ============================================================================
 
 interface MockableClient {
+  apiCall: ReturnType<typeof vi.fn>;
   assistant: {
     threads: {
       setStatus: ReturnType<typeof vi.fn>;
@@ -4355,15 +5129,8 @@ describe("Attachment.fetchData token resolution", () => {
     ],
   };
 
-  function createMockFetchResponse(): Response {
-    return new Response(new ArrayBuffer(8), {
-      status: 200,
-      headers: { "content-type": "application/pdf" },
-    });
-  }
-
   it("snapshots ctx token at attachment creation in multi-workspace mode", async () => {
-    const adapter = createSlackAdapter({
+    const adapter = new TransportSlackAdapter({
       signingSecret: "test-signing-secret",
       logger: mockLogger,
     });
@@ -4380,23 +5147,15 @@ describe("Attachment.fetchData token resolution", () => {
     );
     expect(attachment).toBeDefined();
 
-    const fetchMock = vi
-      .fn()
-      .mockImplementation(() => Promise.resolve(createMockFetchResponse()));
-    const originalFetch = globalThis.fetch;
-    globalThis.fetch = fetchMock as unknown as typeof globalThis.fetch;
-    try {
-      // Call fetchData OUTSIDE the requestContext frame to confirm the
-      // captured ctxToken is used (we are no longer inside AsyncLocalStorage).
-      await attachment?.fetchData?.();
-    } finally {
-      globalThis.fetch = originalFetch;
-    }
+    // Call fetchData OUTSIDE the requestContext frame to confirm the
+    // captured ctxToken is used (we are no longer inside AsyncLocalStorage).
+    await attachment?.fetchData?.();
 
-    expect(fetchMock).toHaveBeenCalledWith(
-      "https://files.slack.com/file.pdf",
+    expect(adapter.fileTransport).toHaveBeenCalledWith(
+      new URL("https://files.slack.com/file.pdf"),
+      expect.any(AbortSignal),
       expect.objectContaining({
-        headers: { Authorization: "Bearer xoxb-team-snapshot" },
+        authorization: "Bearer xoxb-team-snapshot",
       })
     );
   });
@@ -4405,7 +5164,7 @@ describe("Attachment.fetchData token resolution", () => {
     const tokens = ["xoxb-stale", "xoxb-fresh"];
     let i = 0;
     const resolver = vi.fn(() => tokens[i++]);
-    const adapter = createSlackAdapter({
+    const adapter = new TransportSlackAdapter({
       botToken: resolver,
       signingSecret: "test-signing-secret",
       logger: mockLogger,
@@ -4417,31 +5176,24 @@ describe("Attachment.fetchData token resolution", () => {
     expect(attachment).toBeDefined();
     expect(resolver).not.toHaveBeenCalled();
 
-    const fetchMock = vi
-      .fn()
-      .mockImplementation(() => Promise.resolve(createMockFetchResponse()));
-    const originalFetch = globalThis.fetch;
-    globalThis.fetch = fetchMock as unknown as typeof globalThis.fetch;
-    try {
-      // First fetch picks up the first resolver value.
-      await attachment?.fetchData?.();
-      expect(fetchMock).toHaveBeenLastCalledWith(
-        "https://files.slack.com/file.pdf",
-        expect.objectContaining({
-          headers: { Authorization: "Bearer xoxb-stale" },
-        })
-      );
-      // A subsequent fetchData() re-invokes the resolver and picks up rotation.
-      await attachment?.fetchData?.();
-      expect(fetchMock).toHaveBeenLastCalledWith(
-        "https://files.slack.com/file.pdf",
-        expect.objectContaining({
-          headers: { Authorization: "Bearer xoxb-fresh" },
-        })
-      );
-    } finally {
-      globalThis.fetch = originalFetch;
-    }
+    // First fetch picks up the first resolver value.
+    await attachment?.fetchData?.();
+    expect(adapter.fileTransport).toHaveBeenLastCalledWith(
+      new URL("https://files.slack.com/file.pdf"),
+      expect.any(AbortSignal),
+      expect.objectContaining({
+        authorization: "Bearer xoxb-stale",
+      })
+    );
+    // A subsequent fetchData() re-invokes the resolver and picks up rotation.
+    await attachment?.fetchData?.();
+    expect(adapter.fileTransport).toHaveBeenLastCalledWith(
+      new URL("https://files.slack.com/file.pdf"),
+      expect.any(AbortSignal),
+      expect.objectContaining({
+        authorization: "Bearer xoxb-fresh",
+      })
+    );
 
     expect(resolver).toHaveBeenCalledTimes(2);
   });
@@ -5292,6 +6044,89 @@ describe("agent_view DM threading", () => {
     expect(threadId).toBe("slack:D1:1771.99");
   });
 
+  it("automatically titles a top-level agent_view DM session", async () => {
+    const adapter = createSlackAdapter({
+      agentView: true,
+      botToken: "xoxb-test-token",
+      signingSecret: secret,
+      botUserId: "U_BOT",
+      logger: mockLogger,
+    });
+    const apiCall = vi.fn().mockResolvedValue({ ok: true });
+    mockClientMethod(adapter, "apiCall", apiCall);
+    await adapter.initialize(
+      createMockChatInstance({ state: createMockState() })
+    );
+    const tasks: Promise<unknown>[] = [];
+
+    await adapter.handleWebhook(createWebhookRequest(dmMessageBody(), secret), {
+      waitUntil: (task) => tasks.push(task),
+    });
+    await Promise.all(tasks);
+
+    expect(apiCall).toHaveBeenCalledWith(
+      "agents.sessions.rename",
+      expect.objectContaining({
+        channel_id: "D1",
+        thread_ts: "1771.99",
+        title: "hi",
+      })
+    );
+  });
+
+  it("skips automatic titles when sessionTitle is disabled", async () => {
+    const adapter = createSlackAdapter({
+      agentView: true,
+      sessionTitle: false,
+      botToken: "xoxb-test-token",
+      signingSecret: secret,
+      botUserId: "U_BOT",
+      logger: mockLogger,
+    });
+    const apiCall = vi.fn().mockResolvedValue({ ok: true });
+    mockClientMethod(adapter, "apiCall", apiCall);
+    await adapter.initialize(
+      createMockChatInstance({ state: createMockState() })
+    );
+    const tasks: Promise<unknown>[] = [];
+
+    await adapter.handleWebhook(createWebhookRequest(dmMessageBody(), secret), {
+      waitUntil: (task) => tasks.push(task),
+    });
+    await Promise.all(tasks);
+
+    expect(apiCall).not.toHaveBeenCalledWith(
+      "agents.sessions.rename",
+      expect.anything()
+    );
+  });
+
+  it("does not retitle an agent_view DM follow-up", async () => {
+    const adapter = createSlackAdapter({
+      agentView: true,
+      botToken: "xoxb-test-token",
+      signingSecret: secret,
+      botUserId: "U_BOT",
+      logger: mockLogger,
+    });
+    const apiCall = vi.fn().mockResolvedValue({ ok: true });
+    mockClientMethod(adapter, "apiCall", apiCall);
+    await adapter.initialize(
+      createMockChatInstance({ state: createMockState() })
+    );
+    const body = JSON.parse(dmMessageBody());
+    body.event.thread_ts = "1771.00";
+
+    await adapter.handleWebhook(
+      createWebhookRequest(JSON.stringify(body), secret)
+    );
+
+    expect(apiCall).not.toHaveBeenCalledWith(
+      "agents.sessions.rename",
+      expect.anything()
+    );
+  });
+
   it("routes a top-level agent_view DM message to the conversation-scoped thread when it is subscribed (openDM flow)", async () => {
     const adapter = createSlackAdapter({
       agentView: true,
@@ -5338,20 +6173,21 @@ describe("agent_view DM threading", () => {
       signingSecret: secret,
       logger: mockLogger,
     });
-    mockClientMethod(
-      adapter,
-      "assistant.threads.setStatus",
-      vi.fn().mockResolvedValue({ ok: true })
-    );
+    const apiCall = vi.fn().mockResolvedValue({ ok: true });
+    mockClientMethod(adapter, "apiCall", apiCall);
 
-    await adapter.startTyping("slack:D1:1771.99", "Thinking...");
+    await adapter.startTyping("slack:D1:1771.99", "Thinking...", {
+      initiatorUserId: "U1",
+    });
 
     const client = getClient(adapter);
-    expect(client.assistant.threads.setStatus).toHaveBeenCalledWith(
+    expect(client.apiCall).toHaveBeenCalledWith(
+      "agents.sessions.setStatus",
       expect.objectContaining({
         channel_id: "D1",
+        initiator_user_id: "U1",
         thread_ts: "1771.99",
-        status: "Thinking...",
+        status: "processing",
       })
     );
   });
@@ -7194,6 +8030,31 @@ describe("setAssistantStatus", () => {
       })
     );
   });
+
+  it("maps agent status text to session lifecycle states", async () => {
+    const adapter = createSlackAdapter({
+      agentView: true,
+      botToken: "xoxb-test-token",
+      signingSecret: secret,
+      logger: mockLogger,
+    });
+    const apiCall = vi.fn().mockResolvedValue({ ok: true });
+    mockClientMethod(adapter, "apiCall", apiCall);
+
+    await adapter.setAssistantStatus("D123", "1.2", "Working...");
+    await adapter.setAssistantStatus("D123", "1.2", "");
+
+    expect(apiCall).toHaveBeenNthCalledWith(
+      1,
+      "agents.sessions.setStatus",
+      expect.objectContaining({ status: "processing" })
+    );
+    expect(apiCall).toHaveBeenNthCalledWith(
+      2,
+      "agents.sessions.setStatus",
+      expect.objectContaining({ status: "active" })
+    );
+  });
 });
 
 // ============================================================================
@@ -7229,6 +8090,28 @@ describe("setAssistantTitle", () => {
         thread_ts: "1234567890.000000",
         title: "My Thread Title",
         token: "xoxb-test-token",
+      })
+    );
+  });
+
+  it("renames an agent session under agentView", async () => {
+    const adapter = createSlackAdapter({
+      agentView: true,
+      botToken: "xoxb-test-token",
+      signingSecret: secret,
+      logger: mockLogger,
+    });
+    const apiCall = vi.fn().mockResolvedValue({ ok: true });
+    mockClientMethod(adapter, "apiCall", apiCall);
+
+    await adapter.setAssistantTitle("D123", "1.2", "Agent title");
+
+    expect(apiCall).toHaveBeenCalledWith(
+      "agents.sessions.rename",
+      expect.objectContaining({
+        channel_id: "D123",
+        thread_ts: "1.2",
+        title: "Agent title",
       })
     );
   });
@@ -7329,6 +8212,102 @@ describe("handleWebhook - assistant events", () => {
         context: expect.objectContaining({
           channelId: "C_NEW_CONTEXT",
         }),
+      }),
+      undefined
+    );
+  });
+
+  it("aborts and activates an agent session when the user stops it", async () => {
+    const state = createMockState();
+    const chatInstance = createMockChatInstance({ state });
+    const adapter = createSlackAdapter({
+      agentView: true,
+      botToken: "xoxb-test-token",
+      signingSecret: secret,
+      logger: mockLogger,
+      botUserId: "U_BOT",
+    });
+    const apiCall = vi.fn().mockResolvedValue({ ok: true });
+    mockClientMethod(adapter, "apiCall", apiCall);
+    await adapter.initialize(chatInstance);
+
+    const body = JSON.stringify({
+      type: "event_callback",
+      team_id: "T123",
+      event: {
+        type: "agent_session_stopped",
+        user: "U_USER",
+        channel: "D_AGENT",
+        thread_ts: "1234567890.111111",
+        streaming_message_ts: ["1234567891.222222", "1234567891.333333"],
+        event_ts: "1234567892.333333",
+      },
+    });
+    const tasks: Promise<unknown>[] = [];
+    const response = await adapter.handleWebhook(
+      createWebhookRequest(body, secret),
+      { waitUntil: (task) => tasks.push(task) }
+    );
+    await Promise.all(tasks);
+
+    const threadId = "slack:D_AGENT:1234567890.111111";
+    expect(response.status).toBe(200);
+    expect(chatInstance.abortTurn).toHaveBeenCalledWith(threadId);
+    expect(apiCall).toHaveBeenCalledWith(
+      "agents.sessions.setStatus",
+      expect.objectContaining({
+        channel_id: "D_AGENT",
+        status: "active",
+        thread_ts: "1234567890.111111",
+      })
+    );
+    expect(chatInstance.processAgentSessionStopped).toHaveBeenCalledWith(
+      expect.objectContaining({
+        streamingMessageTs: ["1234567891.222222", "1234567891.333333"],
+        threadId,
+        userId: "U_USER",
+      }),
+      expect.any(Object)
+    );
+    expect(state.acquireLock).not.toHaveBeenCalled();
+  });
+
+  it("dispatches agent session title changes", async () => {
+    const chatInstance = createMockChatInstance({
+      state: createMockState(),
+    });
+    const adapter = createSlackAdapter({
+      agentView: true,
+      botToken: "xoxb-test-token",
+      signingSecret: secret,
+      logger: mockLogger,
+      botUserId: "U_BOT",
+    });
+    await adapter.initialize(chatInstance);
+
+    const body = JSON.stringify({
+      type: "event_callback",
+      team_id: "T123",
+      event: {
+        type: "agent_session_title_changed",
+        user: "U_USER",
+        channel: "D_AGENT",
+        thread_ts: "1234567890.111111",
+        title: "New title",
+        event_ts: "1234567892.333333",
+        team_id: "T123",
+      },
+    });
+    const response = await adapter.handleWebhook(
+      createWebhookRequest(body, secret)
+    );
+
+    expect(response.status).toBe(200);
+    expect(chatInstance.processAgentSessionTitleChanged).toHaveBeenCalledWith(
+      expect.objectContaining({
+        previousTitle: undefined,
+        threadId: "slack:D_AGENT:1234567890.111111",
+        title: "New title",
       }),
       undefined
     );
@@ -9441,6 +10420,23 @@ describe("native streaming fallback", () => {
       yield part;
     }
   }
+
+  it("finishes agent streams with an active session status", async () => {
+    const { adapter } = createAdapter({ agentView: true });
+    const append = vi.fn().mockResolvedValue({ ok: true });
+    const stop = vi.fn().mockResolvedValue({ ts: "stream-ts" });
+    mockClientMethod(
+      adapter,
+      "chatStream",
+      vi.fn().mockReturnValue({ append, stop, ts: undefined })
+    );
+
+    await adapter.stream("slack:D123:1234567890.000000", textStream("hello"));
+
+    expect(stop).toHaveBeenCalledWith(
+      expect.objectContaining({ session_status: "active" })
+    );
+  });
 
   it("returns null before consuming the stream when nativeStreaming is false", async () => {
     const { adapter } = createAdapter({ nativeStreaming: false });

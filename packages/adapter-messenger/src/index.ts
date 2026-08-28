@@ -31,6 +31,7 @@ import {
   Message,
 } from "chat";
 import { cardToMessenger, decodeMessengerCallbackData } from "./cards";
+import { download } from "./fetch";
 import { MessengerFormatConverter } from "./markdown";
 import type {
   MessengerAdapterConfig,
@@ -527,6 +528,14 @@ export class MessengerAdapter
     });
   }
 
+  async markAsRead(threadId: string, _messageId: string): Promise<void> {
+    const { recipientId } = this.resolveThreadId(threadId);
+    await this.graphApiFetch("me/messages", "POST", {
+      recipient: { id: recipientId },
+      sender_action: "mark_seen",
+    });
+  }
+
   async fetchMessages(
     threadId: string,
     options: FetchOptions = {}
@@ -690,25 +699,7 @@ export class MessengerAdapter
   }
 
   protected async downloadAttachment(url: string): Promise<Buffer> {
-    let response: Response;
-    try {
-      response = await fetch(url);
-    } catch (error) {
-      throw new NetworkError(
-        "messenger",
-        "Failed to download Messenger attachment",
-        error instanceof Error ? error : undefined
-      );
-    }
-
-    if (!response.ok) {
-      throw new NetworkError(
-        "messenger",
-        `Failed to download Messenger attachment: ${response.status}`
-      );
-    }
-
-    return Buffer.from(await response.arrayBuffer());
+    return await download(url);
   }
 
   protected async fetchUserProfile(

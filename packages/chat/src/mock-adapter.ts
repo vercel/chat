@@ -45,6 +45,7 @@ export function createMockAdapter(name = "slack"): Adapter {
     addReaction: vi.fn().mockResolvedValue(undefined),
     removeReaction: vi.fn().mockResolvedValue(undefined),
     startTyping: vi.fn().mockResolvedValue(undefined),
+    markAsRead: vi.fn().mockResolvedValue(undefined),
     fetchMessages: vi
       .fn()
       .mockResolvedValue({ messages: [], nextCursor: undefined }),

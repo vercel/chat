@@ -276,6 +276,16 @@ export async function updateTwilioCall(
 export async function fetchTwilioMedia(
   options: FetchTwilioMediaOptions
 ): Promise<ArrayBuffer> {
+  const apiUrl = new URL(
+    options.apiUrl ?? options.apiBaseUrl ?? DEFAULT_API_URL
+  );
+  const mediaUrl = new URL(options.url);
+  if (mediaUrl.origin !== apiUrl.origin) {
+    throw new TwilioApiError(
+      "Twilio media URL must match the configured Twilio API origin",
+      { body: null, status: 0 }
+    );
+  }
   const accountSid = await resolveTwilioCredential(
     options.credentials?.accountSid,
     "TWILIO_ACCOUNT_SID"

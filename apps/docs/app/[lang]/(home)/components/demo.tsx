@@ -1,4 +1,5 @@
 import { SiTypescript } from "@icons-pack/react-simple-icons";
+import { cacheLife } from "next/cache";
 import type { CSSProperties } from "react";
 import { codeToTokens } from "shiki";
 import { DemoClient, type SerializedHandler } from "./demo-client";
@@ -42,7 +43,12 @@ const parseRootStyle = (rootStyle: string): Record<string, string> => {
   return style;
 };
 
-export const Demo = async () => {
+// Shiki reads unstable values (e.g. Date.now) internally, so the highlight
+// step must run inside a cache scope to stay prerenderable.
+const getHighlightedDemo = async () => {
+  "use cache";
+  cacheLife("max");
+
   const { tokens: allTokens, rootStyle } = await codeToTokens(fullCode, {
     lang: "tsx",
     themes: {
@@ -101,6 +107,12 @@ export const Demo = async () => {
       });
     }
   }
+
+  return { handlers, preStyle };
+};
+
+export const Demo = async () => {
+  const { handlers, preStyle } = await getHighlightedDemo();
 
   return (
     <DemoClient

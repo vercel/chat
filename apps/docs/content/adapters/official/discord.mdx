@@ -209,6 +209,10 @@ Call `discord.setThreadTitle(thread.id, title)` to rename an existing Discord th
 
 ## Advanced
 
+### Inbound attachments
+
+Incoming attachments expose a lazy `fetchData()` that downloads from Discord's CDN anonymously. Downloads refuse private and internal addresses (including after redirects), are limited to 25 MB, and time out after 30 seconds.
+
 ### HTTP Interactions vs Gateway
 
 Discord has two ways to receive events:

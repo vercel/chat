@@ -31,6 +31,7 @@ import {
 } from "./markdown";
 
 const mockFetch = vi.fn<typeof fetch>();
+process.env.TELEGRAM_ALLOW_UNVERIFIED_WEBHOOKS = "true";
 const SERVERLESS_ENV_KEYS = [
   "VERCEL",
   "AWS_LAMBDA_FUNCTION_NAME",
@@ -119,6 +120,22 @@ function sampleMessage(overrides?: Partial<TelegramMessage>): TelegramMessage {
   };
 }
 
+function groupStreamMessage(text: string): TelegramMessage {
+  return sampleMessage({
+    chat: { id: -100_123, title: "Group", type: "supergroup" },
+    message_id: 21,
+    text,
+  });
+}
+
+/** Bot API method names in call order, e.g. ["getMe", "sendMessage"]. */
+function telegramMethods(): string[] {
+  return mockFetch.mock.calls.map(([url]) => {
+    const { pathname } = new URL(String(url));
+    return pathname.slice(pathname.lastIndexOf("/") + 1);
+  });
+}
+
 function readFormData(callIndex: number): FormData {
   const body = mockFetch.mock.calls[callIndex]?.[1]?.body;
   if (!(body instanceof FormData)) {
@@ -189,6 +206,38 @@ describe("createTelegramAdapter", () => {
     );
   });
 
+  it("requires verification in webhook mode", () => {
+    expect(() =>
+      createTelegramAdapter({
+        allowUnverifiedWebhooks: false,
+        botToken: "token",
+        mode: "webhook",
+        logger: mockLogger,
+      })
+    ).toThrow("secretToken is required in webhook mode");
+  });
+
+  it("allows explicit unverified webhook mode", () => {
+    expect(
+      createTelegramAdapter({
+        allowUnverifiedWebhooks: true,
+        botToken: "token",
+        mode: "webhook",
+        logger: mockLogger,
+      })
+    ).toBeInstanceOf(TelegramAdapter);
+  });
+
+  it("allows polling mode without webhook verification", () => {
+    expect(
+      createTelegramAdapter({
+        botToken: "token",
+        mode: "polling",
+        logger: mockLogger,
+      })
+    ).toBeInstanceOf(TelegramAdapter);
+  });
+
   it("uses env vars when config is omitted", () => {
     process.env.TELEGRAM_BOT_TOKEN = "token-from-env";
 
@@ -236,6 +285,21 @@ describe("constructor env var resolution", () => {
     process.env.TELEGRAM_WEBHOOK_SECRET_TOKEN = "env-secret";
     const adapter = new TelegramAdapter();
     expect(adapter).toBeInstanceOf(TelegramAdapter);
+  });
+
+  it("should resolve allowUnverifiedWebhooks from TELEGRAM_ALLOW_UNVERIFIED_WEBHOOKS", () => {
+    process.env.TELEGRAM_BOT_TOKEN = "env-bot-token";
+    process.env.TELEGRAM_ALLOW_UNVERIFIED_WEBHOOKS = "true";
+    const adapter = new TelegramAdapter({ mode: "webhook" });
+    expect(adapter).toBeInstanceOf(TelegramAdapter);
+  });
+
+  it("should reject TELEGRAM_ALLOW_UNVERIFIED_WEBHOOKS=false in webhook mode", () => {
+    process.env.TELEGRAM_BOT_TOKEN = "env-bot-token";
+    process.env.TELEGRAM_ALLOW_UNVERIFIED_WEBHOOKS = "false";
+    expect(() => new TelegramAdapter({ mode: "webhook" })).toThrow(
+      "secretToken is required in webhook mode"
+    );
   });
 
   it("should resolve userName from TELEGRAM_BOT_USERNAME env var", () => {
@@ -382,7 +446,7 @@ describe("bot token resolver", () => {
 
     await (
       adapter as unknown as {
-        downloadFile(fileId: string): Promise<Buffer>;
+        downloadFile(fileId: string): Promise<Buffer | ArrayBuffer>;
       }
     ).downloadFile("file-1");
 
@@ -391,6 +455,41 @@ describe("bot token resolver", () => {
       "https://api.telegram.org/bottelegram-api-token/getFile",
       "https://api.telegram.org/file/bottelegram-file-token/documents/file.txt",
     ]);
+  });
+
+  it("downloads file bytes without the Node Buffer global", async () => {
+    const expected = new Uint8Array([0, 127, 255]);
+    mockFetch
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          ok: true,
+          result: {
+            file_id: "file-1",
+            file_path: "documents/file.bin",
+          },
+        }),
+      } as Response)
+      .mockResolvedValueOnce({
+        ok: true,
+        arrayBuffer: async () => expected.buffer,
+        headers: new Headers(),
+      } as unknown as Response);
+    const adapter = createTelegramAdapter({
+      botToken: "telegram-token",
+      mode: "webhook",
+      logger: mockLogger,
+    });
+    vi.stubGlobal("Buffer", undefined);
+
+    const data = await (
+      adapter as unknown as {
+        downloadFile(fileId: string): Promise<Buffer | ArrayBuffer>;
+      }
+    ).downloadFile("file-1");
+
+    expect(data).toBeInstanceOf(ArrayBuffer);
+    expect(new Uint8Array(data)).toEqual(expected);
   });
 
   it("scopes webhook deduplication with the stable bot identity", async () => {
@@ -739,7 +838,7 @@ describe("TelegramAdapter", () => {
     );
   });
 
-  it("does not let unverified updates claim IDs", async () => {
+  it("deduplicates explicitly allowed unverified updates", async () => {
     mockFetch.mockResolvedValue(
       telegramOk({
         id: 999,
@@ -775,8 +874,8 @@ describe("TelegramAdapter", () => {
       request({ update_id: 1, message: sampleMessage() })
     );
 
-    expect(chat.processMessage).toHaveBeenCalledTimes(1);
-    expect(state.setIfNotExists).not.toHaveBeenCalled();
+    expect(chat.processMessage).not.toHaveBeenCalled();
+    expect(state.setIfNotExists).toHaveBeenCalledTimes(2);
   });
 
   it("scopes webhook update claims by bot identity", async () => {
@@ -878,13 +977,15 @@ describe("TelegramAdapter", () => {
 
   it("combines an incoming media group into one ordered message", async () => {
     vi.useFakeTimers();
-    mockFetch.mockResolvedValue(
-      telegramOk({
-        id: 999,
-        is_bot: true,
-        first_name: "Bot",
-        username: "mybot",
-      })
+    mockFetch.mockImplementation(() =>
+      Promise.resolve(
+        telegramOk({
+          id: 999,
+          is_bot: true,
+          first_name: "Bot",
+          username: "mybot",
+        })
+      )
     );
 
     const state = createMockState();
@@ -942,7 +1043,7 @@ describe("TelegramAdapter", () => {
     ];
 
     for (const [index, message] of messages.entries()) {
-      await adapters[index].handleWebhook(
+      const response = await adapters[index].handleWebhook(
         new Request("https://example.com/webhook", {
           method: "POST",
           headers: { "content-type": "application/json" },
@@ -950,6 +1051,7 @@ describe("TelegramAdapter", () => {
         }),
         { waitUntil }
       );
+      expect(response.status).toBe(200);
     }
 
     const processMessages = chats.map(
@@ -1006,6 +1108,7 @@ describe("TelegramAdapter", () => {
     }
 
     const adapter = new TestTelegramAdapter({
+      allowUnverifiedWebhooks: true,
       allowedUserIds: [456],
       botToken: "token",
       mode: "webhook",
@@ -1439,6 +1542,47 @@ describe("TelegramAdapter", () => {
     expect(response.status).toBe(401);
   });
 
+  it("rejects unverified callback queries before dispatch", async () => {
+    const adapter = createTelegramAdapter({
+      allowUnverifiedWebhooks: false,
+      botToken: "token",
+      mode: "auto",
+      logger: mockLogger,
+      userName: "mybot",
+    });
+    const chat = createMockChat();
+    (
+      adapter as unknown as {
+        chat: ChatInstance;
+      }
+    ).chat = chat;
+
+    const response = await adapter.handleWebhook(
+      new Request("https://example.com/webhook", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          update_id: 2,
+          callback_query: {
+            id: "callback-1",
+            from: {
+              id: 456,
+              is_bot: false,
+              first_name: "User",
+              username: "user",
+            },
+            message: sampleMessage(),
+            chat_instance: "ci_1",
+            data: encodeTelegramCallbackData("eve_input", "request-123"),
+          },
+        }),
+      })
+    );
+
+    expect(response.status).toBe(401);
+    expect(chat).not.toHaveDispatched("processAction");
+  });
+
   it("returns 400 for invalid webhook JSON", async () => {
     const adapter = createTelegramAdapter({
       botToken: "token",
@@ -1818,6 +1962,38 @@ describe("TelegramAdapter", () => {
     expect(adapter.isPolling).toBe(false);
   });
 
+  it("auto mode requires verification when a webhook is registered", async () => {
+    mockFetch
+      .mockResolvedValueOnce(
+        telegramOk({
+          id: 999,
+          is_bot: true,
+          first_name: "Bot",
+          username: "mybot",
+        })
+      )
+      .mockResolvedValueOnce(
+        telegramOk({
+          allowed_updates: [],
+          has_custom_certificate: false,
+          pending_update_count: 0,
+          url: "https://example.com/webhook/telegram",
+        })
+      );
+
+    const adapter = createTelegramAdapter({
+      allowUnverifiedWebhooks: false,
+      botToken: "token",
+      mode: "auto",
+      logger: mockLogger,
+      userName: "mybot",
+    });
+
+    await expect(adapter.initialize(createMockChat())).rejects.toThrow(
+      "secretToken is required in webhook mode"
+    );
+  });
+
   it("auto mode stays in webhook mode on serverless runtime", async () => {
     const previousVercel = process.env.VERCEL;
     process.env.VERCEL = "1";
@@ -1988,7 +2164,7 @@ describe("TelegramAdapter", () => {
     expect(sendMessageBody.rich_message.markdown).toBe("hello");
   });
 
-  it("streams draft updates for private chats and sends a final message", async () => {
+  it("streams draft updates when native streaming is enabled", async () => {
     mockFetch
       .mockResolvedValueOnce(
         telegramOk({
@@ -2015,6 +2191,7 @@ describe("TelegramAdapter", () => {
       botToken: "token",
       mode: "webhook",
       logger: mockLogger,
+      nativeStreaming: true,
       userName: "mybot",
     });
 
@@ -2094,6 +2271,7 @@ describe("TelegramAdapter", () => {
       botToken: "token",
       mode: "webhook",
       logger: mockLogger,
+      nativeStreaming: true,
       userName: "mybot",
     });
 
@@ -2177,6 +2355,7 @@ describe("TelegramAdapter", () => {
       botToken: "token",
       mode: "webhook",
       logger: mockLogger,
+      nativeStreaming: true,
       userName: "mybot",
     });
 
@@ -2234,15 +2413,106 @@ describe("TelegramAdapter", () => {
     expect(finalSendBody.rich_message.markdown).toBe(longMarkdown);
   });
 
-  it("returns null for non-DM streaming so Chat SDK can use fallback streaming", async () => {
-    mockFetch.mockResolvedValueOnce(
-      telegramOk({
-        id: 999,
-        is_bot: true,
-        first_name: "Bot",
-        username: "mybot",
-      })
+  it("streams non-DM chats with post-and-edit even when nativeStreaming is on", async () => {
+    mockFetch
+      .mockResolvedValueOnce(
+        telegramOk({
+          id: 999,
+          is_bot: true,
+          first_name: "Bot",
+          username: "mybot",
+        })
+      )
+      .mockResolvedValueOnce(telegramOk(groupStreamMessage("...")))
+      .mockResolvedValueOnce(telegramOk(groupStreamMessage("hello world")));
+
+    const adapter = createTelegramAdapter({
+      botToken: "token",
+      mode: "webhook",
+      logger: mockLogger,
+      nativeStreaming: true,
+      streamingEditIntervalMs: 0,
+      userName: "mybot",
+    });
+
+    await adapter.initialize(createMockChat());
+
+    async function* textStream(): AsyncIterable<string> {
+      yield "hello world";
+    }
+
+    const result = await adapter.stream("telegram:-100123", textStream(), {
+      updateIntervalMs: 0,
+    });
+
+    expect(result).not.toBeNull();
+    expect(telegramMethods()).toEqual([
+      "getMe",
+      "sendMessage",
+      "editMessageText",
+    ]);
+  });
+
+  it("streams private chats with post-and-edit by default", async () => {
+    mockFetch
+      .mockResolvedValueOnce(
+        telegramOk({
+          id: 999,
+          is_bot: true,
+          first_name: "Bot",
+          username: "mybot",
+        })
+      )
+      .mockResolvedValueOnce(telegramOk(sampleMessage({ text: "..." })))
+      .mockResolvedValueOnce(
+        telegramOk(sampleMessage({ text: "hello world" }))
+      );
+
+    const adapter = createTelegramAdapter({
+      botToken: "token",
+      mode: "webhook",
+      logger: mockLogger,
+      streamingEditIntervalMs: 0,
+      userName: "mybot",
+    });
+
+    await adapter.initialize(createMockChat());
+
+    async function* stream(): AsyncIterable<string> {
+      yield "hello world";
+    }
+
+    const result = await adapter.stream("telegram:123", stream(), {
+      updateIntervalMs: 0,
+    });
+
+    expect(result).not.toBeNull();
+    expect(telegramMethods()).toEqual([
+      "getMe",
+      "sendMessage",
+      "editMessageText",
+    ]);
+    expect(telegramMethods().some((method) => method.includes("Draft"))).toBe(
+      false
     );
+  });
+
+  it("uses the private chat streaming edit floor", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(0);
+    mockFetch
+      .mockResolvedValueOnce(
+        telegramOk({
+          id: 999,
+          is_bot: true,
+          first_name: "Bot",
+          username: "mybot",
+        })
+      )
+      // A Response body can only be read once, so build a fresh one per call.
+      .mockImplementation(() =>
+        Promise.resolve(telegramOk(sampleMessage({ text: "chunk" })))
+      );
 
     const adapter = createTelegramAdapter({
       botToken: "token",
@@ -2253,16 +2523,271 @@ describe("TelegramAdapter", () => {
 
     await adapter.initialize(createMockChat());
 
-    async function* textStream(): AsyncIterable<string> {
-      yield "hello";
+    async function* stream(): AsyncIterable<string> {
+      yield "one ";
+      vi.setSystemTime(1200);
+      yield "two ";
+      vi.setSystemTime(1300);
+      yield "three";
     }
 
-    const result = await adapter.stream("telegram:-100123", textStream(), {
+    const result = adapter.stream("telegram:123", stream(), {
       updateIntervalMs: 0,
     });
 
-    expect(result).toBeNull();
-    expect(mockFetch).toHaveBeenCalledTimes(1);
+    await vi.advanceTimersByTimeAsync(999);
+    expect(
+      telegramMethods().filter((method) => method === "editMessageText")
+    ).toHaveLength(1);
+
+    await vi.advanceTimersByTimeAsync(1);
+    await result;
+
+    expect(
+      telegramMethods().filter((method) => method === "editMessageText")
+    ).toHaveLength(2);
+  });
+
+  it("uses the group streaming edit floor", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(0);
+    mockFetch
+      .mockResolvedValueOnce(
+        telegramOk({
+          id: 999,
+          is_bot: true,
+          first_name: "Bot",
+          username: "mybot",
+        })
+      )
+      .mockImplementation(() =>
+        Promise.resolve(telegramOk(groupStreamMessage("chunk")))
+      );
+
+    const adapter = createTelegramAdapter({
+      botToken: "token",
+      mode: "webhook",
+      logger: mockLogger,
+      userName: "mybot",
+    });
+
+    await adapter.initialize(createMockChat());
+
+    async function* stream(): AsyncIterable<string> {
+      yield "one ";
+      vi.setSystemTime(1200);
+      yield "two ";
+      vi.setSystemTime(1300);
+      yield "three";
+    }
+
+    const result = adapter.stream("telegram:-100123", stream(), {
+      updateIntervalMs: 0,
+    });
+
+    await vi.advanceTimersByTimeAsync(1799);
+    expect(
+      telegramMethods().filter((method) => method === "editMessageText")
+    ).toHaveLength(0);
+
+    await vi.advanceTimersByTimeAsync(1);
+    await result;
+
+    expect(
+      telegramMethods().filter((method) => method === "editMessageText")
+    ).toHaveLength(1);
+  });
+
+  it("edits per chunk when streamingEditIntervalMs opts out of throttling", async () => {
+    mockFetch
+      .mockResolvedValueOnce(
+        telegramOk({
+          id: 999,
+          is_bot: true,
+          first_name: "Bot",
+          username: "mybot",
+        })
+      )
+      // A Response body can only be read once, so build a fresh one per call.
+      .mockImplementation(() =>
+        Promise.resolve(telegramOk(sampleMessage({ text: "chunk" })))
+      );
+
+    const adapter = createTelegramAdapter({
+      botToken: "token",
+      mode: "webhook",
+      logger: mockLogger,
+      streamingEditIntervalMs: 0,
+      userName: "mybot",
+    });
+
+    await adapter.initialize(createMockChat());
+
+    async function* stream(): AsyncIterable<string> {
+      yield "one ";
+      yield "two ";
+      yield "three";
+    }
+
+    await adapter.stream("telegram:123", stream(), { updateIntervalMs: 0 });
+
+    expect(
+      telegramMethods().filter((method) => method === "editMessageText").length
+    ).toBeGreaterThan(1);
+  });
+
+  it("retries the final streamed edit once when Telegram rate limits it", async () => {
+    mockFetch
+      .mockResolvedValueOnce(
+        telegramOk({
+          id: 999,
+          is_bot: true,
+          first_name: "Bot",
+          username: "mybot",
+        })
+      )
+      .mockResolvedValueOnce(telegramOk(sampleMessage({ text: "..." })))
+      .mockResolvedValueOnce(
+        telegramError(429, 429, "Too Many Requests", { retry_after: 0 })
+      )
+      .mockResolvedValueOnce(telegramOk(sampleMessage({ text: "hello" })));
+
+    const adapter = createTelegramAdapter({
+      botToken: "token",
+      mode: "webhook",
+      logger: mockLogger,
+      streamingEditIntervalMs: 0,
+      userName: "mybot",
+    });
+
+    await adapter.initialize(createMockChat());
+
+    async function* stream(): AsyncIterable<string> {
+      yield "hello";
+    }
+
+    const result = await adapter.stream("telegram:123", stream(), {
+      updateIntervalMs: 0,
+    });
+
+    expect(result).not.toBeNull();
+    expect(
+      telegramMethods().filter((method) => method === "editMessageText")
+    ).toHaveLength(2);
+  });
+
+  it("rejects when the final streamed edit retry fails", async () => {
+    mockFetch
+      .mockResolvedValueOnce(
+        telegramOk({
+          id: 999,
+          is_bot: true,
+          first_name: "Bot",
+          username: "mybot",
+        })
+      )
+      .mockResolvedValueOnce(telegramOk(sampleMessage({ text: "..." })))
+      .mockResolvedValueOnce(
+        telegramError(429, 429, "Too Many Requests", { retry_after: 0 })
+      )
+      .mockResolvedValueOnce(telegramError(500, 500, "Internal Server Error"));
+
+    const adapter = createTelegramAdapter({
+      botToken: "token",
+      mode: "webhook",
+      logger: mockLogger,
+      streamingEditIntervalMs: 0,
+      userName: "mybot",
+    });
+
+    await adapter.initialize(createMockChat());
+
+    async function* stream(): AsyncIterable<string> {
+      yield "hello";
+    }
+
+    await expect(
+      adapter.stream("telegram:123", stream(), { updateIntervalMs: 0 })
+    ).rejects.toBeInstanceOf(NetworkError);
+  });
+
+  it("rejects when the final retry_after exceeds the cap", async () => {
+    mockFetch
+      .mockResolvedValueOnce(
+        telegramOk({
+          id: 999,
+          is_bot: true,
+          first_name: "Bot",
+          username: "mybot",
+        })
+      )
+      .mockResolvedValueOnce(telegramOk(sampleMessage({ text: "..." })))
+      .mockResolvedValueOnce(
+        telegramError(429, 429, "Too Many Requests", { retry_after: 30 })
+      );
+
+    const adapter = createTelegramAdapter({
+      botToken: "token",
+      mode: "webhook",
+      logger: mockLogger,
+      streamingEditIntervalMs: 0,
+      userName: "mybot",
+    });
+
+    await adapter.initialize(createMockChat());
+
+    async function* stream(): AsyncIterable<string> {
+      yield "hello";
+    }
+
+    await expect(
+      adapter.stream("telegram:123", stream(), { updateIntervalMs: 0 })
+    ).rejects.toBeInstanceOf(AdapterRateLimitError);
+    expect(
+      telegramMethods().filter((method) => method === "editMessageText")
+    ).toHaveLength(1);
+  });
+
+  it("respects retry_after after an intermediate streamed edit", async () => {
+    mockFetch
+      .mockResolvedValueOnce(
+        telegramOk({
+          id: 999,
+          is_bot: true,
+          first_name: "Bot",
+          username: "mybot",
+        })
+      )
+      .mockResolvedValueOnce(telegramOk(sampleMessage({ text: "..." })))
+      .mockResolvedValueOnce(
+        telegramError(429, 429, "Too Many Requests", { retry_after: 30 })
+      )
+      .mockImplementation(() =>
+        Promise.resolve(telegramOk(sampleMessage({ text: "chunk" })))
+      );
+
+    const adapter = createTelegramAdapter({
+      botToken: "token",
+      mode: "webhook",
+      logger: mockLogger,
+      streamingEditIntervalMs: 0,
+      userName: "mybot",
+    });
+
+    await adapter.initialize(createMockChat());
+
+    async function* stream(): AsyncIterable<string> {
+      yield "one ";
+      yield "two ";
+      yield "three";
+    }
+
+    await expect(
+      adapter.stream("telegram:123", stream(), { updateIntervalMs: 0 })
+    ).rejects.toBeInstanceOf(AdapterRateLimitError);
+    expect(
+      telegramMethods().filter((method) => method === "editMessageText")
+    ).toHaveLength(1);
   });
 
   it("renders MarkdownV2 when rich draft streaming is unavailable", async () => {
@@ -2291,6 +2816,7 @@ describe("TelegramAdapter", () => {
       botToken: "token",
       mode: "webhook",
       logger: mockLogger,
+      nativeStreaming: true,
       userName: "mybot",
     });
 
@@ -2361,6 +2887,7 @@ describe("TelegramAdapter", () => {
       botToken: "token",
       mode: "webhook",
       logger: mockLogger,
+      nativeStreaming: true,
       userName: "mybot",
     });
 
@@ -3458,6 +3985,7 @@ describe("TelegramAdapter", () => {
       botToken: "token",
       mode: "webhook",
       logger: mockLogger,
+      nativeStreaming: true,
       userName: "mybot",
     });
 
@@ -3527,6 +4055,7 @@ describe("TelegramAdapter", () => {
       botToken: "token",
       mode: "webhook",
       logger: mockLogger,
+      nativeStreaming: true,
       userName: "mybot",
     });
 
@@ -5403,6 +5932,7 @@ describe("sleep abort support", () => {
 
   const makeAdapter = () =>
     new SleepTestAdapter({
+      allowUnverifiedWebhooks: true,
       botToken: "token",
       mode: "webhook",
       logger: mockLogger,
@@ -5471,6 +6001,7 @@ describe("mention regex caching", () => {
 
   it("matches with the cached regex and recompiles when the username changes", () => {
     const adapter = new MentionTestAdapter({
+      allowUnverifiedWebhooks: true,
       botToken: "token",
       mode: "webhook",
       userName: "first_bot",
@@ -5485,5 +6016,812 @@ describe("mention regex caching", () => {
     adapter.setUserName("second_bot");
     expect(adapter.checkMention("hi @second_bot")).toBe(true);
     expect(adapter.checkMention("hi @first_bot")).toBe(false);
+  });
+});
+
+describe("reply", () => {
+  function createReplyAdapter() {
+    return createTelegramAdapter({
+      botToken: "token",
+      mode: "webhook",
+      logger: mockLogger,
+      userName: "mybot",
+    });
+  }
+
+  const expectedReplyParameters = {
+    message_id: 7,
+    allow_sending_without_reply: true,
+  };
+
+  it("threads a rich text message to its target", async () => {
+    mockFetch
+      .mockResolvedValueOnce(
+        telegramOk({ id: 1, is_bot: true, username: "mybot" })
+      )
+      .mockResolvedValueOnce(telegramOk(sampleMessage({ message_id: 11 })));
+
+    const adapter = createReplyAdapter();
+    await adapter.initialize(createMockChat());
+
+    await adapter.reply("telegram:123", "123:7", { markdown: "hello" });
+
+    expect(String(mockFetch.mock.calls[1]?.[0])).toContain("/sendRichMessage");
+    const body = JSON.parse(
+      String((mockFetch.mock.calls[1]?.[1] as RequestInit).body)
+    );
+    expect(body.reply_parameters).toEqual(expectedReplyParameters);
+  });
+
+  it("threads a plain string message through sendMessage", async () => {
+    mockFetch
+      .mockResolvedValueOnce(
+        telegramOk({ id: 1, is_bot: true, username: "mybot" })
+      )
+      .mockResolvedValueOnce(telegramOk(sampleMessage({ message_id: 11 })));
+
+    const adapter = createReplyAdapter();
+    await adapter.initialize(createMockChat());
+
+    await adapter.reply("telegram:123", "123:7", "hello");
+
+    expect(String(mockFetch.mock.calls[1]?.[0])).toContain("/sendMessage");
+    const body = JSON.parse(
+      String((mockFetch.mock.calls[1]?.[1] as RequestInit).body)
+    );
+    expect(body.reply_parameters).toEqual(expectedReplyParameters);
+  });
+
+  it("threads a document upload to its target", async () => {
+    mockFetch
+      .mockResolvedValueOnce(
+        telegramOk({ id: 1, is_bot: true, username: "mybot" })
+      )
+      .mockResolvedValueOnce(telegramOk(sampleMessage({ message_id: 11 })));
+
+    const adapter = createReplyAdapter();
+    await adapter.initialize(createMockChat());
+
+    await adapter.reply("telegram:123", "123:7", {
+      raw: "",
+      files: [{ data: Buffer.from("doc"), filename: "doc.txt" }],
+    });
+
+    expect(String(mockFetch.mock.calls[1]?.[0])).toContain("/sendDocument");
+    expect(readFormData(1).get("reply_parameters")).toBe(
+      JSON.stringify(expectedReplyParameters)
+    );
+  });
+
+  it("threads a URL attachment without an inline keyboard", async () => {
+    mockFetch
+      .mockResolvedValueOnce(
+        telegramOk({ id: 1, is_bot: true, username: "mybot" })
+      )
+      .mockResolvedValueOnce(telegramOk(sampleMessage({ message_id: 11 })));
+
+    const adapter = createReplyAdapter();
+    await adapter.initialize(createMockChat());
+
+    await adapter.reply("telegram:123", "123:7", {
+      markdown: "picture",
+      attachments: [
+        {
+          mimeType: "image/png",
+          name: "pic.png",
+          type: "image",
+          url: "https://cdn.example.com/pic.png",
+        },
+      ],
+    });
+
+    expect(String(mockFetch.mock.calls[1]?.[0])).toContain("/sendPhoto");
+    const body = JSON.parse(
+      String((mockFetch.mock.calls[1]?.[1] as RequestInit).body)
+    );
+    expect(body.reply_parameters).toEqual(expectedReplyParameters);
+  });
+
+  it("threads a buffer attachment to its target", async () => {
+    mockFetch
+      .mockResolvedValueOnce(
+        telegramOk({ id: 1, is_bot: true, username: "mybot" })
+      )
+      .mockResolvedValueOnce(telegramOk(sampleMessage({ message_id: 11 })));
+
+    const adapter = createReplyAdapter();
+    await adapter.initialize(createMockChat());
+
+    await adapter.reply("telegram:123", "123:7", {
+      markdown: "picture",
+      attachments: [
+        {
+          data: Buffer.from("payload"),
+          mimeType: "image/png",
+          name: "pic.png",
+          type: "image",
+        },
+      ],
+    });
+
+    expect(String(mockFetch.mock.calls[1]?.[0])).toContain("/sendPhoto");
+    expect(readFormData(1).get("reply_parameters")).toBe(
+      JSON.stringify(expectedReplyParameters)
+    );
+  });
+
+  it("threads a media group to its target", async () => {
+    mockFetch
+      .mockResolvedValueOnce(
+        telegramOk({ id: 1, is_bot: true, username: "mybot" })
+      )
+      .mockResolvedValueOnce(
+        telegramOk([
+          sampleMessage({ message_id: 11 }),
+          sampleMessage({ message_id: 12 }),
+        ])
+      );
+
+    const adapter = createReplyAdapter();
+    await adapter.initialize(createMockChat());
+
+    await adapter.reply("telegram:123", "123:7", {
+      markdown: "album",
+      attachments: [
+        { data: Buffer.from("one"), name: "one.png", type: "image" },
+        { data: Buffer.from("two"), name: "two.png", type: "image" },
+      ],
+    });
+
+    expect(String(mockFetch.mock.calls[1]?.[0])).toContain("/sendMediaGroup");
+    expect(readFormData(1).get("reply_parameters")).toBe(
+      JSON.stringify(expectedReplyParameters)
+    );
+  });
+
+  it("falls back to a regular send when the rich endpoint rejects reply_parameters", async () => {
+    mockFetch
+      .mockResolvedValueOnce(
+        telegramOk({ id: 1, is_bot: true, username: "mybot" })
+      )
+      .mockResolvedValueOnce(
+        telegramError(400, 400, "Bad Request: unknown field reply_parameters")
+      )
+      .mockResolvedValueOnce(telegramOk(sampleMessage({ message_id: 11 })));
+
+    const adapter = createReplyAdapter();
+    await adapter.initialize(createMockChat());
+
+    await adapter.reply("telegram:123", "123:7", { markdown: "hello" });
+
+    expect(String(mockFetch.mock.calls[1]?.[0])).toContain("/sendRichMessage");
+    expect(String(mockFetch.mock.calls[2]?.[0])).toContain("/sendMessage");
+    const body = JSON.parse(
+      String((mockFetch.mock.calls[2]?.[1] as RequestInit).body)
+    );
+    expect(body.reply_parameters).toEqual(expectedReplyParameters);
+  });
+
+  it("leaves a plain postMessage unthreaded", async () => {
+    mockFetch
+      .mockResolvedValueOnce(
+        telegramOk({ id: 1, is_bot: true, username: "mybot" })
+      )
+      .mockResolvedValueOnce(telegramOk(sampleMessage({ message_id: 12 })));
+
+    const adapter = createReplyAdapter();
+    await adapter.initialize(createMockChat());
+
+    await adapter.postMessage("telegram:123", { markdown: "hello" });
+
+    const body = JSON.parse(
+      String((mockFetch.mock.calls[1]?.[1] as RequestInit).body)
+    );
+    expect(body.reply_parameters).toBeUndefined();
+  });
+
+  it("refuses a target that belongs to another chat", async () => {
+    mockFetch.mockResolvedValueOnce(
+      telegramOk({ id: 1, is_bot: true, username: "mybot" })
+    );
+
+    const adapter = createReplyAdapter();
+    await adapter.initialize(createMockChat());
+
+    await expect(
+      adapter.reply("telegram:123", "999:7", { markdown: "hello" })
+    ).rejects.toThrow("chat mismatch");
+  });
+
+  it.each([
+    "7abc",
+    "7.9",
+    " 7",
+  ])("rejects the malformed bare message id %j", async (target) => {
+    mockFetch.mockResolvedValueOnce(
+      telegramOk({ id: 1, is_bot: true, username: "mybot" })
+    );
+
+    const adapter = createReplyAdapter();
+    await adapter.initialize(createMockChat());
+
+    await expect(
+      adapter.reply("telegram:123", target, { markdown: "hello" })
+    ).rejects.toThrow("Invalid Telegram message ID");
+  });
+});
+
+describe("mentionOnReply", () => {
+  const BOT_USER_ID = 8981792219;
+
+  async function deliverReply(options: {
+    mentionOnReply?: boolean;
+    replyFromBot: boolean;
+    fromBot?: boolean;
+    messageThreadId?: number;
+    replyToMessageId?: number;
+  }) {
+    mockFetch.mockResolvedValue(
+      telegramOk({
+        id: BOT_USER_ID,
+        is_bot: true,
+        first_name: "Bot",
+        username: "mybot",
+      })
+    );
+    const chat = createMockChatInstance({
+      logger: mockLogger,
+      state: createMockState(),
+      userName: "mybot",
+    });
+    const adapter = createTelegramAdapter({
+      botToken: "token",
+      mode: "webhook",
+      logger: mockLogger,
+      userName: "mybot",
+      ...(options.mentionOnReply === undefined
+        ? {}
+        : { mentionOnReply: options.mentionOnReply }),
+    });
+    await adapter.initialize(chat);
+
+    await adapter.handleWebhook(
+      new Request("https://example.com/webhook", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          update_id: 1,
+          message: sampleMessage({
+            chat: { id: -100123, type: "supergroup", title: "General" },
+            text: "and the second one?",
+            ...(options.messageThreadId === undefined
+              ? {}
+              : { message_thread_id: options.messageThreadId }),
+            ...(options.fromBot
+              ? {
+                  from: {
+                    id: BOT_USER_ID,
+                    is_bot: true,
+                    first_name: "Bot",
+                    username: "mybot",
+                  },
+                }
+              : {}),
+            reply_to_message: sampleMessage({
+              message_id: options.replyToMessageId ?? 5,
+              chat: { id: -100123, type: "supergroup", title: "General" },
+              from: options.replyFromBot
+                ? {
+                    id: BOT_USER_ID,
+                    is_bot: true,
+                    first_name: "Bot",
+                    username: "mybot",
+                  }
+                : {
+                    id: 777,
+                    is_bot: false,
+                    first_name: "Someone",
+                    username: "someone",
+                  },
+            }),
+          }),
+        }),
+      })
+    );
+
+    const processMessage = chat.processMessage as ReturnType<typeof vi.fn>;
+    const call = processMessage.mock.calls[0] as
+      | [unknown, string, { isMention?: boolean }]
+      | undefined;
+    return call?.[2];
+  }
+
+  it("counts a reply to the bot as a mention when enabled", async () => {
+    const parsed = await deliverReply({
+      mentionOnReply: true,
+      replyFromBot: true,
+    });
+    expect(parsed?.isMention).toBe(true);
+  });
+
+  it("ignores a reply to somebody else", async () => {
+    const parsed = await deliverReply({
+      mentionOnReply: true,
+      replyFromBot: false,
+    });
+    expect(parsed?.isMention).toBe(false);
+  });
+
+  it("stays off by default so existing bots keep mention-only behaviour", async () => {
+    const parsed = await deliverReply({ replyFromBot: true });
+    expect(parsed?.isMention).toBe(false);
+  });
+
+  it("ignores a forum topic's implicit reply to the bot's topic-creation message", async () => {
+    // In forum topics every message carries reply_to_message pointing at the
+    // topic-creation service message, whose message_id equals
+    // message_thread_id. When the bot created the topic that must not turn
+    // every message in the topic into a mention.
+    const parsed = await deliverReply({
+      mentionOnReply: true,
+      replyFromBot: true,
+      messageThreadId: 5,
+      replyToMessageId: 5,
+    });
+    expect(parsed?.isMention).toBe(false);
+  });
+
+  it("counts an explicit reply to the bot inside a forum topic", async () => {
+    const parsed = await deliverReply({
+      mentionOnReply: true,
+      replyFromBot: true,
+      messageThreadId: 5,
+      replyToMessageId: 42,
+    });
+    expect(parsed?.isMention).toBe(true);
+  });
+
+  it("does not flag the bot's own reply to one of its messages", async () => {
+    // The Bot API echoes outbound sends back; the echoed message replies to
+    // the bot's earlier message but is authored by the bot itself, and must
+    // not be parsed (and cached) as a mention.
+    const parsed = await deliverReply({
+      mentionOnReply: true,
+      replyFromBot: true,
+      fromBot: true,
+    });
+    expect(parsed?.isMention).toBe(false);
+  });
+
+  it("recovers bot identity while polling after a failed startup getMe", async () => {
+    // Without a lazy retry, a transient getMe outage at cold start leaves
+    // _botUserId unset for the process lifetime and mentionOnReply silently
+    // never fires in polling mode.
+    let getMeCalls = 0;
+    let getUpdatesCalls = 0;
+    mockFetch.mockImplementation((input, init) => {
+      const url = String(input);
+      if (url.includes("/getMe")) {
+        getMeCalls += 1;
+        if (getMeCalls === 1) {
+          return Promise.reject(new Error("getMe outage"));
+        }
+        return Promise.resolve(
+          telegramOk({
+            id: BOT_USER_ID,
+            is_bot: true,
+            first_name: "Bot",
+            username: "mybot",
+          })
+        );
+      }
+      if (url.includes("/getUpdates")) {
+        getUpdatesCalls += 1;
+        if (getUpdatesCalls === 1) {
+          return Promise.resolve(
+            telegramOk([
+              {
+                update_id: 10,
+                message: sampleMessage({
+                  chat: { id: -100123, type: "supergroup", title: "General" },
+                  text: "and the second one?",
+                  reply_to_message: sampleMessage({
+                    message_id: 5,
+                    chat: {
+                      id: -100123,
+                      type: "supergroup",
+                      title: "General",
+                    },
+                    from: {
+                      id: BOT_USER_ID,
+                      is_bot: true,
+                      first_name: "Bot",
+                      username: "mybot",
+                    },
+                  }),
+                }),
+              },
+            ])
+          );
+        }
+        return new Promise<Response>((_resolve, reject) => {
+          const signal = init?.signal;
+          if (signal?.aborted) {
+            reject(createAbortError());
+            return;
+          }
+          signal?.addEventListener(
+            "abort",
+            () => {
+              reject(createAbortError());
+            },
+            { once: true }
+          );
+        });
+      }
+      return Promise.resolve(telegramOk(true));
+    });
+
+    const adapter = createTelegramAdapter({
+      botToken: "token",
+      mode: "webhook",
+      logger: mockLogger,
+      userName: "mybot",
+      mentionOnReply: true,
+    });
+    const chat = createMockChat();
+
+    await adapter.initialize(chat);
+    expect(adapter.botUserId).toBeUndefined();
+
+    await adapter.startPolling({
+      limit: 1,
+      timeout: 1,
+      allowedUpdates: ["message"],
+      retryDelayMs: 0,
+    });
+    const processMessage = chat.processMessage as ReturnType<typeof vi.fn>;
+    await waitForCondition(() => processMessage.mock.calls.length > 0);
+    await adapter.stopPolling();
+
+    expect(getMeCalls).toBe(2);
+    expect(adapter.botUserId).toBe(String(BOT_USER_ID));
+    const parsed = processMessage.mock.calls[0]?.[2] as
+      | { isMention?: boolean }
+      | undefined;
+    expect(parsed?.isMention).toBe(true);
+  });
+});
+
+describe("sticker messages", () => {
+  async function parseText(overrides: Partial<TelegramMessage>) {
+    mockFetch.mockResolvedValue(
+      telegramOk({
+        id: 8981792219,
+        is_bot: true,
+        first_name: "Bot",
+        username: "mybot",
+      })
+    );
+    const chat = createMockChatInstance({
+      logger: mockLogger,
+      state: createMockState(),
+      userName: "mybot",
+    });
+    const adapter = createTelegramAdapter({
+      botToken: "token",
+      mode: "webhook",
+      logger: mockLogger,
+      userName: "mybot",
+    });
+    await adapter.initialize(chat);
+
+    await adapter.handleWebhook(
+      new Request("https://example.com/webhook", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          update_id: 1,
+          message: sampleMessage({ text: undefined, ...overrides }),
+        }),
+      })
+    );
+
+    const processMessage = chat.processMessage as ReturnType<typeof vi.fn>;
+    const call = processMessage.mock.calls[0] as
+      | [unknown, string, { text?: string }]
+      | undefined;
+    return call?.[2]?.text;
+  }
+
+  it("represents a sticker by the emoji it stands for", async () => {
+    const text = await parseText({
+      sticker: {
+        emoji: "😀",
+        file_id: "sticker-file",
+        file_unique_id: "sticker-unique",
+      },
+    });
+
+    expect(text).toBe("😀");
+  });
+
+  it("falls back to the set name when the emoji is missing", async () => {
+    const text = await parseText({
+      sticker: {
+        set_name: "CorgiPack",
+        file_id: "sticker-file",
+        file_unique_id: "sticker-unique",
+      },
+    });
+
+    expect(text).toBe("CorgiPack");
+  });
+
+  it("never delivers a sticker as an empty message", async () => {
+    const text = await parseText({
+      sticker: {
+        file_id: "sticker-file",
+        file_unique_id: "sticker-unique",
+      },
+    });
+
+    expect(text).toBe("sticker");
+  });
+});
+
+describe("sticker and animation attachments", () => {
+  async function parseMedia(overrides: Partial<TelegramMessage>) {
+    mockFetch.mockResolvedValue(
+      telegramOk({
+        id: 8981792219,
+        is_bot: true,
+        first_name: "Bot",
+        username: "mybot",
+      })
+    );
+    const chat = createMockChatInstance({
+      logger: mockLogger,
+      state: createMockState(),
+      userName: "mybot",
+    });
+    const adapter = createTelegramAdapter({
+      botToken: "token",
+      mode: "webhook",
+      logger: mockLogger,
+      userName: "mybot",
+    });
+    await adapter.initialize(chat);
+
+    await adapter.handleWebhook(
+      new Request("https://example.com/webhook", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          update_id: 1,
+          message: sampleMessage({ text: undefined, ...overrides }),
+        }),
+      })
+    );
+
+    const processMessage = chat.processMessage as ReturnType<typeof vi.fn>;
+    const call = processMessage.mock.calls[0] as
+      | [
+          unknown,
+          string,
+          { attachments?: { type: string; mimeType?: string }[] },
+        ]
+      | undefined;
+    return call?.[2]?.attachments ?? [];
+  }
+
+  it("carries a sticker through as an image", async () => {
+    const attachments = await parseMedia({
+      sticker: {
+        emoji: "😀",
+        file_id: "sticker-file",
+        file_unique_id: "sticker-unique",
+        width: 512,
+        height: 512,
+      },
+    });
+
+    expect(attachments).toHaveLength(1);
+    expect(attachments[0]?.type).toBe("image");
+    expect(attachments[0]?.mimeType).toBe("image/webp");
+  });
+
+  it("carries a video sticker through as a video", async () => {
+    const attachments = await parseMedia({
+      sticker: {
+        emoji: "🔥",
+        file_id: "sticker-file",
+        file_unique_id: "sticker-unique",
+        is_video: true,
+      },
+    });
+
+    expect(attachments).toHaveLength(1);
+    expect(attachments[0]?.type).toBe("video");
+    expect(attachments[0]?.mimeType).toBe("video/webm");
+  });
+
+  it("carries a Lottie sticker through as a file", async () => {
+    const attachments = await parseMedia({
+      sticker: {
+        emoji: "🎉",
+        file_id: "sticker-file",
+        file_unique_id: "sticker-unique",
+        is_animated: true,
+      },
+    });
+
+    expect(attachments).toHaveLength(1);
+    expect(attachments[0]?.type).toBe("file");
+    expect(attachments[0]?.mimeType).toBe("application/x-tgsticker");
+  });
+
+  it("carries an animation through as a single video attachment", async () => {
+    // Telegram sets `document` alongside `animation` for backward
+    // compatibility — the same file must not surface twice.
+    const attachments = await parseMedia({
+      animation: {
+        file_id: "animation-file",
+        file_unique_id: "animation-unique",
+        mime_type: "video/mp4",
+        file_name: "cat.mp4",
+      },
+      document: {
+        file_id: "animation-file",
+        file_unique_id: "animation-unique",
+        mime_type: "video/mp4",
+        file_name: "cat.mp4",
+      },
+    });
+
+    expect(attachments).toHaveLength(1);
+    expect(attachments[0]?.type).toBe("video");
+    expect(attachments[0]?.mimeType).toBe("video/mp4");
+  });
+
+  it("still carries a plain document through as a file", async () => {
+    const attachments = await parseMedia({
+      document: {
+        file_id: "document-file",
+        file_unique_id: "document-unique",
+        mime_type: "application/pdf",
+        file_name: "report.pdf",
+      },
+    });
+
+    expect(attachments).toHaveLength(1);
+    expect(attachments[0]?.type).toBe("file");
+    expect(attachments[0]?.mimeType).toBe("application/pdf");
+  });
+});
+
+describe("non-file content", () => {
+  async function parseContent(overrides: Partial<TelegramMessage>) {
+    mockFetch.mockResolvedValue(
+      telegramOk({
+        id: 8981792219,
+        is_bot: true,
+        first_name: "Bot",
+        username: "mybot",
+      })
+    );
+    const chat = createMockChatInstance({
+      logger: mockLogger,
+      state: createMockState(),
+      userName: "mybot",
+    });
+    const adapter = createTelegramAdapter({
+      botToken: "token",
+      mode: "webhook",
+      logger: mockLogger,
+      userName: "mybot",
+    });
+    await adapter.initialize(chat);
+
+    await adapter.handleWebhook(
+      new Request("https://example.com/webhook", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          update_id: 1,
+          message: sampleMessage({ text: undefined, ...overrides }),
+        }),
+      })
+    );
+
+    const processMessage = chat.processMessage as ReturnType<typeof vi.fn>;
+    const call = processMessage.mock.calls[0] as
+      | [unknown, string, { text?: string }]
+      | undefined;
+    return call?.[2]?.text;
+  }
+
+  it("describes a shared location", async () => {
+    expect(
+      await parseContent({ location: { latitude: 55.75, longitude: 37.61 } })
+    ).toBe("📍 55.75, 37.61");
+  });
+
+  it("describes a venue by name and address", async () => {
+    expect(
+      await parseContent({
+        venue: {
+          title: "Central Library",
+          address: "12 Main St",
+          location: { latitude: 55.75, longitude: 37.61 },
+        },
+        // Telegram sets the top-level location on every venue message for
+        // backward compatibility; the venue description must still win.
+        location: { latitude: 55.75, longitude: 37.61 },
+      })
+    ).toBe("📍 Central Library, 12 Main St");
+  });
+
+  it("describes a shared contact", async () => {
+    expect(
+      await parseContent({
+        contact: {
+          first_name: "Ada",
+          last_name: "Lovelace",
+          phone_number: "+15551234567",
+        },
+      })
+    ).toBe("👤 Ada Lovelace +15551234567");
+  });
+
+  it("describes a poll by its question", async () => {
+    expect(
+      await parseContent({ poll: { id: "1", question: "Lunch or dinner?" } })
+    ).toBe("📊 Lunch or dinner?");
+  });
+
+  it("describes a dice roll", async () => {
+    expect(await parseContent({ dice: { emoji: "🎲", value: 4 } })).toBe(
+      "🎲 4"
+    );
+  });
+
+  it("describes a game by its title", async () => {
+    expect(await parseContent({ game: { title: "Corsairs" } })).toBe(
+      "🎮 Corsairs"
+    );
+  });
+
+  it("describes an invoice with its amount", async () => {
+    expect(
+      await parseContent({
+        invoice: { title: "Yearly plan", total_amount: 4999, currency: "USD" },
+      })
+    ).toBe("🧾 Yearly plan — 49.99 USD");
+  });
+
+  it("keeps zero-exponent invoice currencies in whole units", async () => {
+    expect(
+      await parseContent({
+        invoice: { title: "Yearly plan", total_amount: 5000, currency: "JPY" },
+      })
+    ).toBe("🧾 Yearly plan — 5000 JPY");
+    expect(
+      await parseContent({
+        invoice: { title: "Boost", total_amount: 250, currency: "XTR" },
+      })
+    ).toBe("🧾 Boost — 250 XTR");
+  });
+
+  it("scales three-exponent invoice currencies by a thousand", async () => {
+    expect(
+      await parseContent({
+        invoice: { title: "Yearly plan", total_amount: 5000, currency: "BHD" },
+      })
+    ).toBe("🧾 Yearly plan — 5.000 BHD");
+  });
+
+  it("marks a shared story", async () => {
+    expect(await parseContent({ story: { id: 7 } })).toBe("📖 Story");
   });
 });

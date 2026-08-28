@@ -9,6 +9,9 @@ tagline: Connect to WhatsApp Business Cloud for customer messaging and automated
 beta: true
 features:
   postMessage: yes
+  messageReplies:
+    status: partial
+    label: Outbound only
   editMessage: no
   deleteMessage: no
   fileUploads:
@@ -39,6 +42,7 @@ features:
   addReactions: yes
   removeReactions: yes
   typingIndicator: yes
+  markAsRead: yes
   messageUpdatedEvents: no
   messageDeletedEvents: no
   directMessages: yes
@@ -158,6 +162,10 @@ From your Meta app dashboard, copy:
 
 ## Advanced
 
+### Inbound attachments
+
+Incoming media attachments expose a lazy `fetchData()`. Media is downloaded only from Meta's `fbcdn.net` and `fbsbx.com` hosts or the configured Graph origin. Downloads refuse private and internal addresses, are limited to 25 MB, and time out after 30 seconds, and the access token never follows a redirect off those hosts. Pass a custom transport to `downloadMedia()` to route downloads through a proxy.
+
 ### Webhook flow
 
 WhatsApp uses two webhook mechanisms:
@@ -174,6 +182,24 @@ Card elements are automatically converted to WhatsApp interactive messages:
 - **Max body text** — 1024 characters.
 
 When a card with reply buttons also contains link buttons, each link button is appended to the interactive message body as a `Label: url` line, since WhatsApp reply buttons cannot open URLs.
+
+### Contextual replies
+
+Use `thread.reply()` to quote a specific message in WhatsApp:
+
+```typescript
+bot.onNewMessage(async (thread, message) => {
+  await thread.reply(message, {
+    markdown: "I can help with that.",
+  });
+});
+```
+
+You can pass either a `Message` or a message ID as the target. Text, cards, files, and buffered streams are supported. When one logical reply produces multiple WhatsApp messages, only the first message includes the contextual reference.
+
+Replies are outbound only. When a user quote-replies to one of your messages, the adapter does not yet surface what they quoted, so `message.replyTo` is `undefined` on inbound WhatsApp messages.
+
+WhatsApp does not display the quoted bubble when the target was deleted or moved to long-term storage, when the reply is a template message, or for some media replies on KaiOS. Reaction messages cannot be contextual replies. See [Meta's contextual replies documentation](https://developers.facebook.com/documentation/business-messaging/whatsapp/messages/contextual-replies/).
 
 ### Link buttons (CTA URL)
 
@@ -229,6 +255,29 @@ WhatsApp-specific behavior:
 - If there is no inbound message context, `startTyping()` no-ops.
 - The typing indicator is dismissed when the bot sends its reply, or after the WhatsApp platform timeout.
 
+### Read receipts
+
+Mark the current inbound message as read before starting work:
+
+```typescript
+bot.onDirectMessage(async (thread) => {
+  await thread.markAsRead();
+  await thread.post("Thanks, I am checking that now.");
+});
+```
+
+You can also pass an inbound `Message` or its ID to `thread.markAsRead()`. WhatsApp marks that message and earlier messages in the conversation as read. It does not allow outgoing message IDs to be marked as read and recommends acknowledging inbound messages within 30 days.
+
+### User identity
+
+WhatsApp messages include a [business-scoped user ID](https://developers.facebook.com/documentation/business-messaging/whatsapp/business-scoped-user-ids/) in `from_user_id` and `contacts[].user_id`. Users with a username may omit the phone-based `from` and `wa_id` fields.
+
+The adapter accepts either identifier. When both are available, it preserves an existing phone-based thread ID and stores the BSUID as an alias. Replies include both `to` and `recipient`, with the phone number taking precedence according to Meta's API. BSUID-only threads send through `recipient`.
+
+Meta does not support BSUID recipients for one-tap, zero-tap, or copy-code authentication templates. Those templates require the user's phone number.
+
+Use a persistent state adapter in production so identity aliases survive restarts. The adapter preserves the canonical thread when Meta rotates a BSUID by consuming `user_changed_number` and `user_changed_user_id` system messages plus the `user_id_update` webhook, which carries the previous and current BSUID. Subscribe your Meta app to the `user_id_update` webhook field so rotations reach the adapter. Current phone, BSUID, parent BSUID, and username fields remain available through `message.raw`.
+
 ### Thread ID format
 
 ```
@@ -236,6 +285,8 @@ whatsapp:{phoneNumberId}:{userWaId}
 ```
 
 Example: `whatsapp:1234567890:15551234567`.
+
+The final segment is the adapter's canonical user identifier. It may contain a phone number, a BSUID such as `US.13491208655302741918`, or a previously observed identifier retained for thread continuity.
 
 ### Auto-chunking
 

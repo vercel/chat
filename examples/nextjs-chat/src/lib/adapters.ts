@@ -74,7 +74,8 @@ const DISCORD_METHODS = [
 // Suggested prompts are pinned automatically when an assistant/agent thread
 // opens; the resolver tailors them to the user's active view (agent_view
 // folds what the user is looking at into the event as `entities`).
-// `loadingMessages` rotate in the thinking indicator while the bot works.
+// `loadingMessages` rotate only in legacy assistant_view; agent_view uses
+// Slack's standard Agent Sessions working state and native stop button.
 // Set SLACK_AGENT_VIEW=true when your manifest uses `agent_view`.
 // Set SLACK_NATIVE_STREAMING=false to compare Slack's native streaming API
 // (chat.startStream/appendStream/stopStream, the default) against the
