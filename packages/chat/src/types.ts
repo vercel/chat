@@ -814,6 +814,13 @@ export interface ConcurrencyConfig {
   debounceMs?: number;
   /** Max concurrent handlers per thread (concurrent strategy). Default: Infinity. */
   maxConcurrent?: number;
+  /**
+   * Max total time one handler run may keep renewing its thread lock, in
+   * milliseconds (drop/queue/debounce/burst strategies). After this, renewal
+   * stops and the lock lapses at its TTL, so a hung handler cannot block the
+   * thread forever. Default: 600000 (10 minutes).
+   */
+  maxLockLifetimeMs?: number;
   /** Max queued messages per thread (queue/burst strategy). Default: 10. */
   maxQueueSize?: number;
   /** What to do when queue is full. Default: 'drop-oldest'. */
@@ -885,7 +892,12 @@ export interface StateAdapter {
     maxSize: number
   ): Promise<number>;
 
-  /** Extend a lock's TTL */
+  /**
+   * Extend a held lock's TTL. Implementations must compare the lock token
+   * and only extend a lock that is still held with that token — never create
+   * or resurrect one. Returns false when the lock is no longer held with
+   * this token (expired, released, or taken over).
+   */
   extendLock(lock: Lock, ttlMs: number): Promise<boolean>;
 
   /**

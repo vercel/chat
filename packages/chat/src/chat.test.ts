@@ -3508,6 +3508,42 @@ describe("Chat", () => {
   });
 
   describe("concurrency: lock lifetime", () => {
+    // Token-checked, expiry-aware lock semantics matching the real state
+    // adapters (createMockState's lock mock ignores expiry entirely).
+    function installTokenLockMock(state: MockStateAdapter): void {
+      let activeLock: Lock | undefined;
+      let nextToken = 0;
+
+      vi.mocked(state.acquireLock).mockImplementation(
+        async (threadId, ttlMs) => {
+          if (activeLock && activeLock.expiresAt > Date.now()) {
+            return null;
+          }
+          activeLock = {
+            threadId,
+            token: `test-token-${++nextToken}`,
+            expiresAt: Date.now() + ttlMs,
+          };
+          return activeLock;
+        }
+      );
+      vi.mocked(state.extendLock).mockImplementation(async (lock, ttlMs) => {
+        if (
+          activeLock?.token !== lock.token ||
+          activeLock.expiresAt <= Date.now()
+        ) {
+          return false;
+        }
+        activeLock.expiresAt = Date.now() + ttlMs;
+        return true;
+      });
+      vi.mocked(state.releaseLock).mockImplementation(async (lock) => {
+        if (activeLock?.token === lock.token) {
+          activeLock = undefined;
+        }
+      });
+    }
+
     it.each([
       "queue",
       "burst",
@@ -3517,37 +3553,7 @@ describe("Chat", () => {
       try {
         const state = createMockState();
         const adapter = createMockAdapter("slack");
-        let activeLock: Lock | undefined;
-        let nextToken = 0;
-
-        vi.mocked(state.acquireLock).mockImplementation(
-          async (threadId, ttlMs) => {
-            if (activeLock && activeLock.expiresAt > Date.now()) {
-              return null;
-            }
-            activeLock = {
-              threadId,
-              token: `test-token-${++nextToken}`,
-              expiresAt: Date.now() + ttlMs,
-            };
-            return activeLock;
-          }
-        );
-        vi.mocked(state.extendLock).mockImplementation(async (lock, ttlMs) => {
-          if (
-            activeLock?.token !== lock.token ||
-            activeLock.expiresAt <= Date.now()
-          ) {
-            return false;
-          }
-          activeLock.expiresAt = Date.now() + ttlMs;
-          return true;
-        });
-        vi.mocked(state.releaseLock).mockImplementation(async (lock) => {
-          if (activeLock?.token === lock.token) {
-            activeLock = undefined;
-          }
-        });
+        installTokenLockMock(state);
 
         const queueChat = new Chat({
           userName: "testbot",
@@ -3594,10 +3600,69 @@ describe("Chat", () => {
 
         const callsBeforeRelease = handler.mock.calls.length;
         releaseFirstHandler?.();
+        await vi.waitFor(() => {
+          expect(handler).toHaveBeenCalledTimes(2);
+        });
+        await vi.advanceTimersByTimeAsync(200);
         await Promise.all([first, second]);
 
         expect(callsBeforeRelease).toBe(1);
+        expect(handler.mock.calls[1]?.[1]?.id).toBe("msg-long-2");
         expect(peakInFlight).toBe(1);
+        expect(vi.getTimerCount()).toBe(0);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it("should stop renewing after maxLockLifetimeMs so a hung handler frees the thread", async () => {
+      vi.useFakeTimers();
+      try {
+        const state = createMockState();
+        const adapter = createMockAdapter("slack");
+        installTokenLockMock(state);
+
+        const queueChat = new Chat({
+          userName: "testbot",
+          adapters: { slack: adapter },
+          state,
+          logger: mockLogger,
+          concurrency: { strategy: "queue", maxLockLifetimeMs: 60_000 },
+        });
+        await queueChat.webhooks.slack(
+          new Request("http://test.com", { method: "POST" })
+        );
+
+        const handler = vi.fn().mockImplementation(async (_thread, message) => {
+          if (message.id === "msg-hung-1") {
+            // Hangs forever — simulates a handler stuck on an external call
+            await new Promise<void>(() => {
+              // Intentionally never resolves
+            });
+          }
+        });
+        queueChat.onNewMention(handler);
+
+        queueChat.handleIncomingMessage(
+          adapter,
+          "slack:C123:1234.5678",
+          createTestMessage("msg-hung-1", "Hey @slack-bot first")
+        );
+        await vi.waitFor(() => {
+          expect(handler).toHaveBeenCalledTimes(1);
+        });
+
+        // Renewal stops at 60s; the lock lapses one TTL (30s) later
+        await vi.advanceTimersByTimeAsync(90_001);
+
+        await queueChat.handleIncomingMessage(
+          adapter,
+          "slack:C123:1234.5678",
+          createTestMessage("msg-hung-2", "Hey @slack-bot second")
+        );
+
+        expect(handler).toHaveBeenCalledTimes(2);
+        expect(handler.mock.calls[1]?.[1]?.id).toBe("msg-hung-2");
         expect(vi.getTimerCount()).toBe(0);
       } finally {
         vi.useRealTimers();
@@ -4498,8 +4563,9 @@ describe("Chat", () => {
       // Handler should NOT be called yet (debounce timer hasn't fired)
       expect(handler).not.toHaveBeenCalled();
 
-      // Advance past debounce window
-      await vi.advanceTimersByTimeAsync(150);
+      // Advance past the debounce window, plus the empty-queue check that
+      // follows the dispatch
+      await vi.advanceTimersByTimeAsync(250);
       await promise;
 
       expect(handler).toHaveBeenCalledTimes(1);
@@ -4598,7 +4664,7 @@ describe("Chat", () => {
           createTestMessage("msg-d-skip-mention-2", "please help")
         );
 
-        await vi.advanceTimersByTimeAsync(150);
+        await vi.advanceTimersByTimeAsync(250);
         await promise;
 
         expect(handler).toHaveBeenCalledTimes(1);
