@@ -1,5 +1,35 @@
 # @chat-adapter/whatsapp
 
+## 4.39.0
+
+### Patch Changes
+
+- 3e6e866: support business-scoped user IDs for inbound and outbound WhatsApp messages
+- e71bfea: Add `normalizeCodeFences` to `@chat-adapter/shared`: a code-fence normalizer for platforms whose triple-backtick fences treat the text after the opening fence as code rather than a CommonMark info string. Only paired fences become code blocks (unpaired fences, fences inside inline code, and fences on quoted lines stay literal text), text following a closing fence cannot be promoted to a block construct, and per-segment callbacks keep text-level rewrites out of code content.
+
+  The WhatsApp adapter now uses it when parsing incoming messages: the first line of a code block is preserved in message text and formatted content, and bold/strikethrough rewriting no longer corrupts fenced code.
+
+- 7c26965: prevent attachment downloads from sending credentials to untrusted hosts
+- b6fa24c: guard attachment downloads across the remaining adapters
+
+  Slack, Discord, and WhatsApp attachment downloads now go through the shared guarded downloader: private and internal addresses are refused (as URL literals, through DNS resolution, and after redirects), responses are capped at 25 MB, and downloads time out after 30 seconds. Slack sends the bot token only on hops to trusted Slack origins, and WhatsApp keeps its access token on Meta's media hosts and the configured Graph origin. Telegram enforces the same size cap and timeout with the Web Fetch API so downloads keep working in runtimes like Cloudflare Workers.
+
+  `downloadAttachment` in `@chat-adapter/shared` now resolves `headers` per hop (pass a function to control what each redirect target receives), forwards the resolved headers to custom transports, and accepts an `onResponse` hook to reject unexpected final responses before the body is read.
+
+- Updated dependencies [2ce2be0]
+- Updated dependencies [153bd96]
+- Updated dependencies [16ea171]
+- Updated dependencies [169788b]
+- Updated dependencies [eddcd7e]
+- Updated dependencies [bb92688]
+- Updated dependencies [5b538f6]
+- Updated dependencies [e71bfea]
+- Updated dependencies [929878b]
+- Updated dependencies [500b7e6]
+- Updated dependencies [b6fa24c]
+  - chat@4.39.0
+  - @chat-adapter/shared@4.39.0
+
 ## 4.38.1
 
 ### Patch Changes

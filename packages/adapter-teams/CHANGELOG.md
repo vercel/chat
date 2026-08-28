@@ -1,5 +1,30 @@
 # @chat-adapter/teams
 
+## 4.39.0
+
+### Patch Changes
+
+- 63997ac: hydrate live Teams sender email without requiring Microsoft Graph permissions
+- bb92688: secure anonymous attachment downloads against SSRF and oversized responses
+
+  `@chat-adapter/shared` gains `downloadAttachment`, a guarded downloader that refuses private and internal addresses (as URL literals, through DNS resolution, and after redirects), decodes compressed responses, caps the body size at 25 MB, and bounds the whole download with a 30 second timeout. All of these are configurable, including the transport for proxied deployments.
+
+  The Teams adapter uses it for anonymous attachment downloads. HTTPS attachments on any public host keep working, plain-HTTP URLs are refused, and the Bot Framework Emulator's loopback connector now uses bot authentication so local development keeps working.
+
+- Updated dependencies [2ce2be0]
+- Updated dependencies [153bd96]
+- Updated dependencies [16ea171]
+- Updated dependencies [169788b]
+- Updated dependencies [eddcd7e]
+- Updated dependencies [bb92688]
+- Updated dependencies [5b538f6]
+- Updated dependencies [e71bfea]
+- Updated dependencies [929878b]
+- Updated dependencies [500b7e6]
+- Updated dependencies [b6fa24c]
+  - chat@4.39.0
+  - @chat-adapter/shared@4.39.0
+
 ## 4.38.1
 
 ### Patch Changes

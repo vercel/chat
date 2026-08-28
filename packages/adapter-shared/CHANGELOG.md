@@ -1,5 +1,40 @@
 # @chat-adapter/shared
 
+## 4.39.0
+
+### Minor Changes
+
+- 153bd96: guard Messenger attachment downloads against SSRF and oversized responses
+
+  `downloadAttachment` in `@chat-adapter/shared` accepts an optional `hosts` allowlist that restricts downloads, including redirect targets, to the given hosts and their subdomains. The Messenger adapter uses it to download attachment media only from Meta's `fbsbx.com` and `fbcdn.net` hosts, with the shared SSRF guard, 25 MB size cap, and 30 second timeout. External fallback and link-share URLs are rejected before any network request.
+
+- bb92688: secure anonymous attachment downloads against SSRF and oversized responses
+
+  `@chat-adapter/shared` gains `downloadAttachment`, a guarded downloader that refuses private and internal addresses (as URL literals, through DNS resolution, and after redirects), decodes compressed responses, caps the body size at 25 MB, and bounds the whole download with a 30 second timeout. All of these are configurable, including the transport for proxied deployments.
+
+  The Teams adapter uses it for anonymous attachment downloads. HTTPS attachments on any public host keep working, plain-HTTP URLs are refused, and the Bot Framework Emulator's loopback connector now uses bot authentication so local development keeps working.
+
+- e71bfea: Add `normalizeCodeFences` to `@chat-adapter/shared`: a code-fence normalizer for platforms whose triple-backtick fences treat the text after the opening fence as code rather than a CommonMark info string. Only paired fences become code blocks (unpaired fences, fences inside inline code, and fences on quoted lines stay literal text), text following a closing fence cannot be promoted to a block construct, and per-segment callbacks keep text-level rewrites out of code content.
+
+  The WhatsApp adapter now uses it when parsing incoming messages: the first line of a code block is preserved in message text and formatted content, and bold/strikethrough rewriting no longer corrupts fenced code.
+
+- b6fa24c: guard attachment downloads across the remaining adapters
+
+  Slack, Discord, and WhatsApp attachment downloads now go through the shared guarded downloader: private and internal addresses are refused (as URL literals, through DNS resolution, and after redirects), responses are capped at 25 MB, and downloads time out after 30 seconds. Slack sends the bot token only on hops to trusted Slack origins, and WhatsApp keeps its access token on Meta's media hosts and the configured Graph origin. Telegram enforces the same size cap and timeout with the Web Fetch API so downloads keep working in runtimes like Cloudflare Workers.
+
+  `downloadAttachment` in `@chat-adapter/shared` now resolves `headers` per hop (pass a function to control what each redirect target receives), forwards the resolved headers to custom transports, and accepts an `onResponse` hook to reject unexpected final responses before the body is read.
+
+### Patch Changes
+
+- Updated dependencies [2ce2be0]
+- Updated dependencies [16ea171]
+- Updated dependencies [169788b]
+- Updated dependencies [eddcd7e]
+- Updated dependencies [5b538f6]
+- Updated dependencies [929878b]
+- Updated dependencies [500b7e6]
+  - chat@4.39.0
+
 ## 4.38.1
 
 ### Patch Changes

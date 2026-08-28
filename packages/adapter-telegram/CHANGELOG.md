@@ -1,5 +1,38 @@
 # @chat-adapter/telegram
 
+## 4.39.0
+
+### Minor Changes
+
+- c4a359e: require webhook verification by default with an explicit unverified opt-in
+- 26a06ca: Add `mentionOnReply`: when enabled, a reply to one of the bot's own messages reports `isMention`, so a bot in a group keeps the conversation going without the handle being repeated. Off by default, so existing mention-only bots are unaffected, and readable from `TELEGRAM_MENTION_ON_REPLY`. Implicit forum-topic replies and the bot's own echoed messages never count, and polling mode now retries the startup `getMe` lazily so a transient outage cannot leave mention detection disabled.
+- d5ebec1: Implement `reply` in the Telegram adapter so `Thread.reply()` threads the answer to its target instead of throwing `NotImplementedError`. The reference travels as Bot API `reply_parameters` and covers text, rich messages, documents, attachments and media groups; `allow_sending_without_reply` keeps delivery working when the target has been deleted. Malformed reply target ids are rejected before anything is sent, and a rich-message gateway that rejects `reply_parameters` falls back to a regular threaded send.
+- a18e792: Describe the message kinds Telegram sends with no text and no file. A shared location, venue, contact, poll, dice, game, invoice or story used to arrive as an empty message: the payload carried the content, but a handler reading `text` saw nothing. Each now gets a short literal description (`📍 55.75, 37.61`, `👤 Ada Lovelace +1555…`, `📊 Lunch or dinner?`), and the structured payload stays on the raw message for anyone who needs the numbers.
+- a0ba986: Parse stickers and animations. A sticker used to arrive as an empty message, since it carries no text, and an animation (Telegram GIF) was dropped entirely. A sticker now reports the emoji it stands for as its text (falling back to the sticker set name, then to "sticker") plus an attachment matching its real format: an image for a still WebP sticker, a video for a WebM one, a file for a Lottie (TGS) one. An animation arrives as a single video attachment; the redundant `document` field Telegram sets alongside it for backward compatibility is no longer reported as a second attachment.
+
+### Patch Changes
+
+- eddcd7e: Return Telegram file downloads as portable ArrayBuffer data while preserving Buffer support in the shared attachment contract.
+- b6fa24c: guard attachment downloads across the remaining adapters
+
+  Slack, Discord, and WhatsApp attachment downloads now go through the shared guarded downloader: private and internal addresses are refused (as URL literals, through DNS resolution, and after redirects), responses are capped at 25 MB, and downloads time out after 30 seconds. Slack sends the bot token only on hops to trusted Slack origins, and WhatsApp keeps its access token on Meta's media hosts and the configured Graph origin. Telegram enforces the same size cap and timeout with the Web Fetch API so downloads keep working in runtimes like Cloudflare Workers.
+
+  `downloadAttachment` in `@chat-adapter/shared` now resolves `headers` per hop (pass a function to control what each redirect target receives), forwards the resolved headers to custom transports, and accepts an `onResponse` hook to reject unexpected final responses before the body is read.
+
+- Updated dependencies [2ce2be0]
+- Updated dependencies [153bd96]
+- Updated dependencies [16ea171]
+- Updated dependencies [169788b]
+- Updated dependencies [eddcd7e]
+- Updated dependencies [bb92688]
+- Updated dependencies [5b538f6]
+- Updated dependencies [e71bfea]
+- Updated dependencies [929878b]
+- Updated dependencies [500b7e6]
+- Updated dependencies [b6fa24c]
+  - chat@4.39.0
+  - @chat-adapter/shared@4.39.0
+
 ## 4.38.1
 
 ### Patch Changes

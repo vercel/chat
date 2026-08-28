@@ -1,5 +1,42 @@
 # @chat-adapter/slack
 
+## 4.39.0
+
+### Minor Changes
+
+- 2ce2be0: Add Slack Agent Sessions lifecycle support, native stop cancellation through `thread.signal`, automatic session titles, and session stop/title-change events while preserving the legacy `assistant_view` compatibility path.
+
+### Patch Changes
+
+- 864d922: Keep alert attachment content on normalized Slack messages. Attachments that aren't link unfurls now contribute their pretext, title (linked to `title_link` when present, with the URL also surfaced in `message.links`), text, and fields instead of being dropped; `fallback` fills in when nothing else on the attachment carries content. Matching how Slack renders these fields, they are treated as plain text unless listed in the attachment's `mrkdwn_in` array, so literal `*`, `_`, and backticks in alert text survive normalization. Tables inside attachment blocks now stay adjacent to their attachment's text.
+
+  Because attachment content is part of `message.text`, mention detection and `onMessage` pattern handlers see it too: an attachment that quotes the bot's mention routes to `onNewMention`, and patterns match alert text. Handlers that should ignore other integrations' alerts can check `message.author.isBot`.
+
+- 7c26965: prevent attachment downloads from sending credentials to untrusted hosts
+- e71bfea: Preserve the first line of incoming Slack code blocks when extracting message text and formatted content.
+
+  Only paired triple-backtick fences become code blocks: an unpaired fence, a fence inside inline code or a `<…>` token, and a fence on a quoted line all stay literal text, matching how Slack renders them. Bold and strikethrough rewriting no longer touches fenced code content, and text following a closing fence can no longer turn into a blockquote, heading, or list.
+
+- b6fa24c: guard attachment downloads across the remaining adapters
+
+  Slack, Discord, and WhatsApp attachment downloads now go through the shared guarded downloader: private and internal addresses are refused (as URL literals, through DNS resolution, and after redirects), responses are capped at 25 MB, and downloads time out after 30 seconds. Slack sends the bot token only on hops to trusted Slack origins, and WhatsApp keeps its access token on Meta's media hosts and the configured Graph origin. Telegram enforces the same size cap and timeout with the Web Fetch API so downloads keep working in runtimes like Cloudflare Workers.
+
+  `downloadAttachment` in `@chat-adapter/shared` now resolves `headers` per hop (pass a function to control what each redirect target receives), forwards the resolved headers to custom transports, and accepts an `onResponse` hook to reject unexpected final responses before the body is read.
+
+- Updated dependencies [2ce2be0]
+- Updated dependencies [153bd96]
+- Updated dependencies [16ea171]
+- Updated dependencies [169788b]
+- Updated dependencies [eddcd7e]
+- Updated dependencies [bb92688]
+- Updated dependencies [5b538f6]
+- Updated dependencies [e71bfea]
+- Updated dependencies [929878b]
+- Updated dependencies [500b7e6]
+- Updated dependencies [b6fa24c]
+  - chat@4.39.0
+  - @chat-adapter/shared@4.39.0
+
 ## 4.38.1
 
 ### Patch Changes

@@ -1,5 +1,32 @@
 # @chat-adapter/twilio
 
+## 4.39.0
+
+### Minor Changes
+
+- 75cadbf: feat(twilio): add RCS support with rich cards, button actions, and location sharing
+
+  Extends the Twilio adapter with full RCS support: inbound button tap routing via `processAction`, location share parsing, Content API integration for rich outbound cards with SMS fallback, and channel metadata detection. Cards sent to RCS-capable senders (Messaging Service or `rcs:` address) are automatically rendered as Twilio Content templates with embedded SMS fallback variants.
+
+  Existing deployments keep their thread ids: plain SMS threads stay keyed by phone number even when the number belongs to a Messaging Service, and `openDM` still prefers `phoneNumber` over `messagingServiceSid`. Only taps of buttons rendered by Chat SDK become actions; foreign button taps that carry a body keep arriving as messages.
+
+### Patch Changes
+
+- 28bc776: isolate Twilio message processing locks by conversation
+- Updated dependencies [2ce2be0]
+- Updated dependencies [153bd96]
+- Updated dependencies [16ea171]
+- Updated dependencies [169788b]
+- Updated dependencies [eddcd7e]
+- Updated dependencies [bb92688]
+- Updated dependencies [5b538f6]
+- Updated dependencies [e71bfea]
+- Updated dependencies [929878b]
+- Updated dependencies [500b7e6]
+- Updated dependencies [b6fa24c]
+  - chat@4.39.0
+  - @chat-adapter/shared@4.39.0
+
 ## 4.38.1
 
 ### Patch Changes

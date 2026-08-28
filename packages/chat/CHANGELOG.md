@@ -1,5 +1,33 @@
 # chat
 
+## 4.39.0
+
+### Minor Changes
+
+- 2ce2be0: Add Slack Agent Sessions lifecycle support, native stop cancellation through `thread.signal`, automatic session titles, and session stop/title-change events while preserving the legacy `assistant_view` compatibility path.
+- 169788b: Introduce the unified History API (`bot.history`) with user, thread, and channel scopes.
+
+  `bot.history.user` replaces `bot.transcripts` for cross-platform per-user message persistence. The API surface is identical — migrate by changing the `transcripts` config key to `history.user` and updating call sites from `bot.transcripts.*` to `bot.history.user.*`. `bot.transcripts` remains available as a deprecated alias.
+
+  `bot.history.thread` and `bot.history.channel` expose promise-based helpers for per-thread and per-channel message access, aligned with the existing `thread.messages` and `channel.threads()` iterators. Reads delegate to the adapter; adapters that persist history in the SDK-side store (`persistThreadHistory: true`) are served from that cache. An unregistered adapter prefix or an unsupported capability throws instead of returning an empty result.
+
+  The new `toPromptEntries` helper converts `history.user.list()` entries into `{ role, content }` messages ready for LLM prompts.
+
+  The `TranscriptEntry` type is deprecated in favour of `HistoryEntry`. Both are exported from `chat`.
+
+- 5b538f6: Keep thread locks alive while message handlers run so queue, burst, and debounce strategies remain serialized beyond the lock TTL. Renewal is capped by the new `concurrency.maxLockLifetimeMs` option (default 10 minutes) so a hung handler cannot block a thread forever. When the heartbeat detects that lock ownership was lost, the queue drain and debounce loops stop instead of competing with the new lock holder, and the debounce loop now keeps draining messages that arrive while a handler is running instead of stranding them until the next webhook.
+
+### Patch Changes
+
+- 16ea171: preserve adapter-returned thread ids when editing channel messages
+- eddcd7e: Return Telegram file downloads as portable ArrayBuffer data while preserving Buffer support in the shared attachment contract.
+- 929878b: Allow JSX link buttons to include an explicit action ID.
+- 500b7e6: enforce the conversation scope on write tools and stop trusting client-supplied message history in the web adapter
+
+  `createChatTools` now runs the same scope guard on write tools that read tools already used, so a thread or channel id the model supplies that resolves outside the scoped conversation is rejected before the write executes. `sendDirectMessage` targets a user id rather than a conversation and stays gated by approval alone.
+
+  The web adapter no longer treats the request body's `messages` array as a source of conversation state. Only the latest user message is consumed, and tool parts are stripped from it so a browser cannot inject forged tool-call or approval state. Text, file, and custom data parts pass through unchanged; a message left with no parts after stripping is rejected with HTTP 400. Prior turns come from the state adapter when `persistMessageHistory` is enabled.
+
 ## 4.38.1
 
 ### Patch Changes

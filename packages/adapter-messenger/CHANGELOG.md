@@ -1,5 +1,27 @@
 # @chat-adapter/messenger
 
+## 4.39.0
+
+### Patch Changes
+
+- 153bd96: guard Messenger attachment downloads against SSRF and oversized responses
+
+  `downloadAttachment` in `@chat-adapter/shared` accepts an optional `hosts` allowlist that restricts downloads, including redirect targets, to the given hosts and their subdomains. The Messenger adapter uses it to download attachment media only from Meta's `fbsbx.com` and `fbcdn.net` hosts, with the shared SSRF guard, 25 MB size cap, and 30 second timeout. External fallback and link-share URLs are rejected before any network request.
+
+- Updated dependencies [2ce2be0]
+- Updated dependencies [153bd96]
+- Updated dependencies [16ea171]
+- Updated dependencies [169788b]
+- Updated dependencies [eddcd7e]
+- Updated dependencies [bb92688]
+- Updated dependencies [5b538f6]
+- Updated dependencies [e71bfea]
+- Updated dependencies [929878b]
+- Updated dependencies [500b7e6]
+- Updated dependencies [b6fa24c]
+  - chat@4.39.0
+  - @chat-adapter/shared@4.39.0
+
 ## 4.38.1
 
 ### Patch Changes

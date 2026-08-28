@@ -1,5 +1,29 @@
 # @chat-adapter/web
 
+## 4.39.0
+
+### Patch Changes
+
+- 500b7e6: enforce the conversation scope on write tools and stop trusting client-supplied message history in the web adapter
+
+  `createChatTools` now runs the same scope guard on write tools that read tools already used, so a thread or channel id the model supplies that resolves outside the scoped conversation is rejected before the write executes. `sendDirectMessage` targets a user id rather than a conversation and stays gated by approval alone.
+
+  The web adapter no longer treats the request body's `messages` array as a source of conversation state. Only the latest user message is consumed, and tool parts are stripped from it so a browser cannot inject forged tool-call or approval state. Text, file, and custom data parts pass through unchanged; a message left with no parts after stripping is rejected with HTTP 400. Prior turns come from the state adapter when `persistMessageHistory` is enabled.
+
+- Updated dependencies [2ce2be0]
+- Updated dependencies [153bd96]
+- Updated dependencies [16ea171]
+- Updated dependencies [169788b]
+- Updated dependencies [eddcd7e]
+- Updated dependencies [bb92688]
+- Updated dependencies [5b538f6]
+- Updated dependencies [e71bfea]
+- Updated dependencies [929878b]
+- Updated dependencies [500b7e6]
+- Updated dependencies [b6fa24c]
+  - chat@4.39.0
+  - @chat-adapter/shared@4.39.0
+
 ## 4.38.1
 
 ### Patch Changes
