@@ -88,22 +88,13 @@ bot.onNewMention(async (thread, message) => {
 });
 ```
 
-X sends two kinds of webhook requests: a **CRC challenge** (GET) answered with an HMAC-SHA256 of the token keyed by your app's consumer secret, and **event delivery** (POST) verified by the adapter via the `x-twitter-webhooks-signature` header. Handle the CRC challenge at the route level; it needs no adapter state:
+X sends two kinds of webhook requests: a **CRC challenge** (GET) answered with an HMAC-SHA256 of the token keyed by your app's consumer secret, and **event delivery** (POST) verified by the adapter via the `x-twitter-webhooks-signature` header. Route both methods through the adapter so it can constrain CRC tokens before signing them:
 
 ```typescript title="app/api/webhooks/xchat/route.ts" lineNumbers
-import { createHmac } from "node:crypto";
 import { bot } from "@/lib/bot";
 
 export async function GET(request: Request) {
-  const url = new URL(request.url);
-  const crcToken = url.searchParams.get("crc_token");
-  if (!crcToken) {
-    return new Response("Missing crc_token", { status: 400 });
-  }
-  const hash = createHmac("sha256", process.env.X_CONSUMER_SECRET!)
-    .update(crcToken)
-    .digest("base64");
-  return Response.json({ response_token: `sha256=${hash}` });
+  return bot.webhooks.xchat(request);
 }
 
 export async function POST(request: Request) {

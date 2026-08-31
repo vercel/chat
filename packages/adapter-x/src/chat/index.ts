@@ -65,6 +65,7 @@ import {
   Message,
   parseMarkdown,
 } from "chat";
+import { createCrcChallengeResponse } from "../crc";
 import { cardToXChat, type XchatUrlCardSpec } from "./cards";
 import { XchatFormatConverter } from "./markdown";
 import type {
@@ -997,9 +998,10 @@ export class XchatAdapter implements Adapter<XchatThreadId, XchatRawMessage> {
     request: Request,
     options?: WebhookOptions
   ): Promise<Response> {
+    if (request.method === "GET") {
+      return createCrcChallengeResponse(request, this.consumerSecret);
+    }
     if (request.method !== "POST") {
-      // CRC challenges (GET) should be handled at the route level,
-      // not here — they don't need adapter initialization or crypto.
       return new Response("Method not allowed", { status: 405 });
     }
 

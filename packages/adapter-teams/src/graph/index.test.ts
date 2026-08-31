@@ -138,6 +138,19 @@ describe("Teams graph primitives", () => {
     );
   });
 
+  it("rejects untrusted pagination URLs before acquiring a token", async () => {
+    const request = vi.fn();
+
+    await expect(
+      paginateTeamsGraph("https://attacker.example/v1.0/next", {
+        credentials,
+        fetch: request,
+      })
+    ).rejects.toThrow("untrusted URL");
+
+    expect(request).not.toHaveBeenCalled();
+  });
+
   it("throws TeamsApiError when Graph responds with an error", async () => {
     const request = vi
       .fn()

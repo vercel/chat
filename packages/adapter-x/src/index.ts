@@ -40,6 +40,7 @@ import {
   Message,
 } from "chat";
 import { cardToXText } from "./cards";
+import { createCrcChallengeResponse } from "./crc";
 import { XFormatConverter } from "./markdown";
 import type {
   XAccessToken,
@@ -63,11 +64,6 @@ import type {
 const DEFAULT_API_BASE_URL = "https://api.x.com";
 const SIGNATURE_HEADER = "x-twitter-webhooks-signature";
 const SIGNATURE_PREFIX = "sha256=";
-// X's CRC token is an opaque base64 string. Restricting the challenge to this
-// shape stops the endpoint from signing arbitrary bytes: a webhook body is JSON
-// (contains `{` and `"`, absent from base64) so it can never match, and a CRC
-// response can't double as a POST signature for a forged event.
-const CRC_TOKEN_PATTERN = /^[A-Za-z0-9+/=_-]{16,128}$/;
 const SENT_ID_LIMIT = 1000;
 const DM_EVENT_FIELDS = "id,text,sender_id,created_at,dm_conversation_id";
 const LIKE_EMOJI = new Set(["❤️", "♥️", "❤"]);
@@ -246,16 +242,7 @@ export class XAdapter implements Adapter<XThreadId, XRawMessage> {
    * keyed by the consumer secret, base64 encoded.
    */
   protected handleCrcChallenge(request: Request): Response {
-    const crcToken = new URL(request.url).searchParams.get("crc_token");
-    if (!(crcToken && CRC_TOKEN_PATTERN.test(crcToken))) {
-      return new Response("Invalid crc_token", { status: 400 });
-    }
-
-    const hash = createHmac("sha256", this.consumerSecret)
-      .update(crcToken, "utf8")
-      .digest("base64");
-
-    return Response.json({ response_token: `${SIGNATURE_PREFIX}${hash}` });
+    return createCrcChallengeResponse(request, this.consumerSecret);
   }
 
   protected verifySignature(request: Request, body: string): boolean {

@@ -1,3 +1,4 @@
+import { createHmac } from "node:crypto";
 import type { ChatInstance } from "chat";
 import { describe, expect, it, vi } from "vitest";
 
@@ -280,16 +281,50 @@ describe("parseMessage", () => {
 });
 
 describe("handleWebhook", () => {
-  // CRC challenges (GET) are handled at the route level, not by the adapter.
-  // The adapter only handles POST requests.
-
-  it("should return 405 for GET requests", async () => {
-    const adapter = createTestAdapter();
-    const request = new Request("https://example.com/webhook", {
-      method: "GET",
+  it("answers CRC challenges with the constrained token HMAC", async () => {
+    const consumerSecret = "test-secret";
+    const adapter = new XchatAdapter({
+      accessToken: "test-token",
+      consumerSecret,
+      userId: TEST_USER_ID,
+      userName: "test-bot",
+      logger: mockLogger,
     });
+    const crcToken = "abcdefghijklmnop";
+    const request = new Request(
+      `https://example.com/webhook?crc_token=${crcToken}`,
+      { method: "GET" }
+    );
     const response = await adapter.handleWebhook(request);
-    expect(response.status).toBe(405);
+    const body = (await response.json()) as { response_token: string };
+
+    expect(response.status).toBe(200);
+    expect(body.response_token).toBe(
+      `sha256=${createHmac("sha256", consumerSecret)
+        .update(crcToken, "utf8")
+        .digest("base64")}`
+    );
+  });
+
+  it("rejects a webhook-shaped CRC token without signing it", async () => {
+    const adapter = new XchatAdapter({
+      accessToken: "test-token",
+      consumerSecret: "test-secret",
+      userId: TEST_USER_ID,
+      userName: "test-bot",
+      logger: mockLogger,
+    });
+    const forgedBody = JSON.stringify({
+      data: { event_type: "chat.received" },
+    });
+    const request = new Request(
+      `https://example.com/webhook?crc_token=${encodeURIComponent(forgedBody)}`,
+      { method: "GET" }
+    );
+    const response = await adapter.handleWebhook(request);
+
+    expect(response.status).toBe(400);
+    expect(await response.text()).not.toContain("response_token");
   });
 
   it("should return 400 for invalid JSON body", async () => {

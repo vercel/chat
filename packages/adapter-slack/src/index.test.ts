@@ -8450,7 +8450,7 @@ describe("decodeEphemeralMessageId edge cases", () => {
     });
   });
 
-  it("handles non-JSON base64 as legacy responseUrl format", () => {
+  it("rejects the legacy non-JSON responseUrl format", () => {
     const adapter = createSlackAdapter({
       botToken: "xoxb-test",
       signingSecret: "s",
@@ -8463,11 +8463,31 @@ describe("decodeEphemeralMessageId edge cases", () => {
       }
     ).decodeEphemeralMessageId;
     const result = decode.call(adapter, encoded);
-    expect(result).toEqual({
-      messageTs: "1234567890.123456",
-      responseUrl: "https://hooks.slack.com/respond",
-      userId: "",
+    expect(result).toBeNull();
+  });
+
+  it.each([
+    "http://hooks.slack.com/respond",
+    "https://hooks.slack.com.attacker.example/respond",
+    "https://user@hooks.slack.com/respond",
+    "https://hooks.slack.com:444/respond",
+    "https://attacker.example/respond",
+  ])("rejects untrusted response_url %s", (responseUrl) => {
+    const adapter = createSlackAdapter({
+      botToken: "xoxb-test",
+      signingSecret: "s",
+      logger: mockLogger,
     });
+    const encoded = `ephemeral:1234567890.123456:${btoa(
+      JSON.stringify({ responseUrl, userId: "U123" })
+    )}`;
+    const decode = (
+      adapter as unknown as Record<string, unknown> & {
+        decodeEphemeralMessageId: (id: string) => unknown;
+      }
+    ).decodeEphemeralMessageId;
+
+    expect(decode.call(adapter, encoded)).toBeNull();
   });
 
   it("returns null for invalid base64", () => {
@@ -8525,6 +8545,57 @@ describe("editMessage via response_url", () => {
     );
     expect(callBody.text).toContain("```");
     expect(callBody).not.toHaveProperty("markdown_text");
+    fetchSpy.mockRestore();
+  });
+
+  it("rejects an untrusted encoded response_url before fetching", async () => {
+    const adapter = createSlackAdapter({
+      botToken: "xoxb-test",
+      signingSecret: "s",
+      logger: mockLogger,
+    });
+    const data = JSON.stringify({
+      responseUrl: "https://attacker.example/respond",
+      userId: "U123",
+    });
+    const ephemeralId = `ephemeral:1234567890.123456:${btoa(data)}`;
+    const fetchSpy = vi.spyOn(global, "fetch");
+
+    await expect(
+      adapter.editMessage(
+        "slack:C123:1234567890.000000",
+        ephemeralId,
+        "private message"
+      )
+    ).rejects.toThrow("Invalid Slack ephemeral message ID");
+    expect(fetchSpy).not.toHaveBeenCalled();
+    fetchSpy.mockRestore();
+  });
+
+  it("defends the response_url fetch sink against untrusted callers", async () => {
+    const adapter = createSlackAdapter({
+      botToken: "xoxb-test",
+      signingSecret: "s",
+      logger: mockLogger,
+    });
+    const sendToResponseUrl = (
+      adapter as unknown as {
+        sendToResponseUrl: (
+          url: string,
+          action: "delete"
+        ) => Promise<Record<string, unknown>>;
+      }
+    ).sendToResponseUrl;
+    const fetchSpy = vi.spyOn(global, "fetch");
+
+    await expect(
+      sendToResponseUrl.call(
+        adapter,
+        "https://hooks.slack.com.attacker.example/respond",
+        "delete"
+      )
+    ).rejects.toThrow("untrusted Slack response_url");
+    expect(fetchSpy).not.toHaveBeenCalled();
     fetchSpy.mockRestore();
   });
 });

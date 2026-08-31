@@ -310,7 +310,7 @@ Use the low-level Teams subpaths when your app already owns routing, state, sess
 | `@chat-adapter/teams/modals` | Runtime-free Task Module Adaptive Card helpers and submit parsing |
 
 <Callout type="warn">
-  The webhook subpath parses Activities only. It does not verify Microsoft Bot Framework JWTs. For production request validation, use `createTeamsAdapter` or the Microsoft Teams SDK request pipeline before handing the Activity to these helpers.
+  The webhook subpath parses Activities only. It does not verify Microsoft Bot Framework JWTs. Authenticate the request with the Microsoft Teams SDK request pipeline before handing the Activity to these helpers, or use `createTeamsAdapter`. The Connector helpers restrict `serviceUrl` to Microsoft-owned hosts, but that does not authenticate the Activity.
 </Callout>
 
 ### Webhooks
@@ -322,6 +322,8 @@ import { postTeamsMessage } from "@chat-adapter/teams/api";
 import { readTeamsWebhook } from "@chat-adapter/teams/webhook";
 
 export async function POST(request: Request) {
+  // Authenticate the Bot Framework JWT before parsing the request. This
+  // example assumes your routing layer already performed that verification.
   const payload = await readTeamsWebhook(request, {
     botAppId: process.env.TEAMS_APP_ID,
   });

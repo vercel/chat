@@ -34,6 +34,7 @@ import {
   Message,
 } from "chat";
 import { cardToInstagram, decodeInstagramCallbackData } from "./cards";
+import { downloadInstagramAttachment } from "./fetch";
 import { InstagramFormatConverter } from "./markdown";
 import type {
   InstagramAdapterConfig,
@@ -878,23 +879,7 @@ export class InstagramAdapter
   }
 
   protected async downloadAttachment(url: string): Promise<Buffer> {
-    let response: Response;
-    try {
-      response = await fetch(url);
-    } catch (error) {
-      throw new NetworkError(
-        "instagram",
-        "Failed to download Instagram attachment",
-        error instanceof Error ? error : undefined
-      );
-    }
-    if (!response.ok) {
-      throw new NetworkError(
-        "instagram",
-        `Failed to download Instagram attachment: ${response.status}`
-      );
-    }
-    return Buffer.from(await response.arrayBuffer());
+    return downloadInstagramAttachment(url);
   }
 
   protected async fetchUserProfile(

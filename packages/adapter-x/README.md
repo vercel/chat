@@ -312,7 +312,7 @@ export async function POST(request: Request) {
 }
 ```
 
-Do not sign the token in your own handler. The challenge and the POST signature use the same key, algorithm, and `sha256=` prefix, so a handler that HMACs an arbitrary `crc_token` becomes a signing oracle: a caller can pass a forged event body as the token and replay the response as `x-twitter-webhooks-signature`. The adapter constrains the token before signing it.
+Do not sign the token in your own handler. The challenge and the POST signature use the same key, algorithm, and `sha256=` prefix, so a handler that HMACs an arbitrary `crc_token` becomes a signing oracle: a caller can pass a forged event body as the token and replay the response as `x-twitter-webhooks-signature`. Route GET through the adapter as shown above; it rejects malformed CRC tokens before signing them.
 
 ### Configuration
 

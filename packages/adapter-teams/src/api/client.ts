@@ -56,6 +56,36 @@ export class TeamsApiError extends Error {
 const DEFAULT_BOT_SCOPE = "https://api.botframework.com/.default";
 const DEFAULT_TENANT_ID = "botframework.com";
 const LEADING_SLASH_PATTERN = /^\/+/;
+const LOOPBACK_HOST_PATTERN = /^(?:localhost|127(?:\.\d{1,3}){3}|\[::1\])$/i;
+const TRUSTED_CONNECTOR_HOSTS = new Set([
+  "msteams.botframework.azure.cn",
+  "smba.infra.dod.teams.microsoft.us",
+  "smba.infra.gcc.teams.microsoft.com",
+  "smba.infra.gov.teams.microsoft.us",
+  "smba.trafficmanager.net",
+]);
+
+function getTrustedConnectorUrl(serviceUrl: string): URL {
+  let url: URL;
+  try {
+    url = new URL(serviceUrl);
+  } catch {
+    throw new TeamsApiError("Teams Connector serviceUrl must be a valid URL");
+  }
+
+  const isHttpsConnector =
+    url.protocol === "https:" &&
+    TRUSTED_CONNECTOR_HOSTS.has(url.hostname.toLowerCase());
+  const isLocalEmulator =
+    url.protocol === "http:" && LOOPBACK_HOST_PATTERN.test(url.hostname);
+  if (!(isHttpsConnector || isLocalEmulator)) {
+    throw new TeamsApiError(
+      "Refusing to send a Teams bot token to an untrusted Connector serviceUrl"
+    );
+  }
+
+  return url;
+}
 
 export async function resolveTeamsCredential(
   credential: TeamsCredential | undefined
@@ -137,11 +167,17 @@ export async function callTeamsConnectorApi<T = unknown>(
   options: TeamsConnectorOptions
 ): Promise<TeamsApiResponse<T>> {
   const request = options.fetch ?? fetch;
-  const token = await resolveTeamsAccessToken(options);
+  const serviceUrl = getTrustedConnectorUrl(options.serviceUrl);
   const url = new URL(
     options.path.replace(LEADING_SLASH_PATTERN, ""),
-    ensureTrailingSlash(options.serviceUrl)
+    ensureTrailingSlash(serviceUrl.href)
   );
+  if (url.origin !== serviceUrl.origin) {
+    throw new TeamsApiError(
+      "Refusing to send a Teams bot token outside the Connector serviceUrl origin"
+    );
+  }
+  const token = await resolveTeamsAccessToken(options);
 
   const response = await request(url, {
     body: options.body === undefined ? undefined : JSON.stringify(options.body),

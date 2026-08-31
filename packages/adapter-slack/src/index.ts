@@ -94,6 +94,10 @@ import { verifySlackRequest } from "./webhook/index";
 const SLACK_USER_ID_PATTERN = /^[A-Z0-9_]+$/;
 // Enterprise Grid users can have W-prefixed IDs anywhere a U-prefixed ID appears
 const SLACK_USER_ID_EXACT_PATTERN = /^[UW][A-Z0-9]+$/;
+const SLACK_RESPONSE_URL_HOSTS = new Set([
+  "hooks.slack-gov.com",
+  "hooks.slack.com",
+]);
 
 // Reserved user ID Slack uses for platform-generated messages (e.g.
 // "@user archived the channel") that carry no bot_id or system subtype.
@@ -116,6 +120,21 @@ function timingSafeStringEqual(a: string, b: string): boolean {
     return false;
   }
   return timingSafeEqual(aBuf, bBuf);
+}
+
+function isTrustedSlackResponseUrl(value: string): boolean {
+  try {
+    const url = new URL(value);
+    return (
+      url.protocol === "https:" &&
+      url.username === "" &&
+      url.password === "" &&
+      url.port === "" &&
+      SLACK_RESPONSE_URL_HOSTS.has(url.hostname.toLowerCase())
+    );
+  } catch {
+    return false;
+  }
 }
 
 /**
@@ -5029,6 +5048,9 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
         raw: { ephemeral: true, ...result },
       };
     }
+    if (messageId.startsWith("ephemeral:")) {
+      throw new ValidationError("slack", "Invalid Slack ephemeral message ID");
+    }
 
     const { channel } = this.decodeThreadId(threadId);
 
@@ -5274,6 +5296,9 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
     if (ephemeral) {
       await this.sendToResponseUrl(ephemeral.responseUrl, "delete");
       return;
+    }
+    if (messageId.startsWith("ephemeral:")) {
+      throw new ValidationError("slack", "Invalid Slack ephemeral message ID");
     }
     const { channel } = this.decodeThreadId(threadId);
 
@@ -6766,6 +6791,12 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
     responseUrl: string,
     userId: string
   ): string {
+    if (!isTrustedSlackResponseUrl(responseUrl)) {
+      throw new ValidationError(
+        "slack",
+        "Refusing to encode an untrusted Slack response_url"
+      );
+    }
     const data = JSON.stringify({ responseUrl, userId });
     return `ephemeral:${messageTs}:${btoa(data)}`;
   }
@@ -6789,8 +6820,17 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
     try {
       const decoded = atob(encodedData);
       try {
-        const data = JSON.parse(decoded);
-        if (data.responseUrl && data.userId) {
+        const data: unknown = JSON.parse(decoded);
+        if (
+          data &&
+          typeof data === "object" &&
+          "responseUrl" in data &&
+          typeof data.responseUrl === "string" &&
+          isTrustedSlackResponseUrl(data.responseUrl) &&
+          "userId" in data &&
+          typeof data.userId === "string" &&
+          data.userId.length > 0
+        ) {
           return {
             messageTs,
             responseUrl: data.responseUrl,
@@ -6798,7 +6838,7 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
           };
         }
       } catch {
-        return { messageTs, responseUrl: decoded, userId: "" };
+        return null;
       }
       return null;
     } catch {
@@ -6815,6 +6855,13 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
     action: "replace" | "delete",
     options?: { message?: AdapterPostableMessage; threadTs?: string }
   ): Promise<Record<string, unknown>> {
+    if (!isTrustedSlackResponseUrl(responseUrl)) {
+      throw new ValidationError(
+        "slack",
+        "Refusing to send content to an untrusted Slack response_url"
+      );
+    }
+
     let payload: Record<string, unknown>;
 
     if (action === "delete") {

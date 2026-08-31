@@ -71,12 +71,12 @@ describe("Teams api primitives", () => {
       credentials,
       fetch: request,
       markdownText: "hello",
-      serviceUrl: "https://smba.example/teams/",
+      serviceUrl: "https://smba.trafficmanager.net/teams/",
     });
 
     expect(posted.id).toBe("activity-id");
     expect(String(request.mock.calls[1]?.[0])).toBe(
-      "https://smba.example/teams/v3/conversations/19%3Aabc%40thread.tacv2/activities"
+      "https://smba.trafficmanager.net/teams/v3/conversations/19%3Aabc%40thread.tacv2/activities"
     );
     expect(request.mock.calls[1]?.[1]?.headers).toMatchObject({
       authorization: "Bearer token",
@@ -95,12 +95,12 @@ describe("Teams api primitives", () => {
       credentials,
       fetch: request,
       replyToId: "root",
-      serviceUrl: "https://smba.example/teams/",
+      serviceUrl: "https://smba.trafficmanager.net/teams/",
       text: "reply",
     });
 
     expect(String(request.mock.calls[1]?.[0])).toBe(
-      "https://smba.example/teams/v3/conversations/conversation/activities/root"
+      "https://smba.trafficmanager.net/teams/v3/conversations/conversation/activities/root"
     );
   });
 
@@ -123,7 +123,7 @@ describe("Teams api primitives", () => {
       credentials,
       fetch: request,
       messageId: "activity",
-      serviceUrl: "https://smba.example/",
+      serviceUrl: "https://smba.trafficmanager.net/",
       text: "updated",
     });
     await deleteTeamsMessage({
@@ -131,19 +131,19 @@ describe("Teams api primitives", () => {
       credentials,
       fetch: request,
       messageId: "activity",
-      serviceUrl: "https://smba.example/",
+      serviceUrl: "https://smba.trafficmanager.net/",
     });
     await sendTeamsTyping({
       conversationId: "conversation",
       credentials,
       fetch: request,
-      serviceUrl: "https://smba.example/",
+      serviceUrl: "https://smba.trafficmanager.net/",
     });
     await createTeamsConversation({
       credentials,
       fetch: request,
       members: [{ id: "user" }],
-      serviceUrl: "https://smba.example/",
+      serviceUrl: "https://smba.trafficmanager.net/",
       tenantId: "tenant",
     });
 
@@ -166,7 +166,7 @@ describe("Teams api primitives", () => {
         conversationId: "conversation",
         credentials,
         fetch: request,
-        serviceUrl: "https://smba.example/",
+        serviceUrl: "https://smba.trafficmanager.net/",
         text: "hello",
       })
     ).rejects.toMatchObject({
@@ -182,18 +182,37 @@ describe("Teams api primitives", () => {
       conversationId: "c",
       credentials: { accessToken: () => "direct" },
       fetch: request,
-      serviceUrl: "https://smba.example",
+      serviceUrl: "https://smba.trafficmanager.net",
       text: "hi",
     });
 
     expect(posted.id).toBe("");
     expect(request).toHaveBeenCalledTimes(1);
     expect(String(request.mock.calls[0]?.[0])).toBe(
-      "https://smba.example/v3/conversations/c/activities"
+      "https://smba.trafficmanager.net/v3/conversations/c/activities"
     );
     expect(request.mock.calls[0]?.[1]?.headers).toMatchObject({
       authorization: "Bearer direct",
     });
+  });
+
+  it.each([
+    "https://attacker.example/",
+    "https://attacker.trafficmanager.net/",
+  ])("rejects untrusted service URL %s before acquiring a token", async (serviceUrl) => {
+    const request = vi.fn();
+
+    await expect(
+      postTeamsMessage({
+        conversationId: "conversation",
+        credentials,
+        fetch: request,
+        serviceUrl,
+        text: "hello",
+      })
+    ).rejects.toThrow("untrusted Connector serviceUrl");
+
+    expect(request).not.toHaveBeenCalled();
   });
 
   it("falls back to the default tenant when none is provided", async () => {
@@ -259,7 +278,7 @@ describe("Teams api primitives", () => {
       fetch: request,
       isGroup: true,
       members: [{ id: "user" }],
-      serviceUrl: "https://smba.example/",
+      serviceUrl: "https://smba.trafficmanager.net/",
     });
 
     const body = JSON.parse(request.mock.calls[1]?.[1]?.body as string);
