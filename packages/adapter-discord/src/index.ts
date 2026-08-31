@@ -586,6 +586,9 @@ export class DiscordAdapter implements Adapter<DiscordThreadId, unknown> {
     const isThread = channel?.type === 11 || channel?.type === 12;
     const parentChannelId =
       isThread && channel?.parent_id ? channel.parent_id : interactionChannelId;
+    if (isThread && channel?.parent_id) {
+      this.rememberThreadParent(interactionChannelId, channel.parent_id);
+    }
 
     const threadId = isThread
       ? this.encodeThreadId({
@@ -656,6 +659,9 @@ export class DiscordAdapter implements Adapter<DiscordThreadId, unknown> {
     const isThread = channel?.type === 11 || channel?.type === 12;
     const parentChannelId =
       isThread && channel?.parent_id ? channel.parent_id : interactionChannelId;
+    if (isThread && channel?.parent_id) {
+      this.rememberThreadParent(interactionChannelId, channel.parent_id);
+    }
 
     const channelId = isThread
       ? this.encodeThreadId({
@@ -969,6 +975,7 @@ export class DiscordAdapter implements Adapter<DiscordThreadId, unknown> {
     if (data.thread) {
       discordThreadId = data.thread.id;
       parentChannelId = data.thread.parent_id;
+      this.rememberThreadParent(discordThreadId, parentChannelId);
     } else if (data.channel_type === 11 || data.channel_type === 12) {
       // Message is in a thread (11 = public, 12 = private) but we don't have parent info
       // Fetch the channel to get parent_id
@@ -1296,14 +1303,13 @@ export class DiscordAdapter implements Adapter<DiscordThreadId, unknown> {
     threadId: string,
     message: AdapterPostableMessage
   ): Promise<RawMessage<unknown>> {
-    let { channelId, threadId: discordThreadId } =
+    const { channelId, threadId: discordThreadId } =
       this.decodeThreadId(threadId);
     const actualThreadId = threadId;
-
-    // If in a thread, post to the thread channel
-    if (discordThreadId) {
-      channelId = discordThreadId;
-    }
+    const targetChannelId = await this.resolveThreadChannelId(
+      channelId,
+      discordThreadId
+    );
 
     const { componentCount, embedCount, payload } =
       this.buildMessagePayload(message);
@@ -1321,7 +1327,7 @@ export class DiscordAdapter implements Adapter<DiscordThreadId, unknown> {
     }
     if (files.length > 0) {
       return this.postMessageWithFiles(
-        channelId,
+        targetChannelId,
         actualThreadId,
         payload,
         files
@@ -1329,14 +1335,14 @@ export class DiscordAdapter implements Adapter<DiscordThreadId, unknown> {
     }
 
     this.logger.debug("Discord API: POST message", {
-      channelId,
+      channelId: targetChannelId,
       contentLength: payload.content?.length || 0,
       embedCount,
       componentCount,
     });
 
     const response = await this.discordFetch(
-      `/channels/${channelId}/messages`,
+      `/channels/${targetChannelId}/messages`,
       "POST",
       payload
     );
@@ -1687,6 +1693,48 @@ export class DiscordAdapter implements Adapter<DiscordThreadId, unknown> {
     this.logger.debug("Discord API: DELETE message response", { ok: true });
   }
 
+  private async resolveThreadChannelId(
+    parentChannelId: string,
+    discordThreadId?: string
+  ): Promise<string> {
+    if (!discordThreadId) {
+      return parentChannelId;
+    }
+
+    const cached = this.threadParentCache.get(discordThreadId);
+    if (cached && cached.expiresAt > Date.now()) {
+      if (cached.parentId === parentChannelId) {
+        return discordThreadId;
+      }
+      throw new ValidationError(
+        "discord",
+        `Discord thread ${discordThreadId} does not belong to channel ${parentChannelId}`
+      );
+    }
+
+    const response = await this.discordFetch(
+      `/channels/${discordThreadId}`,
+      "GET"
+    );
+    const channel = (await response.json()) as { parent_id?: string };
+    if (channel.parent_id !== parentChannelId) {
+      throw new ValidationError(
+        "discord",
+        `Discord thread ${discordThreadId} does not belong to channel ${parentChannelId}`
+      );
+    }
+
+    this.rememberThreadParent(discordThreadId, channel.parent_id);
+    return discordThreadId;
+  }
+
+  private rememberThreadParent(threadId: string, parentId: string): void {
+    this.threadParentCache.set(threadId, {
+      parentId,
+      expiresAt: Date.now() + DiscordAdapter.THREAD_PARENT_CACHE_TTL,
+    });
+  }
+
   protected async withMessageChannel<T>(
     threadId: string,
     messageId: string,
@@ -1694,7 +1742,10 @@ export class DiscordAdapter implements Adapter<DiscordThreadId, unknown> {
   ): Promise<T> {
     const { channelId, threadId: discordThreadId } =
       this.decodeThreadId(threadId);
-    const targetChannelId = discordThreadId || channelId;
+    const targetChannelId = await this.resolveThreadChannelId(
+      channelId,
+      discordThreadId
+    );
 
     if (!(discordThreadId && discordThreadId === messageId)) {
       return operation(targetChannelId);
@@ -1786,8 +1837,10 @@ export class DiscordAdapter implements Adapter<DiscordThreadId, unknown> {
   async startTyping(threadId: string, _status?: string): Promise<void> {
     const { channelId, threadId: discordThreadId } =
       this.decodeThreadId(threadId);
-    // Use thread channel ID if in a thread, otherwise use channel ID
-    const targetChannelId = discordThreadId || channelId;
+    const targetChannelId = await this.resolveThreadChannelId(
+      channelId,
+      discordThreadId
+    );
 
     this.logger.debug("Discord API: POST typing", {
       channelId: targetChannelId,
@@ -1806,8 +1859,10 @@ export class DiscordAdapter implements Adapter<DiscordThreadId, unknown> {
   ): Promise<FetchResult<unknown>> {
     const { channelId, threadId: discordThreadId } =
       this.decodeThreadId(threadId);
-    // Use thread channel ID if in a thread, otherwise use channel ID
-    const targetChannelId = discordThreadId || channelId;
+    const targetChannelId = await this.resolveThreadChannelId(
+      channelId,
+      discordThreadId
+    );
 
     const limit = options.limit || 50;
     const direction = options.direction ?? "backward";
@@ -1900,12 +1955,17 @@ export class DiscordAdapter implements Adapter<DiscordThreadId, unknown> {
   }
 
   async setThreadTitle(threadId: string, title: string): Promise<void> {
-    const { threadId: discordThreadId } = this.decodeThreadId(threadId);
+    const { channelId, threadId: discordThreadId } =
+      this.decodeThreadId(threadId);
     if (!discordThreadId) {
       return;
     }
 
-    await this.discordFetch(`/channels/${discordThreadId}`, "PATCH", {
+    const targetChannelId = await this.resolveThreadChannelId(
+      channelId,
+      discordThreadId
+    );
+    await this.discordFetch(`/channels/${targetChannelId}`, "PATCH", {
       name: title,
     });
   }
@@ -2553,6 +2613,7 @@ export class DiscordAdapter implements Adapter<DiscordThreadId, unknown> {
       // Message is in a thread - use the thread channel ID
       discordThreadId = channelId;
       parentChannelId = message.channel.parentId;
+      this.rememberThreadParent(discordThreadId, parentChannelId);
     }
 
     // If not in a thread and bot is mentioned, create a thread immediately
@@ -2669,6 +2730,7 @@ export class DiscordAdapter implements Adapter<DiscordThreadId, unknown> {
     if (isInThread && reaction.message.channel?.parentId) {
       discordThreadId = channelId;
       parentChannelId = reaction.message.channel.parentId;
+      this.rememberThreadParent(discordThreadId, parentChannelId);
     }
 
     const threadId = this.encodeThreadId({

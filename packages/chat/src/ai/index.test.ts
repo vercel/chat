@@ -109,7 +109,7 @@ describe("createChatTools", () => {
     expect(names).not.toContain("deleteMessage");
   });
 
-  it("requires approval on every write tool by default", () => {
+  it("requires approval on every write tool and getUser by default", () => {
     const tools = createChatTools({ chat });
     // Every mutating tool must default to needsApproval: true so a misnamed
     // write tool (or one that silently drops `needsApproval`) is caught.
@@ -122,19 +122,19 @@ describe("createChatTools", () => {
     expect(tools.removeReaction?.needsApproval).toBe(true);
     expect(tools.subscribeThread?.needsApproval).toBe(true);
     expect(tools.unsubscribeThread?.needsApproval).toBe(true);
-    // Read tools never gate on approval
+    expect(tools.getUser?.needsApproval).toBe(true);
+    // Conversation-scoped read tools do not gate on approval.
     expect(tools.fetchMessages?.needsApproval).toBeUndefined();
     expect(tools.fetchChannelMessages?.needsApproval).toBeUndefined();
     expect(tools.fetchThread?.needsApproval).toBeUndefined();
     expect(tools.listThreads?.needsApproval).toBeUndefined();
     expect(tools.getThreadParticipants?.needsApproval).toBeUndefined();
     expect(tools.getChannelInfo?.needsApproval).toBeUndefined();
-    expect(tools.getUser?.needsApproval).toBeUndefined();
     // Typing indicator is harmless and never gated
     expect(tools.startTyping?.needsApproval).toBeUndefined();
   });
 
-  it("disables approval on every write tool when requireApproval is false", () => {
+  it("disables approval on every gated tool when requireApproval is false", () => {
     const tools = createChatTools({
       chat,
       requireApproval: false,
@@ -148,6 +148,7 @@ describe("createChatTools", () => {
     expect(tools.removeReaction?.needsApproval).toBe(false);
     expect(tools.subscribeThread?.needsApproval).toBe(false);
     expect(tools.unsubscribeThread?.needsApproval).toBe(false);
+    expect(tools.getUser?.needsApproval).toBe(false);
   });
 
   it("supports per-tool approval overrides", () => {
@@ -156,12 +157,14 @@ describe("createChatTools", () => {
       requireApproval: {
         postMessage: false,
         deleteMessage: true,
+        getUser: false,
         subscribeThread: false,
       },
     });
     expect(tools.postMessage?.needsApproval).toBe(false);
     expect(tools.deleteMessage?.needsApproval).toBe(true);
     expect(tools.subscribeThread?.needsApproval).toBe(false);
+    expect(tools.getUser?.needsApproval).toBe(false);
     // Unspecified write tools fall back to true
     expect(tools.editMessage?.needsApproval).toBe(true);
     expect(tools.unsubscribeThread?.needsApproval).toBe(true);
@@ -694,6 +697,36 @@ describe("createChatTools", () => {
       expect(discord.fetchChannelMessages).not.toHaveBeenCalled();
     });
 
+    it("keeps DM-only adapter conversations out of each other's scope", async () => {
+      const twilio = createMockAdapter("twilio");
+      (
+        twilio.channelIdFromThreadId as ReturnType<typeof vi.fn>
+      ).mockImplementation((id: string) => id);
+      const twilioChat = new Chat({
+        userName: "testbot",
+        adapters: { twilio },
+        state: createMockState(),
+        logger: mockLogger,
+      });
+      await twilioChat.initialize();
+
+      const tools = createChatTools({
+        chat: twilioChat,
+        scope: "twilio:bot:user1",
+      });
+      await expect(
+        tools.fetchMessages?.execute?.(
+          {
+            threadId: "twilio:bot:user2",
+            limit: 5,
+            direction: "backward",
+          },
+          TOOL_OPTIONS
+        )
+      ).rejects.toThrow(OUT_OF_SCOPE_REGEX);
+      expect(twilio.fetchMessages).not.toHaveBeenCalled();
+    });
+
     it("allows a channel-level read under strictScope when a channel is scoped", async () => {
       const tools = createChatTools({
         chat,
@@ -804,11 +837,18 @@ describe("createChatTools", () => {
           TOOL_OPTIONS
         )
       ).rejects.toThrow(OUT_OF_SCOPE_REGEX);
+      await expect(
+        tools.startTyping?.execute?.(
+          { threadId: OTHER_THREAD, status: "Injected status" },
+          TOOL_OPTIONS
+        )
+      ).rejects.toThrow(OUT_OF_SCOPE_REGEX);
       expect(mockAdapter.postMessage).not.toHaveBeenCalled();
       expect(mockAdapter.editMessage).not.toHaveBeenCalled();
       expect(mockAdapter.deleteMessage).not.toHaveBeenCalled();
       expect(mockAdapter.addReaction).not.toHaveBeenCalled();
       expect(mockAdapter.removeReaction).not.toHaveBeenCalled();
+      expect(mockAdapter.startTyping).not.toHaveBeenCalled();
     });
 
     it("inherits the handled conversation for writes when no scope is passed", async () => {

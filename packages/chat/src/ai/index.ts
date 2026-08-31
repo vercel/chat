@@ -67,11 +67,19 @@ export type ChatWriteToolName =
   | "unsubscribeThread";
 
 /**
- * Whether write operations require user approval.
+ * Names of tools that require approval by default.
  *
- * - `true`  — every write tool needs approval (default)
- * - `false` — no write tool needs approval
- * - object  — per-tool override; unspecified write tools default to `true`
+ * This includes every write tool plus `getUser`, whose arbitrary user lookup
+ * can expose profile details outside the active conversation.
+ */
+export type ChatApprovalToolName = ChatWriteToolName | "getUser";
+
+/**
+ * Whether sensitive operations require user approval.
+ *
+ * - `true`  — every approval-gated tool needs approval (default)
+ * - `false` — no tool needs approval
+ * - object  — per-tool override; unspecified approval-gated tools default to `true`
  *
  * @example
  * ```ts
@@ -85,7 +93,7 @@ export type ChatWriteToolName =
  */
 export type ApprovalConfig =
   | boolean
-  | Partial<Record<ChatWriteToolName, boolean>>;
+  | Partial<Record<ChatApprovalToolName, boolean>>;
 
 /**
  * Predefined tool presets for common chat-agent use cases.
@@ -171,17 +179,17 @@ export interface ChatToolsOptions {
    */
   preset?: ChatToolPreset | ChatToolPreset[];
   /**
-   * Whether write operations require user approval before executing.
-   * Defaults to `true` for all write tools.
+   * Whether sensitive operations require user approval before executing.
+   * Defaults to `true` for all write tools and `getUser`.
    *
    * @see {@link ApprovalConfig}
    */
   requireApproval?: ApprovalConfig;
   /**
    * Confine tools to a single conversation, so a thread or channel id the
-   * model supplies that resolves elsewhere is rejected. Applies to read tools
-   * and to write tools that target a thread or channel; `sendDirectMessage`
-   * targets a user id and is gated by approval instead.
+   * model supplies that resolves elsewhere is rejected. Applies to reads and
+   * writes that target a thread or channel; `getUser` and `sendDirectMessage`
+   * target user ids and are gated by approval instead.
    *
    * Scoping is channel-level: a call is allowed when it resolves to the same
    * channel as the scoped conversation, so a thread scope still permits sibling
@@ -222,7 +230,7 @@ export interface ChatToolsOptions {
 }
 
 function resolveApproval(
-  toolName: ChatWriteToolName,
+  toolName: ChatApprovalToolName,
   config: ApprovalConfig
 ): boolean {
   if (typeof config === "boolean") {
@@ -267,8 +275,9 @@ function applyOverrides(
  * send DMs, react, edit, delete, and manage thread subscriptions across
  * every adapter the supplied {@link ChatBinding} has registered.
  *
- * Write operations require user approval by default. Control this globally
- * or per-tool via `requireApproval`. Use `preset` to scope the toolset.
+ * Write operations and arbitrary user profile lookups require approval by
+ * default. Control this globally or per-tool via `requireApproval`. Use
+ * `preset` to scope the toolset.
  *
  * @example
  * ```ts
@@ -315,7 +324,7 @@ export function createChatTools({
 
   const guard = createScopeGuard(chat, scope, strictScope);
 
-  const approval = (name: ChatWriteToolName) => ({
+  const approval = (name: ChatApprovalToolName) => ({
     needsApproval: resolveApproval(name, requireApproval),
   });
   // Write tools take the same guard as reads so a thread/channel id the model
@@ -337,14 +346,13 @@ export function createChatTools({
     listThreads: () => listThreads(chat, guard),
     getThreadParticipants: () => getThreadParticipants(chat, guard),
     getChannelInfo: () => getChannelInfo(chat, guard),
-    getUser: () => getUser(chat),
-    startTyping: () => startTyping(chat),
+    getUser: () => getUser(chat, approval("getUser").needsApproval),
+    startTyping: () => startTyping(chat, guard),
     postMessage: () => postMessage(chat, guardedApproval("postMessage")),
     postChannelMessage: () =>
       postChannelMessage(chat, guardedApproval("postChannelMessage")),
-    // sendDirectMessage targets a user id, not a conversation, so the
-    // conversation-scope guard has nothing to check it against. Approval is
-    // the only gate; see ChatToolsOptions.scope.
+    // User-id tools do not resolve to a conversation, so approval is their
+    // gate instead of the conversation-scope guard.
     sendDirectMessage: () =>
       sendDirectMessage(chat, approval("sendDirectMessage")),
     editMessage: () => editMessage(chat, guardedApproval("editMessage")),

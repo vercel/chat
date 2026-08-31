@@ -22,6 +22,6 @@ export function decodeTwilioThreadId(threadId: string): TwilioThreadId {
 }
 
 export function twilioChannelId(threadId: string): string {
-  const thread = decodeTwilioThreadId(threadId);
-  return `twilio:${encodeURIComponent(thread.sender)}`;
+  decodeTwilioThreadId(threadId);
+  return threadId;
 }

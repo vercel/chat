@@ -14,7 +14,8 @@ const GET_USER_INPUT = z.object({
 });
 
 export const getUser = (
-  chat: ChatBinding
+  chat: ChatBinding,
+  needsApproval: boolean
 ): Tool<
   z.infer<typeof GET_USER_INPUT>,
   {
@@ -30,6 +31,7 @@ export const getUser = (
     description:
       "Look up profile information about a user by their platform-specific id (e.g. 'U123456' for Slack, '29:...' for Teams, 'users/123' for Google Chat). Returns null if the user is unknown.",
     inputSchema: GET_USER_INPUT,
+    needsApproval,
     execute: async ({ userId }) => {
       const user = await chat.getUser(userId);
       if (!user) {

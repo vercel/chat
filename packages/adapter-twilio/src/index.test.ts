@@ -15,7 +15,7 @@ describe("TwilioAdapter", () => {
     resetTwilioContentCacheForTests();
   });
 
-  it("derives the channel id from a thread's sender", () => {
+  it("uses the full DM thread id as its channel id", () => {
     // Encode/decode round-trips and pinned encoded strings live in the shared
     // `threadIdContract` at the bottom of this file; channelIdFromThreadId is
     // not covered by the contract, so it stays asserted here.
@@ -25,7 +25,7 @@ describe("TwilioAdapter", () => {
       adapter.channelIdFromThreadId(
         "twilio:whatsapp%3A%2B15550000001:whatsapp%3A%2B15550000002"
       )
-    ).toBe("twilio:whatsapp%3A%2B15550000001");
+    ).toBe("twilio:whatsapp%3A%2B15550000001:whatsapp%3A%2B15550000002");
   });
 
   it("isolates concurrent recipients with thread-scoped locks", async () => {
@@ -75,8 +75,11 @@ describe("TwilioAdapter", () => {
       await task;
     }
 
-    expect(adapter.channelIdFromThreadId(first)).toBe("twilio:%2B15550000001");
-    expect(adapter.channelIdFromThreadId(second)).toBe("twilio:%2B15550000001");
+    expect(adapter.channelIdFromThreadId(first)).toBe(first);
+    expect(adapter.channelIdFromThreadId(second)).toBe(second);
+    expect(adapter.channelIdFromThreadId(first)).not.toBe(
+      adapter.channelIdFromThreadId(second)
+    );
     expect(state.acquireLock).toHaveBeenCalledWith(first, expect.any(Number));
     expect(state.acquireLock).toHaveBeenCalledWith(second, expect.any(Number));
     expect(handled).toHaveBeenCalledTimes(2);

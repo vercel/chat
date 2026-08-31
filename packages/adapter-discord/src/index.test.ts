@@ -1859,7 +1859,10 @@ describe("postMessage", () => {
     );
     const spy = vi
       .spyOn(adapter as any, "discordFetch")
-      .mockResolvedValue(mockResponse);
+      .mockResolvedValueOnce(
+        Response.json({ id: "thread789", parent_id: "channel456" })
+      )
+      .mockResolvedValueOnce(mockResponse);
 
     const result = await adapter.postMessage(
       "discord:guild1:channel456:thread789",
@@ -2057,7 +2060,10 @@ describe("editMessage", () => {
     );
     const spy = vi
       .spyOn(adapter as any, "discordFetch")
-      .mockResolvedValue(mockResponse);
+      .mockResolvedValueOnce(
+        Response.json({ id: "thread789", parent_id: "channel456" })
+      )
+      .mockResolvedValueOnce(mockResponse);
 
     const result = await adapter.editMessage(
       "discord:guild1:channel456:thread789",
@@ -2209,7 +2215,10 @@ describe("deleteMessage", () => {
     const mockResponse = new Response(null, { status: 204 });
     const spy = vi
       .spyOn(adapter as any, "discordFetch")
-      .mockResolvedValue(mockResponse);
+      .mockResolvedValueOnce(
+        Response.json({ id: "thread789", parent_id: "channel456" })
+      )
+      .mockResolvedValueOnce(mockResponse);
 
     await adapter.deleteMessage(
       "discord:guild1:channel456:thread789",
@@ -2265,7 +2274,10 @@ describe("addReaction", () => {
     const mockResponse = new Response(null, { status: 204 });
     const spy = vi
       .spyOn(adapter as any, "discordFetch")
-      .mockResolvedValue(mockResponse);
+      .mockResolvedValueOnce(
+        Response.json({ id: "thread789", parent_id: "channel456" })
+      )
+      .mockResolvedValueOnce(mockResponse);
 
     await adapter.addReaction(
       "discord:guild1:channel456:thread789",
@@ -2318,7 +2330,10 @@ describe("removeReaction", () => {
     const mockResponse = new Response(null, { status: 204 });
     const spy = vi
       .spyOn(adapter as any, "discordFetch")
-      .mockResolvedValue(mockResponse);
+      .mockResolvedValueOnce(
+        Response.json({ id: "thread789", parent_id: "channel456" })
+      )
+      .mockResolvedValueOnce(mockResponse);
 
     await adapter.removeReaction(
       "discord:guild1:channel456:thread789",
@@ -2346,7 +2361,15 @@ describe("thread starter message routing", () => {
   it("routes forum starter operations to the thread", async () => {
     const fetchSpy = vi
       .spyOn(globalThis, "fetch")
-      .mockImplementation((input) => {
+      .mockImplementation((input, init) => {
+        if (
+          String(input).endsWith("/channels/starter123") &&
+          init?.method === "GET"
+        ) {
+          return Promise.resolve(
+            Response.json({ id: "starter123", parent_id: "forum456" })
+          );
+        }
         // Forum and media channels contain no messages, so Discord rejects
         // message routes against them with a channel type error, not 10008.
         if (String(input).includes("/channels/forum456/")) {
@@ -2384,6 +2407,7 @@ describe("thread starter message routing", () => {
           )
           .map(([input, init]) => [String(input), init?.method])
       ).toEqual([
+        ["https://discord.com/api/v10/channels/starter123", "GET"],
         [
           "https://discord.com/api/v10/channels/starter123/messages/starter123",
           "PATCH",
@@ -2407,9 +2431,23 @@ describe("thread starter message routing", () => {
   });
 
   it("falls back to the parent channel for a text-channel starter", async () => {
+    const textThreadAdapter = createDiscordAdapter({
+      botToken: "test-token",
+      publicKey: testPublicKey,
+      applicationId: "test-app-id",
+      logger: mockLogger,
+    });
     const fetchSpy = vi
       .spyOn(globalThis, "fetch")
-      .mockImplementation((input) => {
+      .mockImplementation((input, init) => {
+        if (
+          String(input).endsWith("/channels/starter123") &&
+          init?.method === "GET"
+        ) {
+          return Promise.resolve(
+            Response.json({ id: "starter123", parent_id: "channel456" })
+          );
+        }
         // A text-channel thread's starter message lives in the parent
         // channel, so the thread itself reports it as unknown.
         if (String(input).includes("/channels/starter123/")) {
@@ -2432,8 +2470,8 @@ describe("thread starter message routing", () => {
 
     try {
       const threadId = "discord:guild1:channel456:starter123";
-      await adapter.editMessage(threadId, "starter123", "updated");
-      await adapter.addReaction(threadId, "starter123", "heart");
+      await textThreadAdapter.editMessage(threadId, "starter123", "updated");
+      await textThreadAdapter.addReaction(threadId, "starter123", "heart");
 
       expect(
         fetchSpy.mock.calls
@@ -2442,6 +2480,7 @@ describe("thread starter message routing", () => {
           )
           .map(([input, init]) => [String(input), init?.method])
       ).toEqual([
+        ["https://discord.com/api/v10/channels/starter123", "GET"],
         [
           "https://discord.com/api/v10/channels/starter123/messages/starter123",
           "PATCH",
@@ -2465,9 +2504,18 @@ describe("thread starter message routing", () => {
   });
 
   it("does not retry other Discord errors", async () => {
+    const errorAdapter = createDiscordAdapter({
+      botToken: "test-token",
+      publicKey: testPublicKey,
+      applicationId: "test-app-id",
+      logger: mockLogger,
+    });
     const fetchSpy = vi
       .spyOn(globalThis, "fetch")
-      .mockResolvedValue(
+      .mockResolvedValueOnce(
+        Response.json({ id: "starter123", parent_id: "channel456" })
+      )
+      .mockResolvedValueOnce(
         Response.json(
           { code: 50_013, message: "Missing Permissions" },
           { status: 403 }
@@ -2476,13 +2524,13 @@ describe("thread starter message routing", () => {
 
     try {
       await expect(
-        adapter.addReaction(
+        errorAdapter.addReaction(
           "discord:guild1:channel456:starter123",
           "starter123",
           "heart"
         )
       ).rejects.toThrow("50013");
-      expect(fetchSpy).toHaveBeenCalledTimes(1);
+      expect(fetchSpy).toHaveBeenCalledTimes(2);
     } finally {
       fetchSpy.mockRestore();
     }
@@ -2667,7 +2715,10 @@ describe("startTyping", () => {
     const mockResponse = new Response(null, { status: 204 });
     const spy = vi
       .spyOn(adapter as any, "discordFetch")
-      .mockResolvedValue(mockResponse);
+      .mockResolvedValueOnce(
+        Response.json({ id: "thread789", parent_id: "channel456" })
+      )
+      .mockResolvedValueOnce(mockResponse);
 
     await adapter.startTyping("discord:guild1:channel456:thread789");
 
@@ -2820,7 +2871,10 @@ describe("fetchMessages", () => {
     });
     const spy = vi
       .spyOn(adapter as any, "discordFetch")
-      .mockResolvedValue(mockResponse);
+      .mockResolvedValueOnce(
+        Response.json({ id: "thread789", parent_id: "channel456" })
+      )
+      .mockResolvedValueOnce(mockResponse);
 
     const result = await adapter.fetchMessages(
       "discord:guild1:channel456:thread789"
@@ -2832,6 +2886,28 @@ describe("fetchMessages", () => {
       "GET"
     );
 
+    spy.mockRestore();
+  });
+
+  it("rejects a thread ID whose target belongs to another channel", async () => {
+    const isolatedAdapter = createDiscordAdapter({
+      botToken: "test-token",
+      publicKey: testPublicKey,
+      applicationId: "test-app-id",
+      logger: mockLogger,
+    });
+    const spy = vi
+      .spyOn(isolatedAdapter as any, "discordFetch")
+      .mockResolvedValue(
+        Response.json({ id: "victimChannel", parent_id: "otherChannel" })
+      );
+
+    await expect(
+      isolatedAdapter.fetchMessages("discord:guild1:channel456:victimChannel")
+    ).rejects.toThrow("does not belong to channel channel456");
+
+    expect(spy).toHaveBeenCalledOnce();
+    expect(spy).toHaveBeenCalledWith("/channels/victimChannel", "GET");
     spy.mockRestore();
   });
 
@@ -3935,7 +4011,10 @@ describe("setThreadTitle", () => {
   it("renames Discord thread channels", async () => {
     const spy = vi
       .spyOn(threadIdAdapter as any, "discordFetch")
-      .mockResolvedValue(new Response(null, { status: 200 }));
+      .mockResolvedValueOnce(
+        Response.json({ id: "thread789", parent_id: "channel456" })
+      )
+      .mockResolvedValueOnce(new Response(null, { status: 200 }));
 
     await threadIdAdapter.setThreadTitle(
       "discord:guild1:channel456:thread789",
@@ -3946,7 +4025,7 @@ describe("setThreadTitle", () => {
       "Ignored channel title"
     );
 
-    expect(spy).toHaveBeenCalledOnce();
+    expect(spy).toHaveBeenCalledTimes(2);
     expect(spy).toHaveBeenCalledWith("/channels/thread789", "PATCH", {
       name: "New thread title",
     });

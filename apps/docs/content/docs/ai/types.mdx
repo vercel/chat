@@ -25,6 +25,7 @@ import type {
   ChatToolName,
   ChatToolPreset,
   ChatWriteToolName,
+  ChatApprovalToolName,
   ApprovalConfig,
   ToolOptions,
   ToolOverrides,
@@ -195,19 +196,27 @@ type ChatWriteToolName =
 
 The names of every mutating tool. Useful when wiring per-tool approval overrides.
 
+### ChatApprovalToolName
+
+```typescript
+type ChatApprovalToolName = ChatWriteToolName | "getUser";
+```
+
+The names of tools that require approval by default: every mutating tool plus the arbitrary user-profile lookup.
+
 ### ApprovalConfig
 
 ```typescript
 type ApprovalConfig =
   | boolean
-  | Partial<Record<ChatWriteToolName, boolean>>;
+  | Partial<Record<ChatApprovalToolName, boolean>>;
 ```
 
 Controls the `requireApproval` option:
 
-- `true` (default) — every write tool needs approval.
-- `false` — no write tool needs approval.
-- object — per-tool override; unspecified write tools fall back to `true`.
+- `true` (default) — every write tool and `getUser` need approval.
+- `false` — no tool needs approval.
+- object — per-tool override; unspecified approval-gated tools fall back to `true`.
 
 ### ToolOptions
 

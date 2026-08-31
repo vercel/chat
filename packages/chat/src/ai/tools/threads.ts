@@ -295,7 +295,8 @@ const START_TYPING_INPUT = z.object({
 });
 
 export const startTyping = (
-  chat: ChatBinding
+  chat: ChatBinding,
+  guard?: ScopeGuard
 ): Tool<
   z.infer<typeof START_TYPING_INPUT>,
   { typing: boolean; threadId: string }
@@ -308,6 +309,7 @@ export const startTyping = (
       threadId,
       status,
     }): Promise<{ typing: boolean; threadId: string }> => {
+      guard?.(threadId);
       const thread = chat.thread(threadId);
       await thread.startTyping(status);
       return { typing: true, threadId };
