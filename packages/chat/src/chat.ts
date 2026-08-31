@@ -2796,10 +2796,12 @@ export class Chat<
         lockKey,
         messageId: latest.message.id,
       });
-      await this.dispatchToHandlers(adapter, messageThreadId, latest.message, {
-        skipped: messageSkipped,
-        totalSinceLastHandler: messageSkipped.length + 1,
-      });
+      await runInConversation(messageThreadId, () =>
+        this.dispatchToHandlers(adapter, messageThreadId, latest.message, {
+          skipped: messageSkipped,
+          totalSinceLastHandler: messageSkipped.length + 1,
+        })
+      );
       skipped.length = 0;
       // Loop again: a message enqueued while the handler ran must be
       // debounced and processed, not stranded until the next webhook.
@@ -2871,11 +2873,13 @@ export class Chat<
         totalSinceLastHandler: skipped.length + 1,
       };
 
-      await this.dispatchToHandlers(
-        adapter,
-        messageThreadId,
-        latest.message,
-        context
+      await runInConversation(messageThreadId, () =>
+        this.dispatchToHandlers(
+          adapter,
+          messageThreadId,
+          latest.message,
+          context
+        )
       );
 
       // After processing, check if MORE messages arrived during this handler

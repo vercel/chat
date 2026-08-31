@@ -9,6 +9,7 @@ async function* chunks(): AsyncGenerator<string> {
 }
 
 import { Chat } from "./chat";
+import { activeConversation } from "./context";
 import { getEmoji } from "./emoji";
 import { LockError } from "./errors";
 import { jsx } from "./jsx-runtime";
@@ -5514,8 +5515,10 @@ describe("Chat", () => {
 
       const first = "telegram:C123:topic1";
       const second = "telegram:C123:topic2";
+      const activeConversations: Array<string | undefined> = [];
       const mentions = vi.fn().mockResolvedValue(undefined);
       const subscribed = vi.fn().mockImplementation(async (thread, message) => {
+        activeConversations.push(activeConversation());
         await thread.setState({ request: message.text });
       });
       queueChat.onNewMention(mentions);
@@ -5551,6 +5554,7 @@ describe("Chat", () => {
       expect(subscribed).toHaveBeenCalledTimes(1);
       expect(subscribed.mock.calls[0][0].id).toBe(second);
       expect(subscribed.mock.calls[0][1].threadId).toBe(second);
+      expect(activeConversations).toEqual([second]);
       expect(subscribed.mock.calls[0][2]).toEqual({
         skipped: [],
         totalSinceLastHandler: 1,
@@ -5589,8 +5593,11 @@ describe("Chat", () => {
 
         const first = "telegram:C123:topic1";
         const second = "telegram:C123:topic2";
+        const activeConversations: Array<string | undefined> = [];
         const mentions = vi.fn().mockResolvedValue(undefined);
-        const subscribed = vi.fn().mockResolvedValue(undefined);
+        const subscribed = vi.fn().mockImplementation(async () => {
+          activeConversations.push(activeConversation());
+        });
         debounceChat.onNewMention(mentions);
         debounceChat.onSubscribedMessage(subscribed);
         await state.subscribe(second);
@@ -5619,6 +5626,7 @@ describe("Chat", () => {
         expect(subscribed).toHaveBeenCalledTimes(1);
         expect(subscribed.mock.calls[0][0].id).toBe(second);
         expect(subscribed.mock.calls[0][1].threadId).toBe(second);
+        expect(activeConversations).toEqual([second]);
         expect(subscribed.mock.calls[0][2]).toEqual({
           skipped: [],
           totalSinceLastHandler: 1,
