@@ -853,6 +853,58 @@ describe("handleWebhook - APPLICATION_COMMAND", () => {
     }
   });
 
+  it("keeps slash command follow-up responses ephemeral", async () => {
+    const flaggedAdapter = createDiscordAdapter({
+      botToken: "test-token",
+      publicKey: testPublicKey,
+      applicationId: "test-app-id",
+      logger: mockLogger,
+    });
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(JSON.stringify({ id: "followup123" }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      })
+    );
+
+    try {
+      await (
+        flaggedAdapter as unknown as {
+          postSlashCommandResponse: (
+            context: {
+              channelId: string;
+              initialResponseFlags: number;
+              initialResponseSent: boolean;
+              interactionToken: string;
+            },
+            threadId: string,
+            payload: { content: string },
+            files: []
+          ) => Promise<unknown>;
+        }
+      ).postSlashCommandResponse(
+        {
+          channelId: "discord:guild123:channel456",
+          initialResponseFlags: DiscordInteractionResponseFlag.Ephemeral,
+          initialResponseSent: true,
+          interactionToken: "interaction-token",
+        },
+        "discord:guild123:channel456",
+        { content: "Private follow-up" },
+        []
+      );
+
+      expect(fetchSpy).toHaveBeenCalledWith(
+        "https://discord.com/api/v10/webhooks/test-app-id/interaction-token?wait=true",
+        expect.objectContaining({ method: "POST" })
+      );
+      const body = JSON.parse(fetchSpy.mock.calls[0]?.[1]?.body as string);
+      expect(body.flags).toBe(DiscordInteractionResponseFlag.Ephemeral);
+    } finally {
+      fetchSpy.mockRestore();
+    }
+  });
+
   it("uses a resolved application ID for interaction webhook responses", async () => {
     const applicationId = vi.fn().mockResolvedValue("resolved-app-id");
     const resolverAdapter = createDiscordAdapter({

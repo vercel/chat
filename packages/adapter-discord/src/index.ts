@@ -1403,13 +1403,11 @@ export class DiscordAdapter implements Adapter<DiscordThreadId, unknown> {
     );
 
     const responsePayload =
-      isInitialResponse &&
-      slashContext.initialResponseFlags !== undefined &&
-      payload.flags !== undefined
+      slashContext.initialResponseFlags !== undefined
         ? {
             ...payload,
             // biome-ignore lint/suspicious/noBitwiseOperators: Discord message flags are bitfields.
-            flags: slashContext.initialResponseFlags | payload.flags,
+            flags: slashContext.initialResponseFlags | (payload.flags ?? 0),
           }
         : payload;
 
