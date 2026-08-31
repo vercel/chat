@@ -95,6 +95,11 @@ bot.onNewMention(async (thread, message) => {
       description:
         "Service account credentials JSON. Auto-detected from `GOOGLE_CHAT_CREDENTIALS`.",
     },
+    botUserId: {
+      type: "string",
+      description:
+        "Canonical users/... resource name of this Chat app. Required for exact self-message and mention detection; auto-detected from `GOOGLE_CHAT_BOT_USER_ID`.",
+    },
     useApplicationDefaultCredentials: {
       type: "boolean",
       description:
@@ -143,6 +148,8 @@ bot.onNewMention(async (thread, message) => {
 />
 
 One of `googleChatProjectNumber`, `endpointUrl`, `pubsubAudience`, or `disableSignatureVerification: true` is required — the constructor throws otherwise. Configure the verifier(s) for each transport you actually receive.
+
+Set `botUserId` (or `GOOGLE_CHAT_BOT_USER_ID`) to the canonical `sender.name` from a verified message authored by your Chat app, such as `users/123456789`. The adapter never learns this identity from inbound mentions. When it is omitted, all `BOT` senders are conservatively treated as self to prevent reply loops.
 
 ## Authentication
 

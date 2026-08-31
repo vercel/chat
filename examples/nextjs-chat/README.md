@@ -132,12 +132,16 @@ pnpm recording:export <session-id>
 
 See `packages/integration-tests/fixtures/replay/README.md` for the full workflow.
 
+Only successful, adapter-verified webhook deliveries are recorded. Individual records are limited to 256 KiB and each session retains at most 500 entries.
+
 ## Preview branch testing
 
 Test PRs with real webhook traffic by proxying requests from production to a preview deployment:
 
 1. Deploy a preview branch to Vercel
-2. Go to `/settings` on the production deployment
-3. Enter the preview branch URL and save
+2. Set `PREVIEW_BRANCH_SECRET` on the production deployment to a long, random value
+3. Optionally set `PREVIEW_BRANCH_ALLOWED_HOSTS` to a comma-separated list of exact preview hostnames (otherwise any `*.vercel.app` hostname is accepted)
+4. Go to `/settings` on the production deployment
+5. Enter the operator secret, load the setting, then enter the preview branch URL and save
 
-All webhook requests are proxied until the URL is cleared.
+The settings API requires the operator secret as a bearer token. Only HTTPS Vercel deployments or explicitly allowed hosts are accepted, and all webhook requests are proxied until the URL is cleared.

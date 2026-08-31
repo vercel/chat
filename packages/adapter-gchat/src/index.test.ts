@@ -140,6 +140,7 @@ function makePubSubPushMessage(
 
 /** Helper: create an initialized adapter with mocks */
 async function createInitializedAdapter(opts?: {
+  botUserId?: string;
   pubsubTopic?: string;
   userName?: string;
   endpointUrl?: string;
@@ -151,6 +152,7 @@ async function createInitializedAdapter(opts?: {
   const adapter = createGoogleChatAdapter({
     credentials: TEST_CREDENTIALS,
     logger: mockLogger,
+    botUserId: opts?.botUserId,
     pubsubTopic: opts?.pubsubTopic,
     userName: opts?.userName,
     endpointUrl: opts?.endpointUrl,
@@ -285,8 +287,9 @@ describe("GoogleChatAdapter", () => {
       expect(adapter).toBeInstanceOf(GoogleChatAdapter);
     });
 
-    it("should restore bot user ID from state on initialize", async () => {
+    it("should use the configured bot user ID instead of persisted state", async () => {
       const adapter = createGoogleChatAdapter({
+        botUserId: "users/BOT_CONFIGURED",
         credentials: TEST_CREDENTIALS,
         logger: mockLogger,
       });
@@ -296,15 +299,14 @@ describe("GoogleChatAdapter", () => {
 
       await adapter.initialize(mockChat);
 
-      expect(adapter.botUserId).toBe("users/BOT999");
+      expect(adapter.botUserId).toBe("users/BOT_CONFIGURED");
     });
 
-    it("should not overwrite existing botUserId on initialize", async () => {
+    it("should not restore an untrusted learned bot ID from state", async () => {
       const adapter = createGoogleChatAdapter({
         credentials: TEST_CREDENTIALS,
         logger: mockLogger,
       });
-      (adapter as any).botUserId = "users/EXISTING";
 
       const mockState = createMockStateAdapter();
       mockState.storage.set("gchat:botUserId", "users/OTHERFROMSTATE");
@@ -312,7 +314,7 @@ describe("GoogleChatAdapter", () => {
 
       await adapter.initialize(mockChat);
 
-      expect(adapter.botUserId).toBe("users/EXISTING");
+      expect(adapter.botUserId).toBeUndefined();
     });
   });
 
@@ -357,6 +359,15 @@ describe("GoogleChatAdapter", () => {
       process.env.GOOGLE_CHAT_PUBSUB_TOPIC = "projects/test/topics/test";
       const adapter = new GoogleChatAdapter();
       expect(adapter).toBeInstanceOf(GoogleChatAdapter);
+    });
+
+    it("should resolve botUserId from GOOGLE_CHAT_BOT_USER_ID", () => {
+      process.env.GOOGLE_CHAT_CREDENTIALS = JSON.stringify(TEST_CREDENTIALS);
+      process.env.GOOGLE_CHAT_BOT_USER_ID = "users/BOT_ENV";
+
+      const adapter = new GoogleChatAdapter();
+
+      expect(adapter.botUserId).toBe("users/BOT_ENV");
     });
 
     it("should resolve impersonateUser from GOOGLE_CHAT_IMPERSONATE_USER env var", () => {
@@ -658,7 +669,10 @@ describe("GoogleChatAdapter", () => {
 
   describe("normalizeBotMentions (via parseMessage)", () => {
     it("should replace bot mention with adapter userName", async () => {
-      const { adapter } = await createInitializedAdapter({ userName: "mybot" });
+      const { adapter } = await createInitializedAdapter({
+        botUserId: "users/BOT123",
+        userName: "mybot",
+      });
       const event = makeMessageEvent({
         messageText: "@Chat SDK Demo hello",
         annotations: [
@@ -684,7 +698,7 @@ describe("GoogleChatAdapter", () => {
       expect(msg.text).not.toContain("@Chat SDK Demo");
     });
 
-    it("should learn bot user ID from annotations", async () => {
+    it("should not learn bot user ID from inbound annotations", async () => {
       const { adapter } = await createInitializedAdapter();
 
       expect(adapter.botUserId).toBeUndefined();
@@ -708,14 +722,16 @@ describe("GoogleChatAdapter", () => {
         ],
       });
 
-      adapter.parseMessage(event);
+      const message = adapter.parseMessage(event);
 
-      expect(adapter.botUserId).toBe("users/LEARNED_BOT_ID");
+      expect(adapter.botUserId).toBeUndefined();
+      expect(message.text).toBe("@BotName hi");
     });
 
-    it("should not overwrite botUserId once learned", async () => {
-      const { adapter } = await createInitializedAdapter();
-      (adapter as any).botUserId = "users/FIRST_BOT";
+    it("should ignore mentions of other bots", async () => {
+      const { adapter } = await createInitializedAdapter({
+        botUserId: "users/FIRST_BOT",
+      });
 
       const event = makeMessageEvent({
         messageText: "@AnotherBot hi",
@@ -736,16 +752,61 @@ describe("GoogleChatAdapter", () => {
         ],
       });
 
-      adapter.parseMessage(event);
+      const message = adapter.parseMessage(event);
 
       expect(adapter.botUserId).toBe("users/FIRST_BOT");
+      expect(message.text).toBe("@AnotherBot hi");
+    });
+
+    it("should normalize only this app when another bot is mentioned first", async () => {
+      const { adapter } = await createInitializedAdapter({
+        botUserId: "users/OUR_BOT",
+        userName: "ourbot",
+      });
+      const event = makeMessageEvent({
+        messageText: "@OtherBot @OurBot hi",
+        annotations: [
+          {
+            type: "USER_MENTION",
+            startIndex: 0,
+            length: 9,
+            userMention: {
+              user: {
+                name: "users/OTHER_BOT",
+                displayName: "OtherBot",
+                type: "BOT",
+              },
+              type: "MENTION",
+            },
+          },
+          {
+            type: "USER_MENTION",
+            startIndex: 10,
+            length: 7,
+            userMention: {
+              user: {
+                name: "users/OUR_BOT",
+                displayName: "OurBot",
+                type: "BOT",
+              },
+              type: "MENTION",
+            },
+          },
+        ],
+      });
+
+      const message = adapter.parseMessage(event);
+
+      expect(message.text).toBe("@OtherBot @ourbot hi");
+      expect(adapter.botUserId).toBe("users/OUR_BOT");
     });
   });
 
   describe("isMessageFromSelf (via parseMessage)", () => {
     it("should detect self messages when botUserId is known", async () => {
-      const { adapter } = await createInitializedAdapter();
-      (adapter as any).botUserId = "users/BOT123";
+      const { adapter } = await createInitializedAdapter({
+        botUserId: "users/BOT123",
+      });
 
       const event = makeMessageEvent({
         senderName: "users/BOT123",
@@ -758,8 +819,9 @@ describe("GoogleChatAdapter", () => {
     });
 
     it("should not mark other bots as self", async () => {
-      const { adapter } = await createInitializedAdapter();
-      (adapter as any).botUserId = "users/BOT123";
+      const { adapter } = await createInitializedAdapter({
+        botUserId: "users/BOT123",
+      });
 
       const event = makeMessageEvent({
         senderName: "users/OTHER_BOT",
@@ -771,7 +833,7 @@ describe("GoogleChatAdapter", () => {
       expect(msg.author.isMe).toBe(false);
     });
 
-    it("should return false when botUserId is unknown", async () => {
+    it("should fail closed for bot senders when botUserId is unknown", async () => {
       const { adapter } = await createInitializedAdapter();
 
       const event = makeMessageEvent({
@@ -780,7 +842,7 @@ describe("GoogleChatAdapter", () => {
       });
 
       const msg = adapter.parseMessage(event);
-      expect(msg.author.isMe).toBe(false);
+      expect(msg.author.isMe).toBe(true);
     });
   });
 
@@ -1403,8 +1465,9 @@ describe("GoogleChatAdapter", () => {
     });
 
     it("should detect self messages when botUserId matches", async () => {
-      const { adapter } = await createInitializedAdapter();
-      (adapter as any).botUserId = "users/MYBOT";
+      const { adapter } = await createInitializedAdapter({
+        botUserId: "users/MYBOT",
+      });
 
       const notification: WorkspaceEventNotification = {
         eventType: "google.workspace.chat.message.v1.created",
@@ -2303,7 +2366,7 @@ describe("GoogleChatAdapter", () => {
   });
 
   describe("fetchMessages (forward direction)", () => {
-    it("should fetch all messages forward and paginate", async () => {
+    it("should fetch one bounded forward page", async () => {
       const { adapter } = await createInitializedAdapter();
       const threadId = adapter.encodeThreadId({
         spaceName: "spaces/ABC123",
@@ -2327,15 +2390,8 @@ describe("GoogleChatAdapter", () => {
               sender: { name: "users/2", displayName: "B", type: "HUMAN" },
               thread: { name: "spaces/ABC123/threads/T1" },
             },
-            {
-              name: "spaces/ABC123/messages/msg3",
-              text: "Third",
-              createTime: "2024-01-03T00:00:00Z",
-              sender: { name: "users/1", displayName: "A", type: "HUMAN" },
-              thread: { name: "spaces/ABC123/threads/T1" },
-            },
           ],
-          nextPageToken: undefined,
+          nextPageToken: "page-2",
         },
       });
       (adapter as any).chatApi = {
@@ -2347,12 +2403,18 @@ describe("GoogleChatAdapter", () => {
         limit: 2,
       });
 
-      // Oldest first, limited to 2
       expect(result.messages).toHaveLength(2);
       expect(result.messages[0].text).toBe("First");
       expect(result.messages[1].text).toBe("Second");
-      // Should have cursor since there are more messages
-      expect(result.nextCursor).toBe("spaces/ABC123/messages/msg2");
+      expect(result.nextCursor).toBe("page-2");
+      expect(mockList).toHaveBeenCalledOnce();
+      expect(mockList).toHaveBeenCalledWith(
+        expect.objectContaining({
+          orderBy: "createTime asc",
+          pageSize: 2,
+          pageToken: undefined,
+        })
+      );
     });
 
     it("should support cursor-based forward pagination", async () => {
@@ -2366,13 +2428,6 @@ describe("GoogleChatAdapter", () => {
         data: {
           messages: [
             {
-              name: "spaces/ABC123/messages/msg1",
-              text: "First",
-              createTime: "2024-01-01T00:00:00Z",
-              sender: { name: "users/1", displayName: "A", type: "HUMAN" },
-              thread: { name: "spaces/ABC123/threads/T1" },
-            },
-            {
               name: "spaces/ABC123/messages/msg2",
               text: "Second",
               createTime: "2024-01-02T00:00:00Z",
@@ -2393,16 +2448,18 @@ describe("GoogleChatAdapter", () => {
         spaces: { messages: { list: mockList } },
       };
 
-      // Start after msg1
       const result = await adapter.fetchMessages(threadId, {
         direction: "forward",
         limit: 10,
-        cursor: "spaces/ABC123/messages/msg1",
+        cursor: "page-2",
       });
 
       expect(result.messages).toHaveLength(2);
       expect(result.messages[0].text).toBe("Second");
       expect(result.messages[1].text).toBe("Third");
+      expect(mockList).toHaveBeenCalledWith(
+        expect.objectContaining({ pageToken: "page-2" })
+      );
     });
   });
 

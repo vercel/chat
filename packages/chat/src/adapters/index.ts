@@ -348,6 +348,10 @@ export const ADAPTERS = {
         },
       ],
       optional: [
+        env(
+          "GOOGLE_CHAT_BOT_USER_ID",
+          "Canonical users/... resource name of this Chat app."
+        ),
         env("GOOGLE_CHAT_PUBSUB_TOPIC", "Pub/Sub topic for Workspace Events."),
         env(
           "GOOGLE_CHAT_IMPERSONATE_USER",

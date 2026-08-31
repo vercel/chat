@@ -36,7 +36,9 @@ export class BridgeHttpAdapter implements IHttpServerAdapter {
     options?: WebhookOptions
   ): Promise<Response> {
     const body = await request.text();
-    this.logger.debug("Teams webhook raw body", { body });
+    this.logger.debug("Teams webhook received", {
+      bodyLength: Buffer.byteLength(body),
+    });
 
     let parsedBody: unknown;
     try {

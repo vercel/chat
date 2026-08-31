@@ -1,12 +1,13 @@
 import type { NextRequest } from "next/server";
 import { NextResponse } from "next/server";
 import { createClient } from "redis";
+import {
+  PREVIEW_BRANCH_KEY,
+  parseAllowedPreviewBranchUrl,
+} from "@/lib/preview-branch";
 
 // Redis URL from environment
 const REDIS_URL = process.env.REDIS_URL || "";
-
-// Key for storing the preview branch URL
-const PREVIEW_BRANCH_KEY = "chat-sdk:cache:preview-branch-url";
 
 // Redis client singleton
 let redisClient: ReturnType<typeof createClient> | null = null;
@@ -71,10 +72,17 @@ export async function proxy(request: NextRequest) {
     return NextResponse.next();
   }
 
+  const allowedPreviewBranchUrl =
+    parseAllowedPreviewBranchUrl(previewBranchUrl);
+  if (!allowedPreviewBranchUrl) {
+    console.error("[proxy] Ignoring an untrusted preview branch URL");
+    return NextResponse.next();
+  }
+
   // Rewrite the request to the preview branch URL
   const targetUrl = new URL(
     pathname + request.nextUrl.search,
-    previewBranchUrl
+    allowedPreviewBranchUrl
   );
 
   console.warn(`[proxy] Proxying ${pathname} to ${targetUrl.hostname}`);

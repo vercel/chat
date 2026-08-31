@@ -73,13 +73,13 @@ describe("fetchMessages Replay Tests - Google Chat", () => {
       direction: "forward",
     });
 
-    // Forward direction: fetches all messages (pageSize: 1000 for efficiency)
-    // No orderBy = defaults to createTime ASC (oldest first)
+    // Forward direction uses one bounded ascending API page.
     expect(ctx.mockChatApi.spaces.messages.list).toHaveBeenCalledWith({
       parent: GCHAT_SPACE,
-      pageSize: 1000,
+      pageSize: 25,
       pageToken: undefined,
       filter: `thread.name = "${GCHAT_THREAD}"`,
+      orderBy: "createTime asc",
     });
   });
 
@@ -287,13 +287,13 @@ describe("allMessages Replay Tests - Google Chat", () => {
       // Just iterate
     }
 
-    // allMessages uses forward direction with limit 100 internally
-    // GChat forward fetches with pageSize 1000 (max efficiency)
+    // allMessages uses bounded forward pages of 100.
     expect(ctx.mockChatApi.spaces.messages.list).toHaveBeenCalledWith({
       parent: GCHAT_SPACE,
-      pageSize: 1000,
+      pageSize: 100,
       pageToken: undefined,
       filter: `thread.name = "${GCHAT_THREAD}"`,
+      orderBy: "createTime asc",
     });
   });
 });

@@ -1773,14 +1773,12 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
   }
 
   /**
-   * Scope prefix for per-user state keys (profile cache, display-name
-   * reverse index). In multi-workspace deployments these must not be shared
-   * across installations: profiles fetched with one workspace's token would
-   * bleed into another, and display names collide across workspaces, so
-   * mention resolution could pick a user from the wrong org. Single-workspace
-   * mode (and code running outside a webhook context) uses the unscoped key.
+   * Scope prefix for installation-owned cache keys. In multi-workspace
+   * deployments user profiles, display-name indexes, and channel names must
+   * not be shared across installations. Single-workspace mode (and code
+   * running outside a webhook context) uses the unscoped key.
    */
-  protected userCacheScope(): string {
+  protected installationCacheScope(): string {
     const installationId = this.requestContext.getStore()?.installationId;
     return installationId ? `${installationId}:` : "";
   }
@@ -1790,7 +1788,7 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
    * Returns null when the API call fails.
    */
   protected async lookupUser(userId: string): Promise<CachedUser | null> {
-    const cacheKey = `slack:user:${this.userCacheScope()}${userId}`;
+    const cacheKey = `slack:user:${this.installationCacheScope()}${userId}`;
 
     // Check cache first (via state adapter for serverless compatibility)
     if (this.chat) {
@@ -1842,7 +1840,7 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
 
         // Build reverse index: display name → user IDs (skip if already present)
         const normalizedName = displayName.toLowerCase();
-        const reverseKey = `slack:user-by-name:${this.userCacheScope()}${normalizedName}`;
+        const reverseKey = `slack:user-by-name:${this.installationCacheScope()}${normalizedName}`;
         const existing = await this.chat.getState().getList<string>(reverseKey);
         if (!existing.includes(userId)) {
           await this.chat.getState().appendToList(reverseKey, userId, {
@@ -1869,7 +1867,7 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
    * Returns channel name, or falls back to channel ID.
    */
   protected async lookupChannel(channelId: string): Promise<string> {
-    const cacheKey = `slack:channel:${channelId}`;
+    const cacheKey = `slack:channel:${this.installationCacheScope()}${channelId}`;
 
     // Check cache first (via state adapter for serverless compatibility)
     if (this.chat) {
@@ -1975,7 +1973,9 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
       this.logger.warn("Webhook verifier rejected request", { error });
       return new Response("Invalid signature", { status: 401 });
     }
-    this.logger.debug("Slack webhook raw body", { body });
+    this.logger.debug("Slack webhook received", {
+      bodyLength: Buffer.byteLength(body),
+    });
 
     // Check if this is a form-urlencoded payload
     const contentType = request.headers.get("content-type") || "";
@@ -2006,6 +2006,7 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
           }
         }
         this.logger.warn("Could not resolve token for interactive payload");
+        return new Response("", { status: 200 });
       }
       return this.handleInteractivePayload(body, options);
     }
@@ -2085,6 +2086,7 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
           isEnterpriseInstall,
         });
       }
+      return new Response("", { status: 200 });
     }
     return this.handleSlashCommand(params, options);
   }
@@ -2803,7 +2805,7 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
             this.logger.warn(
               "Could not resolve token for socket interactive payload"
             );
-            result = dispatch();
+            result = new Response("", { status: 200 });
           }
         }
         const response = result instanceof Promise ? await result : result;
@@ -3742,7 +3744,7 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
     try {
       await this.chat
         .getState()
-        .delete(`slack:user:${this.userCacheScope()}${event.user.id}`);
+        .delete(`slack:user:${this.installationCacheScope()}${event.user.id}`);
     } catch (error) {
       this.logger.warn("Failed to invalidate user cache", {
         userId: event.user.id,
@@ -4479,7 +4481,7 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
     // Look up user IDs for each mentioned name
     for (const name of mentions.keys()) {
       const userIds = await state.getList<string>(
-        `slack:user-by-name:${this.userCacheScope()}${name}`
+        `slack:user-by-name:${this.installationCacheScope()}${name}`
       );
       // Dedup
       const unique = [...new Set(userIds)];

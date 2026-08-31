@@ -90,6 +90,8 @@ function sanitizeHeaderValue(key: string, value: string): string {
 }
 
 const RECORDING_TTL_SECONDS = 1 * 60 * 60; // 1 hour
+const MAX_RECORD_BYTES = 256 * 1024;
+const MAX_RECORDS_PER_SESSION = 500;
 
 const DEFAULT_FETCH_URL_PATTERNS: RegExp[] = [
   /graph\.microsoft\.com/,
@@ -97,6 +99,35 @@ const DEFAULT_FETCH_URL_PATTERNS: RegExp[] = [
   /\.slack\.com/,
   /chat\.googleapis\.com/,
 ];
+
+async function readBoundedRequestBody(
+  request: Request
+): Promise<string | null> {
+  const declaredLength = Number(request.headers.get("content-length"));
+  if (Number.isFinite(declaredLength) && declaredLength > MAX_RECORD_BYTES) {
+    return null;
+  }
+  if (!request.body) {
+    return "";
+  }
+
+  const reader = request.body.getReader();
+  const decoder = new TextDecoder();
+  let totalBytes = 0;
+  let body = "";
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) {
+      return body + decoder.decode();
+    }
+    totalBytes += value.byteLength;
+    if (totalBytes > MAX_RECORD_BYTES) {
+      await reader.cancel();
+      return null;
+    }
+    body += decoder.decode(value, { stream: true });
+  }
+}
 
 class Recorder {
   private readonly redis: RedisClientType | null = null;
@@ -156,10 +187,14 @@ class Recorder {
 
     const headers: Record<string, string> = {};
     request.headers.forEach((value, key) => {
-      headers[key] = value;
+      headers[key] = sanitizeHeaderValue(key, value);
     });
 
-    const body = await request.clone().text();
+    const body = await readBoundedRequestBody(request.clone());
+    if (body === null) {
+      console.warn("[recorder] Skipping oversized webhook record");
+      return;
+    }
 
     const record: WebhookRecord = {
       type: "webhook",
@@ -236,7 +271,13 @@ class Recorder {
 
     try {
       await this.ensureConnected();
-      await this.redis.rPush(this.redisKey, JSON.stringify(record));
+      const serialized = JSON.stringify(record);
+      if (Buffer.byteLength(serialized) > MAX_RECORD_BYTES) {
+        console.warn("[recorder] Skipping oversized record");
+        return;
+      }
+      await this.redis.rPush(this.redisKey, serialized);
+      await this.redis.lTrim(this.redisKey, -MAX_RECORDS_PER_SESSION, -1);
       await this.redis.expire(this.redisKey, RECORDING_TTL_SECONDS);
     } catch (err) {
       console.error("[recorder] Failed to record:", err);

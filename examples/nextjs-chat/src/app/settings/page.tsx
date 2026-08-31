@@ -1,34 +1,47 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 
 export default function SettingsPage() {
+  const [operatorSecret, setOperatorSecret] = useState("");
+  const [authenticated, setAuthenticated] = useState(false);
   const [previewBranchUrl, setPreviewBranchUrl] = useState("");
   const [savedUrl, setSavedUrl] = useState<string | null>(null);
   const [status, setStatus] = useState<"idle" | "loading" | "saving" | "error">(
-    "loading"
+    "idle"
   );
   const [error, setError] = useState<string | null>(null);
 
-  // Load current setting on mount
-  useEffect(() => {
-    fetch("/api/settings/preview-branch")
-      .then((res) => res.json())
-      .then((data) => {
-        if (data.error) {
-          setError(data.error);
-          setStatus("error");
-        } else {
-          setPreviewBranchUrl(data.url || "");
-          setSavedUrl(data.url);
-          setStatus("idle");
-        }
-      })
-      .catch((err) => {
-        setError(err.message);
-        setStatus("error");
+  const authorizationHeaders = {
+    Authorization: `Bearer ${operatorSecret}`,
+  };
+
+  const handleLoad = async () => {
+    setStatus("loading");
+    setError(null);
+
+    try {
+      const res = await fetch("/api/settings/preview-branch", {
+        headers: authorizationHeaders,
       });
-  }, []);
+      const data = await res.json();
+      if (!res.ok || data.error) {
+        setAuthenticated(false);
+        setError(data.error || "Unable to load settings");
+        setStatus("error");
+        return;
+      }
+
+      setAuthenticated(true);
+      setPreviewBranchUrl(data.url || "");
+      setSavedUrl(data.url);
+      setStatus("idle");
+    } catch (err) {
+      setAuthenticated(false);
+      setError(err instanceof Error ? err.message : "Unknown error");
+      setStatus("error");
+    }
+  };
 
   const handleSave = async () => {
     setStatus("saving");
@@ -37,13 +50,16 @@ export default function SettingsPage() {
     try {
       const res = await fetch("/api/settings/preview-branch", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          ...authorizationHeaders,
+          "Content-Type": "application/json",
+        },
         body: JSON.stringify({ url: previewBranchUrl || null }),
       });
 
       const data = await res.json();
 
-      if (data.error) {
+      if (!res.ok || data.error) {
         setError(data.error);
         setStatus("error");
       } else {
@@ -64,13 +80,16 @@ export default function SettingsPage() {
     try {
       const res = await fetch("/api/settings/preview-branch", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          ...authorizationHeaders,
+          "Content-Type": "application/json",
+        },
         body: JSON.stringify({ url: null }),
       });
 
       const data = await res.json();
 
-      if (data.error) {
+      if (!res.ok || data.error) {
         setError(data.error);
         setStatus("error");
       } else {
@@ -101,9 +120,63 @@ export default function SettingsPage() {
           webhook traffic.
         </p>
 
-        {status === "loading" ? (
-          <p>Loading...</p>
-        ) : (
+        <div style={{ marginBottom: "1rem" }}>
+          <label
+            htmlFor="operator-secret"
+            style={{
+              display: "block",
+              marginBottom: "0.5rem",
+              fontWeight: 500,
+            }}
+          >
+            Operator Secret
+          </label>
+          <div style={{ display: "flex", gap: "0.5rem" }}>
+            <input
+              autoComplete="current-password"
+              id="operator-secret"
+              onChange={(event) => {
+                setOperatorSecret(event.target.value);
+                setAuthenticated(false);
+              }}
+              placeholder="PREVIEW_BRANCH_SECRET"
+              style={{
+                width: "100%",
+                padding: "0.5rem",
+                fontSize: "1rem",
+                border: "1px solid #ccc",
+                borderRadius: "4px",
+                boxSizing: "border-box",
+              }}
+              type="password"
+              value={operatorSecret}
+            />
+            <button
+              disabled={!operatorSecret || status === "loading"}
+              onClick={handleLoad}
+              style={{
+                padding: "0.5rem 1rem",
+                fontSize: "1rem",
+                whiteSpace: "nowrap",
+              }}
+              type="button"
+            >
+              {status === "loading" ? "Loading..." : "Load settings"}
+            </button>
+          </div>
+          <p style={{ color: "#666", fontSize: "0.875rem" }}>
+            This secret stays in this browser tab and is sent only in the
+            authorization header.
+          </p>
+        </div>
+
+        {error && (
+          <p role="alert" style={{ color: "red", marginBottom: "1rem" }}>
+            {error}
+          </p>
+        )}
+
+        {authenticated ? (
           <>
             <div style={{ marginBottom: "1rem" }}>
               <label
@@ -132,10 +205,6 @@ export default function SettingsPage() {
                 value={previewBranchUrl}
               />
             </div>
-
-            {error && (
-              <p style={{ color: "red", marginBottom: "1rem" }}>{error}</p>
-            )}
 
             <div style={{ display: "flex", gap: "0.5rem" }}>
               <button
@@ -205,6 +274,17 @@ export default function SettingsPage() {
               </p>
             )}
           </>
+        ) : (
+          <p
+            style={{
+              marginTop: "1rem",
+              padding: "0.75rem",
+              backgroundColor: "#f8f9fa",
+              borderRadius: "4px",
+            }}
+          >
+            Enter the operator secret to view or change this setting.
+          </p>
         )}
       </section>
 

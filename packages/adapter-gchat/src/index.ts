@@ -207,7 +207,7 @@ interface SpaceSubscriptionInfo {
 export class GoogleChatAdapter implements Adapter<GoogleChatThreadId, unknown> {
   readonly name = "gchat";
   readonly userName: string;
-  /** Bot's user ID (e.g., "users/123...") - learned from annotations */
+  /** Authenticated Chat app user resource name (e.g., "users/123..."). */
   botUserId?: string;
 
   protected readonly chatApi: chat_v1.Chat;
@@ -269,6 +269,8 @@ export class GoogleChatAdapter implements Adapter<GoogleChatThreadId, unknown> {
   ) {
     this.logger = config.logger ?? new ConsoleLogger("info").child("gchat");
     this.userName = config.userName || "bot";
+    this.botUserId =
+      config.botUserId ?? process.env.GOOGLE_CHAT_BOT_USER_ID ?? undefined;
     // Initialize with null state - will be updated in initialize()
     this.userInfoCache = new UserInfoCache(null, this.logger);
     this.pubsubTopic =
@@ -422,16 +424,10 @@ export class GoogleChatAdapter implements Adapter<GoogleChatThreadId, unknown> {
     this.state = chat.getState();
     // Update userInfoCache to use the state adapter for persistence
     this.userInfoCache = new UserInfoCache(this.state, this.logger);
-
-    // Restore persisted bot user ID from state (for serverless environments)
     if (!this.botUserId) {
-      const savedBotUserId = await this.state.get<string>("gchat:botUserId");
-      if (savedBotUserId) {
-        this.botUserId = savedBotUserId;
-        this.logger.debug("Restored bot user ID from state", {
-          botUserId: this.botUserId,
-        });
-      }
+      this.logger.warn(
+        "Google Chat botUserId is not configured. BOT senders will be treated as self to prevent reply loops, and bot mentions cannot be normalized. Set GOOGLE_CHAT_BOT_USER_ID."
+      );
     }
   }
 
@@ -900,7 +896,9 @@ export class GoogleChatAdapter implements Adapter<GoogleChatThreadId, unknown> {
     options?: WebhookOptions
   ): Promise<Response> {
     const body = await request.text();
-    this.logger.debug("GChat webhook raw body", { body });
+    this.logger.debug("GChat webhook received", {
+      bodyLength: Buffer.byteLength(body),
+    });
 
     let parsed: unknown;
     try {
@@ -2104,13 +2102,9 @@ export class GoogleChatAdapter implements Adapter<GoogleChatThreadId, unknown> {
   /**
    * Fetch messages in forward direction (oldest first).
    *
-   * GChat API defaults to createTime ASC (oldest first), which is what we want.
-   * For forward pagination, we:
-   * 1. If no cursor: Fetch ALL messages (already in chronological order)
-   * 2. If cursor: Cursor is a message name, skip to after that message
-   *
-   * Note: This is less efficient than backward for large message histories,
-   * as it requires fetching all messages to find the cursor position.
+   * GChat supports ascending creation time with native page tokens. Use the
+   * API token as the opaque Chat SDK cursor so each call fetches one bounded
+   * page and a deleted message cannot reset iteration to page one.
    */
   protected async fetchMessagesForward(
     api: chat_v1.Chat,
@@ -2127,50 +2121,14 @@ export class GoogleChatAdapter implements Adapter<GoogleChatThreadId, unknown> {
       cursor,
     });
 
-    // Fetch all messages (GChat defaults to createTime ASC = oldest first)
-    const allRawMessages: chat_v1.Schema$Message[] = [];
-    let pageToken: string | undefined;
-
-    do {
-      const response = await api.spaces.messages.list({
-        parent: spaceName,
-        pageSize: 1000, // Max page size for efficiency
-        pageToken,
-        filter,
-        // Default orderBy is createTime ASC (oldest first) - what we want
-      });
-
-      const pageMessages = response.data.messages || [];
-      allRawMessages.push(...pageMessages);
-      pageToken = response.data.nextPageToken ?? undefined;
-    } while (pageToken);
-
-    // Messages are already in chronological order (oldest first) from API
-
-    this.logger.debug(
-      "GChat API: fetched all messages for forward pagination",
-      {
-        totalCount: allRawMessages.length,
-      }
-    );
-
-    // Find starting position based on cursor
-    let startIndex = 0;
-    if (cursor) {
-      // Cursor is a message name - find the index after it
-      const cursorIndex = allRawMessages.findIndex(
-        (msg) => msg.name === cursor
-      );
-      if (cursorIndex >= 0) {
-        startIndex = cursorIndex + 1;
-      }
-    }
-
-    // Get the requested slice
-    const selectedMessages = allRawMessages.slice(
-      startIndex,
-      startIndex + limit
-    );
+    const response = await api.spaces.messages.list({
+      parent: spaceName,
+      pageSize: Math.min(Math.max(limit, 1), 1000),
+      pageToken: cursor,
+      filter,
+      orderBy: "createTime asc",
+    });
+    const selectedMessages = response.data.messages || [];
 
     const messages = await Promise.all(
       selectedMessages.map((msg) =>
@@ -2178,21 +2136,9 @@ export class GoogleChatAdapter implements Adapter<GoogleChatThreadId, unknown> {
       )
     );
 
-    // Determine nextCursor - use message name of last returned message
-    let nextCursor: string | undefined;
-    if (
-      startIndex + limit < allRawMessages.length &&
-      selectedMessages.length > 0
-    ) {
-      const lastMsg = selectedMessages.at(-1);
-      if (lastMsg?.name) {
-        nextCursor = lastMsg.name;
-      }
-    }
-
     return {
       messages,
-      nextCursor,
+      nextCursor: response.data.nextPageToken ?? undefined,
     };
   }
 
@@ -2745,7 +2691,7 @@ export class GoogleChatAdapter implements Adapter<GoogleChatThreadId, unknown> {
    * Google Chat uses the bot's display name (e.g., "@Chat SDK Demo") but the
    * Chat SDK expects "@{userName}" format. This method replaces bot mentions
    * with the adapter's userName so mention detection works properly.
-   * Also learns the bot's user ID from annotations for isMe detection.
+   * Only annotations matching the configured bot user ID are rewritten.
    */
   protected normalizeBotMentions(message: GoogleChatMessage): string {
     let text = message.text || "";
@@ -2758,21 +2704,10 @@ export class GoogleChatAdapter implements Adapter<GoogleChatThreadId, unknown> {
         annotation.userMention?.user?.type === "BOT"
       ) {
         const botUser = annotation.userMention.user;
-        const botDisplayName = botUser.displayName;
-
-        // Learn our bot's user ID from mentions and persist to state
-        if (botUser.name && !this.botUserId) {
-          this.botUserId = botUser.name;
-          this.logger.info("Learned bot user ID from mention", {
-            botUserId: this.botUserId,
-          });
-          // Persist to state for serverless environments
-          this.state
-            ?.set("gchat:botUserId", this.botUserId)
-            .catch((err) =>
-              this.logger.error("Failed to persist botUserId", { error: err })
-            );
+        if (botUser.name !== this.botUserId) {
+          continue;
         }
+        const botDisplayName = botUser.displayName;
 
         // Replace the bot mention with @{userName}
         // Pub/Sub messages don't include displayName, so use startIndex/length
@@ -2805,12 +2740,8 @@ export class GoogleChatAdapter implements Adapter<GoogleChatThreadId, unknown> {
   /**
    * Check if a message is from this bot.
    *
-   * Bot user ID is learned dynamically from message annotations when the bot
-   * is @mentioned. Until we learn the ID, we cannot reliably determine isMe.
-   *
-   * This is safer than the previous approach of assuming all BOT messages are
-   * from self, which would incorrectly filter messages from other bots in
-   * multi-bot spaces (especially via Pub/Sub).
+   * A configured bot user ID permits exact matching in multi-bot spaces.
+   * Without it, fail closed for BOT senders to prevent self-reply loops.
    */
   protected isMessageFromSelf(message: GoogleChatMessage): boolean {
     const senderId = message.sender?.name;
@@ -2820,15 +2751,14 @@ export class GoogleChatAdapter implements Adapter<GoogleChatThreadId, unknown> {
       return senderId === this.botUserId;
     }
 
-    // If we don't know our bot ID yet, we can't reliably determine isMe.
-    // Log a debug message and return false - better to process a self-message
-    // than to incorrectly filter out messages from other bots.
+    // Fail closed when identity is unavailable: processing an unknown BOT
+    // sender could reprocess this app's own replies indefinitely.
     if (!this.botUserId && message.sender?.type === "BOT") {
       this.logger.debug(
-        "Cannot determine isMe - bot user ID not yet learned. " +
-          "Bot ID is learned from @mentions. Assuming message is not from self.",
+        "Cannot distinguish BOT sender without botUserId; treating it as self.",
         { senderId }
       );
+      return true;
     }
 
     return false;

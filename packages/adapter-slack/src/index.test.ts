@@ -2782,6 +2782,38 @@ describe("installationProvider", () => {
     );
   });
 
+  it("drops slash commands when no installation is found", async () => {
+    const mockProvider = {
+      getInstallation: vi.fn().mockResolvedValue(null),
+    };
+    const chatInstance = createMockChatInstance({ state: createMockState() });
+    const adapter = createSlackAdapter({
+      signingSecret: secret,
+      logger: mockLogger,
+      installationProvider: mockProvider,
+    });
+    await adapter.initialize(chatInstance);
+
+    const params = new URLSearchParams({
+      command: "/test",
+      team_id: "T_UNKNOWN",
+      channel_id: "C_SLASH",
+      user_id: "U_SLASHER",
+    });
+    const response = await adapter.handleWebhook(
+      createWebhookRequest(params.toString(), secret, {
+        contentType: "application/x-www-form-urlencoded",
+      })
+    );
+
+    expect(response.status).toBe(200);
+    expect(mockProvider.getInstallation).toHaveBeenCalledWith(
+      "T_UNKNOWN",
+      false
+    );
+    expect(chatInstance.processSlashCommand).not.toHaveBeenCalled();
+  });
+
   it("uses enterprise_id for slash commands in Enterprise Grid", async () => {
     const mockProvider = {
       getInstallation: vi.fn().mockResolvedValue({
@@ -2913,6 +2945,40 @@ describe("installationProvider", () => {
       "T_INTER_PROVIDER",
       false
     );
+  });
+
+  it("drops interactive payloads when no installation is found", async () => {
+    const mockProvider = {
+      getInstallation: vi.fn().mockResolvedValue(null),
+    };
+    const chatInstance = createMockChatInstance({ state: createMockState() });
+    const adapter = createSlackAdapter({
+      signingSecret: secret,
+      logger: mockLogger,
+      installationProvider: mockProvider,
+    });
+    await adapter.initialize(chatInstance);
+
+    const payload = JSON.stringify({
+      type: "block_actions",
+      team: { id: "T_UNKNOWN" },
+      user: { id: "U123", username: "testuser" },
+      channel: { id: "C_INTER", name: "general" },
+      message: { ts: "1234567890.123456" },
+      actions: [{ type: "button", action_id: "test_action", value: "v" }],
+    });
+    const response = await adapter.handleWebhook(
+      createWebhookRequest(`payload=${encodeURIComponent(payload)}`, secret, {
+        contentType: "application/x-www-form-urlencoded",
+      })
+    );
+
+    expect(response.status).toBe(200);
+    expect(mockProvider.getInstallation).toHaveBeenCalledWith(
+      "T_UNKNOWN",
+      false
+    );
+    expect(chatInstance.processAction).not.toHaveBeenCalled();
   });
 
   it("uses enterprise_id for interactive payloads in Enterprise Grid", async () => {
@@ -11656,19 +11722,46 @@ describe("socket mode - multi-workspace token resolution", () => {
     expect(resolveSpy).toHaveBeenCalledWith("T_SOCK_2", false);
     expect(chatInstance).toHaveDispatched("processAction");
   });
+
+  it("drops socket interactive payloads with no installation", async () => {
+    const { chatInstance, routing, resolveSpy } =
+      await createMultiWorkspaceAdapter();
+    const ack = vi.fn().mockResolvedValue(undefined);
+
+    await routing.routeSocketEvent(
+      {
+        type: "block_actions",
+        team: { id: "T_UNKNOWN" },
+        actions: [{ type: "button", action_id: "test_action", value: "v" }],
+        channel: { id: "C123", name: "test" },
+        message: { ts: "1234567890.123456" },
+        user: { id: "U_USER", username: "testuser" },
+      },
+      "interactive",
+      ack
+    );
+
+    expect(resolveSpy).toHaveBeenCalledWith("T_UNKNOWN", false);
+    expect(chatInstance).not.toHaveDispatched("processAction");
+    expect(ack).toHaveBeenCalledOnce();
+  });
 });
 
 // ============================================================================
-// Enterprise Grid: installation-scoped user caches
+// Enterprise Grid: installation-scoped caches
 // ============================================================================
 
-describe("installation-scoped user caches", () => {
+describe("installation-scoped caches", () => {
   interface CacheTestAdapter {
-    _client: { users: { info: unknown } };
+    _client: {
+      conversations: { info: unknown };
+      users: { info: unknown };
+    };
     handleUserChange(event: {
       type: string;
       user: { id: string };
     }): Promise<void>;
+    lookupChannel(channelId: string): Promise<string>;
     lookupUser(userId: string): Promise<{ displayName: string } | null>;
     requestContext: {
       run<T>(ctx: { token: string; installationId?: string }, fn: () => T): T;
@@ -11698,7 +11791,11 @@ describe("installation-scoped user caches", () => {
       },
     });
     internals._client.users.info = usersInfoMock;
-    return { internals, state, usersInfoMock };
+    const conversationsInfoMock = vi.fn().mockResolvedValue({
+      channel: { name: "general" },
+    });
+    internals._client.conversations.info = conversationsInfoMock;
+    return { conversationsInfoMock, internals, state, usersInfoMock };
   }
 
   it("scopes the user profile cache by installation", async () => {
@@ -11718,6 +11815,36 @@ describe("installation-scoped user caches", () => {
     expect(await state.get("slack:user:T_A:U1")).not.toBeNull();
     expect(await state.get("slack:user:T_B:U1")).not.toBeNull();
     expect(await state.get("slack:user:U1")).toBeNull();
+  });
+
+  it("scopes the channel-name cache by installation", async () => {
+    const { conversationsInfoMock, internals, state } =
+      await createCacheAdapter();
+    conversationsInfoMock
+      .mockResolvedValueOnce({ channel: { name: "team-a-private" } })
+      .mockResolvedValueOnce({ channel: { name: "team-b-general" } });
+
+    await expect(
+      internals.requestContext.run(
+        { token: "xoxb-team-a", installationId: "T_A" },
+        () => internals.lookupChannel("C1")
+      )
+    ).resolves.toBe("team-a-private");
+    await expect(
+      internals.requestContext.run(
+        { token: "xoxb-team-b", installationId: "T_B" },
+        () => internals.lookupChannel("C1")
+      )
+    ).resolves.toBe("team-b-general");
+
+    expect(conversationsInfoMock).toHaveBeenCalledTimes(2);
+    expect(await state.get("slack:channel:T_A:C1")).toEqual({
+      name: "team-a-private",
+    });
+    expect(await state.get("slack:channel:T_B:C1")).toEqual({
+      name: "team-b-general",
+    });
+    expect(await state.get("slack:channel:C1")).toBeNull();
   });
 
   it("uses unscoped keys without a request context (single-workspace)", async () => {

@@ -16,16 +16,18 @@ export async function POST(
     return new Response(`Unknown platform: ${platform}`, { status: 404 });
   }
 
-  // Record webhook if enabled (no-op if disabled)
-  if (recorder.isEnabled) {
-    await recorder.recordWebhook(platform, request.clone());
-  }
+  const recordingRequest = recorder.isEnabled ? request.clone() : null;
 
   // Handle the webhook with waitUntil for background processing
   // Next.js after() ensures work completes after the response is sent
-  return webhookHandler(request, {
+  const response = await webhookHandler(request, {
     waitUntil: (task) => after(() => task),
   });
+  // Only successful, adapter-verified deliveries are eligible for recording.
+  if (recordingRequest && response.ok) {
+    await recorder.recordWebhook(platform, recordingRequest);
+  }
+  return response;
 }
 
 // GET handler — serves as health check, but also forwards to webhook handler

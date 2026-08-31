@@ -177,6 +177,7 @@ Most options are auto-detected from environment variables when not provided.
 | Option | Required | Description |
 |--------|----------|-------------|
 | `credentials` | No* | Service account credentials JSON. Auto-detected from `GOOGLE_CHAT_CREDENTIALS` |
+| `botUserId` | No | Canonical `users/...` resource name of this Chat app. Required for exact self-message and mention detection. Auto-detected from `GOOGLE_CHAT_BOT_USER_ID` |
 | `useApplicationDefaultCredentials` | No | Use Application Default Credentials. Auto-detected from `GOOGLE_CHAT_USE_ADC` |
 | `pubsubTopic` | No | Pub/Sub topic for Workspace Events. Auto-detected from `GOOGLE_CHAT_PUBSUB_TOPIC` |
 | `pubsubAudience` | No† | Expected JWT audience for Pub/Sub webhook verification. Auto-detected from `GOOGLE_CHAT_PUBSUB_AUDIENCE` |
@@ -192,6 +193,8 @@ Most options are auto-detected from environment variables when not provided.
 
 *Either `credentials`, `GOOGLE_CHAT_CREDENTIALS` env var, `useApplicationDefaultCredentials`, or `GOOGLE_CHAT_USE_ADC=true` is required.
 
+Use the canonical `sender.name` from a verified message authored by your Chat app for `botUserId`. The adapter does not learn its identity from inbound mentions. Without this value it conservatively treats every `BOT` sender as self to prevent reply loops.
+
 †One of `googleChatProjectNumber`, `endpointUrl`, `pubsubAudience`, or `disableSignatureVerification: true` is required — the constructor throws otherwise. Configure the verifier(s) for each transport you actually receive; requests of a shape whose verifier is unconfigured are rejected with HTTP 401.
 
 §Required alongside `pubsubAudience`. The audience is your public push endpoint, so anyone can have Google mint a validly signed token naming it from their own project. Only the `email` claim identifies the caller, which is why [Google requires checking it](https://docs.cloud.google.com/pubsub/docs/authenticate-push-subscriptions) in addition to `aud`. Without it, Pub/Sub pushes are rejected with HTTP 401 rather than trusted on their audience alone.
@@ -202,6 +205,7 @@ Most options are auto-detected from environment variables when not provided.
 
 ```bash
 GOOGLE_CHAT_CREDENTIALS={"type":"service_account",...}
+GOOGLE_CHAT_BOT_USER_ID=users/123456789
 
 # Optional: for receiving all messages
 GOOGLE_CHAT_PUBSUB_TOPIC=projects/your-project/topics/chat-events

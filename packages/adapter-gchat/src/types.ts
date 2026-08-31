@@ -17,6 +17,12 @@ export interface GoogleChatAdapterBaseConfig {
   /** Override the Google Chat API root URL. Defaults to GOOGLE_CHAT_API_URL env var. */
   apiUrl?: string;
   /**
+   * Authenticated resource name of this Chat app, for example `users/123456`.
+   * Used to distinguish this app from other bots in messages and mentions.
+   * Defaults to GOOGLE_CHAT_BOT_USER_ID.
+   */
+  botUserId?: string;
+  /**
    * Explicit opt-in to disable webhook signature verification. Required to
    * accept incoming webhooks when neither `googleChatProjectNumber` nor
    * `pubsubAudience` is configured. Without this flag set the constructor
