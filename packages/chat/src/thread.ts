@@ -674,13 +674,16 @@ export class ThreadImpl<TState = Record<string, unknown>>
     }
 
     if ("type" in postable && postable.type === "card") {
-      return processCardCallbackUrls(postable, this._stateAdapter);
+      return processCardCallbackUrls(postable, this._stateAdapter, {
+        threadId: this.id,
+      });
     }
 
     if ("card" in postable && postable.card?.type === "card") {
       const processed = await processCardCallbackUrls(
         postable.card,
-        this._stateAdapter
+        this._stateAdapter,
+        { threadId: this.id }
       );
       if (processed !== postable.card) {
         return { ...postable, card: processed };

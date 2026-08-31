@@ -1728,9 +1728,12 @@ export class Chat<
 
     const { callbackToken } = decodeCallbackValue(event.value);
 
-    let resolved: { url: string; originalValue?: string } | null = null;
+    let resolved: Awaited<ReturnType<typeof resolveCallbackUrl>> = null;
     if (callbackToken) {
-      resolved = await resolveCallbackUrl(callbackToken, this._stateAdapter);
+      resolved = await resolveCallbackUrl(callbackToken, this._stateAdapter, {
+        actionId: event.actionId,
+        threadId: event.threadId,
+      });
     }
 
     const actionEvent = resolved
@@ -1743,10 +1746,10 @@ export class Chat<
       callbackUrlPromise = (async () => {
         const { error } = await postToCallbackUrl(callbackUrl, {
           type: "action",
-          actionId: event.actionId,
+          actionId: resolved.actionId,
           value: resolved.originalValue,
           user: { id: event.user.userId, name: event.user.userName },
-          threadId: event.threadId,
+          threadId: resolved.threadId ?? event.threadId,
           messageId: event.messageId,
         });
         if (error) {

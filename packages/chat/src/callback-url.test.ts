@@ -74,7 +74,9 @@ describe("processCardCallbackUrls", () => {
       ],
     });
 
-    const result = await processCardCallbackUrls(card, state);
+    const result = await processCardCallbackUrls(card, state, {
+      threadId: "slack:C1:1.1",
+    });
 
     const actions = result.children.find((c) => c.type === "actions");
     expect(actions).toBeDefined();
@@ -87,8 +89,12 @@ describe("processCardCallbackUrls", () => {
     expect(decoded.callbackToken).toBeDefined();
 
     const token = decoded.callbackToken ?? "";
-    const resolved = await resolveCallbackUrl(token, state);
+    const resolved = await resolveCallbackUrl(token, state, {
+      actionId: "approve",
+      threadId: "slack:C1:1.1",
+    });
     expect(resolved?.url).toBe("https://example.com/webhook/123");
+    expect(resolved?.threadId).toBe("slack:C1:1.1");
   });
 
   it("stores original value in state alongside callback URL", async () => {
@@ -114,7 +120,9 @@ describe("processCardCallbackUrls", () => {
 
     const decoded = decodeCallbackValue(button?.value);
     const token = decoded.callbackToken ?? "";
-    const resolved = await resolveCallbackUrl(token, state);
+    const resolved = await resolveCallbackUrl(token, state, {
+      actionId: "btn",
+    });
     expect(resolved?.url).toBe("https://hook.example.com");
     expect(resolved?.originalValue).toBe("item-99");
   });
@@ -180,7 +188,9 @@ describe("processCardCallbackUrls", () => {
 
     const decoded = decodeCallbackValue(button.value);
     const token = decoded.callbackToken ?? "";
-    const resolved = await resolveCallbackUrl(token, state);
+    const resolved = await resolveCallbackUrl(token, state, {
+      actionId: "nested-btn",
+    });
     expect(resolved?.url).toBe("https://example.com/nested");
   });
 
@@ -218,19 +228,64 @@ describe("resolveCallbackUrl", () => {
 
   it("resolves stored callback with URL and original value", async () => {
     await state.set("chat:callback:test-token", {
+      actionId: "approve",
       url: "https://example.com/hook",
       originalValue: "item-42",
+      threadId: "slack:C1:1.1",
     });
-    const result = await resolveCallbackUrl("test-token", state);
+    const result = await resolveCallbackUrl("test-token", state, {
+      actionId: "approve",
+      threadId: "slack:C1:1.1",
+    });
     expect(result?.url).toBe("https://example.com/hook");
     expect(result?.originalValue).toBe("item-42");
+    expect(result?.threadId).toBe("slack:C1:1.1");
+    expect(await state.get("chat:callback:test-token")).toBeNull();
   });
 
   it("handles legacy string format", async () => {
     await state.set("chat:callback:legacy-token", "https://example.com/hook");
-    const result = await resolveCallbackUrl("legacy-token", state);
+    const result = await resolveCallbackUrl("legacy-token", state, {
+      actionId: "approve",
+    });
     expect(result?.url).toBe("https://example.com/hook");
     expect(result?.originalValue).toBeUndefined();
+  });
+
+  it("allows a callback token to be consumed only once", async () => {
+    await state.set("chat:callback:single-use", {
+      actionId: "approve",
+      url: "https://example.com/hook",
+    });
+
+    await expect(
+      resolveCallbackUrl("single-use", state, { actionId: "approve" })
+    ).resolves.toMatchObject({ url: "https://example.com/hook" });
+    await expect(
+      resolveCallbackUrl("single-use", state, { actionId: "approve" })
+    ).resolves.toBeNull();
+  });
+
+  it("rejects callback tokens outside their action and thread", async () => {
+    await state.set("chat:callback:bound-token", {
+      actionId: "approve",
+      threadId: "slack:C1:1.1",
+      url: "https://example.com/hook",
+    });
+
+    await expect(
+      resolveCallbackUrl("bound-token", state, {
+        actionId: "deny",
+        threadId: "slack:C1:1.1",
+      })
+    ).resolves.toBeNull();
+    await expect(
+      resolveCallbackUrl("bound-token", state, {
+        actionId: "approve",
+        threadId: "slack:C1:2.2",
+      })
+    ).resolves.toBeNull();
+    expect(await state.get("chat:callback:bound-token")).not.toBeNull();
   });
 });
 

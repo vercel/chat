@@ -103,6 +103,8 @@ bot.onAction("feedback", async (event) => {
 
 Buttons accept a `callbackUrl` prop. When clicked, the action data is POSTed to that URL in addition to firing any `onAction` handler. This pairs naturally with webhook-based workflow engines to build approval flows without any `onAction` handler at all:
 
+Callback tokens are bound to the button action and conversation, expire after seven days, and are consumed on first use. A repeated click or an attempt to move the token to another conversation does not trigger the callback URL again.
+
 ```tsx title="lib/bot.tsx" lineNumbers
 bot.onNewMention(async (thread) => {
   const approveUrl = "https://example.com/webhook/approve";
