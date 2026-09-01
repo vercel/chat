@@ -6166,7 +6166,7 @@ describe("agent_view DM threading", () => {
     expect(threadId).toBe("slack:D1:");
   });
 
-  it("sets status on an agent_view DM thread", async () => {
+  it("updates the Agent Session lifecycle on an agent_view DM thread", async () => {
     const adapter = createSlackAdapter({
       agentView: true,
       botToken: "xoxb-test-token",
@@ -6179,15 +6179,29 @@ describe("agent_view DM threading", () => {
     await adapter.startTyping("slack:D1:1771.99", "Thinking...", {
       initiatorUserId: "U1",
     });
+    await adapter.startTyping("slack:D1:1771.99", "", {
+      initiatorUserId: "U1",
+    });
 
     const client = getClient(adapter);
-    expect(client.apiCall).toHaveBeenCalledWith(
+    expect(client.apiCall).toHaveBeenNthCalledWith(
+      1,
       "agents.sessions.setStatus",
       expect.objectContaining({
         channel_id: "D1",
         initiator_user_id: "U1",
         thread_ts: "1771.99",
         status: "processing",
+      })
+    );
+    expect(client.apiCall).toHaveBeenNthCalledWith(
+      2,
+      "agents.sessions.setStatus",
+      expect.objectContaining({
+        channel_id: "D1",
+        initiator_user_id: "U1",
+        thread_ts: "1771.99",
+        status: "active",
       })
     );
   });

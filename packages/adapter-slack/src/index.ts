@@ -5403,13 +5403,14 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
       return;
     }
     if (this.agentView) {
+      const sessionStatus = status === "" ? "active" : "processing";
       this.logger.debug("Slack API: agents.sessions.setStatus", {
         channel,
         threadTs,
-        status: "processing",
+        status: sessionStatus,
       });
       try {
-        await this.setSessionStatus(channel, threadTs, "processing", {
+        await this.setSessionStatus(channel, threadTs, sessionStatus, {
           initiatorUserId: options?.initiatorUserId,
         });
       } catch (error) {
