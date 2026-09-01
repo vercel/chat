@@ -160,6 +160,70 @@ describe("Teams conversation type routing", () => {
     expect(personal).toBe(legacyPersonal);
     expect(channel).toBe(legacyChannel);
   });
+
+  it("falls back to isGroup when conversationType is missing", () => {
+    const groupMessage = contractAdapter.parseMessage({
+      conversation: { id: "a:group-chat-id", isGroup: true },
+      from: { id: "user-1", name: "Alice" },
+      id: "group-message",
+      serviceUrl: TEST_SERVICE_URL,
+      text: "hello",
+      type: "message",
+    });
+    const channelMessage = contractAdapter.parseMessage({
+      channelData: { team: { id: "team-id" } },
+      conversation: { id: "a:channel-id", isGroup: true },
+      from: { id: "user-1", name: "Alice" },
+      id: "channel-message",
+      serviceUrl: TEST_SERVICE_URL,
+      text: "hello",
+      type: "message",
+    });
+    const personalMessage = contractAdapter.parseMessage({
+      conversation: { id: "19:personal-id", isGroup: false },
+      from: { id: "user-1", name: "Alice" },
+      id: "personal-message",
+      serviceUrl: TEST_SERVICE_URL,
+      text: "hello",
+      type: "message",
+    });
+
+    expect(contractAdapter.decodeThreadId(groupMessage.threadId)).toMatchObject(
+      {
+        conversationType: "groupChat",
+      }
+    );
+    expect(contractAdapter.isDM(groupMessage.threadId)).toBe(false);
+    expect(
+      contractAdapter.decodeThreadId(channelMessage.threadId)
+    ).toMatchObject({
+      conversationType: "channel",
+    });
+    expect(contractAdapter.isDM(channelMessage.threadId)).toBe(false);
+    expect(
+      contractAdapter.decodeThreadId(personalMessage.threadId)
+    ).toMatchObject({
+      conversationType: "personal",
+    });
+    expect(contractAdapter.isDM(personalMessage.threadId)).toBe(true);
+  });
+
+  it("prefers an explicit conversationType over isGroup", () => {
+    const message = contractAdapter.parseMessage({
+      conversation: {
+        conversationType: "personal",
+        id: "19:personal-id",
+        isGroup: true,
+      },
+      from: { id: "user-1", name: "Alice" },
+      id: "personal-message",
+      serviceUrl: TEST_SERVICE_URL,
+      text: "hello",
+      type: "message",
+    });
+
+    expect(contractAdapter.isDM(message.threadId)).toBe(true);
+  });
 });
 
 describe("ESM compatibility", () => {

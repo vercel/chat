@@ -71,10 +71,10 @@ import {
   parseDialogSubmitValues,
 } from "./modals";
 import {
+  conversationTypeFromActivity,
   decodeThreadId,
   encodeThreadId,
   isDM,
-  parseConversationType,
 } from "./thread-id";
 import type {
   TeamsAdapterConfig,
@@ -269,9 +269,7 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
 
     // Cache DM context for Graph API chat ID resolution
     const aadObjectId = (activity.from as { aadObjectId?: string }).aadObjectId;
-    const conversationType = parseConversationType(
-      activity.conversation?.conversationType
-    );
+    const conversationType = conversationTypeFromActivity(activity);
     const isPersonalConversation = conversationType
       ? conversationType === "personal"
       : !baseChannelId.startsWith("19:");
@@ -1740,9 +1738,7 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
   private threadIdFromActivity(activity: Activity): string {
     return this.encodeThreadId({
       conversationId: activity.conversation?.id || "",
-      conversationType: parseConversationType(
-        activity.conversation?.conversationType
-      ),
+      conversationType: conversationTypeFromActivity(activity),
       serviceUrl: activity.serviceUrl || "",
     });
   }

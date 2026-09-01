@@ -1,11 +1,30 @@
 import { ValidationError } from "@chat-adapter/shared";
+import type { Activity } from "@microsoft/teams.api";
 import type { TeamsThreadId } from "./types";
 
-export function parseConversationType(
+function parseConversationType(
   value: unknown
 ): TeamsThreadId["conversationType"] {
   if (value === "channel" || value === "groupChat" || value === "personal") {
     return value;
+  }
+  return undefined;
+}
+
+export function conversationTypeFromActivity(
+  activity: Activity
+): TeamsThreadId["conversationType"] {
+  const explicit = parseConversationType(
+    activity.conversation?.conversationType
+  );
+  if (explicit) {
+    return explicit;
+  }
+  if (activity.conversation?.isGroup === false) {
+    return "personal";
+  }
+  if (activity.conversation?.isGroup === true) {
+    return activity.channelData?.team?.id ? "channel" : "groupChat";
   }
   return undefined;
 }

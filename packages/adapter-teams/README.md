@@ -207,7 +207,7 @@ TEAMS_API_URL=...        # Optional, for GCC-High or sovereign-cloud deployments
 
 ## Conversation routing
 
-Incoming thread IDs preserve the Teams conversation type when the legacy ID-prefix heuristic would route it incorrectly. This keeps correctly classified IDs stable while selecting the buffered fallback for group chats whose IDs begin with `a:`. Thread IDs created by older adapter versions remain supported.
+Incoming thread IDs preserve the Teams conversation type when the legacy ID-prefix heuristic would route it incorrectly. When Teams omits `conversationType`, the adapter falls back to `conversation.isGroup` and the activity's team context. This keeps correctly classified IDs stable while selecting the buffered fallback for group chats whose IDs begin with `a:`. Thread IDs created by older adapter versions remain supported.
 
 ## Incoming attachments
 
