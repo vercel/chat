@@ -67,7 +67,7 @@ export interface SlackSuggestedPromptsContext {
   enterpriseId?: string;
   /** Active-view context entities (agent_view, when Slack folds context in). */
   entities?: AppContextEntity[];
-  /** Team the user opened the thread from (legacy assistant_view). */
+  /** Team the user opened the conversation from. */
   teamId?: string;
   /** Assistant thread root (legacy assistant_view; absent under agent_view). */
   threadTs?: string;

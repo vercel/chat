@@ -2228,7 +2228,11 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
       } else if (event.type === "app_home_opened") {
         const homeEvent = event as SlackAppHomeOpenedEvent;
         if (this.agentView || homeEvent.tab === "home") {
-          this.handleAppHomeOpened(homeEvent, options);
+          const teamId =
+            payload.authorizations?.[0]?.team_id ||
+            payload.team_id ||
+            undefined;
+          this.handleAppHomeOpened(homeEvent, options, teamId);
         }
       } else if (event.type === "member_joined_channel") {
         this.handleMemberJoinedChannel(
@@ -3659,7 +3663,8 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
    */
   protected handleAppHomeOpened(
     event: SlackAppHomeOpenedEvent,
-    options?: WebhookOptions
+    options?: WebhookOptions,
+    teamId?: string
   ): void {
     if (!this.chat) {
       this.logger.warn(
@@ -3675,6 +3680,7 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
     if (this.agentView && event.tab === "messages") {
       const promptsTask = this.applyConfiguredSuggestedPrompts({
         channelId: event.channel,
+        ...(teamId ? { teamId } : {}),
         userId: event.user,
         ...(event.context
           ? { entities: normalizeAppContextEntities(event.context) }
