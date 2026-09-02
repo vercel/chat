@@ -576,3 +576,44 @@ and the story id.
   }
 }
 ```
+
+## Business message (Connected Business Bot)
+
+```json
+{
+  "update_id": 312744900,
+  "business_connection": {
+    "id": "conn-example-abc",
+    "user": {
+      "id": 100000010,
+      "is_bot": false,
+      "first_name": "Business Owner",
+      "username": "owner"
+    },
+    "user_chat_id": 100000010,
+    "date": 1756290700,
+    "is_enabled": true,
+    "rights": {
+      "can_reply": true
+    }
+  },
+  "business_message": {
+    "message_id": 42,
+    "from": {
+      "id": 100000001,
+      "is_bot": false,
+      "first_name": "Customer",
+      "username": "customer"
+    },
+    "chat": {
+      "id": 100000001,
+      "first_name": "Customer",
+      "username": "customer",
+      "type": "private"
+    },
+    "date": 1756290701,
+    "business_connection_id": "conn-example-abc",
+    "text": "Hi, I need help with my order"
+  }
+}
+```

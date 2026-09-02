@@ -163,6 +163,12 @@ const telegram = createTelegramAdapter({
       description:
         "Long polling tuning. Fields: `timeout`, `limit`, `allowedUpdates`, `deleteWebhook`, `dropPendingUpdates`, `retryDelayMs`.",
     },
+    businessMode: {
+      type: "boolean",
+      default: "false",
+      description:
+        "Enable Telegram Business mode for Connected Business Bots. Handles `business_connection` and `business_message` updates and passes `business_connection_id` on outbound API calls.",
+    },
     mentionOnReply: {
       type: "boolean",
       default: "false",
@@ -195,6 +201,20 @@ const telegram = createTelegramAdapter({
 />
 
 `botToken` is always required. Webhook mode also requires `secretToken` unless `allowUnverifiedWebhooks` is explicitly enabled. Polling mode does not require webhook verification.
+
+## Business mode
+
+Telegram [Connected Business Bots](https://core.telegram.org/api/bots/connected-business-bots) let a bot reply to customer messages on behalf of a business account. Enable it with `businessMode: true`:
+
+```typescript title="lib/bot.ts" lineNumbers
+const telegram = createTelegramAdapter({
+  businessMode: true,
+});
+```
+
+Business threads use the ID format `telegram:biz:{connectionId}:{chatId}`. Outbound sends automatically include `business_connection_id`.
+
+When configuring webhooks manually, add business update types to `allowed_updates` (or rely on the adapter's polling merge when `longPolling.allowedUpdates` is set).
 
 ## Authentication
 

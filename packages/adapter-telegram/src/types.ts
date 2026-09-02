@@ -58,6 +58,12 @@ export interface TelegramAdapterConfig {
   streamingEditIntervalMs?: number;
   /** Override bot username (optional). Defaults to TELEGRAM_BOT_USERNAME env var. */
   userName?: string;
+  /**
+   * Enable Telegram Business mode (Connected Business Bots). When `true`, the
+   * adapter handles `business_connection` and `business_message` updates and
+   * passes `business_connection_id` on outbound API calls. Defaults to `false`.
+   */
+  businessMode?: boolean;
 }
 
 export type TelegramAdapterMode = "auto" | "webhook" | "polling";
@@ -97,6 +103,8 @@ export interface TelegramThreadId {
   chatId: string;
   /** Optional forum topic ID for supergroup topics. */
   messageThreadId?: number;
+  /** Business connection ID for Connected Business Bot threads. */
+  businessConnectionId?: string;
 }
 
 /**
@@ -495,6 +503,7 @@ export interface TelegramMessage {
   media_group_id?: string;
   message_id: number;
   message_thread_id?: number;
+  business_connection_id?: string;
   photo?: TelegramPhotoSize[];
   poll?: {
     id: string;
@@ -570,6 +579,27 @@ export type TelegramReactionType =
     };
 
 /**
+ * Rights granted to a bot on a connected business account.
+ * @see https://core.telegram.org/bots/api#businessbotrights
+ */
+export interface TelegramBusinessBotRights {
+  can_reply?: boolean;
+}
+
+/**
+ * Connected business account metadata.
+ * @see https://core.telegram.org/bots/api#businessconnection
+ */
+export interface TelegramBusinessConnection {
+  date: number;
+  id: string;
+  is_enabled: boolean;
+  rights?: TelegramBusinessBotRights;
+  user: TelegramUser;
+  user_chat_id: number;
+}
+
+/**
  * Telegram message reaction update.
  * @see https://core.telegram.org/bots/api#messagereactionupdated
  */
@@ -589,8 +619,11 @@ export interface TelegramMessageReactionUpdated {
  * @see https://core.telegram.org/bots/api#update
  */
 export interface TelegramUpdate {
+  business_connection?: TelegramBusinessConnection;
+  business_message?: TelegramMessage;
   callback_query?: TelegramCallbackQuery;
   channel_post?: TelegramMessage;
+  edited_business_message?: TelegramMessage;
   edited_channel_post?: TelegramMessage;
   edited_message?: TelegramMessage;
   message?: TelegramMessage;

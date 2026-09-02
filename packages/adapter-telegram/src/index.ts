@@ -65,6 +65,7 @@ import type {
   TelegramAdapterConfig,
   TelegramAdapterMode,
   TelegramApiResponse,
+  TelegramBusinessConnection,
   TelegramCallbackQuery,
   TelegramChat,
   TelegramFile,
@@ -188,6 +189,11 @@ const TELEGRAM_MAX_POLLING_LIMIT = 100;
 const TELEGRAM_MIN_POLLING_LIMIT = 1;
 const TELEGRAM_MIN_POLLING_TIMEOUT_SECONDS = 0;
 const TELEGRAM_MAX_POLLING_TIMEOUT_SECONDS = 300;
+const TELEGRAM_BUSINESS_ALLOWED_UPDATES = [
+  "business_connection",
+  "business_message",
+  "edited_business_message",
+] as const;
 
 function normalizeBotTokenProvider(
   botToken: string | (() => string | Promise<string>)
@@ -450,6 +456,11 @@ export class TelegramAdapter
   protected readonly nativeStreaming: boolean;
   protected readonly streamingEditIntervalMs?: number;
   protected readonly longPolling?: TelegramLongPollingConfig;
+  protected readonly businessMode: boolean;
+  private readonly businessConnectionCache = new Map<
+    string,
+    TelegramBusinessConnection
+  >();
   private _runtimeMode: TelegramRuntimeMode = "webhook";
   private pollingAbortController: AbortController | null = null;
   private pollingTask: Promise<void> | null = null;
@@ -522,6 +533,7 @@ export class TelegramAdapter
             Number.MAX_SAFE_INTEGER
           );
     this.longPolling = config.longPolling;
+    this.businessMode = config.businessMode ?? false;
 
     if (!["auto", "webhook", "polling"].includes(this.mode)) {
       throw new ValidationError(
@@ -916,6 +928,111 @@ export class TelegramAdapter
     if (update.message_reaction) {
       this.handleMessageReactionUpdate(update.message_reaction, options);
     }
+
+    if (this.businessMode) {
+      if (update.business_connection) {
+        this.cacheBusinessConnection(update.business_connection);
+      }
+
+      const businessMessage =
+        update.business_message ?? update.edited_business_message;
+      if (businessMessage) {
+        const task = this.handleBusinessMessageUpdate(
+          businessMessage,
+          businessMessage.business_connection_id,
+          options
+        ).catch((error) => {
+          this.logger.warn("Failed to process Telegram business message", {
+            error: String(error),
+            connectionId: businessMessage.business_connection_id,
+          });
+        });
+        options?.waitUntil?.(task);
+      }
+    }
+  }
+
+  protected cacheBusinessConnection(
+    connection: TelegramBusinessConnection
+  ): void {
+    this.businessConnectionCache.set(connection.id, connection);
+  }
+
+  protected async resolveBusinessConnection(
+    connectionId: string
+  ): Promise<TelegramBusinessConnection> {
+    const cached = this.businessConnectionCache.get(connectionId);
+    if (cached) {
+      return cached;
+    }
+
+    const connection = await this.telegramFetch<TelegramBusinessConnection>(
+      "getBusinessConnection",
+      {
+        business_connection_id: connectionId,
+      }
+    );
+    this.businessConnectionCache.set(connectionId, connection);
+    return connection;
+  }
+
+  protected isBusinessConnectionUsable(
+    connection: TelegramBusinessConnection
+  ): boolean {
+    return (
+      connection.is_enabled && (connection.rights?.can_reply ?? false)
+    );
+  }
+
+  protected async handleBusinessMessageUpdate(
+    telegramMessage: TelegramMessage,
+    connectionId: string | undefined,
+    options?: WebhookOptions
+  ): Promise<void> {
+    if (!this.chat) {
+      return;
+    }
+
+    const resolvedConnectionId =
+      connectionId ?? telegramMessage.business_connection_id;
+    if (!resolvedConnectionId) {
+      this.logger.warn("Telegram business message missing connection id", {
+        messageId: telegramMessage.message_id,
+      });
+      return;
+    }
+
+    const connection =
+      await this.resolveBusinessConnection(resolvedConnectionId);
+    if (!this.isBusinessConnectionUsable(connection)) {
+      return;
+    }
+
+    if (telegramMessage.from?.id === connection.user.id) {
+      return;
+    }
+
+    const threadId = this.encodeThreadId({
+      chatId: String(telegramMessage.chat.id),
+      businessConnectionId: resolvedConnectionId,
+    });
+
+    if (telegramMessage.media_group_id) {
+      await this.processIncomingMediaGroup(telegramMessage, threadId);
+      return;
+    }
+
+    this.startTypingForPrivateMessage(telegramMessage, threadId, options);
+
+    const parsedMessage = this.parseTelegramMessage(telegramMessage, threadId);
+    this.cacheMessage(parsedMessage);
+
+    await this.chat.processMessage(
+      this,
+      threadId,
+      parsedMessage,
+      options
+    );
   }
 
   protected handleIncomingMessageUpdate(
@@ -1410,8 +1527,7 @@ export class TelegramAdapter
           ? await this.withTelegramRichFallback(
               () =>
                 this.telegramFetch<TelegramMessage>("sendRichMessage", {
-                  chat_id: parsedThread.chatId,
-                  message_thread_id: parsedThread.messageThreadId,
+                  ...this.buildChatTargetParams(parsedThread),
                   rich_message: {
                     markdown: rich.markdown,
                   },
@@ -1435,6 +1551,7 @@ export class TelegramAdapter
           chatId: String(rawMessage.chat.id),
           messageThreadId:
             rawMessage.message_thread_id ?? parsedThread.messageThreadId,
+          businessConnectionId: parsedThread.businessConnectionId,
         }),
         rich
           ? {
@@ -1533,7 +1650,7 @@ export class TelegramAdapter
         parseMode,
         (resolvedParseMode, resolvedText) =>
           this.telegramFetch<TelegramMessage | true>("editMessageText", {
-            chat_id: chatId,
+            ...this.buildChatTargetParams(parsedThread),
             message_id: telegramMessageId,
             text: resolvedText,
             reply_markup: replyMarkup ?? emptyTelegramInlineKeyboard(),
@@ -1552,7 +1669,7 @@ export class TelegramAdapter
       ? await this.withTelegramRichFallback(
           () =>
             this.telegramFetch<TelegramMessage | true>("editMessageText", {
-              chat_id: chatId,
+              ...this.buildChatTargetParams(parsedThread),
               message_id: telegramMessageId,
               rich_message: {
                 markdown: rich.markdown,
@@ -1600,6 +1717,7 @@ export class TelegramAdapter
     const resultingThreadId = this.encodeThreadId({
       chatId: String(result.chat.id),
       messageThreadId: result.message_thread_id ?? parsedThread.messageThreadId,
+      businessConnectionId: parsedThread.businessConnectionId,
     });
 
     const parsedMessage = this.parseTelegramMessage(
@@ -1630,7 +1748,7 @@ export class TelegramAdapter
     } = this.decodeCompositeMessageId(messageId, parsedThread.chatId);
 
     await this.telegramFetch<boolean>("deleteMessage", {
-      chat_id: chatId,
+      ...this.buildChatTargetParams(parsedThread),
       message_id: telegramMessageId,
     });
 
@@ -1647,7 +1765,7 @@ export class TelegramAdapter
       this.decodeCompositeMessageId(messageId, parsedThread.chatId);
 
     await this.telegramFetch<boolean>("setMessageReaction", {
-      chat_id: chatId,
+      ...this.buildChatTargetParams(parsedThread),
       message_id: telegramMessageId,
       reaction: [this.toTelegramReaction(emoji)],
     });
@@ -1663,7 +1781,7 @@ export class TelegramAdapter
       this.decodeCompositeMessageId(messageId, parsedThread.chatId);
 
     await this.telegramFetch<boolean>("setMessageReaction", {
-      chat_id: chatId,
+      ...this.buildChatTargetParams(parsedThread),
       message_id: telegramMessageId,
       reaction: [],
     });
@@ -1672,8 +1790,7 @@ export class TelegramAdapter
   async startTyping(threadId: string): Promise<void> {
     const parsedThread = this.resolveThreadId(threadId);
     await this.telegramFetch<boolean>("sendChatAction", {
-      chat_id: parsedThread.chatId,
-      message_thread_id: parsedThread.messageThreadId,
+      ...this.buildChatTargetParams(parsedThread),
       action: "typing",
     });
   }
@@ -1921,8 +2038,7 @@ export class TelegramAdapter
       if (streamUsesRich) {
         try {
           await this.telegramFetch<boolean>("sendRichMessageDraft", {
-            chat_id: parsedThread.chatId,
-            message_thread_id: parsedThread.messageThreadId,
+            ...this.buildChatTargetParams(parsedThread),
             draft_id: draftId,
             rich_message: {
               markdown: text,
@@ -1959,16 +2075,14 @@ export class TelegramAdapter
       try {
         if (useMarkdown) {
           await this.telegramFetch<boolean>("sendMessageDraft", {
-            chat_id: parsedThread.chatId,
-            message_thread_id: parsedThread.messageThreadId,
+            ...this.buildChatTargetParams(parsedThread),
             draft_id: draftId,
             text: draftText,
             parse_mode: toBotApiParseMode("MarkdownV2"),
           });
         } else {
           await this.telegramFetch<boolean>("sendMessageDraft", {
-            chat_id: parsedThread.chatId,
-            message_thread_id: parsedThread.messageThreadId,
+            ...this.buildChatTargetParams(parsedThread),
             draft_id: draftId,
             text: draftText,
           });
@@ -1983,8 +2097,7 @@ export class TelegramAdapter
 
           try {
             await this.telegramFetch<boolean>("sendMessageDraft", {
-              chat_id: parsedThread.chatId,
-              message_thread_id: parsedThread.messageThreadId,
+              ...this.buildChatTargetParams(parsedThread),
               draft_id: draftId,
               text: plainDraftText,
             });
@@ -2058,8 +2171,7 @@ export class TelegramAdapter
         const raw = await this.telegramFetch<TelegramMessage>(
           "sendRichMessage",
           {
-            chat_id: parsedThread.chatId,
-            message_thread_id: parsedThread.messageThreadId,
+            ...this.buildChatTargetParams(parsedThread),
             rich_message: {
               markdown,
             },
@@ -2069,6 +2181,7 @@ export class TelegramAdapter
           chatId: String(raw.chat.id),
           messageThreadId:
             raw.message_thread_id ?? parsedThread.messageThreadId,
+          businessConnectionId: parsedThread.businessConnectionId,
         });
         const formatted = this.formatConverter.toAst(accumulated);
         const message = this.parseTelegramMessage(raw, resultingThreadId, {
@@ -2104,6 +2217,7 @@ export class TelegramAdapter
     const resultingThreadId = this.encodeThreadId({
       chatId: String(raw.chat.id),
       messageThreadId: raw.message_thread_id ?? parsedThread.messageThreadId,
+      businessConnectionId: parsedThread.businessConnectionId,
     });
     const message = this.parseTelegramMessage(raw, resultingThreadId);
     this.cacheMessage(message);
@@ -2220,6 +2334,10 @@ export class TelegramAdapter
   }
 
   encodeThreadId(platformData: TelegramThreadId): string {
+    if (platformData.businessConnectionId) {
+      return `telegram:biz:${platformData.businessConnectionId}:${platformData.chatId}`;
+    }
+
     if (typeof platformData.messageThreadId === "number") {
       return `telegram:${platformData.chatId}:${platformData.messageThreadId}`;
     }
@@ -2229,7 +2347,37 @@ export class TelegramAdapter
 
   decodeThreadId(threadId: string): TelegramThreadId {
     const parts = threadId.split(":");
-    if (parts[0] !== "telegram" || parts.length < 2 || parts.length > 3) {
+    if (parts[0] !== "telegram") {
+      throw new ValidationError(
+        "telegram",
+        `Invalid Telegram thread ID: ${threadId}`
+      );
+    }
+
+    if (parts[1] === "biz") {
+      if (parts.length !== 4) {
+        throw new ValidationError(
+          "telegram",
+          `Invalid Telegram business thread ID: ${threadId}`
+        );
+      }
+
+      const businessConnectionId = parts[2];
+      const chatId = parts[3];
+      if (!(businessConnectionId && chatId)) {
+        throw new ValidationError(
+          "telegram",
+          `Invalid Telegram business thread ID: ${threadId}`
+        );
+      }
+
+      return {
+        chatId,
+        businessConnectionId,
+      };
+    }
+
+    if (parts.length < 2 || parts.length > 3) {
       throw new ValidationError(
         "telegram",
         `Invalid Telegram thread ID: ${threadId}`
@@ -2613,11 +2761,8 @@ export class TelegramAdapter
     replyParameters?: TelegramReplyParameters
   ): FormData {
     const formData = new FormData();
-    formData.append("chat_id", thread.chatId);
+    this.appendChatTargetToFormData(formData, thread);
     this.appendReplyParameters(formData, replyParameters);
-    if (typeof thread.messageThreadId === "number") {
-      formData.append("message_thread_id", String(thread.messageThreadId));
-    }
 
     if (text.trim()) {
       formData.append(
@@ -2669,14 +2814,10 @@ export class TelegramAdapter
       (resolvedParseMode, resolvedText) => {
         if (!buffer) {
           const payload: Record<string, unknown> = {
-            chat_id: thread.chatId,
+            ...this.buildChatTargetParams(thread),
             [upload.field]: attachment.url,
             reply_parameters: replyParameters,
           };
-
-          if (typeof thread.messageThreadId === "number") {
-            payload.message_thread_id = thread.messageThreadId;
-          }
 
           if (resolvedText.trim()) {
             payload.caption = truncateForTelegram(
@@ -2708,10 +2849,7 @@ export class TelegramAdapter
 
         const formData = new FormData();
 
-        formData.append("chat_id", thread.chatId);
-        if (typeof thread.messageThreadId === "number") {
-          formData.append("message_thread_id", String(thread.messageThreadId));
-        }
+        this.appendChatTargetToFormData(formData, thread);
 
         if (resolvedText.trim()) {
           formData.append(
@@ -2890,11 +3028,8 @@ export class TelegramAdapter
     replyParameters?: TelegramReplyParameters
   ): FormData {
     const formData = new FormData();
-    formData.append("chat_id", thread.chatId);
+    this.appendChatTargetToFormData(formData, thread);
     this.appendReplyParameters(formData, replyParameters);
-    if (typeof thread.messageThreadId === "number") {
-      formData.append("message_thread_id", String(thread.messageThreadId));
-    }
 
     // Telegram shows an album's caption from the first item that carries one;
     // on a later item it renders under that media instead of the whole group.
@@ -3099,6 +3234,50 @@ export class TelegramAdapter
     }
 
     return { chatId: value };
+  }
+
+  /**
+   * Bot API chat-target fields (`chat_id`, `message_thread_id`,
+   * `business_connection_id`) derived from a decoded thread.
+   */
+  protected buildChatTargetParams(thread: TelegramThreadId): {
+    business_connection_id?: string;
+    chat_id: string;
+    message_thread_id?: number;
+  } {
+    const params: {
+      business_connection_id?: string;
+      chat_id: string;
+      message_thread_id?: number;
+    } = {
+      chat_id: thread.chatId,
+    };
+
+    if (typeof thread.messageThreadId === "number") {
+      params.message_thread_id = thread.messageThreadId;
+    }
+
+    if (thread.businessConnectionId) {
+      params.business_connection_id = thread.businessConnectionId;
+    }
+
+    return params;
+  }
+
+  protected appendChatTargetToFormData(
+    formData: FormData,
+    thread: TelegramThreadId
+  ): void {
+    formData.append("chat_id", thread.chatId);
+    if (typeof thread.messageThreadId === "number") {
+      formData.append("message_thread_id", String(thread.messageThreadId));
+    }
+    if (thread.businessConnectionId) {
+      formData.append(
+        "business_connection_id",
+        thread.businessConnectionId
+      );
+    }
   }
 
   protected encodeMessageId(chatId: string, messageId: number): string {
@@ -3427,8 +3606,7 @@ export class TelegramAdapter
       parseMode,
       (resolvedParseMode, resolvedText) =>
         this.telegramFetch<TelegramMessage>("sendMessage", {
-          chat_id: thread.chatId,
-          message_thread_id: thread.messageThreadId,
+          ...this.buildChatTargetParams(thread),
           text: resolvedText,
           reply_markup: replyMarkup,
           parse_mode: toBotApiParseMode(resolvedParseMode),
@@ -3628,10 +3806,7 @@ export class TelegramAdapter
     };
 
     return {
-      allowedUpdates:
-        merged.allowedUpdates && merged.allowedUpdates.length > 0
-          ? [...merged.allowedUpdates]
-          : undefined,
+      allowedUpdates: this.resolveAllowedUpdates(merged.allowedUpdates),
       deleteWebhook: merged.deleteWebhook ?? true,
       dropPendingUpdates: merged.dropPendingUpdates ?? false,
       limit: this.clampInteger(
@@ -3653,6 +3828,24 @@ export class TelegramAdapter
         TELEGRAM_MAX_POLLING_TIMEOUT_SECONDS
       ),
     };
+  }
+
+  protected resolveAllowedUpdates(
+    allowedUpdates?: string[]
+  ): string[] | undefined {
+    if (!this.businessMode) {
+      return allowedUpdates && allowedUpdates.length > 0
+        ? [...allowedUpdates]
+        : undefined;
+    }
+
+    if (!allowedUpdates || allowedUpdates.length === 0) {
+      return undefined;
+    }
+
+    return [
+      ...new Set([...allowedUpdates, ...TELEGRAM_BUSINESS_ALLOWED_UPDATES]),
+    ];
   }
 
   protected clampInteger(
@@ -3876,6 +4069,8 @@ export type {
   TelegramAdapterMode,
   TelegramAnimation,
   TelegramAudio,
+  TelegramBusinessConnection,
+  TelegramBusinessBotRights,
   TelegramCallbackQuery,
   TelegramChat,
   TelegramLocation,

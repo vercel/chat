@@ -656,6 +656,14 @@ threadIdContract<TelegramThreadId>({
       decoded: { chatId: "-100123", messageThreadId: 42 },
       encoded: "telegram:-100123:42",
     },
+    // Connected Business Bot thread.
+    {
+      decoded: {
+        chatId: "456",
+        businessConnectionId: "conn-abc",
+      },
+      encoded: "telegram:biz:conn-abc:456",
+    },
   ],
   isDM: {
     fn: (id) => threadIdAdapter.isDM(id),
@@ -6823,5 +6831,295 @@ describe("non-file content", () => {
 
   it("marks a shared story", async () => {
     expect(await parseContent({ story: { id: 7 } })).toBe("📖 Story");
+  });
+});
+
+// ============================================================================
+// Telegram Business mode
+// ============================================================================
+
+const sampleBusinessConnection = {
+  id: "conn-abc",
+  user: {
+    id: 111,
+    is_bot: false,
+    first_name: "Owner",
+    username: "owner",
+  },
+  user_chat_id: 111,
+  date: 1_735_689_600,
+  is_enabled: true,
+  rights: { can_reply: true },
+};
+
+function sampleBusinessMessage(
+  overrides?: Partial<TelegramMessage>
+): TelegramMessage {
+  return sampleMessage({
+    business_connection_id: "conn-abc",
+    chat: { id: 456, type: "private", first_name: "Customer" },
+    from: {
+      id: 456,
+      is_bot: false,
+      first_name: "Customer",
+      username: "customer",
+    },
+    text: "Need help with my order",
+    ...overrides,
+  });
+}
+
+describe("Telegram Business mode", () => {
+  const awaitWebhookTasks = async (
+    tasks: Promise<unknown>[]
+  ): Promise<void> => {
+    await Promise.all(tasks);
+  };
+
+  it("routes business_message updates to processMessage when businessMode is enabled", async () => {
+    mockFetch
+      .mockResolvedValueOnce(
+        telegramOk({
+          id: 999,
+          is_bot: true,
+          first_name: "Bot",
+          username: "mybot",
+        })
+      )
+      .mockResolvedValue(telegramOk(true));
+
+    const adapter = createTelegramAdapter({
+      allowUnverifiedWebhooks: true,
+      botToken: "token",
+      businessMode: true,
+      mode: "webhook",
+      logger: mockLogger,
+      userName: "mybot",
+    });
+    const chat = createMockChat();
+    await adapter.initialize(chat);
+
+    const pendingTasks: Promise<unknown>[] = [];
+    const response = await adapter.handleWebhook(
+      new Request("https://example.com/webhooks/telegram", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          update_id: 1,
+          business_connection: sampleBusinessConnection,
+          business_message: sampleBusinessMessage(),
+        }),
+      }),
+      {
+        waitUntil: (task: Promise<unknown>) => {
+          pendingTasks.push(task);
+        },
+      }
+    );
+
+    await awaitWebhookTasks(pendingTasks);
+
+    expect(response.status).toBe(200);
+    const processMessage = chat.processMessage as ReturnType<typeof vi.fn>;
+    expect(processMessage).toHaveBeenCalledTimes(1);
+    const [, threadId] = processMessage.mock.calls[0] as [unknown, string];
+    expect(threadId).toBe("telegram:biz:conn-abc:456");
+  });
+
+  it("skips business messages sent by the business owner", async () => {
+    mockFetch
+      .mockResolvedValueOnce(
+        telegramOk({
+          id: 999,
+          is_bot: true,
+          first_name: "Bot",
+          username: "mybot",
+        })
+      )
+      .mockResolvedValue(telegramOk(true));
+
+    const adapter = createTelegramAdapter({
+      allowUnverifiedWebhooks: true,
+      botToken: "token",
+      businessMode: true,
+      mode: "webhook",
+      logger: mockLogger,
+      userName: "mybot",
+    });
+    const chat = createMockChat();
+    await adapter.initialize(chat);
+
+    const pendingTasks: Promise<unknown>[] = [];
+    await adapter.handleWebhook(
+      new Request("https://example.com/webhooks/telegram", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          update_id: 1,
+          business_connection: sampleBusinessConnection,
+          business_message: sampleBusinessMessage({
+            from: sampleBusinessConnection.user,
+          }),
+        }),
+      }),
+      {
+        waitUntil: (task: Promise<unknown>) => {
+          pendingTasks.push(task);
+        },
+      }
+    );
+
+    await awaitWebhookTasks(pendingTasks);
+
+    expect(chat.processMessage).not.toHaveBeenCalled();
+  });
+
+  it("skips business messages when can_reply is false", async () => {
+    mockFetch
+      .mockResolvedValueOnce(
+        telegramOk({
+          id: 999,
+          is_bot: true,
+          first_name: "Bot",
+          username: "mybot",
+        })
+      )
+      .mockResolvedValue(telegramOk(true));
+
+    const adapter = createTelegramAdapter({
+      allowUnverifiedWebhooks: true,
+      botToken: "token",
+      businessMode: true,
+      mode: "webhook",
+      logger: mockLogger,
+      userName: "mybot",
+    });
+    const chat = createMockChat();
+    await adapter.initialize(chat);
+
+    const pendingTasks: Promise<unknown>[] = [];
+    await adapter.handleWebhook(
+      new Request("https://example.com/webhooks/telegram", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          update_id: 1,
+          business_connection: {
+            ...sampleBusinessConnection,
+            rights: { can_reply: false },
+          },
+          business_message: sampleBusinessMessage(),
+        }),
+      }),
+      {
+        waitUntil: (task: Promise<unknown>) => {
+          pendingTasks.push(task);
+        },
+      }
+    );
+
+    await awaitWebhookTasks(pendingTasks);
+
+    expect(chat.processMessage).not.toHaveBeenCalled();
+  });
+
+  it("ignores business updates when businessMode is false", async () => {
+    mockFetch.mockResolvedValueOnce(
+      telegramOk({
+        id: 999,
+        is_bot: true,
+        first_name: "Bot",
+        username: "mybot",
+      })
+    );
+
+    const adapter = createTelegramAdapter({
+      allowUnverifiedWebhooks: true,
+      botToken: "token",
+      mode: "webhook",
+      logger: mockLogger,
+      userName: "mybot",
+    });
+    const chat = createMockChat();
+    await adapter.initialize(chat);
+
+    await adapter.handleWebhook(
+      new Request("https://example.com/webhooks/telegram", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          update_id: 1,
+          business_message: sampleBusinessMessage(),
+        }),
+      })
+    );
+
+    expect(chat.processMessage).not.toHaveBeenCalled();
+  });
+
+  it("includes business_connection_id on outbound post() for business threads", async () => {
+    mockFetch
+      .mockResolvedValueOnce(
+        telegramOk({
+          id: 999,
+          is_bot: true,
+          first_name: "Bot",
+          username: "mybot",
+        })
+      )
+      .mockResolvedValueOnce(
+        telegramOk({
+          message_id: 77,
+          date: 1,
+          chat: { id: 456, type: "private", first_name: "Customer" },
+          text: "reply",
+        })
+      );
+
+    const adapter = createTelegramAdapter({
+      botToken: "token",
+      mode: "webhook",
+      logger: mockLogger,
+      userName: "mybot",
+    });
+    await adapter.initialize(createMockChat());
+
+    await adapter.postMessage("telegram:biz:conn-abc:456", "reply");
+
+    const sendMessageBody = JSON.parse(
+      String((mockFetch.mock.calls[1]?.[1] as RequestInit).body)
+    ) as {
+      business_connection_id?: string;
+      chat_id: string;
+    };
+    expect(sendMessageBody.chat_id).toBe("456");
+    expect(sendMessageBody.business_connection_id).toBe("conn-abc");
+  });
+
+  it("merges business update types into custom polling allowedUpdates", () => {
+    class PollingTestAdapter extends TelegramAdapter {
+      resolvePolling(
+        override?: Parameters<TelegramAdapter["startPolling"]>[0]
+      ) {
+        return this.resolvePollingConfig(override);
+      }
+    }
+
+    const pollingAdapter = new PollingTestAdapter({
+      botToken: "token",
+      businessMode: true,
+      longPolling: {
+        allowedUpdates: ["message"],
+      },
+      mode: "polling",
+      logger: mockLogger,
+    });
+
+    expect(pollingAdapter.resolvePolling()?.allowedUpdates).toEqual([
+      "message",
+      "business_connection",
+      "business_message",
+      "edited_business_message",
+    ]);
   });
 });

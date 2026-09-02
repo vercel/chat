@@ -91,6 +91,36 @@ curl -X POST "https://api.telegram.org/bot$TELEGRAM_BOT_TOKEN/setWebhook" \
   }'
 ```
 
+## Business mode (Connected Business Bots)
+
+Enable Telegram Business mode when your bot manages customer conversations on behalf of a connected business account:
+
+```typescript
+const telegram = createTelegramAdapter({
+  businessMode: true,
+});
+```
+
+With `businessMode: true`, the adapter:
+
+- Handles `business_connection`, `business_message`, and `edited_business_message` updates
+- Skips messages sent by the business owner and connections without `can_reply`
+- Encodes business threads as `telegram:biz:{connectionId}:{chatId}`
+- Passes `business_connection_id` on outbound `sendMessage`, edits, typing, and file uploads
+
+When registering a webhook or starting polling with a custom `allowedUpdates` list, include the business update types (the adapter merges them automatically for polling when `businessMode` is `true`):
+
+```json
+[
+  "message",
+  "business_connection",
+  "business_message",
+  "edited_business_message"
+]
+```
+
+Defaults to `false` for backward compatibility.
+
 ## Polling (local development)
 
 When developing locally you typically can't expose a public URL for Telegram to deliver webhooks to. Polling mode uses `getUpdates` to fetch messages directly from Telegram instead — no public endpoint needed.
@@ -161,6 +191,7 @@ Most options are auto-detected from environment variables when not provided. `na
 | `secretToken` | Webhook* | Webhook secret token. Auto-detected from `TELEGRAM_WEBHOOK_SECRET_TOKEN` |
 | `mode` | No | Adapter mode: `auto` (default), `webhook`, or `polling` |
 | `longPolling` | No | Optional long polling config for `getUpdates` (`timeout`, `limit`, `allowedUpdates`, `deleteWebhook`, `dropPendingUpdates`, `retryDelayMs`) |
+| `businessMode` | No | Enable Telegram Business mode (`business_connection`, `business_message`). Defaults to `false` |
 | `userName` | No | Bot username used for mention detection. Auto-detected from `TELEGRAM_BOT_USERNAME` or `getMe` |
 | `mentionOnReply` | No | Treat a reply to one of the bot's own messages as a mention, so it routes to `onNewMention`. Defaults to `false`. Auto-detected from `TELEGRAM_MENTION_ON_REPLY=true`. Implicit forum-topic replies and the bot's own messages never count |
 | `nativeStreaming` | No | Stream with Telegram's native draft previews in private chats. Defaults to `false`, which uses post-and-edit in every chat type |
