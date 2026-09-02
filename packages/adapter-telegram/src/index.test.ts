@@ -7096,6 +7096,87 @@ describe("Telegram Business mode", () => {
     expect(sendMessageBody.business_connection_id).toBe("conn-abc");
   });
 
+  it("routes business_message when customer is in allowedUserIds", async () => {
+    mockFetch
+      .mockResolvedValueOnce(
+        telegramOk({
+          id: 999,
+          is_bot: true,
+          first_name: "Bot",
+          username: "mybot",
+        })
+      )
+      .mockResolvedValue(telegramOk(true));
+
+    const adapter = createTelegramAdapter({
+      allowUnverifiedWebhooks: true,
+      allowedUserIds: [456],
+      botToken: "token",
+      businessMode: true,
+      mode: "webhook",
+      logger: mockLogger,
+      userName: "mybot",
+    });
+    const chat = createMockChat();
+    await adapter.initialize(chat);
+
+    const pendingTasks: Promise<unknown>[] = [];
+    await adapter.handleWebhook(
+      new Request("https://example.com/webhooks/telegram", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          update_id: 1,
+          business_connection: sampleBusinessConnection,
+          business_message: sampleBusinessMessage(),
+        }),
+      }),
+      {
+        waitUntil: (task: Promise<unknown>) => {
+          pendingTasks.push(task);
+        },
+      }
+    );
+
+    await awaitWebhookTasks(pendingTasks);
+
+    expect(chat.processMessage).toHaveBeenCalledTimes(1);
+  });
+
+  it("omits business_connection_id on deleteMessage for business threads", async () => {
+    mockFetch
+      .mockResolvedValueOnce(
+        telegramOk({
+          id: 999,
+          is_bot: true,
+          first_name: "Bot",
+          username: "mybot",
+        })
+      )
+      .mockResolvedValueOnce(telegramOk(true));
+
+    const adapter = createTelegramAdapter({
+      botToken: "token",
+      mode: "webhook",
+      logger: mockLogger,
+      userName: "mybot",
+    });
+    await adapter.initialize(createMockChat());
+
+    await adapter.deleteMessage("telegram:biz:conn-abc:456", "456:77");
+
+    const deleteMessageBody = JSON.parse(
+      String((mockFetch.mock.calls[1]?.[1] as RequestInit).body)
+    ) as {
+      business_connection_id?: string;
+      chat_id: string;
+      message_id: number;
+    };
+    expect(deleteMessageBody.chat_id).toBe("456");
+    expect(deleteMessageBody.message_id).toBe(77);
+    expect(deleteMessageBody.business_connection_id).toBeUndefined();
+  });
+
   it("merges business update types into custom polling allowedUpdates", () => {
     class PollingTestAdapter extends TelegramAdapter {
       resolvePolling(

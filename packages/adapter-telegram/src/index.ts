@@ -900,10 +900,13 @@ export class TelegramAdapter
       update.edited_message ??
       update.channel_post ??
       update.edited_channel_post;
+    const businessMessageUpdate =
+      update.business_message ?? update.edited_business_message;
     const userId =
       update.callback_query?.from.id ??
       update.message_reaction?.user?.id ??
-      messageUpdate?.from?.id;
+      messageUpdate?.from?.id ??
+      businessMessageUpdate?.from?.id;
 
     if (
       this.allowedUserIds &&
@@ -1748,7 +1751,9 @@ export class TelegramAdapter
     } = this.decodeCompositeMessageId(messageId, parsedThread.chatId);
 
     await this.telegramFetch<boolean>("deleteMessage", {
-      ...this.buildChatTargetParams(parsedThread),
+      ...this.buildChatTargetParams(parsedThread, {
+        includeBusinessConnection: false,
+      }),
       message_id: telegramMessageId,
     });
 
@@ -1765,7 +1770,9 @@ export class TelegramAdapter
       this.decodeCompositeMessageId(messageId, parsedThread.chatId);
 
     await this.telegramFetch<boolean>("setMessageReaction", {
-      ...this.buildChatTargetParams(parsedThread),
+      ...this.buildChatTargetParams(parsedThread, {
+        includeBusinessConnection: false,
+      }),
       message_id: telegramMessageId,
       reaction: [this.toTelegramReaction(emoji)],
     });
@@ -1781,7 +1788,9 @@ export class TelegramAdapter
       this.decodeCompositeMessageId(messageId, parsedThread.chatId);
 
     await this.telegramFetch<boolean>("setMessageReaction", {
-      ...this.buildChatTargetParams(parsedThread),
+      ...this.buildChatTargetParams(parsedThread, {
+        includeBusinessConnection: false,
+      }),
       message_id: telegramMessageId,
       reaction: [],
     });
@@ -3237,14 +3246,18 @@ export class TelegramAdapter
   }
 
   /**
-   * Bot API chat-target fields (`chat_id`, `message_thread_id`,
+   * Bot API chat-target fields (`chat_id`, `message_thread_id`, and optionally
    * `business_connection_id`) derived from a decoded thread.
    */
-  protected buildChatTargetParams(thread: TelegramThreadId): {
+  protected buildChatTargetParams(
+    thread: TelegramThreadId,
+    options: { includeBusinessConnection?: boolean } = {}
+  ): {
     business_connection_id?: string;
     chat_id: string;
     message_thread_id?: number;
   } {
+    const includeBusinessConnection = options.includeBusinessConnection ?? true;
     const params: {
       business_connection_id?: string;
       chat_id: string;
@@ -3257,7 +3270,7 @@ export class TelegramAdapter
       params.message_thread_id = thread.messageThreadId;
     }
 
-    if (thread.businessConnectionId) {
+    if (includeBusinessConnection && thread.businessConnectionId) {
       params.business_connection_id = thread.businessConnectionId;
     }
 
