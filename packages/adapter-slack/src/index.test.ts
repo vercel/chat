@@ -7245,6 +7245,61 @@ describe("resolveInlineMentions", () => {
     expect(message.isMention).toBe(true);
   });
 
+  it("falls back to the bot's user ID when users.info fails for its own mention", async () => {
+    const state = createMockState();
+    const chatInstance = createMockChatInstance({ state });
+    chatInstance.processMessage = vi.fn();
+
+    const adapter = createSlackAdapter({
+      botToken: "xoxb-test-token",
+      signingSecret: secret,
+      logger: mockLogger,
+      botUserId: "U_BOT",
+    });
+
+    const usersInfoMock = vi.fn().mockImplementation(async ({ user }: { user: string }) => {
+      if (user === "U_BOT") {
+        throw {
+          code: "slack_webapi_platform_error",
+          data: { error: "rate_limited" },
+        };
+      }
+      return {
+        ok: true,
+        user: {
+          name: "user",
+          profile: { display_name: "Test User", real_name: "Test User" },
+        },
+      };
+    });
+    mockClientMethod(adapter, "users.info", usersInfoMock);
+
+    await adapter.initialize(chatInstance);
+
+    const body = JSON.stringify({
+      type: "event_callback",
+      team_id: "T123",
+      event: {
+        type: "app_mention",
+        user: "U_SENDER",
+        channel: "C456",
+        text: "<@U_BOT> help me",
+        ts: "1234567890.777777",
+      },
+    });
+    const request = createWebhookRequest(body, secret);
+    await adapter.handleWebhook(request);
+
+    const factory = (chatInstance.processMessage as ReturnType<typeof vi.fn>)
+      .mock.calls[0][2];
+    const message = await factory();
+
+    // Lookup failure degrades to the raw user ID with a mention prefix —
+    // the raw angle-bracket markup never resurfaces in the rendered text.
+    expect(message.text).toBe("@U_BOT help me");
+    expect(message.isMention).toBe(true);
+  });
+
   it("resolves request-scoped self mention in multi-workspace mode", async () => {
     const state = createMockState();
     const chatInstance = createMockChatInstance({ state });
