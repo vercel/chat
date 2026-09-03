@@ -15,7 +15,7 @@ const GET_USER_INPUT = z.object({
 
 export const getUser = (
   chat: ChatBinding,
-  needsApproval: boolean
+  needsApproval = true
 ): Tool<
   z.infer<typeof GET_USER_INPUT>,
   {

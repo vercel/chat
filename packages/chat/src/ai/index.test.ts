@@ -8,7 +8,7 @@ import {
   mockLogger,
 } from "../mock-adapter";
 import type { Adapter, StateAdapter } from "../types";
-import { createChatTools } from "./index";
+import { createChatTools, getUser } from "./index";
 import type { ToolOverrides } from "./types";
 
 const REQUIRES_CHAT_INSTANCE_REGEX = /requires a `chat` instance/;
@@ -132,6 +132,10 @@ describe("createChatTools", () => {
     expect(tools.getChannelInfo?.needsApproval).toBeUndefined();
     // Typing indicator is harmless and never gated
     expect(tools.startTyping?.needsApproval).toBeUndefined();
+  });
+
+  it("requires approval for standalone getUser by default", () => {
+    expect(getUser(chat).needsApproval).toBe(true);
   });
 
   it("disables approval on every gated tool when requireApproval is false", () => {
