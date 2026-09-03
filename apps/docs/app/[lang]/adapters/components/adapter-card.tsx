@@ -80,24 +80,22 @@ export const AdapterCard = ({
     <a className="no-underline" href={href}>
       <Card className="group h-full gap-0 overflow-hidden py-0 shadow-none transition-colors hover:bg-accent/50">
         <CardHeader className="flex h-full flex-col gap-4 p-6!">
-          <div className="flex w-full items-center justify-between">
-            <div className="flex items-center gap-2.5">
-              {Icon ? <Icon className="size-5" /> : null}
-              <CardTitle className="font-medium">{name}</CardTitle>
+          <div className="flex w-full flex-wrap items-center justify-between gap-x-3 gap-y-2">
+            <div className="flex min-w-0 items-center gap-2.5">
+              {Icon ? <Icon className="size-5 shrink-0" /> : null}
+              <CardTitle className="break-words font-medium">{name}</CardTitle>
             </div>
             {badge ? (
-              <CardAction>
-                <Badge className="shrink-0" variant="secondary">
+              <CardAction className="shrink-0">
+                <Badge variant="secondary">
                   <VerifiedIcon className="size-4 text-primary" />
                   {badge === "official" ? "Official" : "Vendor official"}
                 </Badge>
               </CardAction>
             ) : null}
             {beta ? (
-              <CardAction>
-                <Badge className="shrink-0" variant="secondary">
-                  Beta
-                </Badge>
+              <CardAction className="shrink-0">
+                <Badge variant="secondary">Beta</Badge>
               </CardAction>
             ) : null}
           </div>
