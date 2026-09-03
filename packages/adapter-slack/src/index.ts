@@ -705,6 +705,37 @@ function attachmentContent(
   return { parts, tables };
 }
 
+function mentionIds(
+  tables: SlackEventTables,
+  attachments: SlackAttachmentContent[]
+): { channelIds: Set<string>; userIds: Set<string> } {
+  const userIds = new Set<string>();
+  const channelIds = new Set<string>();
+  const scan = (data: SlackTableData) => {
+    for (const row of data.rows) {
+      for (const cell of row) {
+        collectMentionIds(cell, userIds, channelIds);
+      }
+    }
+  };
+  for (const data of [...tables.leading, ...tables.trailing]) {
+    scan(data);
+  }
+  for (const attachment of attachments) {
+    for (const data of attachment.tables) {
+      scan(data);
+    }
+    for (const part of attachment.parts) {
+      collectMentionIds(
+        "mrkdwn" in part ? part.mrkdwn : part.literal,
+        userIds,
+        channelIds
+      );
+    }
+  }
+  return { channelIds, userIds };
+}
+
 /**
  * Render one line of plain-text Slack content to phrasing nodes. Control
  * sequences are honored the same way `slackMrkdwnToMarkdown` renders them
@@ -4207,16 +4238,21 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
     // pattern cannot reliably match the bot's resolved display name.
     const text = await this.resolveInlineMentions(rawText);
     const formatted = await this.resolvedContent(event, text);
+    const { userIds } = mentionIds(
+      eventTables(event),
+      authorAttachments(event).map(attachmentContent)
+    );
 
-    const selfMentionPattern = this.botUserId
+    const botUserId = this.botUserId;
+    const selfMentionPattern = botUserId
       ? new RegExp(
-          `<@!?${escapeRegExp(this.botUserId)}(?:\\|[^>]*)?>|(?<!\\w)@${escapeRegExp(this.botUserId)}(?![\\w-])`,
+          `<@!?${escapeRegExp(botUserId)}(?:\\|[^>]*)?>|(?<!\\w)@${escapeRegExp(botUserId)}(?![\\w-])`,
           "i"
         )
       : undefined;
-    const isSelfMentioned = selfMentionPattern
-      ? selfMentionPattern.test(rawText)
-      : false;
+    const isSelfMentioned = Boolean(
+      selfMentionPattern?.test(rawText) || (botUserId && userIds.has(botUserId))
+    );
 
     return new Message({
       id: event.ts || "",
@@ -6244,31 +6280,10 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
   ): Promise<FormattedContent> {
     const { leading, trailing } = eventTables(event);
     const attachments = authorAttachments(event).map(attachmentContent);
-
-    const userIds = new Set<string>();
-    const channelIds = new Set<string>();
-    const collectTable = (data: SlackTableData) => {
-      for (const row of data.rows) {
-        for (const cell of row) {
-          collectMentionIds(cell, userIds, channelIds);
-        }
-      }
-    };
-    for (const data of [...leading, ...trailing]) {
-      collectTable(data);
-    }
-    for (const attachment of attachments) {
-      for (const data of attachment.tables) {
-        collectTable(data);
-      }
-      for (const part of attachment.parts) {
-        collectMentionIds(
-          "mrkdwn" in part ? part.mrkdwn : part.literal,
-          userIds,
-          channelIds
-        );
-      }
-    }
+    const { channelIds, userIds } = mentionIds(
+      { leading, trailing },
+      attachments
+    );
     const names = await this.lookupMentionNames(userIds, channelIds);
 
     const resolveTable = (data: SlackTableData): SlackTableData => ({

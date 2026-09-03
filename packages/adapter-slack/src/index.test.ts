@@ -7245,6 +7245,74 @@ describe("resolveInlineMentions", () => {
     expect(message.isMention).toBe(true);
   });
 
+  it("flags the bot's own mention in rich text table cells", async () => {
+    const state = createMockState();
+    const chatInstance = createMockChatInstance({ state });
+    chatInstance.processMessage = vi.fn();
+
+    const adapter = createSlackAdapter({
+      botToken: "xoxb-test-token",
+      signingSecret: secret,
+      logger: mockLogger,
+      botUserId: "U_BOT",
+    });
+
+    mockClientMethod(
+      adapter,
+      "users.info",
+      vi.fn().mockImplementation(async ({ user }: { user: string }) => ({
+        ok: true,
+        user: {
+          name: user === "U_BOT" ? "testbot" : "sender",
+          profile: {
+            display_name: user === "U_BOT" ? "Test Bot" : "Sender",
+          },
+        },
+      }))
+    );
+
+    await adapter.initialize(chatInstance);
+
+    const body = JSON.stringify({
+      type: "event_callback",
+      team_id: "T123",
+      event: {
+        type: "message",
+        user: "U_SENDER",
+        channel: "C456",
+        text: "",
+        ts: "1234567890.676767",
+        blocks: [
+          {
+            type: "table",
+            rows: [
+              [
+                {
+                  type: "rich_text",
+                  elements: [
+                    {
+                      type: "rich_text_section",
+                      elements: [{ type: "user", user_id: "U_BOT" }],
+                    },
+                  ],
+                },
+              ],
+            ],
+          },
+        ],
+      },
+    });
+    const request = createWebhookRequest(body, secret);
+    await adapter.handleWebhook(request);
+
+    const factory = (chatInstance.processMessage as ReturnType<typeof vi.fn>)
+      .mock.calls[0][2];
+    const message = await factory();
+
+    expect(message.text).toBe("@Test Bot");
+    expect(message.isMention).toBe(true);
+  });
+
   it("falls back to the bot's user ID when users.info fails for its own mention", async () => {
     const state = createMockState();
     const chatInstance = createMockChatInstance({ state });
