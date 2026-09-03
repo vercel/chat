@@ -11757,6 +11757,12 @@ describe("installation-scoped caches", () => {
       conversations: { info: unknown };
       users: { info: unknown };
     };
+    enrichLinks(
+      links: Array<{ url: string; title?: string }>,
+      channelId?: string,
+      messageTs?: string
+    ): Promise<Array<{ url: string; title?: string }>>;
+    handleMessageChanged(event: SlackEvent): void;
     handleUserChange(event: {
       type: string;
       user: { id: string };
@@ -11903,6 +11909,84 @@ describe("installation-scoped caches", () => {
 
     expect(await state.getList("slack:user-by-name:T_A:alice")).toContain("U1");
     expect(await state.getList("slack:user-by-name:alice")).toHaveLength(0);
+  });
+
+  it("scopes unfurl metadata by installation and channel", async () => {
+    const { internals, state } = await createCacheAdapter();
+    const message = {
+      type: "message",
+      subtype: "message_changed",
+      hidden: true,
+      channel: "C1",
+      ts: "1234567890.123456",
+      message: {
+        type: "message",
+        channel: "C1",
+        ts: "1111111111.111111",
+        attachments: [
+          {
+            from_url: "https://example.com/shared",
+            title: "Team A",
+          },
+        ],
+      },
+    } satisfies SlackEvent;
+
+    internals.requestContext.run(
+      { token: "xoxb-team-a", installationId: "T_A" },
+      () => internals.handleMessageChanged(message)
+    );
+    internals.requestContext.run(
+      { token: "xoxb-team-b", installationId: "T_B" },
+      () =>
+        internals.handleMessageChanged({
+          ...message,
+          channel: "C2",
+          message: {
+            ...message.message,
+            channel: "C2",
+            attachments: [
+              {
+                from_url: "https://example.com/shared",
+                title: "Team B",
+              },
+            ],
+          },
+        })
+    );
+
+    await vi.waitFor(async () => {
+      expect(
+        await state.get("slack:unfurls:T_A:C1:1111111111.111111")
+      ).not.toBeNull();
+      expect(
+        await state.get("slack:unfurls:T_B:C2:1111111111.111111")
+      ).not.toBeNull();
+    });
+    expect(await state.get("slack:unfurls:1111111111.111111")).toBeNull();
+
+    await expect(
+      internals.requestContext.run(
+        { token: "xoxb-team-a", installationId: "T_A" },
+        () =>
+          internals.enrichLinks(
+            [{ url: "https://example.com/shared" }],
+            "C1",
+            "1111111111.111111"
+          )
+      )
+    ).resolves.toEqual([expect.objectContaining({ title: "Team A" })]);
+    await expect(
+      internals.requestContext.run(
+        { token: "xoxb-team-b", installationId: "T_B" },
+        () =>
+          internals.enrichLinks(
+            [{ url: "https://example.com/shared" }],
+            "C2",
+            "1111111111.111111"
+          )
+      )
+    ).resolves.toEqual([expect.objectContaining({ title: "Team B" })]);
   });
 
   it("resolves outgoing mentions from the installation-scoped index", async () => {

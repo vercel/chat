@@ -1783,6 +1783,10 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
     return installationId ? `${installationId}:` : "";
   }
 
+  protected unfurlCacheKey(channelId: string, messageTs: string): string {
+    return `slack:unfurls:${this.installationCacheScope()}${channelId}:${messageTs}`;
+  }
+
   /**
    * Look up user info from Slack API with caching via state adapter.
    * Returns null when the API call fails.
@@ -3240,7 +3244,11 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
       if (Object.keys(unfurls).length > 0) {
         this.chat
           .getState()
-          .set(`slack:unfurls:${inner.ts}`, unfurls, 60 * 60 * 1000)
+          .set(
+            this.unfurlCacheKey(event.channel, inner.ts),
+            unfurls,
+            60 * 60 * 1000
+          )
           .catch((error) => {
             this.logger.error("Failed to cache unfurl metadata", { error });
           });
@@ -4229,7 +4237,11 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
       attachments: (event.files || []).map((file) =>
         this.createAttachment(file, event.team_id ?? event.team)
       ),
-      links: await this.enrichLinks(this.extractLinks(event), event.ts),
+      links: await this.enrichLinks(
+        this.extractLinks(event),
+        event.channel,
+        event.ts
+      ),
     });
   }
 
@@ -4246,9 +4258,10 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
 
   protected async enrichLinks(
     links: LinkPreview[],
+    channelId?: string,
     messageTs?: string
   ): Promise<LinkPreview[]> {
-    if (!(this.chat && messageTs) || links.length === 0) {
+    if (!(this.chat && channelId && messageTs) || links.length === 0) {
       return links;
     }
 
@@ -4266,7 +4279,7 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
     while (true) {
       try {
         stored = await state.get<Record<string, SlackUnfurl>>(
-          `slack:unfurls:${messageTs}`
+          this.unfurlCacheKey(channelId, messageTs)
         );
       } catch {
         return links;
