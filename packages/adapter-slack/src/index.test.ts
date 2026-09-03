@@ -7257,21 +7257,22 @@ describe("resolveInlineMentions", () => {
       botUserId: "U_BOT",
     });
 
-    const usersInfoMock = vi.fn().mockImplementation(async ({ user }: { user: string }) => {
-      if (user === "U_BOT") {
-        throw {
-          code: "slack_webapi_platform_error",
-          data: { error: "rate_limited" },
+    const usersInfoMock = vi
+      .fn()
+      .mockImplementation(async ({ user }: { user: string }) => {
+        if (user === "U_BOT") {
+          // The Slack SDK surfaces API failures as error-like objects; lookupUser
+          // catches any rejection, so the shape is irrelevant to the fallback.
+          throw new Error("rate_limited");
+        }
+        return {
+          ok: true,
+          user: {
+            name: "user",
+            profile: { display_name: "Test User", real_name: "Test User" },
+          },
         };
-      }
-      return {
-        ok: true,
-        user: {
-          name: "user",
-          profile: { display_name: "Test User", real_name: "Test User" },
-        },
-      };
-    });
+      });
     mockClientMethod(adapter, "users.info", usersInfoMock);
 
     await adapter.initialize(chatInstance);
