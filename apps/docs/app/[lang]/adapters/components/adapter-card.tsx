@@ -80,7 +80,7 @@ export const AdapterCard = ({
     <a className="no-underline" href={href}>
       <Card className="group h-full gap-0 overflow-hidden py-0 shadow-none transition-colors hover:bg-accent/50">
         <CardHeader className="flex h-full flex-col gap-4 p-6!">
-          <div className="flex w-full flex-wrap items-center justify-between gap-x-3 gap-y-2">
+          <div className="flex w-full flex-col items-start gap-2 md:flex-row md:items-center md:justify-between md:gap-3">
             <div className="flex min-w-0 items-center gap-2.5">
               {Icon ? <Icon className="size-5 shrink-0" /> : null}
               <CardTitle className="break-words font-medium">{name}</CardTitle>
