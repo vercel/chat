@@ -564,10 +564,9 @@ export class ThreadImpl<TState = Record<string, unknown>>
       postable = message as AdapterPostableMessage;
     }
 
-    postable = await this.processCallbackUrls(postable);
-
     // Try native ephemeral if adapter supports it
     if (this.adapter.postEphemeral) {
+      postable = await this.processCallbackUrls(postable);
       return this.adapter.postEphemeral(this.id, userId, postable);
     }
 
@@ -579,6 +578,10 @@ export class ThreadImpl<TState = Record<string, unknown>>
     // Fallback: send via DM
     if (this.adapter.openDM) {
       const dmThreadId = await this.adapter.openDM(userId);
+      postable = await this.processCallbackUrls(postable, {
+        id: this.adapter.channelIdFromThreadId(dmThreadId),
+        type: "channel",
+      });
       const result = await this.adapter.postMessage(dmThreadId, postable);
       return {
         id: result.id,
@@ -667,23 +670,25 @@ export class ThreadImpl<TState = Record<string, unknown>>
   }
 
   private async processCallbackUrls(
-    postable: string | AdapterPostableMessage
+    postable: string | AdapterPostableMessage,
+    scope: { id: string; type: "channel" | "thread" } = {
+      id: this.id,
+      type: "thread",
+    }
   ): Promise<string | AdapterPostableMessage> {
     if (typeof postable === "string") {
       return postable;
     }
 
     if ("type" in postable && postable.type === "card") {
-      return processCardCallbackUrls(postable, this._stateAdapter, {
-        threadId: this.id,
-      });
+      return processCardCallbackUrls(postable, this._stateAdapter, scope);
     }
 
     if ("card" in postable && postable.card?.type === "card") {
       const processed = await processCardCallbackUrls(
         postable.card,
         this._stateAdapter,
-        { threadId: this.id }
+        scope
       );
       if (processed !== postable.card) {
         return { ...postable, card: processed };

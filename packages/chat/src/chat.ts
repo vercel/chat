@@ -1730,8 +1730,12 @@ export class Chat<
 
     let resolved: Awaited<ReturnType<typeof resolveCallbackUrl>> = null;
     if (callbackToken) {
+      const channelId = event.threadId
+        ? event.adapter.channelIdFromThreadId(event.threadId)
+        : undefined;
       resolved = await resolveCallbackUrl(callbackToken, this._stateAdapter, {
         actionId: event.actionId,
+        channelId,
         threadId: event.threadId,
       });
     }
@@ -1749,7 +1753,7 @@ export class Chat<
           actionId: resolved.actionId,
           value: resolved.originalValue,
           user: { id: event.user.userId, name: event.user.userName },
-          threadId: resolved.threadId ?? event.threadId,
+          threadId: event.threadId,
           messageId: event.messageId,
         });
         if (error) {

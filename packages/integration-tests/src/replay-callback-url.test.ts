@@ -63,8 +63,10 @@ describe("Replay Tests - callbackUrl", () => {
 
       // Pre-populate the callback URL store as the SDK would have done at post time.
       await ctx.state.set(`chat:callback:${CALLBACK_TOKEN}`, {
+        actionId: "approve",
         url: CALLBACK_BUTTON_URL,
         originalValue: "order-99",
+        scope: { id: "slack:C00FAKECHAN1", type: "channel" },
       });
 
       // Synthesize a block_actions payload with the SDK's encoded token as the value.

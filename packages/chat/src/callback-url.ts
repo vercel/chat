@@ -14,13 +14,19 @@ const CALLBACK_LOCK_TTL_MS = 10_000;
 interface StoredCallback {
   actionId: string;
   originalValue?: string;
-  threadId?: string;
+  scope: CallbackScope;
   url: string;
 }
 
 interface CallbackContext {
   actionId: string;
+  channelId?: string;
   threadId?: string;
+}
+
+interface CallbackScope {
+  id: string;
+  type: "channel" | "thread";
 }
 
 export function encodeCallbackValue(token: string): string {
@@ -43,7 +49,7 @@ function generateToken(): string {
 async function processActionsElement(
   actions: ActionsElement,
   stateAdapter: StateAdapter,
-  context?: { threadId?: string }
+  scope: CallbackScope
 ): Promise<ActionsElement> {
   return {
     type: "actions",
@@ -58,7 +64,7 @@ async function processActionsElement(
           actionId: el.id,
           url: el.callbackUrl,
           originalValue: el.value,
-          threadId: context?.threadId,
+          scope,
         };
         await stateAdapter.set(
           `${CALLBACK_CACHE_KEY_PREFIX}${token}`,
@@ -104,16 +110,16 @@ function hasCallbackButtons(children: CardChild[]): boolean {
 async function processChildren(
   children: CardChild[],
   stateAdapter: StateAdapter,
-  context?: { threadId?: string }
+  scope: CallbackScope
 ): Promise<CardChild[]> {
   const result: CardChild[] = [];
   for (const child of children) {
     if (child.type === "actions") {
-      result.push(await processActionsElement(child, stateAdapter, context));
+      result.push(await processActionsElement(child, stateAdapter, scope));
     } else if (child.type === "section" && "children" in child) {
       result.push({
         ...child,
-        children: await processChildren(child.children, stateAdapter, context),
+        children: await processChildren(child.children, stateAdapter, scope),
       });
     } else {
       result.push(child);
@@ -125,7 +131,7 @@ async function processChildren(
 export async function processCardCallbackUrls(
   card: CardElement,
   stateAdapter: StateAdapter,
-  context?: { threadId?: string }
+  scope: CallbackScope
 ): Promise<CardElement> {
   if (!hasCallbackButtons(card.children)) {
     return card;
@@ -133,7 +139,7 @@ export async function processCardCallbackUrls(
 
   return {
     ...card,
-    children: await processChildren(card.children, stateAdapter, context),
+    children: await processChildren(card.children, stateAdapter, scope),
   };
 }
 
@@ -149,32 +155,29 @@ export async function resolveCallbackUrl(
   }
 
   try {
-    const stored = await stateAdapter.get<
-      StoredCallback | string | Partial<StoredCallback>
-    >(key);
-    if (!stored) {
-      return null;
-    }
-
-    const callback =
-      typeof stored === "string"
-        ? { actionId: context?.actionId ?? "", url: stored }
-        : stored;
+    const stored = await stateAdapter.get<StoredCallback>(key);
     if (
-      typeof callback.url !== "string" ||
-      (callback.actionId && callback.actionId !== context?.actionId) ||
-      (callback.threadId && callback.threadId !== context?.threadId)
+      !stored ||
+      typeof stored !== "object" ||
+      typeof stored.actionId !== "string" ||
+      typeof stored.url !== "string" ||
+      (stored.originalValue !== undefined &&
+        typeof stored.originalValue !== "string") ||
+      !stored.scope ||
+      typeof stored.scope.id !== "string" ||
+      (stored.scope.type !== "channel" && stored.scope.type !== "thread")
     ) {
       return null;
     }
 
+    const scopeId =
+      stored.scope.type === "channel" ? context?.channelId : context?.threadId;
+    if (stored.actionId !== context?.actionId || stored.scope.id !== scopeId) {
+      return null;
+    }
+
     await stateAdapter.delete(key);
-    return {
-      actionId: callback.actionId ?? context?.actionId ?? "",
-      originalValue: callback.originalValue,
-      threadId: callback.threadId,
-      url: callback.url,
-    };
+    return stored;
   } finally {
     await stateAdapter.releaseLock(lock);
   }

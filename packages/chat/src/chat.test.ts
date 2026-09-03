@@ -1768,8 +1768,10 @@ describe("Chat", () => {
         (mockState as MockStateAdapter).cache.set(
           "chat:callback:testtoken123",
           {
+            actionId: "approve",
             url: "https://example.com/webhook/hook1",
             originalValue: "order-789",
+            scope: { id: "slack:C123", type: "channel" },
           }
         );
 
@@ -1824,7 +1826,9 @@ describe("Chat", () => {
         chat.onAction(handler);
 
         (mockState as MockStateAdapter).cache.set("chat:callback:tok999", {
+          actionId: "deny",
           url: "https://example.com/webhook/hook2",
+          scope: { id: "slack:C123:1234.5678", type: "thread" },
         });
 
         const event: Omit<ActionEvent, "thread" | "openModal"> = {
@@ -1900,7 +1904,9 @@ describe("Chat", () => {
         chat.onAction("approve", specificHandler);
 
         (mockState as MockStateAdapter).cache.set("chat:callback:tok555", {
+          actionId: "approve",
           url: "https://example.com/webhook/hook3",
+          scope: { id: "slack:C123:1234.5678", type: "thread" },
         });
 
         const event: Omit<ActionEvent, "thread" | "openModal"> = {
@@ -3393,7 +3399,9 @@ describe("Chat", () => {
         chat.onAction("approve", vi.fn().mockResolvedValue(undefined));
 
         (mockState as MockStateAdapter).cache.set("chat:callback:bad-token", {
+          actionId: "approve",
           url: "https://example.com/webhook/will-fail",
+          scope: { id: "slack:C123:1234.5678", type: "thread" },
         });
 
         await chat.processAction(

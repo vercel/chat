@@ -1279,10 +1279,15 @@ describe("thread.messages (newest first)", () => {
       expect(decoded.callbackToken).toBeDefined();
       expect(button.callbackUrl).toBeUndefined();
 
-      const stored = await mockState.get<{ url: string }>(
-        `chat:callback:${decoded.callbackToken}`
-      );
+      const stored = await mockState.get<{
+        scope: { id: string; type: string };
+        url: string;
+      }>(`chat:callback:${decoded.callbackToken}`);
       expect(stored?.url).toBe("https://example.com/hook");
+      expect(stored?.scope).toEqual({
+        id: "slack:C123",
+        type: "channel",
+      });
     });
 
     it("should encode callbackUrl when posting via postEphemeral", async () => {
@@ -1318,6 +1323,38 @@ describe("thread.messages (newest first)", () => {
         `chat:callback:${callbackToken}`
       );
       expect(stored?.url).toBe("https://example.com/eph");
+    });
+
+    it("should bind fallback DM callbacks to the DM channel", async () => {
+      mockAdapter.postEphemeral = undefined;
+
+      await channel.postEphemeral(
+        "U1",
+        Card({
+          children: [
+            Actions([
+              Button({
+                id: "ack",
+                label: "Ack",
+                callbackUrl: "https://example.com/dm",
+              }),
+            ]),
+          ],
+        }),
+        { fallbackToDM: true }
+      );
+
+      const sentCard = (mockAdapter.postMessage as ReturnType<typeof vi.fn>)
+        .mock.calls[0][1];
+      const button = sentCard.children[0].children[0];
+      const { callbackToken } = decodeCallbackValue(button.value);
+      const stored = await mockState.get<{
+        scope: { id: string; type: string };
+      }>(`chat:callback:${callbackToken}`);
+      expect(stored?.scope).toEqual({
+        id: "slack:DU1",
+        type: "channel",
+      });
     });
 
     it("should encode callbackUrl when scheduling", async () => {

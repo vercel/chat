@@ -359,9 +359,8 @@ export class ChannelImpl<TState = Record<string, unknown>>
       postable = message as AdapterPostableMessage;
     }
 
-    postable = await this.processCallbackUrls(postable);
-
     if (this.adapter.postEphemeral) {
+      postable = await this.processCallbackUrls(postable);
       return this.adapter.postEphemeral(this.id, userId, postable);
     }
 
@@ -371,6 +370,10 @@ export class ChannelImpl<TState = Record<string, unknown>>
 
     if (this.adapter.openDM) {
       const dmThreadId = await this.adapter.openDM(userId);
+      postable = await this.processCallbackUrls(postable, {
+        id: this.adapter.channelIdFromThreadId(dmThreadId),
+        type: "channel",
+      });
       const result = await this.adapter.postMessage(dmThreadId, postable);
       return {
         id: result.id,
@@ -411,20 +414,25 @@ export class ChannelImpl<TState = Record<string, unknown>>
   }
 
   private async processCallbackUrls(
-    postable: string | AdapterPostableMessage
+    postable: string | AdapterPostableMessage,
+    scope: { id: string; type: "channel" | "thread" } = {
+      id: this.id,
+      type: "channel",
+    }
   ): Promise<string | AdapterPostableMessage> {
     if (typeof postable === "string") {
       return postable;
     }
 
     if ("type" in postable && postable.type === "card") {
-      return processCardCallbackUrls(postable, this._stateAdapter);
+      return processCardCallbackUrls(postable, this._stateAdapter, scope);
     }
 
     if ("card" in postable && postable.card?.type === "card") {
       const processed = await processCardCallbackUrls(
         postable.card,
-        this._stateAdapter
+        this._stateAdapter,
+        scope
       );
       if (processed !== postable.card) {
         return { ...postable, card: processed };
@@ -525,7 +533,10 @@ export class ChannelImpl<TState = Record<string, unknown>>
           }
           editPostable = card;
         }
-        editPostable = await self.processCallbackUrls(editPostable);
+        editPostable = await self.processCallbackUrls(editPostable, {
+          id: threadId,
+          type: "thread",
+        });
         await adapter.editMessage(threadId, messageId, editPostable);
         return self.createSentMessage(messageId, editPostable, threadId);
       },
