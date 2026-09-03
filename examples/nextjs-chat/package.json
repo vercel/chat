@@ -6,6 +6,7 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
+    "test": "vitest run",
     "typecheck": "tsc --noEmit",
     "recording:list": "tsx src/lib/recorder.ts --list",
     "recording:export": "tsx src/lib/recorder.ts"
@@ -45,6 +46,7 @@
     "dotenv": "^17.2.3",
     "postcss": "^8.5.26",
     "tsx": "^4.21.0",
-    "typescript": "^5.7.2"
+    "typescript": "^5.7.2",
+    "vitest": "^4.0.18"
   }
 }

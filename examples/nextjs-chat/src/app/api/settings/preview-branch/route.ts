@@ -1,5 +1,5 @@
-import { timingSafeEqual } from "node:crypto";
 import { createClient } from "redis";
+import { authorizePreviewBranchRequest } from "@/lib/authorization";
 import {
   PREVIEW_BRANCH_KEY,
   parseAllowedPreviewBranchUrl,
@@ -33,33 +33,8 @@ async function getRedisClient() {
   return redisClient;
 }
 
-function authorize(request: Request): Response | null {
-  const secret = process.env.PREVIEW_BRANCH_SECRET;
-  if (!secret) {
-    return Response.json(
-      { error: "PREVIEW_BRANCH_SECRET is not configured" },
-      { status: 503 }
-    );
-  }
-
-  const authorization = request.headers.get("authorization");
-  const provided = authorization?.startsWith("Bearer ")
-    ? authorization.slice("Bearer ".length)
-    : "";
-  const expectedBytes = Buffer.from(secret);
-  const providedBytes = Buffer.from(provided);
-  if (
-    expectedBytes.length !== providedBytes.length ||
-    !timingSafeEqual(expectedBytes, providedBytes)
-  ) {
-    return Response.json({ error: "Unauthorized" }, { status: 401 });
-  }
-
-  return null;
-}
-
 export async function GET(request: Request): Promise<Response> {
-  const unauthorized = authorize(request);
+  const unauthorized = authorizePreviewBranchRequest(request);
   if (unauthorized) {
     return unauthorized;
   }
@@ -79,7 +54,7 @@ export async function GET(request: Request): Promise<Response> {
 }
 
 export async function POST(request: Request): Promise<Response> {
-  const unauthorized = authorize(request);
+  const unauthorized = authorizePreviewBranchRequest(request);
   if (unauthorized) {
     return unauthorized;
   }
