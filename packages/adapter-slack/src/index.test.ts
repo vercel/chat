@@ -7135,10 +7135,7 @@ describe("resolveInlineMentions", () => {
         callback: () => Promise<T>
       ): Promise<T>;
     };
-    resolveInlineMentions(
-      text: string,
-      skipSelfMention: boolean
-    ): Promise<string>;
+    resolveInlineMentions(text: string): Promise<string>;
   }
 
   it("resolves user mentions in incoming messages via webhook", async () => {
@@ -7200,7 +7197,7 @@ describe("resolveInlineMentions", () => {
     expect(message.text).toContain("@John");
   });
 
-  it("skips self-mention resolution in incoming webhooks", async () => {
+  it("resolves the bot's own mention and flags it in incoming webhooks", async () => {
     const state = createMockState();
     const chatInstance = createMockChatInstance({ state });
     chatInstance.processMessage = vi.fn();
@@ -7212,11 +7209,13 @@ describe("resolveInlineMentions", () => {
       botUserId: "U_BOT",
     });
 
-    // users.info should NOT be called for the bot's own mention
-    const usersInfoMock = vi.fn().mockResolvedValue({
+    const usersInfoMock = vi.fn().mockImplementation(async (_id: string) => ({
       ok: true,
-      user: { name: "sender", profile: { display_name: "Sender" } },
-    });
+      user: {
+        name: "user",
+        profile: { display_name: "Test User", real_name: "Test User" },
+      },
+    }));
     mockClientMethod(adapter, "users.info", usersInfoMock);
 
     await adapter.initialize(chatInstance);
@@ -7239,11 +7238,14 @@ describe("resolveInlineMentions", () => {
       .mock.calls[0][2];
     const message = await factory();
 
-    // Bot mention should NOT be resolved (kept as-is for mention detection)
-    expect(message.text).toContain("@U_BOT");
+    // The bot's own mention is decoded to its display name like any other
+    // mention, and the message is flagged as a mention from the raw event
+    // text (the ID markup no longer exists after resolution).
+    expect(message.text).toBe("@Test User help me");
+    expect(message.isMention).toBe(true);
   });
 
-  it("skips request-scoped self mention resolution in multi-workspace mode", async () => {
+  it("resolves request-scoped self mention in multi-workspace mode", async () => {
     const state = createMockState();
     const chatInstance = createMockChatInstance({ state });
     const adapter = createSlackAdapter({
@@ -7271,11 +7273,10 @@ describe("resolveInlineMentions", () => {
         token: "xoxb-multi-token",
         botUserId: "U_BOT_MULTI",
       },
-      () => mentionAdapter.resolveInlineMentions("<@U_BOT_MULTI> help me", true)
+      () => mentionAdapter.resolveInlineMentions("<@U_BOT_MULTI> help me")
     );
 
-    expect(result).toBe("<@U_BOT_MULTI> help me");
-    expect(usersInfoMock).not.toHaveBeenCalled();
+    expect(result).toBe("<@U_BOT_MULTI|Workspace Bot> help me");
   });
 
   it("resolves bare channel mentions in incoming messages", async () => {

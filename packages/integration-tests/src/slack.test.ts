@@ -111,7 +111,7 @@ describe("Slack Integration", () => {
 
       expect(handlerMock).toHaveBeenCalledWith(
         TEST_THREAD_ID,
-        `@${SLACK_BOT_USER_ID} hello bot!`
+        "@Test User hello bot!"
       );
 
       expect(mockClient.chat.postMessage).toHaveBeenCalledWith(
@@ -550,9 +550,7 @@ describe("Slack Integration", () => {
       });
       await tracker.waitForAll();
 
-      expect(conversationLog).toContain(
-        `mention: @${SLACK_BOT_USER_ID} hey bot!`
-      );
+      expect(conversationLog).toContain("mention: @Test User hey bot!");
       expect(mockClient.chat.postMessage).toHaveBeenCalledWith(
         expect.objectContaining({
           text: "Hi! I'm now listening to this thread. How can I help?",
@@ -721,12 +719,12 @@ describe("Slack Integration", () => {
 
       // Verify thread isolation
       expect(threadResponses[thread1Id]).toEqual([
-        `@${SLACK_BOT_USER_ID} Thread 1 start`,
+        "@Test User Thread 1 start",
         "Thread 1 message",
       ]);
 
       expect(threadResponses[thread2Id]).toEqual([
-        `@${SLACK_BOT_USER_ID} Thread 2 start`,
+        "@Test User Thread 2 start",
         "Thread 2 message",
       ]);
     });

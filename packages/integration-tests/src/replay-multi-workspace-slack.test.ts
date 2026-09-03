@@ -112,7 +112,7 @@ describe("Slack Multi-Workspace Replay Tests", () => {
     );
   });
 
-  it("should skip bot self lookup for plain message mentions in multi-workspace installs", async () => {
+  it("should resolve and detect bot self mentions in plain message events in multi-workspace installs", async () => {
     mockClient.users.info.mockImplementation(async ({ user }) => {
       if (user === team1.mention.event.user) {
         return {
@@ -177,11 +177,9 @@ describe("Slack Multi-Workspace Replay Tests", () => {
     await tracker.waitForAll();
 
     expect(capturedMention).not.toBeNull();
+    expect(capturedMention?.message.isMention).toBe(true);
     expect(capturedMention?.message.text).toBe(
-      `@${team1.botUserId} hello from a plain message`
-    );
-    expect(mockClient.users.info).not.toHaveBeenCalledWith(
-      expect.objectContaining({ user: team1.botUserId })
+      "@Workspace Bot hello from a plain message"
     );
     expect(mockClient.chat.postMessage).toHaveBeenCalledWith(
       expect.objectContaining({
