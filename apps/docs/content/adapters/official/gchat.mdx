@@ -151,6 +151,8 @@ One of `googleChatProjectNumber`, `endpointUrl`, `pubsubAudience`, or `disableSi
 
 Set `botUserId` (or `GOOGLE_CHAT_BOT_USER_ID`) to the canonical `sender.name` from a verified message authored by your Chat app, such as `users/123456789`. The adapter never learns this identity from inbound mentions. When it is omitted, all `BOT` senders are conservatively treated as self to prevent reply loops.
 
+Apps upgrading from an earlier release that rely on mention handlers must configure `botUserId` to preserve mention handling. Without it, bot mention annotations are left unchanged and the default `onNewMention` detection may no longer match them.
+
 ## Authentication
 
 ### 1. Create a GCP project

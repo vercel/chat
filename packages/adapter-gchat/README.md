@@ -195,6 +195,8 @@ Most options are auto-detected from environment variables when not provided.
 
 Use the canonical `sender.name` from a verified message authored by your Chat app for `botUserId`. The adapter does not learn its identity from inbound mentions. Without this value it conservatively treats every `BOT` sender as self to prevent reply loops.
 
+Apps upgrading from an earlier release that rely on mention handlers must configure `botUserId` to preserve mention handling. Without it, bot mention annotations are left unchanged and the default `onNewMention` detection may no longer match them.
+
 †One of `googleChatProjectNumber`, `endpointUrl`, `pubsubAudience`, or `disableSignatureVerification: true` is required — the constructor throws otherwise. Configure the verifier(s) for each transport you actually receive; requests of a shape whose verifier is unconfigured are rejected with HTTP 401.
 
 §Required alongside `pubsubAudience`. The audience is your public push endpoint, so anyone can have Google mint a validly signed token naming it from their own project. Only the `email` claim identifies the caller, which is why [Google requires checking it](https://docs.cloud.google.com/pubsub/docs/authenticate-push-subscriptions) in addition to `aud`. Without it, Pub/Sub pushes are rejected with HTTP 401 rather than trusted on their audience alone.
