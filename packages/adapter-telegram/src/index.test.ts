@@ -31,6 +31,7 @@ import {
 } from "./markdown";
 
 const mockFetch = vi.fn<typeof fetch>();
+const BUSINESS_REACTION_ERROR = /business account/;
 process.env.TELEGRAM_ALLOW_UNVERIFIED_WEBHOOKS = "true";
 const SERVERLESS_ENV_KEYS = [
   "VERCEL",
@@ -7143,7 +7144,7 @@ describe("Telegram Business mode", () => {
     expect(chat.processMessage).toHaveBeenCalledTimes(1);
   });
 
-  it("omits business_connection_id on deleteMessage for business threads", async () => {
+  it("deletes business messages through deleteBusinessMessages", async () => {
     mockFetch
       .mockResolvedValueOnce(
         telegramOk({
@@ -7165,16 +7166,545 @@ describe("Telegram Business mode", () => {
 
     await adapter.deleteMessage("telegram:biz:conn-abc:456", "456:77");
 
-    const deleteMessageBody = JSON.parse(
+    expect(telegramMethods()).toEqual(["getMe", "deleteBusinessMessages"]);
+    const body = JSON.parse(
       String((mockFetch.mock.calls[1]?.[1] as RequestInit).body)
     ) as {
       business_connection_id?: string;
-      chat_id: string;
-      message_id: number;
+      chat_id?: string;
+      message_ids?: number[];
     };
-    expect(deleteMessageBody.chat_id).toBe("456");
-    expect(deleteMessageBody.message_id).toBe(77);
-    expect(deleteMessageBody.business_connection_id).toBeUndefined();
+    expect(body.business_connection_id).toBe("conn-abc");
+    expect(body.message_ids).toEqual([77]);
+    expect(body.chat_id).toBeUndefined();
+  });
+
+  it("rejects reactions on business threads with a descriptive error", async () => {
+    mockFetch.mockResolvedValueOnce(
+      telegramOk({
+        id: 999,
+        is_bot: true,
+        first_name: "Bot",
+        username: "mybot",
+      })
+    );
+
+    const adapter = createTelegramAdapter({
+      botToken: "token",
+      mode: "webhook",
+      logger: mockLogger,
+      userName: "mybot",
+    });
+    await adapter.initialize(createMockChat());
+
+    await expect(
+      adapter.addReaction("telegram:biz:conn-abc:456", "456:77", "thumbs_up")
+    ).rejects.toThrow(BUSINESS_REACTION_ERROR);
+    await expect(
+      adapter.removeReaction("telegram:biz:conn-abc:456", "456:77", "thumbs_up")
+    ).rejects.toThrow(BUSINESS_REACTION_ERROR);
+    expect(telegramMethods()).toEqual(["getMe"]);
+  });
+
+  it("keeps business threads as their own channel", () => {
+    const adapter = createTelegramAdapter({
+      botToken: "token",
+      mode: "webhook",
+      logger: mockLogger,
+      userName: "mybot",
+    });
+
+    expect(adapter.channelIdFromThreadId("telegram:biz:conn-abc:456")).toBe(
+      "telegram:biz:conn-abc:456"
+    );
+    expect(adapter.channelIdFromThreadId("telegram:456")).toBe("telegram:456");
+    expect(adapter.channelIdFromThreadId("telegram:-100123:42")).toBe(
+      "telegram:-100123"
+    );
+  });
+
+  it("routes callback queries from business chats to the business thread", async () => {
+    mockFetch
+      .mockResolvedValueOnce(
+        telegramOk({
+          id: 999,
+          is_bot: true,
+          first_name: "Bot",
+          username: "mybot",
+        })
+      )
+      .mockResolvedValue(telegramOk(true));
+
+    const adapter = createTelegramAdapter({
+      allowUnverifiedWebhooks: true,
+      botToken: "token",
+      businessMode: true,
+      mode: "webhook",
+      logger: mockLogger,
+      userName: "mybot",
+    });
+    const chat = createMockChat();
+    await adapter.initialize(chat);
+
+    await adapter.handleWebhook(
+      new Request("https://example.com/webhooks/telegram", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          update_id: 1,
+          callback_query: {
+            id: "callback-1",
+            from: {
+              id: 456,
+              is_bot: false,
+              first_name: "Customer",
+              username: "customer",
+            },
+            message: sampleBusinessMessage({ message_id: 77 }),
+            chat_instance: "ci_1",
+            data: encodeTelegramCallbackData("approve", "order-1"),
+          },
+        }),
+      })
+    );
+
+    const processAction = chat.processAction as ReturnType<typeof vi.fn>;
+    expect(processAction).toHaveBeenCalledTimes(1);
+    const [event] = processAction.mock.calls[0] as [
+      { messageId: string; threadId: string },
+    ];
+    expect(event.threadId).toBe("telegram:biz:conn-abc:456");
+    expect(event.messageId).toBe("456:77");
+  });
+
+  it("caches business_connection updates even when the owner is not in allowedUserIds", async () => {
+    mockFetch
+      .mockResolvedValueOnce(
+        telegramOk({
+          id: 999,
+          is_bot: true,
+          first_name: "Bot",
+          username: "mybot",
+        })
+      )
+      .mockResolvedValue(telegramOk(true));
+
+    const state = createMockState();
+    const adapter = createTelegramAdapter({
+      allowUnverifiedWebhooks: true,
+      allowedUserIds: [456],
+      botToken: "token",
+      businessMode: true,
+      mode: "webhook",
+      logger: mockLogger,
+      userName: "mybot",
+    });
+    const chat = createMockChatInstance({
+      logger: mockLogger,
+      state,
+      userName: "mybot",
+    });
+    await adapter.initialize(chat);
+
+    const pendingTasks: Promise<unknown>[] = [];
+    const waitUntil = (task: Promise<unknown>) => {
+      pendingTasks.push(task);
+    };
+
+    // The owner (111) revokes can_reply. The update has no customer user id.
+    await adapter.handleWebhook(
+      new Request("https://example.com/webhooks/telegram", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          update_id: 1,
+          business_connection: {
+            ...sampleBusinessConnection,
+            rights: { can_reply: false },
+          },
+        }),
+      }),
+      { waitUntil }
+    );
+    await Promise.all(pendingTasks);
+
+    expect(
+      await state.get("telegram:business-connection:conn-abc")
+    ).toMatchObject({ id: "conn-abc", rights: { can_reply: false } });
+
+    // The next customer message honours the revocation without refetching.
+    await adapter.handleWebhook(
+      new Request("https://example.com/webhooks/telegram", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          update_id: 2,
+          business_message: sampleBusinessMessage(),
+        }),
+      }),
+      { waitUntil }
+    );
+    await Promise.all(pendingTasks);
+
+    expect(chat.processMessage).not.toHaveBeenCalled();
+    expect(telegramMethods()).toEqual(["getMe"]);
+    expect(mockLogger.debug).toHaveBeenCalledWith(
+      "Ignoring Telegram business message: connection cannot reply",
+      expect.objectContaining({ connectionId: "conn-abc", canReply: false })
+    );
+  });
+
+  it("shares the business connection cache across adapter instances via state", async () => {
+    mockFetch
+      .mockResolvedValueOnce(
+        telegramOk({
+          id: 999,
+          is_bot: true,
+          first_name: "Bot",
+          username: "mybot",
+        })
+      )
+      .mockResolvedValueOnce(
+        telegramOk({
+          id: 999,
+          is_bot: true,
+          first_name: "Bot",
+          username: "mybot",
+        })
+      )
+      .mockResolvedValue(telegramOk(true));
+
+    const state = createMockState();
+    const config = {
+      allowUnverifiedWebhooks: true,
+      botToken: "token",
+      businessMode: true,
+      mode: "webhook" as const,
+      logger: mockLogger,
+      userName: "mybot",
+    };
+    const instanceA = createTelegramAdapter(config);
+    const instanceB = createTelegramAdapter(config);
+    const chatA = createMockChatInstance({ logger: mockLogger, state });
+    const chatB = createMockChatInstance({ logger: mockLogger, state });
+    await instanceA.initialize(chatA);
+    await instanceB.initialize(chatB);
+
+    const pendingTasks: Promise<unknown>[] = [];
+    const waitUntil = (task: Promise<unknown>) => {
+      pendingTasks.push(task);
+    };
+
+    await instanceA.handleWebhook(
+      new Request("https://example.com/webhooks/telegram", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          update_id: 1,
+          business_connection: sampleBusinessConnection,
+        }),
+      }),
+      { waitUntil }
+    );
+    await instanceB.handleWebhook(
+      new Request("https://example.com/webhooks/telegram", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          update_id: 2,
+          business_message: sampleBusinessMessage(),
+        }),
+      }),
+      { waitUntil }
+    );
+    await Promise.all(pendingTasks);
+
+    expect(chatB.processMessage).toHaveBeenCalledTimes(1);
+    expect(telegramMethods()).not.toContain("getBusinessConnection");
+  });
+
+  it("fetches the connection once and caches it when no update was seen", async () => {
+    mockFetch
+      .mockResolvedValueOnce(
+        telegramOk({
+          id: 999,
+          is_bot: true,
+          first_name: "Bot",
+          username: "mybot",
+        })
+      )
+      .mockResolvedValueOnce(telegramOk(sampleBusinessConnection))
+      .mockResolvedValue(telegramOk(true));
+
+    const adapter = createTelegramAdapter({
+      allowUnverifiedWebhooks: true,
+      botToken: "token",
+      businessMode: true,
+      mode: "webhook",
+      logger: mockLogger,
+      userName: "mybot",
+    });
+    const chat = createMockChat();
+    await adapter.initialize(chat);
+
+    const pendingTasks: Promise<unknown>[] = [];
+    const waitUntil = (task: Promise<unknown>) => {
+      pendingTasks.push(task);
+    };
+    for (const updateId of [1, 2]) {
+      await adapter.handleWebhook(
+        new Request("https://example.com/webhooks/telegram", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            update_id: updateId,
+            business_message: sampleBusinessMessage({ message_id: updateId }),
+          }),
+        }),
+        { waitUntil }
+      );
+      // Let the first message finish populating the cache before the next.
+      await Promise.all(pendingTasks);
+    }
+
+    expect(chat.processMessage).toHaveBeenCalledTimes(2);
+    expect(
+      telegramMethods().filter((method) => method === "getBusinessConnection")
+    ).toHaveLength(1);
+  });
+
+  it("routes slash commands from business chats to processSlashCommand", async () => {
+    mockFetch
+      .mockResolvedValueOnce(
+        telegramOk({
+          id: 999,
+          is_bot: true,
+          first_name: "Bot",
+          username: "mybot",
+        })
+      )
+      .mockResolvedValue(telegramOk(true));
+
+    const adapter = createTelegramAdapter({
+      allowUnverifiedWebhooks: true,
+      botToken: "token",
+      businessMode: true,
+      mode: "webhook",
+      logger: mockLogger,
+      userName: "mybot",
+    });
+    const chat = createMockChat();
+    await adapter.initialize(chat);
+
+    const pendingTasks: Promise<unknown>[] = [];
+    await adapter.handleWebhook(
+      new Request("https://example.com/webhooks/telegram", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          update_id: 1,
+          business_connection: sampleBusinessConnection,
+          business_message: sampleBusinessMessage({
+            text: "/help orders",
+            entities: [{ type: "bot_command", offset: 0, length: 5 }],
+          }),
+        }),
+      }),
+      {
+        waitUntil: (task: Promise<unknown>) => {
+          pendingTasks.push(task);
+        },
+      }
+    );
+    await Promise.all(pendingTasks);
+
+    expect(chat.processMessage).not.toHaveBeenCalled();
+    const processSlashCommand = chat.processSlashCommand as ReturnType<
+      typeof vi.fn
+    >;
+    expect(processSlashCommand).toHaveBeenCalledTimes(1);
+    const [event] = processSlashCommand.mock.calls[0] as [
+      { channelId: string; command: string; text: string },
+    ];
+    expect(event.channelId).toBe("telegram:biz:conn-abc:456");
+    expect(event.command).toBe("/help");
+    expect(event.text).toBe("orders");
+  });
+
+  it("skips outgoing business messages the bot sent on behalf of the account", async () => {
+    mockFetch
+      .mockResolvedValueOnce(
+        telegramOk({
+          id: 999,
+          is_bot: true,
+          first_name: "Bot",
+          username: "mybot",
+        })
+      )
+      .mockResolvedValue(telegramOk(true));
+
+    const adapter = createTelegramAdapter({
+      allowUnverifiedWebhooks: true,
+      botToken: "token",
+      businessMode: true,
+      mode: "webhook",
+      logger: mockLogger,
+      userName: "mybot",
+    });
+    const chat = createMockChat();
+    await adapter.initialize(chat);
+
+    const pendingTasks: Promise<unknown>[] = [];
+    await adapter.handleWebhook(
+      new Request("https://example.com/webhooks/telegram", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          update_id: 1,
+          business_connection: sampleBusinessConnection,
+          business_message: sampleBusinessMessage({
+            from: sampleBusinessConnection.user,
+            sender_business_bot: {
+              id: 999,
+              is_bot: true,
+              first_name: "Bot",
+              username: "mybot",
+            },
+            text: "Thanks, looking into it",
+          }),
+        }),
+      }),
+      {
+        waitUntil: (task: Promise<unknown>) => {
+          pendingTasks.push(task);
+        },
+      }
+    );
+    await Promise.all(pendingTasks);
+
+    expect(chat.processMessage).not.toHaveBeenCalled();
+  });
+
+  it("attributes sender_business_bot messages to the bot", async () => {
+    class ParsingAdapter extends TelegramAdapter {
+      parse(message: TelegramMessage, threadId: string) {
+        return this.parseTelegramMessage(message, threadId);
+      }
+    }
+
+    mockFetch.mockResolvedValueOnce(
+      telegramOk({
+        id: 999,
+        is_bot: true,
+        first_name: "Bot",
+        username: "mybot",
+      })
+    );
+    const adapter = new ParsingAdapter({
+      botToken: "token",
+      mode: "webhook",
+      logger: mockLogger,
+      userName: "mybot",
+    });
+    await adapter.initialize(createMockChat());
+
+    const parsed = adapter.parse(
+      sampleBusinessMessage({
+        from: sampleBusinessConnection.user,
+        sender_business_bot: {
+          id: 999,
+          is_bot: true,
+          first_name: "Bot",
+          username: "mybot",
+        },
+      }),
+      "telegram:biz:conn-abc:456"
+    );
+
+    expect(parsed.author.isMe).toBe(true);
+    expect(parsed.author.isBot).toBe(true);
+    expect(parsed.author.userId).toBe("999");
+  });
+
+  it("returns business thread info with the connection id and a cached chat fallback", async () => {
+    mockFetch
+      .mockResolvedValueOnce(
+        telegramOk({
+          id: 999,
+          is_bot: true,
+          first_name: "Bot",
+          username: "mybot",
+        })
+      )
+      .mockResolvedValueOnce(telegramOk(sampleBusinessConnection))
+      .mockResolvedValueOnce(
+        telegramError(400, 400, "Bad Request: chat not found")
+      );
+
+    const adapter = createTelegramAdapter({
+      allowUnverifiedWebhooks: true,
+      botToken: "token",
+      businessMode: true,
+      mode: "webhook",
+      logger: mockLogger,
+      userName: "mybot",
+    });
+    const chat = createMockChat();
+    await adapter.initialize(chat);
+
+    const pendingTasks: Promise<unknown>[] = [];
+    await adapter.handleWebhook(
+      new Request("https://example.com/webhooks/telegram", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          update_id: 1,
+          business_message: sampleBusinessMessage(),
+        }),
+      }),
+      {
+        waitUntil: (task: Promise<unknown>) => {
+          pendingTasks.push(task);
+        },
+      }
+    );
+    await Promise.all(pendingTasks);
+
+    const thread = await adapter.fetchThread("telegram:biz:conn-abc:456");
+
+    expect(thread.id).toBe("telegram:biz:conn-abc:456");
+    expect(thread.channelId).toBe("456");
+    expect(thread.channelName).toBe("Customer");
+    expect(thread.isDM).toBe(true);
+    expect(thread.metadata.businessConnectionId).toBe("conn-abc");
+  });
+
+  it("sends an explicit allowed_updates list for polling in business mode", () => {
+    class PollingTestAdapter extends TelegramAdapter {
+      resolvePolling(
+        override?: Parameters<TelegramAdapter["startPolling"]>[0]
+      ) {
+        return this.resolvePollingConfig(override);
+      }
+    }
+
+    const pollingAdapter = new PollingTestAdapter({
+      botToken: "token",
+      businessMode: true,
+      mode: "polling",
+      logger: mockLogger,
+    });
+
+    expect(pollingAdapter.resolvePolling()?.allowedUpdates).toEqual([
+      "message",
+      "edited_message",
+      "channel_post",
+      "edited_channel_post",
+      "callback_query",
+      "business_connection",
+      "business_message",
+      "edited_business_message",
+    ]);
   });
 
   it("merges business update types into custom polling allowedUpdates", () => {

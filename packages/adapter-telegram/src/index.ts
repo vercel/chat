@@ -194,6 +194,24 @@ const TELEGRAM_BUSINESS_ALLOWED_UPDATES = [
   "business_message",
   "edited_business_message",
 ] as const;
+/**
+ * Update types the adapter routes that Telegram also delivers by default.
+ * `message_reaction` is deliberately absent: Telegram excludes it unless a
+ * caller opts in, and Business mode should not change that.
+ */
+const TELEGRAM_DEFAULT_ALLOWED_UPDATES = [
+  "message",
+  "edited_message",
+  "channel_post",
+  "edited_channel_post",
+  "callback_query",
+] as const;
+/**
+ * How long a `BusinessConnection` stays cached in shared state. Telegram
+ * pushes a `business_connection` update whenever rights change, which
+ * overwrites the entry; the TTL only bounds staleness if that update is lost.
+ */
+const TELEGRAM_BUSINESS_CONNECTION_TTL_MS = 60 * 60 * 1000;
 
 function normalizeBotTokenProvider(
   botToken: string | (() => string | Promise<string>)
@@ -457,10 +475,6 @@ export class TelegramAdapter
   protected readonly streamingEditIntervalMs?: number;
   protected readonly longPolling?: TelegramLongPollingConfig;
   protected readonly businessMode: boolean;
-  private readonly businessConnectionCache = new Map<
-    string,
-    TelegramBusinessConnection
-  >();
   private _runtimeMode: TelegramRuntimeMode = "webhook";
   private pollingAbortController: AbortController | null = null;
   private pollingTask: Promise<void> | null = null;
@@ -895,6 +909,20 @@ export class TelegramAdapter
     update: TelegramUpdate,
     options?: WebhookOptions
   ): void {
+    // Connection state is recorded before the allowlist gate: a
+    // `business_connection` update carries no customer user id, and dropping
+    // it would leave a revoked connection looking usable.
+    if (this.businessMode && update.business_connection) {
+      const connection = update.business_connection;
+      const task = this.cacheBusinessConnection(connection).catch((error) => {
+        this.logger.warn("Failed to cache Telegram business connection", {
+          error: String(error),
+          connectionId: connection.id,
+        });
+      });
+      options?.waitUntil?.(task);
+    }
+
     const messageUpdate =
       update.message ??
       update.edited_message ??
@@ -918,7 +946,14 @@ export class TelegramAdapter
     const handledSlashCommand =
       update.message !== undefined &&
       !update.message.media_group_id &&
-      this.handleSlashCommandUpdate(update.message, options);
+      this.handleSlashCommandUpdate(
+        update.message,
+        this.encodeThreadId({
+          chatId: String(update.message.chat.id),
+          messageThreadId: update.message.message_thread_id,
+        }),
+        options
+      );
 
     if (messageUpdate && !handledSlashCommand) {
       this.handleIncomingMessageUpdate(messageUpdate, options);
@@ -932,39 +967,51 @@ export class TelegramAdapter
       this.handleMessageReactionUpdate(update.message_reaction, options);
     }
 
-    if (this.businessMode) {
-      if (update.business_connection) {
-        this.cacheBusinessConnection(update.business_connection);
-      }
-
-      const businessMessage =
-        update.business_message ?? update.edited_business_message;
-      if (businessMessage) {
-        const task = this.handleBusinessMessageUpdate(
-          businessMessage,
-          businessMessage.business_connection_id,
-          options
-        ).catch((error) => {
-          this.logger.warn("Failed to process Telegram business message", {
-            error: String(error),
-            connectionId: businessMessage.business_connection_id,
-          });
+    if (this.businessMode && businessMessageUpdate) {
+      const task = this.handleBusinessMessageUpdate(
+        businessMessageUpdate,
+        { isEdit: update.business_message === undefined },
+        options
+      ).catch((error) => {
+        this.logger.warn("Failed to process Telegram business message", {
+          error: String(error),
+          connectionId: businessMessageUpdate.business_connection_id,
         });
-        options?.waitUntil?.(task);
-      }
+      });
+      options?.waitUntil?.(task);
     }
   }
 
-  protected cacheBusinessConnection(
+  protected businessConnectionCacheKey(connectionId: string): string {
+    return `${this.name}:business-connection:${connectionId}`;
+  }
+
+  /**
+   * Business connections live in shared state rather than a per-instance map
+   * so a rights change that reaches one serverless instance is visible to all
+   * of them on the next message.
+   */
+  protected async cacheBusinessConnection(
     connection: TelegramBusinessConnection
-  ): void {
-    this.businessConnectionCache.set(connection.id, connection);
+  ): Promise<void> {
+    if (!this.chat) {
+      return;
+    }
+    await this.chat
+      .getState()
+      .set(
+        this.businessConnectionCacheKey(connection.id),
+        connection,
+        TELEGRAM_BUSINESS_CONNECTION_TTL_MS
+      );
   }
 
   protected async resolveBusinessConnection(
     connectionId: string
   ): Promise<TelegramBusinessConnection> {
-    const cached = this.businessConnectionCache.get(connectionId);
+    const state = this.chat?.getState();
+    const key = this.businessConnectionCacheKey(connectionId);
+    const cached = await state?.get<TelegramBusinessConnection>(key);
     if (cached) {
       return cached;
     }
@@ -975,53 +1022,84 @@ export class TelegramAdapter
         business_connection_id: connectionId,
       }
     );
-    this.businessConnectionCache.set(connectionId, connection);
+    await state?.set(key, connection, TELEGRAM_BUSINESS_CONNECTION_TTL_MS);
     return connection;
   }
 
   protected isBusinessConnectionUsable(
     connection: TelegramBusinessConnection
   ): boolean {
-    return (
-      connection.is_enabled && (connection.rights?.can_reply ?? false)
-    );
+    return connection.is_enabled && (connection.rights?.can_reply ?? false);
   }
 
   protected async handleBusinessMessageUpdate(
     telegramMessage: TelegramMessage,
-    connectionId: string | undefined,
+    routing: { isEdit: boolean },
     options?: WebhookOptions
   ): Promise<void> {
     if (!this.chat) {
       return;
     }
 
-    const resolvedConnectionId =
-      connectionId ?? telegramMessage.business_connection_id;
-    if (!resolvedConnectionId) {
+    const connectionId = telegramMessage.business_connection_id;
+    if (!connectionId) {
       this.logger.warn("Telegram business message missing connection id", {
         messageId: telegramMessage.message_id,
       });
       return;
     }
 
-    const connection =
-      await this.resolveBusinessConnection(resolvedConnectionId);
+    const connection = await this.resolveBusinessConnection(connectionId);
     if (!this.isBusinessConnectionUsable(connection)) {
+      this.logger.debug(
+        "Ignoring Telegram business message: connection cannot reply",
+        {
+          connectionId,
+          isEnabled: connection.is_enabled,
+          canReply: connection.rights?.can_reply ?? false,
+        }
+      );
       return;
     }
 
+    // Telegram echoes outgoing business messages back as `business_message`:
+    // both the ones this bot sent on the account's behalf (`sender_business_bot`)
+    // and the ones the owner typed themselves. Neither is customer input.
+    if (telegramMessage.sender_business_bot) {
+      return;
+    }
     if (telegramMessage.from?.id === connection.user.id) {
+      this.logger.debug(
+        "Ignoring Telegram business message typed by the account owner",
+        { connectionId, messageId: telegramMessage.message_id }
+      );
       return;
     }
 
     const threadId = this.encodeThreadId({
       chatId: String(telegramMessage.chat.id),
-      businessConnectionId: resolvedConnectionId,
+      businessConnectionId: connectionId,
     });
 
     if (telegramMessage.media_group_id) {
-      await this.processIncomingMediaGroup(telegramMessage, threadId);
+      const task = this.processIncomingMediaGroup(
+        telegramMessage,
+        threadId
+      ).catch((error) => {
+        this.logger.warn("Failed to process incoming Telegram media group", {
+          error: String(error),
+          mediaGroupId: telegramMessage.media_group_id,
+          threadId,
+        });
+      });
+      options?.waitUntil?.(task);
+      return;
+    }
+
+    if (
+      !routing.isEdit &&
+      this.handleSlashCommandUpdate(telegramMessage, threadId, options)
+    ) {
       return;
     }
 
@@ -1030,12 +1108,8 @@ export class TelegramAdapter
     const parsedMessage = this.parseTelegramMessage(telegramMessage, threadId);
     this.cacheMessage(parsedMessage);
 
-    await this.chat.processMessage(
-      this,
-      threadId,
-      parsedMessage,
-      options
-    );
+    // Not awaited: processMessage logs and waitUntil-tracks its own failures.
+    this.chat.processMessage(this, threadId, parsedMessage, options);
   }
 
   protected handleIncomingMessageUpdate(
@@ -1173,6 +1247,7 @@ export class TelegramAdapter
 
   protected handleSlashCommandUpdate(
     telegramMessage: TelegramMessage,
+    threadId: string,
     options?: WebhookOptions
   ): boolean {
     if (!this.chat) {
@@ -1183,11 +1258,6 @@ export class TelegramAdapter
     if (!slashCommand) {
       return false;
     }
-
-    const threadId = this.encodeThreadId({
-      chatId: String(telegramMessage.chat.id),
-      messageThreadId: telegramMessage.message_thread_id,
-    });
 
     this.startTypingForPrivateMessage(telegramMessage, threadId, options);
 
@@ -1291,6 +1361,7 @@ export class TelegramAdapter
     const threadId = this.encodeThreadId({
       chatId: String(callbackQuery.message.chat.id),
       messageThreadId: callbackQuery.message.message_thread_id,
+      businessConnectionId: callbackQuery.message.business_connection_id,
     });
 
     const messageId = this.encodeMessageId(
@@ -1613,11 +1684,8 @@ export class TelegramAdapter
     message: AdapterPostableMessage
   ): Promise<RawMessage<TelegramRawMessage>> {
     const parsedThread = this.resolveThreadId(threadId);
-    const {
-      chatId,
-      messageId: telegramMessageId,
-      compositeId,
-    } = this.decodeCompositeMessageId(messageId, parsedThread.chatId);
+    const { messageId: telegramMessageId, compositeId } =
+      this.decodeCompositeMessageId(messageId, parsedThread.chatId);
 
     const card = extractCard(message);
     const replyMarkup = card ? cardToTelegramInlineKeyboard(card) : undefined;
@@ -1744,18 +1812,23 @@ export class TelegramAdapter
 
   async deleteMessage(threadId: string, messageId: string): Promise<void> {
     const parsedThread = this.resolveThreadId(threadId);
-    const {
-      chatId,
-      messageId: telegramMessageId,
-      compositeId,
-    } = this.decodeCompositeMessageId(messageId, parsedThread.chatId);
+    const { messageId: telegramMessageId, compositeId } =
+      this.decodeCompositeMessageId(messageId, parsedThread.chatId);
 
-    await this.telegramFetch<boolean>("deleteMessage", {
-      ...this.buildChatTargetParams(parsedThread, {
-        includeBusinessConnection: false,
-      }),
-      message_id: telegramMessageId,
-    });
+    if (parsedThread.businessConnectionId) {
+      // The bot is not a participant in the owner <-> customer chat, so the
+      // bot-scoped `deleteMessage` cannot address it. Requires the
+      // `can_delete_sent_messages` (or `can_delete_all_messages`) right.
+      await this.telegramFetch<boolean>("deleteBusinessMessages", {
+        business_connection_id: parsedThread.businessConnectionId,
+        message_ids: [telegramMessageId],
+      });
+    } else {
+      await this.telegramFetch<boolean>("deleteMessage", {
+        chat_id: parsedThread.chatId,
+        message_id: telegramMessageId,
+      });
+    }
 
     this.deleteCachedMessage(compositeId);
   }
@@ -1766,13 +1839,14 @@ export class TelegramAdapter
     emoji: EmojiValue | string
   ): Promise<void> {
     const parsedThread = this.resolveThreadId(threadId);
-    const { chatId, messageId: telegramMessageId } =
-      this.decodeCompositeMessageId(messageId, parsedThread.chatId);
+    this.assertReactionsSupported(parsedThread, "addReaction");
+    const { messageId: telegramMessageId } = this.decodeCompositeMessageId(
+      messageId,
+      parsedThread.chatId
+    );
 
     await this.telegramFetch<boolean>("setMessageReaction", {
-      ...this.buildChatTargetParams(parsedThread, {
-        includeBusinessConnection: false,
-      }),
+      chat_id: parsedThread.chatId,
       message_id: telegramMessageId,
       reaction: [this.toTelegramReaction(emoji)],
     });
@@ -1784,16 +1858,35 @@ export class TelegramAdapter
     _emoji: EmojiValue | string
   ): Promise<void> {
     const parsedThread = this.resolveThreadId(threadId);
-    const { chatId, messageId: telegramMessageId } =
-      this.decodeCompositeMessageId(messageId, parsedThread.chatId);
+    this.assertReactionsSupported(parsedThread, "removeReaction");
+    const { messageId: telegramMessageId } = this.decodeCompositeMessageId(
+      messageId,
+      parsedThread.chatId
+    );
 
     await this.telegramFetch<boolean>("setMessageReaction", {
-      ...this.buildChatTargetParams(parsedThread, {
-        includeBusinessConnection: false,
-      }),
+      chat_id: parsedThread.chatId,
       message_id: telegramMessageId,
       reaction: [],
     });
+  }
+
+  /**
+   * `setMessageReaction` has no `business_connection_id` parameter, and the
+   * bot cannot address a business chat by `chat_id` alone, so reactions on
+   * business threads fail with an opaque Telegram error. Surface that up
+   * front instead.
+   */
+  protected assertReactionsSupported(
+    thread: TelegramThreadId,
+    method: string
+  ): void {
+    if (thread.businessConnectionId) {
+      throw new NotImplementedError(
+        "Telegram Bot API does not support reactions on behalf of a business account",
+        method
+      );
+    }
   }
 
   async startTyping(threadId: string): Promise<void> {
@@ -2286,12 +2379,31 @@ export class TelegramAdapter
 
   async fetchThread(threadId: string): Promise<ThreadInfo> {
     const parsedThread = this.resolveThreadId(threadId);
+    const encodedThreadId = this.encodeThreadId(parsedThread);
+
+    if (parsedThread.businessConnectionId) {
+      // `getChat` has no business context and only resolves private chats
+      // the bot has met directly, so a business customer may be unknown to
+      // it. Fall back to the chat object from messages already seen.
+      const chat = await this.fetchBusinessChat(parsedThread, encodedThreadId);
+      return {
+        id: encodedThreadId,
+        channelId: parsedThread.chatId,
+        channelName: chat ? this.chatDisplayName(chat) : undefined,
+        isDM: true,
+        metadata: {
+          chat,
+          businessConnectionId: parsedThread.businessConnectionId,
+        },
+      };
+    }
+
     const chat = await this.telegramFetch<TelegramChat>("getChat", {
       chat_id: parsedThread.chatId,
     });
 
     return {
-      id: this.encodeThreadId(parsedThread),
+      id: encodedThreadId,
       channelId: String(chat.id),
       channelName: this.chatDisplayName(chat),
       isDM: chat.type === "private",
@@ -2300,6 +2412,27 @@ export class TelegramAdapter
         messageThreadId: parsedThread.messageThreadId,
       },
     };
+  }
+
+  protected async fetchBusinessChat(
+    thread: TelegramThreadId,
+    threadId: string
+  ): Promise<TelegramChat | undefined> {
+    const cachedChat = this.messageCache.get(threadId)?.at(-1)?.raw.chat;
+    try {
+      return await this.telegramFetch<TelegramChat>("getChat", {
+        chat_id: thread.chatId,
+      });
+    } catch (error) {
+      if (!cachedChat) {
+        throw error;
+      }
+      this.logger.debug(
+        "Telegram getChat failed for business thread, using cached chat",
+        { error: String(error), threadId }
+      );
+      return cachedChat;
+    }
   }
 
   async fetchChannelInfo(channelId: string): Promise<ChannelInfo> {
@@ -2329,7 +2462,14 @@ export class TelegramAdapter
   }
 
   channelIdFromThreadId(threadId: string): string {
-    const { chatId } = this.resolveThreadId(threadId);
+    const { chatId, businessConnectionId } = this.resolveThreadId(threadId);
+    // A business conversation is its own channel. Collapsing it to
+    // `telegram:{chatId}` would post channel-level messages without
+    // `business_connection_id` and share lock/history keys with the
+    // customer's direct chat with the bot, which Telegram keeps separate.
+    if (businessConnectionId) {
+      return this.encodeThreadId({ chatId, businessConnectionId });
+    }
     return `telegram:${chatId}`;
   }
 
@@ -2465,7 +2605,11 @@ export class TelegramAdapter
       : applyTelegramEntities(plainText, entities);
     let author: TelegramMessageAuthor;
 
-    if (raw.from) {
+    if (raw.sender_business_bot) {
+      // Outgoing business messages carry the owner in `from`; the bot that
+      // actually sent them is `sender_business_bot`, so `isMe` follows it.
+      author = this.toAuthor(raw.sender_business_bot);
+    } else if (raw.from) {
       author = this.toAuthor(raw.from);
     } else if (raw.sender_chat) {
       author = this.toReactionActorAuthor(raw.sender_chat);
@@ -3249,15 +3393,11 @@ export class TelegramAdapter
    * Bot API chat-target fields (`chat_id`, `message_thread_id`, and optionally
    * `business_connection_id`) derived from a decoded thread.
    */
-  protected buildChatTargetParams(
-    thread: TelegramThreadId,
-    options: { includeBusinessConnection?: boolean } = {}
-  ): {
+  protected buildChatTargetParams(thread: TelegramThreadId): {
     business_connection_id?: string;
     chat_id: string;
     message_thread_id?: number;
   } {
-    const includeBusinessConnection = options.includeBusinessConnection ?? true;
     const params: {
       business_connection_id?: string;
       chat_id: string;
@@ -3270,7 +3410,7 @@ export class TelegramAdapter
       params.message_thread_id = thread.messageThreadId;
     }
 
-    if (includeBusinessConnection && thread.businessConnectionId) {
+    if (thread.businessConnectionId) {
       params.business_connection_id = thread.businessConnectionId;
     }
 
@@ -3286,10 +3426,7 @@ export class TelegramAdapter
       formData.append("message_thread_id", String(thread.messageThreadId));
     }
     if (thread.businessConnectionId) {
-      formData.append(
-        "business_connection_id",
-        thread.businessConnectionId
-      );
+      formData.append("business_connection_id", thread.businessConnectionId);
     }
   }
 
@@ -3852,13 +3989,15 @@ export class TelegramAdapter
         : undefined;
     }
 
-    if (!allowedUpdates || allowedUpdates.length === 0) {
-      return undefined;
-    }
+    // Omitting `allowed_updates` makes Telegram reuse whatever list a previous
+    // setWebhook/getUpdates call set, which may exclude the business types.
+    // Business mode always sends an explicit list.
+    const base =
+      allowedUpdates && allowedUpdates.length > 0
+        ? allowedUpdates
+        : TELEGRAM_DEFAULT_ALLOWED_UPDATES;
 
-    return [
-      ...new Set([...allowedUpdates, ...TELEGRAM_BUSINESS_ALLOWED_UPDATES]),
-    ];
+    return [...new Set([...base, ...TELEGRAM_BUSINESS_ALLOWED_UPDATES])];
   }
 
   protected clampInteger(
@@ -4082,8 +4221,8 @@ export type {
   TelegramAdapterMode,
   TelegramAnimation,
   TelegramAudio,
-  TelegramBusinessConnection,
   TelegramBusinessBotRights,
+  TelegramBusinessConnection,
   TelegramCallbackQuery,
   TelegramChat,
   TelegramLocation,

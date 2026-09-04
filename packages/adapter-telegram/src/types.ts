@@ -17,6 +17,12 @@ export interface TelegramAdapterConfig {
   apiUrl?: string;
   /** Telegram bot token from BotFather, or a resolver invoked for each Bot API request. Defaults to TELEGRAM_BOT_TOKEN env var. */
   botToken?: string | (() => string | Promise<string>);
+  /**
+   * Enable Telegram Business mode (Connected Business Bots). When `true`, the
+   * adapter handles `business_connection` and `business_message` updates and
+   * passes `business_connection_id` on outbound API calls. Defaults to `false`.
+   */
+  businessMode?: boolean;
   /** Logger instance for error reporting. Defaults to ConsoleLogger. */
   logger?: Logger;
   /** Optional long-polling configuration for getUpdates flow. */
@@ -58,12 +64,6 @@ export interface TelegramAdapterConfig {
   streamingEditIntervalMs?: number;
   /** Override bot username (optional). Defaults to TELEGRAM_BOT_USERNAME env var. */
   userName?: string;
-  /**
-   * Enable Telegram Business mode (Connected Business Bots). When `true`, the
-   * adapter handles `business_connection` and `business_message` updates and
-   * passes `business_connection_id` on outbound API calls. Defaults to `false`.
-   */
-  businessMode?: boolean;
 }
 
 export type TelegramAdapterMode = "auto" | "webhook" | "polling";
@@ -99,12 +99,12 @@ export interface TelegramLongPollingConfig {
  * Telegram thread ID components.
  */
 export interface TelegramThreadId {
+  /** Business connection ID for Connected Business Bot threads. */
+  businessConnectionId?: string;
   /** Telegram chat ID. */
   chatId: string;
   /** Optional forum topic ID for supergroup topics. */
   messageThreadId?: number;
-  /** Business connection ID for Connected Business Bot threads. */
-  businessConnectionId?: string;
 }
 
 /**
@@ -476,6 +476,12 @@ export interface TelegramMessage {
     mime_type?: string;
     file_name?: string;
   };
+  /**
+   * Business connection the message was received through. When set, the
+   * chat belongs to the connected business account and is independent from
+   * any direct bot chat that shares the same `chat.id`.
+   */
+  business_connection_id?: string;
   caption?: string;
   caption_entities?: TelegramMessageEntity[];
   chat: TelegramChat;
@@ -503,7 +509,6 @@ export interface TelegramMessage {
   media_group_id?: string;
   message_id: number;
   message_thread_id?: number;
-  business_connection_id?: string;
   photo?: TelegramPhotoSize[];
   poll?: {
     id: string;
@@ -513,6 +518,11 @@ export interface TelegramMessage {
   };
   reply_to_message?: TelegramMessage;
   rich_message?: TelegramRichMessage;
+  /**
+   * The bot that sent this message on behalf of the business account. Only
+   * present on outgoing business messages.
+   */
+  sender_business_bot?: TelegramUser;
   sender_chat?: TelegramChat;
   sticker?: TelegramFile & {
     emoji?: string;
@@ -583,6 +593,9 @@ export type TelegramReactionType =
  * @see https://core.telegram.org/bots/api#businessbotrights
  */
 export interface TelegramBusinessBotRights {
+  can_delete_all_messages?: boolean;
+  can_delete_sent_messages?: boolean;
+  can_read_messages?: boolean;
   can_reply?: boolean;
 }
 
