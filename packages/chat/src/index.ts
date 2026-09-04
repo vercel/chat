@@ -181,6 +181,7 @@ export type {
   CardChild,
   CardElement,
   CardOptions,
+  CardWidth,
   ChartDataPoint,
   ChartDefinition,
   ChartElement,

@@ -57,6 +57,9 @@ export type ButtonStyle = "primary" | "danger" | "default";
 /** Text style options */
 export type TextStyle = "plain" | "bold" | "muted";
 
+/** Card width hint */
+export type CardWidth = "default" | "full";
+
 /** Button element for interactive actions */
 export interface ButtonElement {
   /** Whether this button triggers a regular action or opens a modal dialog. Default: "action" */
@@ -71,6 +74,8 @@ export interface ButtonElement {
   label: string;
   /** Visual style */
   style?: ButtonStyle;
+  /** Hover text for the button, on platforms that render one (Teams) */
+  tooltip?: string;
   type: "button";
   /** Optional payload value sent with action callback */
   value?: string;
@@ -84,6 +89,8 @@ export interface LinkButtonElement {
   label: string;
   /** Visual style */
   style?: ButtonStyle;
+  /** Hover text for the button, on platforms that render one (Teams) */
+  tooltip?: string;
   type: "link-button";
   /** URL to open when clicked */
   url: string;
@@ -264,6 +271,8 @@ export interface CardElement {
   /** Card title */
   title?: string;
   type: "card";
+  /** Width hint for platforms that can render a card wider than the default (Teams) */
+  width?: CardWidth;
 }
 
 /** Type guard for CardElement */
@@ -286,6 +295,7 @@ export interface CardOptions {
   imageUrl?: string;
   subtitle?: string;
   title?: string;
+  width?: CardWidth;
 }
 
 /**
@@ -305,6 +315,7 @@ export function Card(options: CardOptions = {}): CardElement {
     title: options.title,
     subtitle: options.subtitle,
     imageUrl: options.imageUrl,
+    width: options.width,
     children: options.children ?? [],
   };
 }
@@ -429,6 +440,8 @@ export interface ButtonOptions {
   label: string;
   /** Visual style */
   style?: ButtonStyle;
+  /** Hover text for the button, on platforms that render one (Teams) */
+  tooltip?: string;
   /** Optional payload value sent with action callback */
   value?: string;
 }
@@ -452,6 +465,7 @@ export function Button(options: ButtonOptions): ButtonElement {
     disabled: options.disabled,
     actionType: options.actionType,
     callbackUrl: options.callbackUrl,
+    tooltip: options.tooltip,
   };
 }
 
@@ -463,6 +477,8 @@ export interface LinkButtonOptions {
   label: string;
   /** Visual style */
   style?: ButtonStyle;
+  /** Hover text for the button, on platforms that render one (Teams) */
+  tooltip?: string;
   /** URL to open when clicked */
   url: string;
 }
@@ -483,6 +499,7 @@ export function LinkButton(options: LinkButtonOptions): LinkButtonElement {
     url: options.url,
     label: options.label,
     style: options.style,
+    tooltip: options.tooltip,
   };
 }
 
@@ -749,6 +766,7 @@ export function fromReactElement(element: unknown): AnyCardElement | null {
         title: props.title as string | undefined,
         subtitle: props.subtitle as string | undefined,
         imageUrl: props.imageUrl as string | undefined,
+        width: props.width as CardWidth | undefined,
         children: convertedChildren.filter(isCardChild),
       });
 
@@ -797,6 +815,7 @@ export function fromReactElement(element: unknown): AnyCardElement | null {
         value: props.value as string | undefined,
         actionType: props.actionType as "action" | "modal" | undefined,
         disabled: props.disabled as boolean | undefined,
+        tooltip: props.tooltip as string | undefined,
       });
     }
 
@@ -807,6 +826,7 @@ export function fromReactElement(element: unknown): AnyCardElement | null {
         url: props.url as string,
         label: (props.label as string | undefined) ?? label,
         style: props.style as ButtonStyle | undefined,
+        tooltip: props.tooltip as string | undefined,
       });
     }
 

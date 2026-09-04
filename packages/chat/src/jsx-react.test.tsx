@@ -120,6 +120,16 @@ describe("fromReactElement - React JSX mode", () => {
         expect(result.imageUrl).toBe("https://example.com/image.png");
       }
     });
+
+    it("converts Card with width", () => {
+      const reactCard = createReactElement(Card, {
+        title: "Test",
+        width: "full",
+      });
+
+      const result = fromReactElement(reactCard);
+      expect(result).toMatchObject({ type: "card", width: "full" });
+    });
   });
 
   describe("Text conversion", () => {
@@ -198,6 +208,29 @@ describe("fromReactElement - React JSX mode", () => {
           expect(btn.value).toBe("item-123");
         }
       }
+    });
+
+    it("converts Button with tooltip", () => {
+      const reactCard = createReactElement(Card, {
+        children: createReactElement(Actions, {
+          children: createReactElement(Button, {
+            id: "approve",
+            tooltip: "Approve the request",
+            children: "Approve",
+          }),
+        }),
+      });
+
+      const result = fromReactElement(reactCard);
+      expect(result).toMatchObject({
+        type: "card",
+        children: [
+          {
+            type: "actions",
+            children: [{ type: "button", tooltip: "Approve the request" }],
+          },
+        ],
+      });
     });
   });
 

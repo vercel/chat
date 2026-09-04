@@ -40,6 +40,12 @@ describe("Card Builder Functions", () => {
       expect(card.children).toHaveLength(1);
     });
 
+    it("creates a card with a width hint", () => {
+      const card = Card({ title: "Wide", width: "full" });
+      expect(card.width).toBe("full");
+      expect(Card({ title: "Default" }).width).toBeUndefined();
+    });
+
     it("creates an empty card", () => {
       const card = Card();
       expect(card.type).toBe("card");
@@ -116,6 +122,16 @@ describe("Card Builder Functions", () => {
       expect(btn.style).toBe("danger");
       expect(btn.value).toBe("item-123");
     });
+
+    it("creates a button with a tooltip", () => {
+      const btn = Button({
+        id: "ok",
+        label: "OK",
+        tooltip: "Confirm the order",
+      });
+      expect(btn.tooltip).toBe("Confirm the order");
+      expect(Button({ id: "ok", label: "OK" }).tooltip).toBeUndefined();
+    });
   });
 
   describe("LinkButton", () => {
@@ -137,6 +153,15 @@ describe("Card Builder Functions", () => {
         style: "primary",
       });
       expect(btn.style).toBe("primary");
+    });
+
+    it("creates a link button with a tooltip", () => {
+      const btn = LinkButton({
+        url: "https://example.com",
+        label: "Visit Site",
+        tooltip: "Opens example.com",
+      });
+      expect(btn.tooltip).toBe("Opens example.com");
     });
   });
 

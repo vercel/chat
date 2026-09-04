@@ -107,6 +107,10 @@ export function cardToAdaptiveCard(card: CardElement): AdaptiveCard {
     version: ADAPTIVE_CARD_VERSION,
   });
 
+  if (card.width === "full") {
+    adaptiveCard.withMsteams({ width: "full" });
+  }
+
   if (actions.length > 0) {
     adaptiveCard.withActions(...actions);
   }
@@ -278,6 +282,7 @@ function convertButtonToAction(button: ButtonElement): SubmitAction {
     title: string;
     data: Record<string, unknown>;
     style?: ActionStyle;
+    tooltip?: string;
   } = {
     title: convertEmoji(button.label),
     data,
@@ -289,12 +294,15 @@ function convertButtonToAction(button: ButtonElement): SubmitAction {
   if (style) {
     options.style = style;
   }
+  if (button.tooltip) {
+    options.tooltip = convertEmoji(button.tooltip);
+  }
 
   return new SubmitAction(options);
 }
 
 function convertLinkButtonToAction(button: LinkButtonElement): OpenUrlAction {
-  const options: { title: string; style?: ActionStyle } = {
+  const options: { title: string; style?: ActionStyle; tooltip?: string } = {
     title: convertEmoji(button.label),
   };
 
@@ -303,6 +311,9 @@ function convertLinkButtonToAction(button: LinkButtonElement): OpenUrlAction {
     | undefined;
   if (style) {
     options.style = style;
+  }
+  if (button.tooltip) {
+    options.tooltip = convertEmoji(button.tooltip);
   }
 
   return new OpenUrlAction(button.url, options);

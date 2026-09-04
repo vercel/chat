@@ -223,6 +223,32 @@ describe("toCardElement", () => {
     }
   });
 
+  it("converts tooltip on Button and LinkButton", () => {
+    const button = jsx(Button, { id: "ok", label: "OK", tooltip: "Confirm" });
+    const linkButton = jsx(LinkButton, {
+      url: "https://example.com",
+      label: "Visit Site",
+      tooltip: "Opens example.com",
+    });
+    const actions = jsxs(Actions, { children: [button, linkButton] });
+    const cardElement = jsxs(Card, { children: [actions] });
+    const card = toCardElement(cardElement);
+
+    expect(card?.children[0]).toMatchObject({
+      type: "actions",
+      children: [
+        { type: "button", tooltip: "Confirm" },
+        { type: "link-button", tooltip: "Opens example.com" },
+      ],
+    });
+  });
+
+  it("converts Card width", () => {
+    const card = toCardElement(jsxs(Card, { children: [], width: "full" }));
+    expect(card?.width).toBe("full");
+    expect(toCardElement(jsxs(Card, { children: [] }))?.width).toBeUndefined();
+  });
+
   it("converts Image elements", () => {
     const image = jsx(Image, {
       url: "https://example.com/img.png",

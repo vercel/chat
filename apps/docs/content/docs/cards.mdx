@@ -60,6 +60,14 @@ The top-level container. Accepts `title` and optional `subtitle`.
 </Card>
 ```
 
+Set `width="full"` to ask for a wider card on platforms that can render one. Teams renders it as a full-width Adaptive Card; other adapters ignore the hint.
+
+```tsx title="lib/bot.tsx"
+<Card title="Weekly digest" width="full">
+  {/* children */}
+</Card>
+```
+
 ### CardText
 
 Renders formatted text. Supports a subset of markdown.
@@ -123,6 +131,12 @@ Optional `callbackUrl` causes the action data to be POSTed to a URL when clicked
 <Button callbackUrl={webhook.url} id="approve" style="primary">Approve</Button>
 ```
 
+Optional `tooltip` is hover text for the button, on platforms that render one (Teams):
+
+```tsx title="lib/bot.tsx"
+<Button id="approve" tooltip="Approve the request">Approve</Button>
+```
+
 ### CardLink
 
 Inline hyperlink rendered as text. Unlike `LinkButton` (which must be inside `Actions`), `CardLink` can be placed directly in a card alongside other content.
@@ -153,6 +167,14 @@ stable action identifier for routing or analytics.
 
 ```tsx title="lib/bot.tsx"
 <LinkButton id="view_order" url="https://example.com/order/1234">
+  View Order
+</LinkButton>
+```
+
+Optional `tooltip` is hover text for the button, on platforms that render one (Teams):
+
+```tsx title="lib/bot.tsx"
+<LinkButton tooltip="Opens the order in your browser" url="https://example.com/order/1234">
   View Order
 </LinkButton>
 ```

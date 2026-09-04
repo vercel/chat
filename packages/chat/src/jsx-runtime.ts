@@ -41,6 +41,7 @@ import {
   type CardElement,
   CardLink,
   type CardOptions,
+  type CardWidth,
   Chart,
   type ChartDefinition,
   type ChartElement,
@@ -107,6 +108,7 @@ export interface CardProps {
   imageUrl?: string;
   subtitle?: string;
   title?: string;
+  width?: CardWidth;
 }
 
 /** Props for Text component in JSX */
@@ -124,6 +126,7 @@ export interface ButtonProps {
   id: string;
   label?: string;
   style?: ButtonStyle;
+  tooltip?: string;
   value?: string;
 }
 
@@ -133,6 +136,7 @@ export interface LinkButtonProps {
   id?: string;
   label?: string;
   style?: ButtonStyle;
+  tooltip?: string;
   url: string;
 }
 
@@ -587,7 +591,10 @@ function isFieldProps(props: CardJSXProps): props is FieldProps {
 function isCardProps(props: CardJSXProps): props is CardProps {
   return (
     !("id" in props || "url" in props || "callbackId" in props) &&
-    ("title" in props || "subtitle" in props || "imageUrl" in props)
+    ("title" in props ||
+      "subtitle" in props ||
+      "imageUrl" in props ||
+      "width" in props)
   );
 }
 
@@ -724,6 +731,7 @@ function resolveJSXElement(element: JSXElement): AnyCardElement {
       actionType: props.actionType,
       callbackUrl: props.callbackUrl,
       disabled: props.disabled,
+      tooltip: props.tooltip,
     });
   }
 
@@ -742,6 +750,7 @@ function resolveJSXElement(element: JSXElement): AnyCardElement {
       url: props.url,
       label,
       style: props.style,
+      tooltip: props.tooltip,
     });
   }
 
@@ -922,6 +931,7 @@ function resolveJSXElement(element: JSXElement): AnyCardElement {
     title: cardProps.title,
     subtitle: cardProps.subtitle,
     imageUrl: cardProps.imageUrl,
+    width: cardProps.width,
     children: processedChildren as CardChild[],
   });
 }

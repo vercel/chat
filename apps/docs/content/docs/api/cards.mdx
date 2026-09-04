@@ -45,6 +45,10 @@ Card({
       description: 'Card content elements.',
       type: 'CardChild[]',
     },
+    width: {
+      description: 'Width hint for platforms that can render a card wider than the default (Teams). Other adapters ignore it.',
+      type: '"default" | "full"',
+    },
   }}
 />
 
@@ -107,6 +111,10 @@ Button({ id: "delete", label: "Delete", style: "danger", value: "item-123" })
       description: 'URL to POST action data to when this button is clicked.',
       type: 'string',
     },
+    tooltip: {
+      description: 'Hover text for the button, on platforms that render one (Teams).',
+      type: 'string',
+    },
   }}
 />
 
@@ -159,6 +167,10 @@ LinkButton({ id: "view_docs", url: "https://example.com", label: "View Docs" })
     style: {
       description: 'Visual style.',
       type: '"primary" | "danger" | "default"',
+    },
+    tooltip: {
+      description: 'Hover text for the button, on platforms that render one (Teams).',
+      type: 'string',
     },
   }}
 />
