@@ -296,6 +296,23 @@ By default, Teams bots only receive messages when directly @-mentioned. The RSC 
 
 Run `teams app doctor <appId>` to diagnose common issues — bot registration, AAD app health, manifest consistency, and endpoint reachability.
 
+## Bot joins
+
+`onMemberJoinedChannel` fires when a `conversationUpdate` activity adds this bot to a channel or group chat. `adapter.botUserId` is the Teams bot ID (`28:<appId>`), so the same bot-join guard works across adapters:
+
+```typescript
+bot.onMemberJoinedChannel(async (event) => {
+  if (event.userId !== event.adapter.botUserId) {
+    return;
+  }
+  await bot.channel(event.channelId).post("Hello! Thanks for adding me.");
+});
+```
+
+For team installations, `channelId` identifies the channel selected during installation, not the team ID. `inviterId` comes from the activity sender. Pass your platform's `waitUntil` to the webhook handler to track asynchronous welcome handlers.
+
+This dispatches bot joins only. Personal installs, ordinary member additions, removals, and `installationUpdate` activities do not emit this event. See Microsoft's [conversation event documentation](https://learn.microsoft.com/en-us/microsoftteams/platform/bots/how-to/conversations/subscribe-to-conversation-events#members-added) for the underlying payloads.
+
 ## Low-level APIs
 
 Use the low-level Teams subpaths when your app already owns routing, state, sessions, or workflow execution and only needs Teams-specific primitives.

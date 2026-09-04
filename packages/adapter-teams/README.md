@@ -209,6 +209,23 @@ TEAMS_API_URL=...        # Optional, for GCC-High or sovereign-cloud deployments
 
 Incoming thread IDs preserve the Teams conversation type when the legacy ID-prefix heuristic would route it incorrectly. When Teams omits `conversationType`, the adapter falls back to `conversation.isGroup` and the activity's team context. This keeps correctly classified IDs stable while selecting the buffered fallback for group chats whose IDs begin with `a:`. Thread IDs created by older adapter versions remain supported.
 
+## Bot joins
+
+`onMemberJoinedChannel` fires when a `conversationUpdate` activity adds this bot to a channel or group chat. `adapter.botUserId` is the Teams bot ID (`28:<appId>`), so the same bot-join guard works across adapters:
+
+```typescript
+bot.onMemberJoinedChannel(async (event) => {
+  if (event.userId !== event.adapter.botUserId) {
+    return;
+  }
+  await bot.channel(event.channelId).post("Hello! Thanks for adding me.");
+});
+```
+
+For team installations, `channelId` identifies the channel selected during installation, not the team ID. `inviterId` comes from the activity sender. Pass your platform's `waitUntil` to the webhook handler to track asynchronous welcome handlers.
+
+This dispatches bot joins only. Personal installs, ordinary member additions, removals, and `installationUpdate` activities do not emit this event. See Microsoft's [conversation event documentation](https://learn.microsoft.com/en-us/microsoftteams/platform/bots/how-to/conversations/subscribe-to-conversation-events#members-added) for the underlying payloads.
+
 ## Incoming attachments
 
 Incoming inline images and files are exposed through `message.attachments` with a lazy `fetchData()` method. The adapter authenticates connector-hosted inline attachments through the configured Teams bot client, while [Teams file download cards](https://learn.microsoft.com/en-us/microsoftteams/platform/bots/how-to/bots-filesv4) use their direct download URL without the bot token.
