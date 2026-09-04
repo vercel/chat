@@ -6249,7 +6249,7 @@ describe("agent_view DM threading", () => {
     expect(threadId).toBe("slack:D1:");
   });
 
-  it("updates the Agent Session lifecycle on an agent_view DM thread", async () => {
+  it("routes custom labels and clearing separately on an agent_view DM thread", async () => {
     const adapter = createSlackAdapter({
       agentView: true,
       botToken: "xoxb-test-token",
@@ -6283,6 +6283,7 @@ describe("agent_view DM threading", () => {
         channel_id: "D1",
         thread_ts: "1771.99",
         status: "Thinking...",
+        loading_messages: ["Thinking..."],
       })
     );
     // An explicit empty status ends typing via the Agent Sessions lifecycle.
@@ -6302,6 +6303,7 @@ describe("agent_view DM threading", () => {
         channel_id: "D1",
         thread_ts: "1771.99",
         status: "Reading xyz.md",
+        loading_messages: ["Reading xyz.md"],
       })
     );
   });
@@ -6313,6 +6315,65 @@ describe("agent_view DM threading", () => {
 
 describe("startTyping", () => {
   const secret = "test-signing-secret";
+
+  it.each([
+    { status: undefined, expected: "processing" },
+    { status: "", expected: "active" },
+  ])("uses native $expected without custom text in agent view", async ({
+    status,
+    expected,
+  }) => {
+    const adapter = createSlackAdapter({
+      agentView: true,
+      botToken: "xoxb-test-token",
+      signingSecret: secret,
+      logger: mockLogger,
+      loadingMessages: ["Configured..."],
+    });
+    const sessions = vi.fn().mockResolvedValue({ ok: true });
+    const legacy = vi.fn().mockResolvedValue({ ok: true });
+    mockClientMethod(adapter, "apiCall", sessions);
+    mockClientMethod(adapter, "assistant.threads.setStatus", legacy);
+
+    await adapter.startTyping("slack:D123:1.2", status, {
+      initiatorUserId: "U123",
+    });
+
+    expect(sessions).toHaveBeenCalledExactlyOnceWith(
+      "agents.sessions.setStatus",
+      {
+        channel_id: "D123",
+        thread_ts: "1.2",
+        status: expected,
+        initiator_user_id: "U123",
+        token: "xoxb-test-token",
+      }
+    );
+    expect(legacy).not.toHaveBeenCalled();
+  });
+
+  it("does not fall back to a legacy label when native status fails", async () => {
+    const adapter = createSlackAdapter({
+      agentView: true,
+      botToken: "xoxb-test-token",
+      signingSecret: secret,
+      logger: mockLogger,
+    });
+    const failure = new Error("API error");
+    const legacy = vi.fn().mockResolvedValue({ ok: true });
+    mockClientMethod(adapter, "apiCall", vi.fn().mockRejectedValue(failure));
+    mockClientMethod(adapter, "assistant.threads.setStatus", legacy);
+
+    await expect(
+      adapter.startTyping("slack:D123:1.2")
+    ).resolves.toBeUndefined();
+
+    expect(legacy).not.toHaveBeenCalled();
+    expect(mockLogger.warn).toHaveBeenCalledWith(
+      "Slack API: agents.sessions.setStatus failed",
+      expect.objectContaining({ error: failure })
+    );
+  });
 
   it("calls assistant.threads.setStatus with default status", async () => {
     const adapter = createSlackAdapter({
@@ -8269,6 +8330,47 @@ describe("setAssistantStatus", () => {
         loading_messages: ["Step 1", "Step 2"],
       })
     );
+  });
+
+  it.each([
+    { configured: undefined, supplied: undefined, expected: ["Working..."] },
+    {
+      configured: ["Configured..."],
+      supplied: undefined,
+      expected: ["Configured..."],
+    },
+    {
+      configured: ["Configured..."],
+      supplied: ["Searching...", "Reading..."],
+      expected: ["Searching...", "Reading..."],
+    },
+  ])("passes agent loading messages $expected", async ({
+    configured,
+    supplied,
+    expected,
+  }) => {
+    const adapter = createSlackAdapter({
+      agentView: true,
+      botToken: "xoxb-test-token",
+      signingSecret: secret,
+      logger: mockLogger,
+      loadingMessages: configured,
+    });
+    const status = vi.fn().mockResolvedValue({ ok: true });
+    const sessions = vi.fn().mockResolvedValue({ ok: true });
+    mockClientMethod(adapter, "assistant.threads.setStatus", status);
+    mockClientMethod(adapter, "apiCall", sessions);
+
+    await adapter.setAssistantStatus("D123", "1.2", "Working...", supplied);
+
+    expect(status).toHaveBeenCalledWith({
+      channel_id: "D123",
+      thread_ts: "1.2",
+      status: "Working...",
+      loading_messages: expected,
+      token: "xoxb-test-token",
+    });
+    expect(sessions).not.toHaveBeenCalled();
   });
 
   it("surfaces custom status text via the legacy API and clears via the sessions lifecycle", async () => {

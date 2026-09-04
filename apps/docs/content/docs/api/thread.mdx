@@ -195,10 +195,14 @@ await thread.setState({ aiMode: false }, { replace: true });
 ## startTyping
 
 Show a typing indicator in the thread. No-op on platforms that don't support
-it. With Slack Agent messaging, this sets the session to `processing` and
-shows Slack's standard Working state plus a native stop button. A custom
-status is rendered in the loading UX through the legacy
-`assistant.threads.setStatus` compatibility bridge.
+it. With Slack Agent messaging, calling this without a custom status sets the
+session to `processing` and identifies the initiating user. Slack's native stop
+button also requires the `agent_session_stopped` event subscription.
+
+A custom status uses the legacy `assistant.threads.setStatus` compatibility
+bridge for loading labels instead. That endpoint cannot receive the initiating
+user, and an existing native processing indicator can take precedence over the
+label. Use the default indicator when you need native session behavior.
 
 ```typescript
 await thread.startTyping();

@@ -718,11 +718,18 @@ The `SlackAdapter` exposes:
 | `startTyping(threadId, status?)` | Set the agent session to `processing`, or render a custom status label in the loading UX |
 
 `setAssistantStatus` and `setAssistantTitle` remain compatibility methods:
-under `agentView`, lifecycle changes map to `agents.sessions.*` and custom
-status text is surfaced through the legacy `assistant.threads.setStatus`
-compatibility bridge, which renders the text in the agent-session loading UX.
-Under legacy `assistant_view`, they call `assistant.threads.*` directly.
-`loadingMessages` only apply to the legacy experience.
+under `agentView`, clearing status and changing titles use `agents.sessions.*`.
+Custom status text uses the legacy `assistant.threads.setStatus` compatibility
+bridge. `setAssistantStatus` sends its `loadingMessages` argument, falls back to
+the adapter's `loadingMessages` config, and otherwise uses the custom status as
+the loading message. Under legacy `assistant_view`, these methods call
+`assistant.threads.*` directly.
+
+Custom labels and native session state are different paths. Use `startTyping()`
+without a custom status when you need native processing state and initiator
+attribution. The legacy endpoint cannot receive `initiator_user_id`, and an
+existing native processing indicator can take precedence over custom labels.
+Do not rely on custom labels alone to provide native stop-button behavior.
 
 Customize automatic titles with `sessionTitle`:
 

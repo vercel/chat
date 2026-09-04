@@ -4117,11 +4117,10 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
         channel_id: channelId,
         thread_ts: threadTs,
         status,
-        ...(this.agentView
-          ? {}
-          : {
-              loading_messages: loadingMessages ?? this.loadingMessages,
-            }),
+        loading_messages:
+          loadingMessages ??
+          this.loadingMessages ??
+          (this.agentView ? [status] : undefined),
       })
     );
   }
