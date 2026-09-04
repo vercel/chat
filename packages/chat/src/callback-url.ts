@@ -72,14 +72,12 @@ async function processActionsElement(
           CALLBACK_TTL_MS
         );
 
+        // Keep every other button field so new ones (like tooltip) are not
+        // silently dropped; only the callback URL is replaced by the token.
+        const { callbackUrl: _callbackUrl, ...rest } = el;
         const processed: ButtonElement = {
-          type: "button",
-          id: el.id,
-          label: el.label,
-          style: el.style,
-          disabled: el.disabled,
+          ...rest,
           value: encodeCallbackValue(token),
-          actionType: el.actionType,
         };
         return processed;
       })

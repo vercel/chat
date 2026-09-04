@@ -165,6 +165,44 @@ describe("processCardCallbackUrls", () => {
     expect(callbackBtn?.value).toMatch(CALLBACK_PREFIX_PATTERN);
   });
 
+  it("keeps every other button field when replacing the callback URL", async () => {
+    const card = Card({
+      title: "Test",
+      children: [
+        Actions([
+          Button({
+            id: "approve",
+            label: "Approve",
+            style: "primary",
+            disabled: true,
+            actionType: "modal",
+            tooltip: "Approve the request",
+            callbackUrl: "https://example.com/hook",
+          }),
+        ]),
+      ],
+    });
+
+    const result = await processCardCallbackUrls(card, state, {
+      id: "slack:C1",
+      type: "channel",
+    });
+    const actions = result.children.find((c) => c.type === "actions");
+    const button = actions?.children[0];
+
+    expect(button).toMatchObject({
+      type: "button",
+      id: "approve",
+      label: "Approve",
+      style: "primary",
+      disabled: true,
+      actionType: "modal",
+      tooltip: "Approve the request",
+    });
+    expect(button).not.toHaveProperty("callbackUrl");
+    expect(button?.value).toMatch(CALLBACK_PREFIX_PATTERN);
+  });
+
   it("processes buttons nested inside sections", async () => {
     const card = Card({
       title: "Test",
