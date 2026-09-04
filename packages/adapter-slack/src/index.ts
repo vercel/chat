@@ -5860,10 +5860,18 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
       if (!(force || now - lastFallbackEditAt >= updateIntervalMs)) {
         return;
       }
+      // Post through the markdown field, not the plain-text one. `getCommittableText()`
+      // already yields append-safe markdown, and a bare string resolves to Slack's `text`,
+      // which only renders legacy mrkdwn (and caps at 4,000 chars instead of 12,000) — so
+      // every intermediate edit showed raw `**`/`#` syntax to the user.
       if (fallback.message) {
-        await this.editMessage(threadId, fallback.message.id, committable);
+        await this.editMessage(threadId, fallback.message.id, {
+          markdown: committable,
+        });
       } else {
-        fallback.message = await this.postMessage(threadId, committable);
+        fallback.message = await this.postMessage(threadId, {
+          markdown: committable,
+        });
       }
       fallbackSent = committable;
       lastFallbackEditAt = now;

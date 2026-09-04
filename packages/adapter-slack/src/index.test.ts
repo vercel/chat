@@ -11359,6 +11359,11 @@ describe("native streaming fallback", () => {
     }
   }
 
+  /** Fallback posts and edits go through `markdown`, never a bare string. */
+  function markdownOf(message: unknown): string {
+    return (message as { markdown?: string }).markdown ?? "";
+  }
+
   it("finishes agent streams with an active session status", async () => {
     const { adapter } = createAdapter({ agentView: true });
     const append = vi.fn().mockResolvedValue({ ok: true });
@@ -11414,7 +11419,35 @@ describe("native streaming fallback", () => {
     const lastPosted = editSpy.mock.calls.length
       ? editSpy.mock.calls.at(-1)?.[2]
       : postSpy.mock.calls.at(-1)?.[1];
-    expect(lastPosted).toContain("world");
+    expect(markdownOf(lastPosted)).toContain("world");
+  });
+
+  it("streams fallback updates through markdown, not plain text", async () => {
+    const { adapter, postSpy, editSpy } = createAdapter();
+    const append = vi.fn().mockRejectedValue(new Error("no streaming here"));
+    mockClientMethod(
+      adapter,
+      "chatStream",
+      vi.fn().mockReturnValue({ append, stop: vi.fn(), ts: undefined })
+    );
+
+    await adapter.stream(
+      "slack:D123:1234567890.000000",
+      textStream("**bold** ", "and `code`")
+    );
+
+    // A bare string resolves to Slack's `text` field, which renders legacy
+    // mrkdwn only — every live edit would show the raw `**`/backticks.
+    for (const [, message] of postSpy.mock.calls) {
+      expect(message).toEqual({ markdown: expect.any(String) });
+    }
+    for (const [, , message] of editSpy.mock.calls) {
+      expect(message).toEqual({ markdown: expect.any(String) });
+    }
+    const lastPosted = editSpy.mock.calls.length
+      ? editSpy.mock.calls.at(-1)?.[2]
+      : postSpy.mock.calls.at(-1)?.[1];
+    expect(markdownOf(lastPosted)).toContain("**bold**");
   });
 
   it("latches native streaming off after an unsupported-method platform error", async () => {
@@ -11514,7 +11547,7 @@ describe("native streaming fallback", () => {
 
     expect(result).toMatchObject({ id: "fallback-ts" });
     expect(postSpy).toHaveBeenCalledTimes(1);
-    expect(postSpy.mock.calls.at(-1)?.[1]).toContain("short reply");
+    expect(markdownOf(postSpy.mock.calls.at(-1)?.[1])).toContain("short reply");
   });
 
   it("propagates stop() failures once native content has rendered", async () => {
@@ -11564,7 +11597,7 @@ describe("native streaming fallback", () => {
     // The structured chunk didn't fail the stream, and the text still
     // arrived via the post-and-edit fallback.
     expect(postSpy).toHaveBeenCalledTimes(1);
-    expect(postSpy.mock.calls.at(-1)?.[1]).toContain("hello");
+    expect(markdownOf(postSpy.mock.calls.at(-1)?.[1])).toContain("hello");
   });
 });
 
