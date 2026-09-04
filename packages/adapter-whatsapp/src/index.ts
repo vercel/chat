@@ -45,6 +45,7 @@ import {
   cardToWhatsApp,
   decodeWhatsAppCallbackData,
 } from "./cards";
+import { WhatsAppApiError } from "./errors";
 import { WhatsAppFormatConverter } from "./markdown";
 import type {
   WhatsAppAdapterConfig,
@@ -62,6 +63,8 @@ import type {
   WhatsAppWebhookPayload,
   WhatsAppWebhookValue,
 } from "./types";
+
+export { WhatsAppApiError } from "./errors";
 
 /** Platform label for shared buffer utilities (not yet in PlatformName union). */
 const WHATSAPP_BUFFER_PLATFORM = "whatsapp" as PlatformName;
@@ -1168,8 +1171,10 @@ export class WhatsAppAdapter
         body: errorBody,
         mediaId,
       });
-      throw new Error(
-        `Failed to get media URL: ${metaResponse.status} ${errorBody}`
+      throw new WhatsAppApiError(
+        "Failed to get media URL",
+        metaResponse.status,
+        errorBody
       );
     }
 
@@ -2182,8 +2187,10 @@ export class WhatsAppAdapter
         body: errorBody,
         path,
       });
-      throw new Error(
-        `WhatsApp API upload error: ${response.status} ${errorBody}`
+      throw new WhatsAppApiError(
+        "WhatsApp API upload error",
+        response.status,
+        errorBody
       );
     }
 
@@ -2236,9 +2243,10 @@ export class WhatsAppAdapter
         body: errorBody,
         path,
       });
-      throw new AdapterError(
-        `WhatsApp API error: ${response.status} ${errorBody}`,
-        "whatsapp"
+      throw new WhatsAppApiError(
+        "WhatsApp API error",
+        response.status,
+        errorBody
       );
     }
 

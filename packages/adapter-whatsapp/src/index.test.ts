@@ -23,6 +23,7 @@ import {
   getWhatsAppMediaType,
   splitMessage,
   WhatsAppAdapter,
+  WhatsAppApiError,
   type WhatsAppThreadId,
 } from "./index";
 import type {
@@ -1581,6 +1582,76 @@ describe("postMessage", () => {
     expect(sent.type).toBe("interactive");
     expect(sent.recipient).toBe("US.13491208655302741918");
     expect(sent).not.toHaveProperty("to");
+  });
+});
+
+describe("API errors", () => {
+  let fetchSpy: MockInstance;
+
+  beforeEach(() => {
+    fetchSpy = vi.spyOn(global, "fetch");
+  });
+
+  afterEach(() => {
+    fetchSpy.mockRestore();
+  });
+
+  const operations = [
+    {
+      name: "message sends",
+      run: (adapter: WhatsAppAdapter) =>
+        adapter.postMessage("whatsapp:123456789:15551234567", "hello"),
+    },
+    {
+      name: "media uploads",
+      run: (adapter: WhatsAppAdapter) =>
+        adapter.postMessage("whatsapp:123456789:15551234567", {
+          files: [
+            {
+              data: Buffer.from("report"),
+              filename: "report.txt",
+              mimeType: "text/plain",
+            },
+          ],
+        }),
+    },
+    {
+      name: "media metadata requests",
+      run: (adapter: WhatsAppAdapter) => adapter.downloadMedia("media123"),
+    },
+  ];
+
+  it.each(operations)("preserves Meta error fields for $name", async ({
+    run,
+  }) => {
+    const raw = {
+      error: {
+        message: "(#130429) Rate limit hit",
+        type: "OAuthException",
+        code: 130429,
+        error_data: {
+          messaging_product: "whatsapp",
+          details: "Cloud API message throughput has been reached.",
+        },
+        fbtrace_id: "trace123",
+      },
+    };
+    fetchSpy.mockResolvedValue(
+      new Response(JSON.stringify(raw), { status: 400 })
+    );
+
+    const result = run(createTestAdapter());
+    await expect(result).rejects.toBeInstanceOf(WhatsAppApiError);
+    await expect(result).rejects.toMatchObject({
+      name: "WhatsAppApiError",
+      adapter: "whatsapp",
+      code: "130429",
+      status: 400,
+      details: raw.error.error_data.details,
+      traceId: "trace123",
+      raw,
+    });
+    expect(fetchSpy).toHaveBeenCalledOnce();
   });
 });
 
