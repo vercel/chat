@@ -10,6 +10,7 @@ import type {
   Account,
   Activity,
   IAdaptiveCardActionInvokeActivity,
+  IConversationUpdateActivity,
   IMessageActivity,
   IMessageReactionActivity,
   ITaskFetchInvokeActivity,
@@ -149,6 +150,8 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
       httpServerAdapter: this.bridgeAdapter,
     });
 
+    this.botUserId = this.app.id ? `28:${this.app.id}` : undefined;
+
     this.graphReader = new TeamsGraphReader({
       botId: this.app.id ?? "",
       graph: this.app.graph,
@@ -202,11 +205,41 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
 
     this.app.on("conversationUpdate", async (ctx) => {
       this.cacheUserContext(ctx.activity);
+      this.handleConversationUpdate(ctx.activity);
     });
 
     this.app.on("installationUpdate", async (ctx) => {
       this.cacheUserContext(ctx.activity);
     });
+  }
+
+  protected handleConversationUpdate(
+    activity: IConversationUpdateActivity
+  ): void {
+    const conversationType = conversationTypeFromActivity(activity);
+    const userId = this.botUserId;
+    if (
+      !(this.chat && userId) ||
+      (conversationType !== "channel" && conversationType !== "groupChat") ||
+      !activity.conversation?.id ||
+      !activity.serviceUrl ||
+      activity.recipient?.id !== userId ||
+      !activity.membersAdded?.some((member) => member.id === userId)
+    ) {
+      return;
+    }
+
+    this.chat.processMemberJoinedChannel(
+      {
+        adapter: this,
+        channelId: this.channelIdFromThreadId(
+          this.threadIdFromActivity(activity)
+        ),
+        userId,
+        inviterId: activity.from?.id,
+      },
+      this.bridgeAdapter.getWebhookOptions(activity.id)
+    );
   }
 
   /**
