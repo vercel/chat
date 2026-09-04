@@ -4088,6 +4088,11 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
    * Uses Agent Sessions when `agentView` is enabled and the legacy Assistants
    * API otherwise.
    *
+   * A custom status is surfaced through the legacy Assistants API: its
+   * compatibility bridge renders the text in the agent-session loading UX.
+   * An empty status clears the loading state via the Agent Sessions
+   * lifecycle.
+   *
    * When `loadingMessages` is omitted, falls back to the adapter-level
    * `loadingMessages` config.
    */

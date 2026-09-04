@@ -715,11 +715,13 @@ The `SlackAdapter` exposes:
 | `setAssistantTitle(channelId, threadTs, title)` | Rename the agent session |
 | `setSuggestedPrompts(channelId, threadTs, prompts, title?)` | Show prompt suggestions |
 | `publishHomeView(userId, view)` | Publish a Home tab view |
-| `startTyping(threadId)` | Set the agent session to `processing` |
+| `startTyping(threadId, status?)` | Set the agent session to `processing`, or render a custom status label in the loading UX |
 
 `setAssistantStatus` and `setAssistantTitle` remain compatibility methods:
-under `agentView`, they map to `agents.sessions.*`; under legacy
-`assistant_view`, they call `assistant.threads.*`. Custom status text and
+under `agentView`, lifecycle changes map to `agents.sessions.*` and custom
+status text is surfaced through the legacy `assistant.threads.setStatus`
+compatibility bridge, which renders the text in the agent-session loading UX.
+Under legacy `assistant_view`, they call `assistant.threads.*` directly.
 `loadingMessages` only apply to the legacy experience.
 
 Customize automatic titles with `sessionTitle`:
