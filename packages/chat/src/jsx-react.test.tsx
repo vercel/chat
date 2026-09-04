@@ -20,6 +20,7 @@ import {
   Fields,
   fromReactElement,
   Image,
+  LinkButton,
   Section,
   Text,
 } from "./cards";
@@ -230,6 +231,25 @@ describe("fromReactElement - React JSX mode", () => {
             children: [{ type: "button", tooltip: "Approve the request" }],
           },
         ],
+      });
+    });
+  });
+
+  describe("LinkButton conversion", () => {
+    it("converts LinkButton with tooltip", () => {
+      const result = fromReactElement(
+        createReactElement(LinkButton, {
+          url: "https://example.com",
+          tooltip: "Opens example.com",
+          children: "Open",
+        })
+      );
+
+      expect(result).toMatchObject({
+        type: "link-button",
+        url: "https://example.com",
+        label: "Open",
+        tooltip: "Opens example.com",
       });
     });
   });
