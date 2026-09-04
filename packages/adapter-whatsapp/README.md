@@ -250,6 +250,33 @@ await adapter.sendTemplate(threadId, {
 
 Templates must be created and approved in [WhatsApp Manager](https://business.facebook.com/wa/manage/message-templates/) before they can be sent. Quick reply button taps on a template arrive as button responses and are dispatched to your `onAction` handlers.
 
+## API errors
+
+Failed Graph API requests throw `WhatsAppApiError`, exported from `@chat-adapter/whatsapp`. It extends `AdapterError`, so existing `instanceof AdapterError` checks continue to work.
+
+```typescript
+import { WhatsAppApiError } from "@chat-adapter/whatsapp";
+
+try {
+  await thread.post("Hello");
+} catch (error) {
+  if (error instanceof WhatsAppApiError) {
+    console.error(error.code, error.details, error.status);
+  }
+  throw error;
+}
+```
+
+- `code`: Meta's numeric error code as a string, such as `"130429"`, consistent with `AdapterError.code`
+- `details`: Meta's `error_data.details`, when present
+- `status`: HTTP response status
+- `subcode` and `traceId`: Meta's `error_subcode` and `fbtrace_id`, when present
+- `raw`: the full parsed response body, or the original text if it is not valid JSON
+
+Meta recommends using [error codes and details](https://developers.facebook.com/documentation/business-messaging/whatsapp/support/error-codes/) for error handling. Subcodes are optional and deprecated in the Cloud API. The adapter preserves its existing error message text, and missing or malformed provider fields remain undefined.
+
+This covers message sends, templates, reactions, read receipts, typing requests, media uploads, and media metadata requests. Binary download failures remain `NetworkError`s. A successful API response can still be followed by an asynchronous delivery failure; those webhook errors are not thrown as `WhatsAppApiError`.
+
 ## User identity
 
 WhatsApp messages include a [business-scoped user ID](https://developers.facebook.com/documentation/business-messaging/whatsapp/business-scoped-user-ids/) in `from_user_id` and `contacts[].user_id`. Users with a username may omit the phone-based `from` and `wa_id` fields.
