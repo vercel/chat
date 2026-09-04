@@ -232,6 +232,9 @@ Adaptive Card v1.5 JSON. Notable mappings:
 - `<Actions>` / `<Button>` → `Action.Submit` (with `data` carrying the
   callback metadata).
 - `<LinkButton>` → `Action.OpenUrl`.
+- `tooltip` on either button → the action `tooltip` (Adaptive Card 1.5+,
+  which is why the emitted `version` is `1.5`).
+- `<Card width="full">` → `msteams: { width: "full" }`.
 - `<Select>` → `Input.ChoiceSet` (single, multi, or compact based on
   options).
 - `<Divider>` → `Container` with a top border.

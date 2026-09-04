@@ -1,4 +1,5 @@
 export type TeamsButtonStyle = "danger" | "default" | "primary";
+export type TeamsCardWidth = "default" | "full";
 export type TeamsTextStyle = "bold" | "muted" | "plain";
 
 export interface TeamsCardElement {
@@ -7,6 +8,8 @@ export interface TeamsCardElement {
   subtitle?: string;
   title?: string;
   type: "card";
+  /** Width hint; "full" renders a full-width Adaptive Card in Teams */
+  width?: TeamsCardWidth;
 }
 
 export type TeamsCardChild =
@@ -49,6 +52,8 @@ export interface TeamsButtonElement {
   id: string;
   label: string;
   style?: TeamsButtonStyle;
+  /** Hover text rendered as the Adaptive Card action tooltip */
+  tooltip?: string;
   type: "button";
   value?: string;
 }
@@ -56,6 +61,8 @@ export interface TeamsButtonElement {
 export interface TeamsLinkButtonElement {
   label: string;
   style?: TeamsButtonStyle;
+  /** Hover text rendered as the Adaptive Card action tooltip */
+  tooltip?: string;
   type: "link-button";
   url: string;
 }
@@ -110,6 +117,7 @@ export interface TeamsAdaptiveCard {
   $schema: string;
   actions?: unknown[];
   body: unknown[];
+  msteams?: { width: "full" };
   type: "AdaptiveCard";
-  version: "1.4";
+  version: "1.5";
 }

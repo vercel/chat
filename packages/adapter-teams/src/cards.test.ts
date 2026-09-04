@@ -26,7 +26,7 @@ describe("cardToAdaptiveCard", () => {
     expect(adaptive.$schema).toBe(
       "http://adaptivecards.io/schemas/adaptive-card.json"
     );
-    expect(adaptive.version).toBe("1.4");
+    expect(adaptive.version).toBe("1.5");
     expect(adaptive.body).toBeInstanceOf(Array);
   });
 

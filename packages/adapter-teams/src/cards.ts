@@ -15,6 +15,8 @@ import type {
   ActionStyle,
   CardElementArray,
   ChoiceSetInputOptions,
+  OpenUrlActionOptions,
+  SubmitActionOptions,
 } from "@microsoft/teams.cards";
 import {
   AdaptiveCard,
@@ -54,7 +56,7 @@ const convertEmoji = createEmojiConverter("teams");
 
 const ADAPTIVE_CARD_SCHEMA =
   "http://adaptivecards.io/schemas/adaptive-card.json";
-const ADAPTIVE_CARD_VERSION = "1.4" as const;
+const ADAPTIVE_CARD_VERSION = "1.5" as const;
 
 /**
  * Sentinel action ID for auto-injected submit buttons.
@@ -105,11 +107,8 @@ export function cardToAdaptiveCard(card: CardElement): AdaptiveCard {
   const adaptiveCard = new AdaptiveCard(...body).withOptions({
     $schema: ADAPTIVE_CARD_SCHEMA,
     version: ADAPTIVE_CARD_VERSION,
+    ...(card.width === "full" ? { msteams: { width: "full" } } : {}),
   });
-
-  if (card.width === "full") {
-    adaptiveCard.withMsteams({ width: "full" });
-  }
 
   if (actions.length > 0) {
     adaptiveCard.withActions(...actions);
@@ -267,6 +266,29 @@ function convertRadioSelectToElement(
   return new ChoiceSetInput(...choices).withOptions(options);
 }
 
+/**
+ * Options shared by Action.Submit and Action.OpenUrl: title, style, tooltip.
+ */
+function actionOptions(
+  button: ButtonElement | LinkButtonElement
+): Pick<SubmitActionOptions, "title" | "style" | "tooltip"> {
+  const options: Pick<SubmitActionOptions, "title" | "style" | "tooltip"> = {
+    title: convertEmoji(button.label),
+  };
+
+  const style = mapButtonStyle(button.style, "teams") as
+    | ActionStyle
+    | undefined;
+  if (style) {
+    options.style = style;
+  }
+  if (button.tooltip) {
+    options.tooltip = convertEmoji(button.tooltip);
+  }
+
+  return options;
+}
+
 function convertButtonToAction(button: ButtonElement): SubmitAction {
   const data: Record<string, unknown> = {
     actionId: button.id,
@@ -278,44 +300,12 @@ function convertButtonToAction(button: ButtonElement): SubmitAction {
     data.msteams = { type: "task/fetch" };
   }
 
-  const options: {
-    title: string;
-    data: Record<string, unknown>;
-    style?: ActionStyle;
-    tooltip?: string;
-  } = {
-    title: convertEmoji(button.label),
-    data,
-  };
-
-  const style = mapButtonStyle(button.style, "teams") as
-    | ActionStyle
-    | undefined;
-  if (style) {
-    options.style = style;
-  }
-  if (button.tooltip) {
-    options.tooltip = convertEmoji(button.tooltip);
-  }
-
+  const options: SubmitActionOptions = { ...actionOptions(button), data };
   return new SubmitAction(options);
 }
 
 function convertLinkButtonToAction(button: LinkButtonElement): OpenUrlAction {
-  const options: { title: string; style?: ActionStyle; tooltip?: string } = {
-    title: convertEmoji(button.label),
-  };
-
-  const style = mapButtonStyle(button.style, "teams") as
-    | ActionStyle
-    | undefined;
-  if (style) {
-    options.style = style;
-  }
-  if (button.tooltip) {
-    options.tooltip = convertEmoji(button.tooltip);
-  }
-
+  const options: OpenUrlActionOptions = actionOptions(button);
   return new OpenUrlAction(button.url, options);
 }
 

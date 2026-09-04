@@ -43,7 +43,7 @@ const convertEmoji = createEmojiConverter("teams");
 
 const ADAPTIVE_CARD_SCHEMA =
   "http://adaptivecards.io/schemas/adaptive-card.json";
-const ADAPTIVE_CARD_VERSION = "1.4" as const;
+const ADAPTIVE_CARD_VERSION = "1.5" as const;
 
 // ============================================================================
 // ModalElement -> Adaptive Card

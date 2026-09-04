@@ -49,7 +49,7 @@ describe("modalToAdaptiveCard", () => {
     expect(card.$schema).toBe(
       "http://adaptivecards.io/schemas/adaptive-card.json"
     );
-    expect(card.version).toBe("1.4");
+    expect(card.version).toBe("1.5");
     expect(card.body).toBeInstanceOf(Array);
   });
 

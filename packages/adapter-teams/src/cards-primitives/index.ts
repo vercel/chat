@@ -47,8 +47,9 @@ export function cardToAdaptiveCard(card: TeamsCardElement): TeamsAdaptiveCard {
     $schema: "http://adaptivecards.io/schemas/adaptive-card.json",
     ...(actions.length > 0 ? { actions } : {}),
     body,
+    ...(card.width === "full" ? { msteams: { width: "full" as const } } : {}),
     type: "AdaptiveCard",
-    version: "1.4",
+    version: "1.5",
   };
 }
 
@@ -147,6 +148,9 @@ function convertButton(button: TeamsButtonElement): unknown {
     ...(button.style === "danger" ? { style: "destructive" } : {}),
     ...(button.style === "primary" ? { style: "positive" } : {}),
     title: button.label,
+    ...(button.tooltip
+      ? { tooltip: convertTeamsEmojiPlaceholders(button.tooltip) }
+      : {}),
     type: "Action.Submit",
   };
 }
@@ -155,6 +159,9 @@ function convertLinkButton(button: TeamsLinkButtonElement): unknown {
   return {
     ...(button.style === "primary" ? { style: "positive" } : {}),
     title: button.label,
+    ...(button.tooltip
+      ? { tooltip: convertTeamsEmojiPlaceholders(button.tooltip) }
+      : {}),
     type: "Action.OpenUrl",
     url: button.url,
   };

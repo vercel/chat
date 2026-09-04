@@ -37,7 +37,7 @@ export function modalToAdaptiveCard(
     ],
     body: modal.children.flatMap(modalChildToAdaptiveElements),
     type: "AdaptiveCard",
-    version: "1.4",
+    version: "1.5",
   };
 }
 
@@ -96,7 +96,7 @@ export function toTeamsTaskModuleResponse(
         })),
       ],
       type: "AdaptiveCard",
-      version: "1.4",
+      version: "1.5",
     });
   }
 

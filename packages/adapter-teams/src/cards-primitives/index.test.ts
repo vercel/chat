@@ -48,8 +48,43 @@ describe("Teams card primitives", () => {
         { text: "Deploy ✅", type: "TextBlock" },
       ],
       type: "AdaptiveCard",
-      version: "1.4",
+      version: "1.5",
     });
+  });
+
+  it("forwards the width hint and button tooltips", () => {
+    const card = cardToAdaptiveCard({
+      children: [
+        {
+          children: [
+            {
+              id: "approve",
+              label: "Approve",
+              tooltip: "Approve the request :white_check_mark:",
+              type: "button",
+            },
+            {
+              label: "Docs",
+              tooltip: "Opens the docs",
+              type: "link-button",
+              url: "https://example.com",
+            },
+          ],
+          type: "actions",
+        },
+      ],
+      type: "card",
+      width: "full",
+    });
+
+    expect(card.msteams).toEqual({ width: "full" });
+    expect(card.actions).toEqual([
+      expect.objectContaining({ tooltip: "Approve the request ✅" }),
+      expect.objectContaining({ tooltip: "Opens the docs" }),
+    ]);
+
+    const plain = cardToAdaptiveCard({ children: [], type: "card" });
+    expect(plain.msteams).toBeUndefined();
   });
 
   it("renders fallback text", () => {
