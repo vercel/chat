@@ -110,6 +110,8 @@ The default key sharder recognizes these Chat SDK key prefixes:
 
 Unknown keys use the adapter's default shard name, `default`.
 
+Telegram Business threads (`telegram:biz:{connectionId}:{chatId}`) all share the shard `telegram:biz` under this rule. Use a custom `shardKey` that keeps the connection ID if you expect many business conversations.
+
 ### Custom sharding
 
 Use `shardKey` to control how thread IDs map to state sub-agent names, and `keyShard` for non-thread-shaped keys that should still route to a provider-specific shard:

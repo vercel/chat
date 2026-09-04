@@ -167,7 +167,7 @@ const telegram = createTelegramAdapter({
       type: "boolean",
       default: "false",
       description:
-        "Enable Telegram Business mode for Connected Business Bots. Handles `business_connection` and `business_message` updates and passes `business_connection_id` on outbound API calls.",
+        "Enable Telegram Business mode for Connected Business Bots. Handles `business_connection`, `business_message`, and `edited_business_message` updates and passes `business_connection_id` on outbound API calls.",
     },
     mentionOnReply: {
       type: "boolean",
@@ -212,9 +212,19 @@ const telegram = createTelegramAdapter({
 });
 ```
 
-Business threads use the ID format `telegram:biz:{connectionId}:{chatId}`. Outbound sends automatically include `business_connection_id`.
+Business threads use the ID format `telegram:biz:{connectionId}:{chatId}`. Each business conversation is its own channel, separate from any direct chat the same customer has with the bot. Outbound sends, edits, typing, file uploads, and threads created from inline-keyboard callbacks include `business_connection_id`. Slash commands from business chats reach `onSlashCommand` like any other chat.
 
-When configuring webhooks manually, add business update types to `allowed_updates` (or rely on the adapter's polling merge when `longPolling.allowedUpdates` is set).
+The adapter ignores messages typed by the business owner and messages the bot sent on the account's behalf, and it stops replying when the connection is disabled or loses `can_reply`. Connection state lives in your state adapter, so a change reaches every instance.
+
+A few Bot API limits apply to business threads:
+
+- `delete()` uses `deleteBusinessMessages`, which needs the `can_delete_sent_messages` right.
+- Reactions are not supported. `addReaction` and `removeReaction` throw a `NotImplementedError`.
+- `fetchThread()` falls back to the chat details from messages already seen when `getChat` cannot resolve the customer.
+
+When polling, Business mode always sends an explicit `allowed_updates` list (the default update types plus the business ones, or your `longPolling.allowedUpdates` merged with them). Telegram otherwise reuses the list from an earlier call, which can silently exclude business updates. When registering a webhook yourself, add `business_connection`, `business_message`, and `edited_business_message` to `allowed_updates`.
+
+Business thread IDs start with `telegram:biz`, so state adapters that shard by the first two ID segments (such as [Cloudflare Agents](/adapters/vendor-official/cloudflare-agents#state-sharding)) place every business conversation in one shard. Override the sharder with a key that includes the connection ID if that matters for your deployment.
 
 ## Authentication
 
