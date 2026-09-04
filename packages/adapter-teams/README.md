@@ -154,6 +154,10 @@ TEAMS_APP_TENANT_ID=...  # Required for SingleTenant apps
 TEAMS_API_URL=...        # Optional, for GCC-High or sovereign-cloud deployments
 ```
 
+## Mentions
+
+Incoming Teams mentions are supported. Outgoing `@name` text, including multi-word names, stays plain text and does not notify the user. The adapter does not resolve display names into user identities or generate mention entities. Teams requires [matching mention text and entities](https://learn.microsoft.com/en-us/microsoftteams/platform/bots/how-to/conversations/channel-and-group-conversations#add-mentions-to-your-messages) for a real mention; `<at>` markup alone is not sufficient.
+
 ## Features
 
 ### Messaging
