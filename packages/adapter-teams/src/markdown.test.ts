@@ -104,10 +104,10 @@ describe("TeamsFormatConverter", () => {
       expect(result).toContain("2. second");
     });
 
-    it("should convert @mentions to <at>mention</at>", () => {
+    it("should preserve @mentions as text", () => {
       const ast = converter.toAst("Hello @someone");
       const result = converter.fromAst(ast);
-      expect(result).toContain("<at>someone</at>");
+      expect(result).toBe("Hello @someone");
     });
 
     it("should not turn email addresses into mentions", () => {
@@ -205,14 +205,41 @@ describe("TeamsFormatConverter", () => {
   });
 
   describe("renderPostable", () => {
-    it("should convert @mentions in plain strings", () => {
+    it("should preserve @mentions in plain strings", () => {
       const result = converter.renderPostable("Hello @user");
-      expect(result).toBe("Hello <at>user</at>");
+      expect(result).toBe("Hello @user");
     });
 
-    it("should convert @mentions in raw messages", () => {
+    it("should preserve @mentions in raw messages", () => {
       const result = converter.renderPostable({ raw: "Hello @user" });
-      expect(result).toBe("Hello <at>user</at>");
+      expect(result).toBe("Hello @user");
+    });
+
+    it.each([
+      "Hi @Alex Smith, meet @someone",
+      "[user@example.com](mailto:user@example.com) and [@someone](https://example.com/@someone)",
+      "Use `@someone` or **@Alex Smith**",
+      "```text\n@Alex Smith\n```",
+    ])("preserves names and formatting in %j", (text) => {
+      for (const message of [
+        text,
+        { raw: text },
+        { markdown: text },
+        { ast: converter.toAst(text) },
+      ]) {
+        expect(converter.renderPostable(message)).toBe(text);
+      }
+    });
+
+    it("preserves explicit mention markup in raw text", () => {
+      const text = "Hi <at>Alex Smith</at>";
+      expect(converter.renderPostable(text)).toBe(text);
+      expect(converter.renderPostable({ raw: text })).toBe(text);
+    });
+
+    it("decodes incoming full-name mentions without recreating markup", () => {
+      const ast = converter.toAst("Hi <at>Alex Smith</at>");
+      expect(converter.fromAst(ast)).toBe("Hi @Alex Smith");
     });
 
     it("should render markdown messages", () => {

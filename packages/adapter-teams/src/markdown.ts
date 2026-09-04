@@ -11,7 +11,7 @@
  * Teams also accepts standard markdown in most cases.
  */
 
-import { escapeTableCell, replaceBareMentions } from "@chat-adapter/shared";
+import { escapeTableCell } from "@chat-adapter/shared";
 import {
   type AdapterPostableMessage,
   BaseFormatConverter,
@@ -35,23 +35,14 @@ import {
 
 export class TeamsFormatConverter extends BaseFormatConverter {
   /**
-   * Convert bare `@mentions` to Teams format (`@name` → `<at>name</at>`),
-   * leaving emails, URLs, code spans, and existing `<at>…</at>` tokens
-   * untouched.
-   */
-  private convertMentionsToTeams(text: string): string {
-    return replaceBareMentions(text, (_mention, name) => `<at>${name}</at>`);
-  }
-
-  /**
-   * Override renderPostable to convert @mentions in plain strings.
+   * Render text messages while preserving raw strings.
    */
   override renderPostable(message: AdapterPostableMessage): string {
     if (typeof message === "string") {
-      return this.convertMentionsToTeams(message);
+      return message;
     }
     if ("raw" in message) {
-      return this.convertMentionsToTeams(message.raw);
+      return message.raw;
     }
     if ("markdown" in message) {
       return this.fromAst(parseMarkdown(message.markdown));
@@ -141,8 +132,7 @@ export class TeamsFormatConverter extends BaseFormatConverter {
     }
 
     if (isTextNode(node)) {
-      // Convert bare @mentions to Teams format <at>mention</at>
-      return this.convertMentionsToTeams(node.value);
+      return node.value;
     }
 
     if (isStrongNode(node)) {

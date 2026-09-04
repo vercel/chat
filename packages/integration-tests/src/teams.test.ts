@@ -361,9 +361,10 @@ describe("Teams Integration", () => {
       expect(text).toContain("`code`");
     });
 
-    it("should convert @mentions to Teams format in posted messages", async () => {
+    it("should preserve @names in posted and edited messages", async () => {
       chat.onNewMention(async (thread) => {
-        await thread.post("Hey @john, check this out!");
+        const message = await thread.post("Hey @Alex Smith, check this out!");
+        await message.edit({ markdown: "Thanks **@Alex Smith** and @someone" });
       });
 
       const activity = createTeamsActivity({
@@ -387,7 +388,10 @@ describe("Teams Integration", () => {
       await tracker.waitForAll();
 
       const sentActivity = mockTeamsApp.sentActivities[0] as { text: string };
-      expect(sentActivity.text).toBe("Hey <at>john</at>, check this out!");
+      expect(sentActivity.text).toBe("Hey @Alex Smith, check this out!");
+      expect(mockTeamsApp.updatedActivities).toContainEqual(
+        expect.objectContaining({ text: "Thanks **@Alex Smith** and @someone" })
+      );
     });
   });
 
