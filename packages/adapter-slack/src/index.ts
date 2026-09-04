@@ -3325,7 +3325,10 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
         } catch (error) {
           this.logger.warn(
             "agent_view DM subscription check failed; using per-message thread",
-            { error: String(error), threadId }
+            {
+              error: String(error),
+              threadId,
+            }
           );
         }
         try {
@@ -3366,7 +3369,10 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
         .catch((error) => {
           this.logger.warn(
             "Skipping Slack agent session title after message processing failed",
-            { error, threadId }
+            {
+              error,
+              threadId,
+            }
           );
         });
       options?.waitUntil?.(titleTask);
@@ -3495,7 +3501,10 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
             // Never let a lookup failure on the old snapshot drop the edit
             this.logger.warn(
               "Falling back to sync parse for pre-edit message",
-              { error, threadId }
+              {
+                error,
+                threadId,
+              }
             );
             return this.parseSlackMessageSync(snapshot, threadId);
           }
@@ -4088,29 +4097,26 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
     status: string,
     loadingMessages?: string[]
   ): Promise<void> {
-    if (this.agentView) {
-      if (loadingMessages?.length || status.trim()) {
-        this.logger.debug(
-          "Slack Agent Sessions use the standard Working status; custom loading text is ignored"
-        );
-      }
-      await this.setSessionStatus(
-        channelId,
-        threadTs,
-        status.trim() ? "processing" : "active"
-      );
+    // An empty status clears the loading state; the Agent Sessions lifecycle
+    // has no "clear", so it maps to `active`.
+    if (this.agentView && !status.trim()) {
+      await this.setSessionStatus(channelId, threadTs, "active");
       return;
     }
 
-    const effectiveLoadingMessages = loadingMessages ?? this.loadingMessages;
+    // A custom status is surfaced through the legacy Assistants API: its
+    // compatibility bridge renders the text in the agent-session loading UX,
+    // while `agents.sessions.setStatus` only supports lifecycle states.
     await this._client.assistant.threads.setStatus(
       await this.withToken({
         channel_id: channelId,
         thread_ts: threadTs,
         status,
-        ...(effectiveLoadingMessages && {
-          loading_messages: effectiveLoadingMessages,
-        }),
+        ...(this.agentView
+          ? {}
+          : {
+              loading_messages: loadingMessages ?? this.loadingMessages,
+            }),
       })
     );
   }
@@ -5589,7 +5595,7 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
       this.logger.debug("Slack: startTyping skipped - no thread context");
       return;
     }
-    if (this.agentView) {
+    if (this.agentView && !status) {
       const sessionStatus = status === "" ? "active" : "processing";
       this.logger.debug("Slack API: agents.sessions.setStatus", {
         channel,
@@ -5610,6 +5616,9 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
       return;
     }
 
+    // A custom status is surfaced through the legacy Assistants API: its
+    // compatibility bridge renders the text in the agent-session loading UX,
+    // while `agents.sessions.setStatus` only supports lifecycle states.
     this.logger.debug("Slack API: assistant.threads.setStatus", {
       channel,
       threadTs,
@@ -5699,7 +5708,10 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
     if (!this.nativeStreaming || this.nativeStreamingBroken) {
       this.logger.debug(
         "Slack: using fallback stream - native streaming disabled",
-        { configured: this.nativeStreaming, broken: this.nativeStreamingBroken }
+        {
+          configured: this.nativeStreaming,
+          broken: this.nativeStreamingBroken,
+        }
       );
       return null;
     }
@@ -5866,7 +5878,10 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
       }
       this.logger.warn(
         "Slack native streaming unavailable, falling back to post-and-edit",
-        { channel, error }
+        {
+          channel,
+          error,
+        }
       );
     };
 
@@ -6233,14 +6248,20 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
         }
         this.logger.warn(
           "Slack: stream expired before stop, stream-end blocks skipped",
-          { channel, messageId: expiredTs, skippedBlocks: stopBlocks.length }
+          {
+            channel,
+            messageId: expiredTs,
+            skippedBlocks: stopBlocks.length,
+          }
         );
         await this.endTyping(threadId, options?.sessionStatus ?? "active");
         return { id: expiredTs, threadId, raw: { ts: expiredTs } };
       }
       this.logger.warn(
         "Slack: stream expired before stop, delivering the rest in a new message",
-        { channel }
+        {
+          channel,
+        }
       );
       await startNextSegment(lastFlushed);
       result = await segment.streamer.stop({

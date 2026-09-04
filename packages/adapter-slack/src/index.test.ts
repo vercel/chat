@@ -6258,6 +6258,11 @@ describe("agent_view DM threading", () => {
     });
     const apiCall = vi.fn().mockResolvedValue({ ok: true });
     mockClientMethod(adapter, "apiCall", apiCall);
+    mockClientMethod(
+      adapter,
+      "assistant.threads.setStatus",
+      vi.fn().mockResolvedValue({ ok: true })
+    );
 
     await adapter.startTyping("slack:D1:1771.99", "Thinking...", {
       initiatorUserId: "U1",
@@ -6265,8 +6270,22 @@ describe("agent_view DM threading", () => {
     await adapter.startTyping("slack:D1:1771.99", "", {
       initiatorUserId: "U1",
     });
+    await adapter.startTyping("slack:D1:1771.99", "Reading xyz.md", {
+      initiatorUserId: "U1",
+    });
 
     const client = getClient(adapter);
+    // Custom statuses are surfaced through the legacy Assistants API, whose
+    // compatibility bridge renders the text in the agent-session loading UX.
+    expect(client.assistant.threads.setStatus).toHaveBeenNthCalledWith(
+      1,
+      expect.objectContaining({
+        channel_id: "D1",
+        thread_ts: "1771.99",
+        status: "Thinking...",
+      })
+    );
+    // An explicit empty status ends typing via the Agent Sessions lifecycle.
     expect(client.apiCall).toHaveBeenNthCalledWith(
       1,
       "agents.sessions.setStatus",
@@ -6274,17 +6293,15 @@ describe("agent_view DM threading", () => {
         channel_id: "D1",
         initiator_user_id: "U1",
         thread_ts: "1771.99",
-        status: "processing",
+        status: "active",
       })
     );
-    expect(client.apiCall).toHaveBeenNthCalledWith(
+    expect(client.assistant.threads.setStatus).toHaveBeenNthCalledWith(
       2,
-      "agents.sessions.setStatus",
       expect.objectContaining({
         channel_id: "D1",
-        initiator_user_id: "U1",
         thread_ts: "1771.99",
-        status: "active",
+        status: "Reading xyz.md",
       })
     );
   });
@@ -8254,7 +8271,7 @@ describe("setAssistantStatus", () => {
     );
   });
 
-  it("maps agent status text to session lifecycle states", async () => {
+  it("surfaces custom status text via the legacy API and clears via the sessions lifecycle", async () => {
     const adapter = createSlackAdapter({
       agentView: true,
       botToken: "xoxb-test-token",
@@ -8263,19 +8280,34 @@ describe("setAssistantStatus", () => {
     });
     const apiCall = vi.fn().mockResolvedValue({ ok: true });
     mockClientMethod(adapter, "apiCall", apiCall);
+    mockClientMethod(
+      adapter,
+      "assistant.threads.setStatus",
+      vi.fn().mockResolvedValue({ ok: true })
+    );
 
     await adapter.setAssistantStatus("D123", "1.2", "Working...");
     await adapter.setAssistantStatus("D123", "1.2", "");
 
-    expect(apiCall).toHaveBeenNthCalledWith(
-      1,
-      "agents.sessions.setStatus",
-      expect.objectContaining({ status: "processing" })
+    const client = getClient(adapter);
+    // A custom status is surfaced through the legacy Assistants API, whose
+    // compatibility bridge renders the text in the agent-session loading UX.
+    expect(client.assistant.threads.setStatus).toHaveBeenCalledWith(
+      expect.objectContaining({
+        channel_id: "D123",
+        thread_ts: "1.2",
+        status: "Working...",
+      })
     );
-    expect(apiCall).toHaveBeenNthCalledWith(
-      2,
+    // An empty status clears the loading state via the Agent Sessions
+    // lifecycle.
+    expect(apiCall).toHaveBeenCalledWith(
       "agents.sessions.setStatus",
-      expect.objectContaining({ status: "active" })
+      expect.objectContaining({
+        channel_id: "D123",
+        thread_ts: "1.2",
+        status: "active",
+      })
     );
   });
 });
