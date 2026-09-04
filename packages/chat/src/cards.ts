@@ -74,7 +74,7 @@ export interface ButtonElement {
   label: string;
   /** Visual style */
   style?: ButtonStyle;
-  /** Hover text for the button, on platforms that render one (Teams) */
+  /** Hover text for the button. Rendered by Teams only; other adapters ignore it */
   tooltip?: string;
   type: "button";
   /** Optional payload value sent with action callback */
@@ -89,7 +89,7 @@ export interface LinkButtonElement {
   label: string;
   /** Visual style */
   style?: ButtonStyle;
-  /** Hover text for the button, on platforms that render one (Teams) */
+  /** Hover text for the button. Rendered by Teams only; other adapters ignore it */
   tooltip?: string;
   type: "link-button";
   /** URL to open when clicked */
@@ -440,7 +440,7 @@ export interface ButtonOptions {
   label: string;
   /** Visual style */
   style?: ButtonStyle;
-  /** Hover text for the button, on platforms that render one (Teams) */
+  /** Hover text for the button. Rendered by Teams only; other adapters ignore it */
   tooltip?: string;
   /** Optional payload value sent with action callback */
   value?: string;
@@ -477,7 +477,7 @@ export interface LinkButtonOptions {
   label: string;
   /** Visual style */
   style?: ButtonStyle;
-  /** Hover text for the button, on platforms that render one (Teams) */
+  /** Hover text for the button. Rendered by Teams only; other adapters ignore it */
   tooltip?: string;
   /** URL to open when clicked */
   url: string;

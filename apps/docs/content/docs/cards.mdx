@@ -131,7 +131,7 @@ Optional `callbackUrl` causes the action data to be POSTed to a URL when clicked
 <Button callbackUrl={webhook.url} id="approve" style="primary">Approve</Button>
 ```
 
-Optional `tooltip` is hover text for the button, on platforms that render one (Teams):
+Optional `tooltip` is hover text for the button. Teams renders it; other adapters ignore it:
 
 ```tsx title="lib/bot.tsx"
 <Button id="approve" tooltip="Approve the request">Approve</Button>
@@ -171,7 +171,7 @@ stable action identifier for routing or analytics.
 </LinkButton>
 ```
 
-Optional `tooltip` is hover text for the button, on platforms that render one (Teams):
+Optional `tooltip` is hover text for the button. Teams renders it; other adapters ignore it:
 
 ```tsx title="lib/bot.tsx"
 <LinkButton tooltip="Opens the order in your browser" url="https://example.com/order/1234">
