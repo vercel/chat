@@ -93,9 +93,16 @@ adapter encodes both:
 ```
 telegram:{chatId}                       # plain chat / DM
 telegram:{chatId}:{messageThreadId}     # topic in a forum group
+telegram:biz:{connectionId}:{chatId}    # Connected Business Bot chat
 ```
 
 `isDM(threadId)` returns `true` when `chat.type === "private"`.
+
+Business threads are their own channel: `channelIdFromThreadId` returns
+the full `telegram:biz:...` ID, never the bare `telegram:{chatId}`, so
+they do not share lock or history keys with the customer's direct bot
+chat. Note that sharders keyed on the first two segments group every
+business thread under `telegram:biz`.
 
 ## Webhook flow
 
@@ -115,6 +122,12 @@ telegram:{chatId}:{messageThreadId}     # topic in a forum group
      hooks.
    - `message_reaction` → `chat.handleReaction`.
    - `my_chat_member` / `chat_member` → membership change hooks.
+   - `business_connection` → cached in the state adapter (before the
+     `allowedUserIds` gate, since it carries no customer id).
+   - `business_message` / `edited_business_message` → resolve the
+     connection from state (falling back to `getBusinessConnection`),
+     drop owner-typed and `sender_business_bot` echoes, then route
+     slash commands, media groups, and messages like `message`.
 3. **`waitUntil`** — outbound API calls (`sendMessage`,
    `editMessageText`, etc.) run inside `waitUntil` so the webhook
    response lands quickly.

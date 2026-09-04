@@ -577,7 +577,11 @@ and the story id.
 }
 ```
 
-## Business message (Connected Business Bot)
+## Business connection (Connected Business Bot)
+
+Sent when the owner connects the bot, changes its rights, or disconnects
+it. Arrives on its own; Telegram never combines it with a message in one
+update.
 
 ```json
 {
@@ -594,9 +598,19 @@ and the story id.
     "date": 1756290700,
     "is_enabled": true,
     "rights": {
-      "can_reply": true
+      "can_reply": true,
+      "can_read_messages": true,
+      "can_delete_sent_messages": true
     }
-  },
+  }
+}
+```
+
+## Business message (customer to business account)
+
+```json
+{
+  "update_id": 312744901,
   "business_message": {
     "message_id": 42,
     "from": {
@@ -614,6 +628,69 @@ and the story id.
     "date": 1756290701,
     "business_connection_id": "conn-example-abc",
     "text": "Hi, I need help with my order"
+  }
+}
+```
+
+## Business message (sent by the bot on behalf of the account)
+
+Outgoing replies are echoed back as `business_message`. `from` is the
+account owner and `sender_business_bot` is the bot that sent it. The
+adapter skips these.
+
+```json
+{
+  "update_id": 312744902,
+  "business_message": {
+    "message_id": 43,
+    "from": {
+      "id": 100000010,
+      "is_bot": false,
+      "first_name": "Business Owner",
+      "username": "owner"
+    },
+    "sender_business_bot": {
+      "id": 100000099,
+      "is_bot": true,
+      "first_name": "Support Bot",
+      "username": "supportbot"
+    },
+    "chat": {
+      "id": 100000001,
+      "first_name": "Customer",
+      "username": "customer",
+      "type": "private"
+    },
+    "date": 1756290702,
+    "business_connection_id": "conn-example-abc",
+    "text": "Thanks, looking into your order now"
+  }
+}
+```
+
+## Edited business message
+
+```json
+{
+  "update_id": 312744903,
+  "edited_business_message": {
+    "message_id": 42,
+    "from": {
+      "id": 100000001,
+      "is_bot": false,
+      "first_name": "Customer",
+      "username": "customer"
+    },
+    "chat": {
+      "id": 100000001,
+      "first_name": "Customer",
+      "username": "customer",
+      "type": "private"
+    },
+    "date": 1756290701,
+    "edit_date": 1756290760,
+    "business_connection_id": "conn-example-abc",
+    "text": "Hi, I need help with my order #4821"
   }
 }
 ```
