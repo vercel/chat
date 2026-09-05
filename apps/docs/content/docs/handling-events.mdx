@@ -500,7 +500,7 @@ bot.onDirectMessage((thread, message) => {
 
 ### Handling member joined channel
 
-`onMemberJoinedChannel` fires when a user joins a Slack channel. Use it to post welcome messages or onboard users automatically.
+`onMemberJoinedChannel` fires when a member joins a channel. Slack emits it for every user who joins a channel the bot can see. Teams emits it only when the bot itself is added to a channel or group chat. Use it to post welcome messages or onboard users automatically.
 
 ```typescript title="lib/bot.ts" lineNumbers
 bot.onMemberJoinedChannel(async (event) => {
@@ -520,7 +520,7 @@ The `event` object includes:
 
 | Property | Type | Description |
 |----------|------|-------------|
-| `adapter` | `Adapter` | The Slack adapter |
+| `adapter` | `Adapter` | The adapter that emitted the event (Slack or Teams) |
 | `channelId` | `string` | The channel that was joined |
-| `userId` | `string` | The user who joined |
+| `userId` | `string` | The user who joined. On Teams this is always the bot (`28:<appId>`) |
 | `inviterId` | `string` (optional) | The user who invited them |
