@@ -28,7 +28,7 @@
   },
   "devDependencies": {
     "@biomejs/biome": "^2.4.4",
-    "@changesets/cli": "^2.29.8",
+    "@changesets/cli": "^3.0.1",
     "@vitest/coverage-v8": "^4.0.18",
     "knip": "^5.85.0",
     "konsistent": "0.0.1-alpha.20",
