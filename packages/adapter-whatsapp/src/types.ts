@@ -350,6 +350,31 @@ export interface WhatsAppTypingIndicatorResponse {
 }
 
 /**
+ * Error object returned by the Meta Graph API on a failed request.
+ *
+ * @see https://developers.facebook.com/documentation/business-messaging/whatsapp/support/error-codes/
+ */
+export interface WhatsAppGraphError {
+  code?: number;
+  error_data?: {
+    details?: string;
+    messaging_product?: string;
+  };
+  /** Optional and deprecated in the Cloud API. */
+  error_subcode?: number;
+  fbtrace_id?: string;
+  message?: string;
+  type?: string;
+}
+
+/**
+ * Body of a failed Meta Graph API response.
+ */
+export interface WhatsAppGraphErrorBody {
+  error?: WhatsAppGraphError;
+}
+
+/**
  * Fields shared by every interactive message shape.
  */
 interface WhatsAppInteractiveBase {
