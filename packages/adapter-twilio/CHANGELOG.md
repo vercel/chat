@@ -1,5 +1,16 @@
 # @chat-adapter/twilio
 
+## 4.40.0
+
+### Patch Changes
+
+- b7c9316: Tighten AI tool and queued-message scoping, isolate direct-message conversations, preserve ephemeral follow-ups, consume callback tokens once, and mark external link metadata as untrusted.
+- Updated dependencies [f485255]
+- Updated dependencies [b7c9316]
+- Updated dependencies [4a0b5c0]
+  - chat@4.40.0
+  - @chat-adapter/shared@4.40.0
+
 ## 4.39.0
 
 ### Minor Changes

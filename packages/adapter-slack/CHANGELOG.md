@@ -1,5 +1,27 @@
 # @chat-adapter/slack
 
+## 4.40.0
+
+### Minor Changes
+
+- 51322dd: Decode the bot's own mention in incoming Slack messages. The adapter now resolves `<@U_BOT>` to the bot's display name (`@<DisplayName>`) the same way it resolves every other user mention, instead of leaving the raw user-ID markup in place, and sets `isMention` on the parsed message by detecting the bot's ID in the raw event text. This keeps `message.text` self-describing for downstream consumers (LLM prompts, classifiers) while preserving mention detection, which previously depended on the raw ID markup surviving in the text.
+- d4a1f03: Rotate long-running native Slack streams before Slack expires them. Once a stream segment passes `streamSegmentMaxAgeMs` (default four minutes) the adapter finalizes it at the next paragraph break and continues the reply in a new message, closing and reopening code fences, repeating table headers, replaying open task cards and the plan title, and keeping the agent session in `processing`. A segment Slack already expired during an idle gap is recovered the same way instead of failing the reply.
+- 2cc8cc3: Surface custom status text in the Agent messaging experience. `startTyping` and `setAssistantStatus` with a custom status now call the legacy `assistant.threads.setStatus` endpoint, whose compatibility bridge renders the text in the agent-session loading UX — instead of silently dropping the text and showing the generic "Working…" indicator. Clearing (empty status) still transitions the session to `active` via the Agent Sessions lifecycle.
+
+### Patch Changes
+
+- 78021c0: pass workspace context to suggested prompt resolvers in Agent view
+- 8b6d7f3: Reactivate Slack Agent Sessions when `startTyping` receives an empty status.
+- c2b6bff: Use the Slack bot user ID for bot-authored messages when a bot profile is available.
+- f485255: Harden webhook tenant isolation, require explicit Google Chat bot identity for reliable mention handling, use native Google Chat pagination, isolate Slack caches, and bound recording storage.
+- 8fdaf4a: Stream post-and-edit fallback updates through Slack's `markdown_text` field instead of `text`, so live-updating messages render markdown while the stream is in progress (and get the 12,000-character ceiling rather than 4,000)
+- 7609d8f: Validate external request targets before sending credentials, message content, or attachment requests.
+- Updated dependencies [f485255]
+- Updated dependencies [b7c9316]
+- Updated dependencies [4a0b5c0]
+  - chat@4.40.0
+  - @chat-adapter/shared@4.40.0
+
 ## 4.39.0
 
 ### Minor Changes

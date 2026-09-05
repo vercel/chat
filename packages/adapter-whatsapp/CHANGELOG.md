@@ -1,5 +1,19 @@
 # @chat-adapter/whatsapp
 
+## 4.40.0
+
+### Minor Changes
+
+- 31bce0a: export `WhatsAppApiError` for non-2xx Graph API responses. It carries Meta's numeric `errorCode`, `providerMessage`, `type`, `details`, `subcode`, `traceId`, the HTTP `status`, and the `raw` envelope, and maps `code` onto the shared `AdapterError` taxonomy (`RATE_LIMITED`, `AUTH_FAILED`, `PERMISSION_DENIED`, `NOT_FOUND`). Transport failures and unparseable response bodies now throw `NetworkError` instead of leaking raw fetch errors, and error messages carry Meta's message or a bounded excerpt instead of the full response body.
+
+### Patch Changes
+
+- Updated dependencies [f485255]
+- Updated dependencies [b7c9316]
+- Updated dependencies [4a0b5c0]
+  - chat@4.40.0
+  - @chat-adapter/shared@4.40.0
+
 ## 4.39.0
 
 ### Patch Changes

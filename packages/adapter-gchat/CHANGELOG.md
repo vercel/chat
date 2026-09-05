@@ -1,5 +1,19 @@
 # @chat-adapter/gchat
 
+## 4.40.0
+
+### Minor Changes
+
+- f485255: Harden webhook tenant isolation, require explicit Google Chat bot identity for reliable mention handling, use native Google Chat pagination, isolate Slack caches, and bound recording storage.
+
+### Patch Changes
+
+- Updated dependencies [f485255]
+- Updated dependencies [b7c9316]
+- Updated dependencies [4a0b5c0]
+  - chat@4.40.0
+  - @chat-adapter/shared@4.40.0
+
 ## 4.39.0
 
 ### Patch Changes

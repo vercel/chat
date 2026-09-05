@@ -1,6 +1,6 @@
 {
   "name": "@chat-adapter/instagram",
-  "version": "4.39.0",
+  "version": "4.40.0",
   "description": "Instagram Direct Messages adapter for Chat SDK — native Meta Messaging API webhooks, media, and quick replies",
   "type": "module",
   "engines": {

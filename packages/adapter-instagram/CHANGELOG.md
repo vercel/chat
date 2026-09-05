@@ -1,5 +1,16 @@
 # @chat-adapter/instagram
 
+## 4.40.0
+
+### Patch Changes
+
+- 7609d8f: Validate external request targets before sending credentials, message content, or attachment requests.
+- Updated dependencies [f485255]
+- Updated dependencies [b7c9316]
+- Updated dependencies [4a0b5c0]
+  - chat@4.40.0
+  - @chat-adapter/shared@4.40.0
+
 ## 4.39.0
 
 ### Patch Changes

@@ -1,5 +1,24 @@
 # @chat-adapter/teams
 
+## 4.40.0
+
+### Minor Changes
+
+- aaeede7: emit Teams bot-join events and expose the bot user ID
+- 4a0b5c0: Add `tooltip` to `Button` and `LinkButton`, and a `width` hint to `Card`. The Teams adapter and the `@chat-adapter/teams/cards` subpath render them as the Adaptive Card action `tooltip` and the `msteams` full-width card property; other adapters ignore them. Emitted Adaptive Cards now declare schema version 1.5, which is the version that introduced action tooltips. Buttons with a `callbackUrl` keep their `tooltip` and other fields when the URL is swapped for a callback token.
+
+### Patch Changes
+
+- a8de95b: Fall back to Teams activity group metadata when the explicit conversation type is missing.
+- f485255: Harden webhook tenant isolation, require explicit Google Chat bot identity for reliable mention handling, use native Google Chat pagination, isolate Slack caches, and bound recording storage.
+- 7062c39: preserve outgoing @names as plain text instead of generating mention markup without matching entities
+- 7609d8f: Validate external request targets before sending credentials, message content, or attachment requests.
+- Updated dependencies [f485255]
+- Updated dependencies [b7c9316]
+- Updated dependencies [4a0b5c0]
+  - chat@4.40.0
+  - @chat-adapter/shared@4.40.0
+
 ## 4.39.0
 
 ### Patch Changes

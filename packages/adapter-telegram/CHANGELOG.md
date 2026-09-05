@@ -1,5 +1,22 @@
 # @chat-adapter/telegram
 
+## 4.40.0
+
+### Minor Changes
+
+- 043386b: Add Telegram Business mode support. Opt in via `businessMode: true`.
+  
+  The adapter handles `business_connection`, `business_message`, and `edited_business_message` updates, encodes business threads as `telegram:biz:{connectionId}:{chatId}`, and passes `business_connection_id` on outbound sends, edits, typing, file uploads, and inline-keyboard callbacks. Business threads are their own channel, slash commands route through `onSlashCommand`, deletes use `deleteBusinessMessages`, and connection state is cached in the state adapter so a revoked connection is honoured by every instance. Reactions on business threads throw a `NotImplementedError`, since the Bot API has no business variant of `setMessageReaction`.
+
+### Patch Changes
+
+- 43dba3d: Skip unused plain-text conversion for rich and Markdown native draft updates. Plain-text fallback and final delivery keep their existing behavior.
+- Updated dependencies [f485255]
+- Updated dependencies [b7c9316]
+- Updated dependencies [4a0b5c0]
+  - chat@4.40.0
+  - @chat-adapter/shared@4.40.0
+
 ## 4.39.0
 
 ### Minor Changes

@@ -1,5 +1,16 @@
 # chat
 
+## 4.40.0
+
+### Minor Changes
+
+- 4a0b5c0: Add `tooltip` to `Button` and `LinkButton`, and a `width` hint to `Card`. The Teams adapter and the `@chat-adapter/teams/cards` subpath render them as the Adaptive Card action `tooltip` and the `msteams` full-width card property; other adapters ignore them. Emitted Adaptive Cards now declare schema version 1.5, which is the version that introduced action tooltips. Buttons with a `callbackUrl` keep their `tooltip` and other fields when the URL is swapped for a callback token.
+
+### Patch Changes
+
+- f485255: Harden webhook tenant isolation, require explicit Google Chat bot identity for reliable mention handling, use native Google Chat pagination, isolate Slack caches, and bound recording storage.
+- b7c9316: Tighten AI tool and queued-message scoping, isolate direct-message conversations, preserve ephemeral follow-ups, consume callback tokens once, and mark external link metadata as untrusted.
+
 ## 4.39.0
 
 ### Minor Changes
