@@ -29,8 +29,8 @@ import { Chat } from "chat";
       type: 'number | DurationString | undefined',
     },
     maxPerUser: {
-      description: 'Hard cap per user. Older entries are evicted on append.',
-      type: 'number',
+      description: 'Hard cap per user. Older entries are evicted on append. Set `false` for no cap.',
+      type: 'number | false',
       default: '200',
     },
     storeFormatted: {
@@ -137,7 +137,7 @@ list(query: ListQuery): Promise<TranscriptEntry[]>;
       type: 'string',
     },
     limit: {
-      description: 'Maximum entries returned. Cannot exceed `maxPerUser` because that is the storage cap.',
+      description: 'Maximum entries returned. Cannot exceed the stored entry count. `maxPerUser` limits storage unless set to `false`.',
       type: 'number',
       default: '50',
     },

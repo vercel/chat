@@ -2782,8 +2782,8 @@ export interface UserHistoryConfig {
    * One of the two must be set when user history is enabled.
    */
   identity?: IdentityResolver;
-  /** Hard cap; older entries evicted on append. Default 200. */
-  maxPerUser?: number;
+  /** Hard cap; older entries evicted on append. Default 200. Set false for no cap. */
+  maxPerUser?: number | false;
   /**
    * Default retention applied as the list TTL. Refreshed on every append.
    * Omit for no expiry.
@@ -2993,8 +2993,8 @@ export type UserHistoryEntry = HistoryEntry;
 export type DurationString = `${number}${"s" | "m" | "h" | "d"}`;
 
 export interface TranscriptsConfig {
-  /** Hard cap; older messages evicted on append. Default 200. */
-  maxPerUser?: number;
+  /** Hard cap; older messages evicted on append. Default 200. Set false for no cap. */
+  maxPerUser?: number | false;
   /**
    * Default retention applied as the list TTL. Refreshed on every append
    * (matches `appendToList` semantics). Omit for no expiry.

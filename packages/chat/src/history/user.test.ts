@@ -363,6 +363,29 @@ describe("UserHistoryApiImpl", () => {
   });
 
   describe("maxPerUser eviction", () => {
+    it.each([
+      { maxPerUser: false as const, expected: 205, first: "msg 0" },
+      { maxPerUser: undefined, expected: 200, first: "msg 5" },
+    ])("retains $expected entries with maxPerUser=$maxPerUser", async ({
+      maxPerUser,
+      expected,
+      first,
+    }) => {
+      api = new UserHistoryApiImpl(state, { maxPerUser });
+      const thread = createTestThread();
+      for (let i = 0; i < 205; i++) {
+        await api.append(
+          thread,
+          { role: "assistant", text: `msg ${i}` },
+          { userKey: "u1" }
+        );
+      }
+      const list = await api.list({ userKey: "u1", limit: 300 });
+      expect(list).toHaveLength(expected);
+      expect(list[0]?.text).toBe(first);
+      expect(list.at(-1)?.text).toBe("msg 204");
+    });
+
     it("trims to maxPerUser via appendToList semantics", async () => {
       api = new UserHistoryApiImpl(state, { maxPerUser: 3 });
       const thread = createTestThread();
