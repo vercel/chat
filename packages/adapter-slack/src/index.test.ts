@@ -10862,6 +10862,57 @@ describe("stream with empty threadTs", () => {
       expect.objectContaining({ token: "xoxb-test-token" })
     );
   });
+
+  it("bounds structured stream fields to Slack's 256-character limit", async () => {
+    const adapter = createSlackAdapter({
+      botToken: "xoxb-test-token",
+      signingSecret: "test-signing-secret",
+      logger: mockLogger,
+    });
+    const append = vi.fn().mockResolvedValue({ ok: true });
+    const stop = vi.fn().mockResolvedValue({
+      ok: true,
+      ts: "1234567890.111111",
+    });
+    mockClientMethod(
+      adapter,
+      "chatStream",
+      vi.fn().mockReturnValue({ append, stop })
+    );
+
+    async function* chunkStream() {
+      yield {
+        title: "p".repeat(300),
+        type: "plan_update" as const,
+      };
+      yield {
+        details: "d".repeat(600),
+        id: "i".repeat(300),
+        output: "o".repeat(600),
+        status: "in_progress" as const,
+        title: "t".repeat(300),
+        type: "task_update" as const,
+      };
+    }
+
+    await adapter.stream("slack:C123:1234567890.000000", chunkStream(), {
+      recipientUserId: "U123",
+      recipientTeamId: "T123",
+    });
+
+    const chunks = append.mock.calls.flatMap(
+      (call) => (call[0] as { chunks?: Record<string, string>[] }).chunks ?? []
+    );
+    expect(chunks).toHaveLength(4);
+    expect(chunks[0]?.title).toHaveLength(256);
+    for (const chunk of chunks.slice(1)) {
+      expect(chunk.id?.length).toBeLessThanOrEqual(256);
+      expect(chunk.title?.length).toBeLessThanOrEqual(256);
+      expect(chunk.details?.length ?? 0).toBeLessThanOrEqual(256);
+      expect(chunk.output?.length ?? 0).toBeLessThanOrEqual(256);
+    }
+    expect(new Set(chunks.slice(1).map((chunk) => chunk.id)).size).toBe(3);
+  });
 });
 
 describe("native stream rotation", () => {

@@ -428,6 +428,65 @@ function tableContinuation(text: string): string {
   return `${rows[separatorAt - 1]}\n${rows[separatorAt]}\n`;
 }
 
+const SLACK_STREAM_CHUNK_FIELD_LIMIT = 256;
+
+function truncateStreamChunkField(value: string, limit: number): string {
+  if (value.length <= limit) {
+    return value;
+  }
+  let end = limit - 3;
+  const lastCode = value.charCodeAt(end - 1);
+  if (lastCode >= 0xd800 && lastCode <= 0xdbff) {
+    end -= 1;
+  }
+  return `${value.slice(0, end)}...`;
+}
+
+function splitStreamChunkField(value: string): string[] {
+  if (value.length <= SLACK_STREAM_CHUNK_FIELD_LIMIT) {
+    return [value];
+  }
+  const parts: string[] = [];
+  let offset = 0;
+  while (offset < value.length) {
+    let end = Math.min(offset + SLACK_STREAM_CHUNK_FIELD_LIMIT, value.length);
+    const lastCode = value.charCodeAt(end - 1);
+    if (lastCode >= 0xd800 && lastCode <= 0xdbff) {
+      end -= 1;
+    }
+    parts.push(value.slice(offset, end));
+    offset = end;
+  }
+  return parts;
+}
+
+function normalizeTaskChunks(
+  chunk: Extract<StreamChunk, { type: "task_update" }>,
+  previousParts: number
+): Extract<StreamChunk, { type: "task_update" }>[] {
+  const details = chunk.details ? splitStreamChunkField(chunk.details) : [];
+  const output = chunk.output ? splitStreamChunkField(chunk.output) : [];
+  const total = Math.max(previousParts, details.length, output.length, 1);
+  return Array.from({ length: total }, (_, index) => {
+    const suffix = index === 0 ? "" : `:part:${index + 1}`;
+    const titleSuffix = total === 1 ? "" : ` (${index + 1}/${total})`;
+    return {
+      ...(details[index] ? { details: details[index] } : {}),
+      id: `${truncateStreamChunkField(
+        chunk.id,
+        SLACK_STREAM_CHUNK_FIELD_LIMIT - suffix.length
+      )}${suffix}`,
+      ...(output[index] ? { output: output[index] } : {}),
+      status: chunk.status,
+      title: `${truncateStreamChunkField(
+        chunk.title,
+        SLACK_STREAM_CHUNK_FIELD_LIMIT - titleSuffix.length
+      )}${titleSuffix}`,
+      type: "task_update" as const,
+    };
+  });
+}
+
 export type {
   SlackAdapterConfig,
   SlackAdapterMode,
@@ -6144,7 +6203,10 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
      * structured chunks are skipped — task cards only exist on the native
      * streaming surface.
      */
-    const sendStructuredChunk = async (chunk: StreamChunk): Promise<void> => {
+    const taskPartCounts = new Map<string, number>();
+    const sendStructuredChunk = async (
+      chunk: Exclude<StreamChunk, { type: "markdown_text" }>
+    ): Promise<void> => {
       // Flush any buffered markdown before sending the structured chunk
       await flushCommitted();
 
@@ -6161,14 +6223,32 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
       await sendDelta("", true);
 
       try {
+        const chunks =
+          chunk.type === "plan_update"
+            ? [
+                {
+                  ...chunk,
+                  title: truncateStreamChunkField(
+                    chunk.title,
+                    SLACK_STREAM_CHUNK_FIELD_LIMIT
+                  ),
+                },
+              ]
+            : normalizeTaskChunks(chunk, taskPartCounts.get(chunk.id) ?? 0);
+        if (chunk.type === "task_update") {
+          taskPartCounts.set(chunk.id, chunks.length);
+        }
         await segment.streamer.append({
-          chunks: [chunk] as ChatAppendStreamArguments["chunks"],
+          chunks: chunks as ChatAppendStreamArguments["chunks"],
           token,
         });
         markSegmentStarted();
         // Sending chunks flushes the streamer's text buffer as well.
         lastFlushed = lastAppended;
-        rememberStructuredChunk(chunk);
+        // Remember the bounded chunks so a segment rotation replays them as sent.
+        for (const normalized of chunks) {
+          rememberStructuredChunk(normalized);
+        }
       } catch (error) {
         disableStructuredChunks(chunk.type, error);
       }
