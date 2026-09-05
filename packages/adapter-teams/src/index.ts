@@ -9,6 +9,7 @@ import {
 import type {
   Account,
   Activity,
+  AdaptiveCardActionMessageResponse,
   IAdaptiveCardActionInvokeActivity,
   IConversationUpdateActivity,
   IMessageActivity,
@@ -90,6 +91,16 @@ interface ActionSubmitData {
   actionId?: string;
   value?: string;
 }
+
+/**
+ * Valid adaptiveCard/action invoke acknowledgement.
+ * An empty `value` makes Teams show "Unable to reach app" and retry the invoke.
+ */
+const CARD_ACTION_INVOKE_ACK: AdaptiveCardActionMessageResponse = {
+  statusCode: 200,
+  type: "application/vnd.microsoft.activity.message",
+  value: "OK",
+};
 
 const MESSAGEID_CAPTURE_PATTERN = /messageid=(\d+)/;
 const MESSAGEID_STRIP_PATTERN = /;messageid=\d+/;
@@ -180,11 +191,11 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
     this.app.on("card.action", async (ctx) => {
       this.cacheUserContext(ctx.activity);
       await this.handleAdaptiveCardAction(ctx);
-      return {
-        statusCode: 200,
-        type: "application/vnd.microsoft.activity.message",
-        value: "",
-      };
+      // Teams rejects an empty activity.message value and retries the invoke,
+      // which re-delivers the action (duplicate onAction). Ack with a non-empty
+      // Adaptive Card invoke response so the client stops retrying.
+      // https://learn.microsoft.com/en-us/adaptive-cards/authoring-cards/universal-action-model#response-format
+      return CARD_ACTION_INVOKE_ACK;
     });
 
     this.app.on(
