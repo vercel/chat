@@ -32,6 +32,8 @@ packages/adapter-whatsapp/
 │   ├── index.test.ts
 │   ├── cards.ts             # PostableMessage / Card → interactive payloads
 │   ├── cards.test.ts
+│   ├── errors.ts            # WhatsAppApiError (Meta Graph error envelope)
+│   ├── errors.test.ts
 │   ├── markdown.ts          # WhatsAppFormatConverter (mdast ↔ WA formatting)
 │   ├── markdown.test.ts
 │   └── types.ts             # Cloud API typings
@@ -77,6 +79,8 @@ Main exports from `src/index.ts`:
   `openDM`, `sendTemplate`.
 - Configuration: `WhatsAppAdapterConfig`, `WhatsAppThreadId`,
   `WhatsAppTemplateMessage`.
+- Errors: `WhatsAppApiError` (non-2xx Graph API responses) plus the
+  `WhatsAppGraphError` / `WhatsAppGraphErrorBody` envelope types.
 - Helpers: `cardToInteractive`, `cardToFallbackText`,
   `WhatsAppFormatConverter`, `decodeThreadId`, `encodeThreadId`,
   `isDM`.
@@ -282,8 +286,12 @@ in `sample-messages.md`.
 - Use named exports throughout. No default exports.
 - Cloud API typings live in `types.ts`. Extend them rather than
   pulling a third-party dependency.
-- Errors map to `@chat-adapter/shared` (`AuthenticationError`,
-  `AdapterRateLimitError`, `NetworkError`, `ValidationError`).
+- Every Graph API call goes through `graphFetchJson`. Non-2xx responses
+  throw `WhatsAppApiError` from `errors.ts`, which maps status and Meta
+  codes onto the shared `AdapterError.code` taxonomy; extend that mapping
+  rather than throwing `AdapterRateLimitError` / `AuthenticationError`
+  directly. Transport and JSON parse failures throw `NetworkError`, and
+  bad input throws `ValidationError`.
 - Top-level regex literals only.
 - Phone-number sanitization belongs in one helper — never inline
   `replace(/\\+/, "")` calls.

@@ -318,7 +318,7 @@ await thread.post({
 
 ## API errors
 
-Failed Graph API requests throw `WhatsAppApiError`, exported from `@chat-adapter/whatsapp`. It extends `AdapterError`, so existing `instanceof AdapterError` checks continue to work.
+A non-2xx Graph API response throws `WhatsAppApiError`, exported from `@chat-adapter/whatsapp`. It extends `AdapterError`, so existing `instanceof AdapterError` checks continue to work.
 
 ```typescript
 import { WhatsAppApiError } from "@chat-adapter/whatsapp";
@@ -327,21 +327,23 @@ try {
   await thread.post("Hello");
 } catch (error) {
   if (error instanceof WhatsAppApiError) {
-    console.error(error.code, error.details, error.status);
+    console.error(error.code, error.errorCode, error.details, error.status);
   }
   throw error;
 }
 ```
 
-- `code`: Meta's numeric error code as a string, such as `"130429"`, consistent with `AdapterError.code`
+- `code`: the shared `AdapterError` code when the failure maps onto one: `RATE_LIMITED` (HTTP 429, or Meta throttling codes such as `130429` and `80007`), `AUTH_FAILED` (HTTP 401, or Meta codes `0` and `190`), `PERMISSION_DENIED` (HTTP 403, or Meta codes `3`, `10`, and `200` to `299`), `NOT_FOUND` (HTTP 404). Otherwise `undefined`.
+- `errorCode`: Meta's numeric error code, such as `130429`
+- `providerMessage` and `type`: Meta's `error.message` and `error.type`, when present
 - `details`: Meta's `error_data.details`, when present
 - `status`: HTTP response status
 - `subcode` and `traceId`: Meta's `error_subcode` and `fbtrace_id`, when present
-- `raw`: the full parsed response body, or the original text if it is not valid JSON
+- `raw`: the full parsed response body (see the `WhatsAppGraphErrorBody` type), or the original text if it is not valid JSON
 
-Meta recommends using [error codes and details](https://developers.facebook.com/documentation/business-messaging/whatsapp/support/error-codes/) for error handling. Subcodes are optional and deprecated in the Cloud API. The adapter preserves its existing error message text, and missing or malformed provider fields remain undefined.
+Meta recommends using [error codes and details](https://developers.facebook.com/documentation/business-messaging/whatsapp/support/error-codes/) for error handling. Subcodes are optional and deprecated in the Cloud API. Missing or malformed provider fields stay `undefined`, and numeric codes that a proxy serializes as strings are accepted. The error message combines the operation, the HTTP status, and Meta's `error.message`, or a bounded excerpt of a non-JSON body.
 
-This covers message sends, templates, reactions, read receipts, typing requests, media uploads, and media metadata requests. Binary download failures remain `NetworkError`s. A successful API response can still be followed by an asynchronous delivery failure; those webhook errors are not thrown as `WhatsAppApiError`.
+This covers non-2xx responses from message sends, templates, reactions, read receipts, typing requests, media uploads, and media metadata requests. Transport failures and unparseable response bodies throw `NetworkError`, as do binary media download failures. A 2xx response that reports `success: false` for a typing request or read receipt throws a plain `AdapterError`. A successful API response can still be followed by an asynchronous delivery failure; those webhook errors are not thrown as `WhatsAppApiError`.
 
 ## Feature support
 
