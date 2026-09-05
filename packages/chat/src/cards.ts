@@ -166,12 +166,28 @@ export interface FieldsElement {
 /** Column alignment for table elements */
 export type TableAlignment = "left" | "center" | "right";
 
+/** Vertical alignment of table cell content */
+export type TableVerticalAlignment = "top" | "center" | "bottom";
+
+/** Style of the grid lines drawn between table cells */
+export type TableGridStyle =
+  | "default"
+  | "emphasis"
+  | "accent"
+  | "good"
+  | "attention"
+  | "warning";
+
 /** Table element for structured data display */
 export interface TableElement {
   /** Column alignment */
   align?: TableAlignment[];
   /** Accessible table caption (used by platforms with native table support) */
   caption?: string;
+  /** Draw grid lines between cells (default true). Rendered by Teams only; other adapters ignore it */
+  gridLines?: boolean;
+  /** Style of the grid lines between cells. Rendered by Teams only; other adapters ignore it */
+  gridStyle?: TableGridStyle;
   /** Column header labels */
   headers: string[];
   /** Rows per page on platforms that paginate tables (Slack: 1-100, default 5) */
@@ -179,6 +195,10 @@ export interface TableElement {
   /** Data rows (each row is an array of cell strings) */
   rows: string[][];
   type: "table";
+  /** Vertical alignment of cell content. Rendered by Teams only; other adapters ignore it */
+  verticalAlign?: TableVerticalAlignment;
+  /** Relative column widths, one positive integer weight per column (default 1 each). Rendered by Teams only; other adapters ignore it */
+  widths?: number[];
 }
 
 /** Chart segment for pie charts */
@@ -543,12 +563,20 @@ export interface TableOptions {
   align?: TableAlignment[];
   /** Accessible table caption (used by platforms with native table support) */
   caption?: string;
+  /** Draw grid lines between cells (default true). Rendered by Teams only; other adapters ignore it */
+  gridLines?: boolean;
+  /** Style of the grid lines between cells. Rendered by Teams only; other adapters ignore it */
+  gridStyle?: TableGridStyle;
   /** Column header labels */
   headers: string[];
   /** Rows per page on platforms that paginate tables (Slack: 1-100, default 5) */
   pageSize?: number;
   /** Data rows */
   rows: string[][];
+  /** Vertical alignment of cell content. Rendered by Teams only; other adapters ignore it */
+  verticalAlign?: TableVerticalAlignment;
+  /** Relative column widths, one positive integer weight per column (default 1 each). Rendered by Teams only; other adapters ignore it */
+  widths?: number[];
 }
 
 /**
@@ -564,6 +592,19 @@ export interface TableOptions {
  *   ],
  * })
  * ```
+ *
+ * On Teams the table renders as a native Adaptive Card table; `widths`,
+ * `verticalAlign`, `gridLines` and `gridStyle` tune that rendering and are
+ * ignored elsewhere:
+ *
+ * ```ts
+ * Table({
+ *   headers: ["Service", "Status"],
+ *   rows: [["api", "ok"]],
+ *   widths: [3, 1],
+ *   gridStyle: "emphasis",
+ * })
+ * ```
  */
 export function Table(options: TableOptions): TableElement {
   return {
@@ -573,6 +614,10 @@ export function Table(options: TableOptions): TableElement {
     align: options.align,
     caption: options.caption,
     pageSize: options.pageSize,
+    widths: options.widths,
+    verticalAlign: options.verticalAlign,
+    gridLines: options.gridLines,
+    gridStyle: options.gridStyle,
   };
 }
 
@@ -850,13 +895,8 @@ export function fromReactElement(element: unknown): AnyCardElement | null {
       );
 
     case "Table":
-      return Table({
-        headers: props.headers as string[],
-        rows: props.rows as string[][],
-        align: props.align as TableAlignment[] | undefined,
-        caption: props.caption as string | undefined,
-        pageSize: props.pageSize as number | undefined,
-      });
+      // Table() copies each option by name, so extra React props never leak.
+      return Table(props as unknown as TableOptions);
 
     case "Chart":
       return Chart({

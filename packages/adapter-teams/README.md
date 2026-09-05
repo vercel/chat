@@ -178,7 +178,7 @@ Incoming Teams mentions are supported. Outgoing `@name` text, including multi-wo
 | Buttons | Yes |
 | Link buttons | Yes |
 | Select menus | No |
-| Tables | GFM |
+| Tables | Adaptive Card Table |
 | Fields | Yes |
 | Images in cards | Yes |
 | Modals | Yes |

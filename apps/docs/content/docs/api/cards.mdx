@@ -283,10 +283,27 @@ Table({
       description: 'Rows per page on platforms that paginate tables (Slack: 1-100, default 5).',
       type: 'number',
     },
+    widths: {
+      description: 'Relative column widths, one positive integer weight per column (default 1 each). Rendered by Teams only; other adapters ignore it.',
+      type: 'number[]',
+    },
+    verticalAlign: {
+      description: 'Vertical alignment of cell content. Rendered by Teams only; other adapters ignore it.',
+      type: '"top" | "center" | "bottom"',
+    },
+    gridLines: {
+      description: 'Draw grid lines between cells. Rendered by Teams only; other adapters ignore it.',
+      type: 'boolean',
+      default: 'true',
+    },
+    gridStyle: {
+      description: 'Style of the grid lines between cells. Rendered by Teams only; other adapters ignore it.',
+      type: '"default" | "emphasis" | "accent" | "good" | "attention" | "warning"',
+    },
   }}
 />
 
-On platforms with native table support (Slack, Teams, GitHub, Linear), tables render as formatted tables. On Slack, tables render as paginated, sortable data table blocks. Discord card payloads preserve GFM markdown tables. On other platforms (Google Chat, Telegram), tables render as padded ASCII text.
+On platforms with native table support (Slack, Teams, GitHub, Linear), tables render as formatted tables. On Slack, tables render as paginated, sortable data table blocks. On Teams, tables render as the Adaptive Card `Table` element with grid lines and weighted column widths. Discord card payloads preserve GFM markdown tables. On other platforms (Google Chat, Telegram), tables render as padded ASCII text.
 
 ## Chart
 

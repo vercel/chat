@@ -1,3 +1,4 @@
+import type { ITable, ITextBlock } from "@microsoft/teams.cards";
 import {
   Actions,
   Button,
@@ -13,9 +14,12 @@ import {
   Section,
   Select,
   SelectOption,
+  Table,
+  type TableOptions,
 } from "chat";
 import { describe, expect, it } from "vitest";
 import { cardToAdaptiveCard, cardToFallbackText } from "./cards";
+import { cardToAdaptiveCard as primitivesCardToAdaptiveCard } from "./cards-primitives";
 
 describe("cardToAdaptiveCard", () => {
   it("creates a valid adaptive card structure", () => {
@@ -501,5 +505,204 @@ describe("cardToAdaptiveCard with Teams-specific hints", () => {
     const adaptive = cardToAdaptiveCard(card);
 
     expect(adaptive.actions?.[0]?.tooltip).toBeUndefined();
+  });
+});
+
+describe("cardToAdaptiveCard with Table", () => {
+  const renderTable = (options: TableOptions): ITable =>
+    cardToAdaptiveCard(Card({ children: [Table(options)] })).body[0] as ITable;
+
+  const cellTexts = (table: ITable, rowIndex: number): string[] =>
+    (table.rows?.[rowIndex].cells ?? []).map(
+      (cell) => (cell.items[0] as ITextBlock).text
+    );
+
+  it("renders a native Table with grid lines and a bold header row by default", () => {
+    const table = renderTable({
+      headers: ["Name", "Score"],
+      rows: [
+        ["Alice", "98"],
+        ["Bob", "87"],
+      ],
+    });
+
+    expect(table).toMatchObject({
+      type: "Table",
+      showGridLines: true,
+      firstRowAsHeaders: true,
+    });
+    expect(table.gridStyle).toBeUndefined();
+    expect(table.horizontalCellContentAlignment).toBeUndefined();
+    expect(table.verticalCellContentAlignment).toBeUndefined();
+    expect(table.columns).toHaveLength(2);
+    expect(table.rows).toHaveLength(3);
+    expect(table.rows?.[0]).toMatchObject({
+      type: "TableRow",
+      cells: [
+        {
+          type: "TableCell",
+          items: [
+            { type: "TextBlock", text: "Name", weight: "Bolder", wrap: true },
+          ],
+        },
+        {
+          type: "TableCell",
+          items: [
+            { type: "TextBlock", text: "Score", weight: "Bolder", wrap: true },
+          ],
+        },
+      ],
+    });
+    expect(table.rows?.[1]).toMatchObject({
+      type: "TableRow",
+      cells: [
+        { items: [{ type: "TextBlock", text: "Alice", wrap: true }] },
+        { items: [{ type: "TextBlock", text: "98", wrap: true }] },
+      ],
+    });
+    expect(
+      (table.rows?.[1].cells?.[0].items[0] as ITextBlock).weight
+    ).toBeUndefined();
+  });
+
+  it("weights every column 1 unless widths says otherwise", () => {
+    expect(renderTable({ headers: ["A", "B"], rows: [] }).columns).toEqual([
+      { width: 1 },
+      { width: 1 },
+    ]);
+    expect(
+      renderTable({ headers: ["A", "B", "C"], rows: [], widths: [3, 1] })
+        .columns
+    ).toEqual([{ width: 3 }, { width: 1 }, { width: 1 }]);
+  });
+
+  it("falls back to weight 1 for a width that is not a positive integer", () => {
+    expect(
+      renderTable({
+        headers: ["A", "B", "C", "D", "E"],
+        rows: [],
+        widths: [0, -1, 1.5, Number.NaN, 2],
+      }).columns
+    ).toEqual([
+      { width: 1 },
+      { width: 1 },
+      { width: 1 },
+      { width: 1 },
+      { width: 2 },
+    ]);
+  });
+
+  it("maps per-column align onto the column definitions", () => {
+    const table = renderTable({
+      headers: ["A", "B", "C"],
+      rows: [["1", "2", "3"]],
+      align: ["left", "center", "right"],
+    });
+
+    expect(
+      table.columns?.map((column) => column.horizontalCellContentAlignment)
+    ).toEqual(["Left", "Center", "Right"]);
+    expect(table.horizontalCellContentAlignment).toBeUndefined();
+  });
+
+  it.each([
+    ["top", "Top"],
+    ["center", "Center"],
+    ["bottom", "Bottom"],
+  ] as const)("maps verticalAlign %s to %s", (verticalAlign, expected) => {
+    expect(
+      renderTable({ headers: ["A"], rows: [], verticalAlign })
+        .verticalCellContentAlignment
+    ).toBe(expected);
+  });
+
+  it("omits the header row and the header flag for a headerless table", () => {
+    const table = renderTable({ headers: [], rows: [["Alice", "98"]] });
+
+    expect(table.firstRowAsHeaders).toBe(false);
+    expect(table.columns).toHaveLength(2);
+    expect(table.rows).toHaveLength(1);
+    expect(cellTexts(table, 0)).toEqual(["Alice", "98"]);
+    expect(
+      (table.rows?.[0].cells?.[0].items[0] as ITextBlock).weight
+    ).toBeUndefined();
+  });
+
+  it("emits no element for a table with no columns", () => {
+    const render = (rows: string[][]) =>
+      cardToAdaptiveCard(Card({ children: [Table({ headers: [], rows })] }))
+        .body;
+
+    expect(render([])).toEqual([]);
+    expect(render([[]])).toEqual([]);
+  });
+
+  it("turns grid lines off on request", () => {
+    expect(
+      renderTable({ headers: ["A"], rows: [], gridLines: false }).showGridLines
+    ).toBe(false);
+  });
+
+  it("passes gridStyle through", () => {
+    expect(
+      renderTable({ headers: ["A"], rows: [], gridStyle: "emphasis" }).gridStyle
+    ).toBe("emphasis");
+  });
+
+  it("pads a ragged row with empty cells", () => {
+    const table = renderTable({
+      headers: ["A", "B", "C"],
+      rows: [["1"], ["1", "2", "3", "4"]],
+    });
+
+    expect(table.columns).toHaveLength(4);
+    expect(cellTexts(table, 0)).toEqual(["A", "B", "C", ""]);
+    expect(cellTexts(table, 1)).toEqual(["1", "", "", ""]);
+    expect(cellTexts(table, 2)).toEqual(["1", "2", "3", "4"]);
+  });
+
+  it("converts emoji placeholders in headers and cells", () => {
+    const table = renderTable({
+      headers: ["Status {{emoji:check}}"],
+      rows: [["Done {{emoji:check}}"]],
+    });
+
+    expect(cellTexts(table, 0)).toEqual(["Status ✅"]);
+    expect(cellTexts(table, 1)).toEqual(["Done ✅"]);
+  });
+
+  it("keeps the ASCII fallback text", () => {
+    const text = cardToFallbackText(
+      Card({
+        children: [
+          Table({
+            headers: ["Name", "Score"],
+            rows: [["Alice", "98"]],
+            widths: [3, 1],
+            gridStyle: "emphasis",
+          }),
+        ],
+      })
+    );
+
+    expect(text).toContain("Name  | Score\n------|------\nAlice | 98");
+  });
+
+  it("emits the same Table as the dependency-free cards subpath", () => {
+    const options: TableOptions = {
+      headers: ["Name", "Score"],
+      rows: [["Alice", "98"], ["Bob"]],
+      align: ["left", "right"],
+      widths: [3, 1],
+      gridStyle: "emphasis",
+    };
+    const primitives = primitivesCardToAdaptiveCard({
+      children: [{ ...options, type: "table" }],
+      type: "card",
+    }).body[0] as Record<string, unknown>;
+
+    expect(JSON.parse(JSON.stringify(renderTable(options)))).toMatchObject(
+      primitives
+    );
   });
 });
