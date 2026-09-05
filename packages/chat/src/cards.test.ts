@@ -251,6 +251,34 @@ describe("Card Builder Functions", () => {
       expect(table.caption).toBeUndefined();
       expect(table.pageSize).toBeUndefined();
     });
+
+    it("carries the Teams-only rendering options", () => {
+      const table = Table({
+        headers: ["Name", "Score"],
+        rows: [["Ada", "10"]],
+        align: ["left", "right"],
+        widths: [3, 1],
+        verticalAlign: "bottom",
+        gridLines: false,
+        gridStyle: "emphasis",
+      });
+      expect(table).toMatchObject({
+        type: "table",
+        align: ["left", "right"],
+        widths: [3, 1],
+        verticalAlign: "bottom",
+        gridLines: false,
+        gridStyle: "emphasis",
+      });
+    });
+
+    it("leaves the rendering options undefined when omitted", () => {
+      expect(Table({ headers: ["A"], rows: [["1"]] })).toEqual({
+        type: "table",
+        headers: ["A"],
+        rows: [["1"]],
+      });
+    });
   });
 
   describe("Chart", () => {

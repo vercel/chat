@@ -12,7 +12,9 @@ import type {
   TeamsRadioSelectElement,
   TeamsSectionElement,
   TeamsSelectElement,
+  TeamsTableAlignment,
   TeamsTableElement,
+  TeamsTableVerticalAlignment,
   TeamsTextElement,
 } from "./types";
 
@@ -83,8 +85,10 @@ function convertChild(child: TeamsCardChild): ConvertedChild {
       return { actions: [], body: [convertFields(child)] };
     case "link":
       return { actions: [], body: [convertLink(child)] };
-    case "table":
-      return { actions: [], body: [convertTable(child)] };
+    case "table": {
+      const table = convertTable(child);
+      return { actions: [], body: table === null ? [] : [table] };
+    }
     default:
       return { actions: [], body: [] };
   }
@@ -210,27 +214,83 @@ function convertLink(link: TeamsLinkElement): unknown {
   return textBlock(`[${link.label}](${link.url})`);
 }
 
+const TABLE_HORIZONTAL_ALIGNMENT: Record<
+  TeamsTableAlignment,
+  "Center" | "Left" | "Right"
+> = {
+  center: "Center",
+  left: "Left",
+  right: "Right",
+};
+
+const TABLE_VERTICAL_ALIGNMENT: Record<
+  TeamsTableVerticalAlignment,
+  "Bottom" | "Center" | "Top"
+> = {
+  bottom: "Bottom",
+  center: "Center",
+  top: "Top",
+};
+
+// Adaptive Cards treats a column width as a relative weight only when it is a
+// positive integer; Teams desktop and mobile disagree on anything else, so an
+// invalid weight falls back to the default instead of reaching the wire.
+function columnWeight(width: number | undefined): number {
+  return width !== undefined && Number.isInteger(width) && width > 0
+    ? width
+    : 1;
+}
+
 function convertTable(table: TeamsTableElement): unknown {
+  // The column count follows the widest row so a short row is padded with
+  // empty cells instead of shifting the grid.
+  const columnCount = Math.max(
+    table.headers.length,
+    ...table.rows.map((row) => row.length)
+  );
+  // No columns means nothing to draw, as the empty ASCII fallback says.
+  if (columnCount === 0) {
+    return null;
+  }
+  const toRow = (cells: string[], options: Record<string, unknown> = {}) => ({
+    cells: Array.from({ length: columnCount }, (_, index) => ({
+      items: [textBlock(cells[index] ?? "", options)],
+      type: "TableCell",
+    })),
+    type: "TableRow",
+  });
+  const hasHeader = table.headers.length > 0;
+  const rows = table.rows.map((row) => toRow(row));
+  if (hasHeader) {
+    rows.unshift(toRow(table.headers, { weight: "Bolder" }));
+  }
+
   return {
-    items: [
-      {
-        columns: table.headers.map((header) => ({
-          items: [textBlock(header, { weight: "Bolder" })],
-          type: "Column",
-          width: "stretch",
-        })),
-        type: "ColumnSet",
-      },
-      ...table.rows.map((row) => ({
-        columns: row.map((cell) => ({
-          items: [textBlock(cell)],
-          type: "Column",
-          width: "stretch",
-        })),
-        type: "ColumnSet",
-      })),
-    ],
-    type: "Container",
+    columns: Array.from({ length: columnCount }, (_, index) => {
+      const align = table.align?.[index];
+      return {
+        ...(align
+          ? {
+              horizontalCellContentAlignment: TABLE_HORIZONTAL_ALIGNMENT[align],
+            }
+          : {}),
+        width: columnWeight(table.widths?.[index]),
+      };
+    }),
+    // The Adaptive Cards schema spells this `firstRowAsHeader`, but the Teams
+    // renderers and @microsoft/teams.cards read the plural and ignore the
+    // singular.
+    firstRowAsHeaders: hasHeader,
+    ...(table.gridStyle ? { gridStyle: table.gridStyle } : {}),
+    rows,
+    showGridLines: table.gridLines ?? true,
+    type: "Table",
+    ...(table.verticalAlign
+      ? {
+          verticalCellContentAlignment:
+            TABLE_VERTICAL_ALIGNMENT[table.verticalAlign],
+        }
+      : {}),
   };
 }
 
