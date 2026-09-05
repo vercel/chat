@@ -292,6 +292,8 @@ export function splitMessage(text: string): string[] {
 // Re-export types
 export type {
   WhatsAppAdapterConfig,
+  WhatsAppGraphError,
+  WhatsAppGraphErrorBody,
   WhatsAppMediaResponse,
   WhatsAppRawMessage,
   WhatsAppTemplateButtonParameter,
@@ -1160,26 +1162,12 @@ export class WhatsAppAdapter
     transport?: AttachmentTransport
   ): Promise<Buffer> {
     // Step 1: Get the media URL
-    const metaResponse = await fetch(`${this.graphApiUrl}/${mediaId}`, {
-      headers: { Authorization: `Bearer ${this.accessToken}` },
-    });
-
-    if (!metaResponse.ok) {
-      const errorBody = await metaResponse.text();
-      this.logger.error("Failed to get media URL", {
-        status: metaResponse.status,
-        body: errorBody,
-        mediaId,
-      });
-      throw new WhatsAppApiError(
-        "Failed to get media URL",
-        metaResponse.status,
-        errorBody
-      );
-    }
-
-    const mediaInfo: WhatsAppMediaResponse =
-      (await metaResponse.json()) as WhatsAppMediaResponse;
+    const mediaInfo = await this.graphFetchJson<WhatsAppMediaResponse>(
+      `${this.graphApiUrl}/${mediaId}`,
+      { headers: { Authorization: `Bearer ${this.accessToken}` } },
+      "Failed to get media URL",
+      { mediaId }
+    );
 
     if (!isWhatsAppMediaUrl(mediaInfo.url, this.graphApiUrl)) {
       throw new NetworkError(
@@ -2172,29 +2160,18 @@ export class WhatsAppAdapter
     path: string,
     formData: FormData
   ): Promise<T> {
-    const response = await fetch(`${this.graphApiUrl}${path}`, {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${this.accessToken}`,
+    return this.graphFetchJson<T>(
+      `${this.graphApiUrl}${path}`,
+      {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${this.accessToken}`,
+        },
+        body: formData,
       },
-      body: formData,
-    });
-
-    if (!response.ok) {
-      const errorBody = await response.text();
-      this.logger.error("WhatsApp API upload error", {
-        status: response.status,
-        body: errorBody,
-        path,
-      });
-      throw new WhatsAppApiError(
-        "WhatsApp API upload error",
-        response.status,
-        errorBody
-      );
-    }
-
-    return response.json() as Promise<T>;
+      "WhatsApp API upload error",
+      { path }
+    );
   }
 
   /**
@@ -2227,30 +2204,71 @@ export class WhatsAppAdapter
     path: string,
     body: unknown
   ): Promise<T> {
-    const response = await fetch(`${this.graphApiUrl}${path}`, {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${this.accessToken}`,
-        "Content-Type": "application/json",
+    return this.graphFetchJson<T>(
+      `${this.graphApiUrl}${path}`,
+      {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${this.accessToken}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(body),
       },
-      body: JSON.stringify(body),
-    });
+      "WhatsApp API error",
+      { path }
+    );
+  }
 
-    if (!response.ok) {
-      const errorBody = await response.text();
-      this.logger.error("WhatsApp API error", {
-        status: response.status,
-        body: errorBody,
-        path,
-      });
-      throw new WhatsAppApiError(
-        "WhatsApp API error",
-        response.status,
-        errorBody
+  /**
+   * Fetch a Graph API endpoint and parse its JSON body.
+   *
+   * Transport failures and unparseable bodies become `NetworkError`s; a
+   * non-2xx response becomes a `WhatsAppApiError` carrying Meta's error
+   * envelope. `label` prefixes the error message and log line, and
+   * `context` is attached to the log line.
+   */
+  private async graphFetchJson<T>(
+    url: string,
+    init: RequestInit,
+    label: string,
+    context: Record<string, unknown>
+  ): Promise<T> {
+    let response: Response;
+    try {
+      response = await fetch(url, init);
+    } catch (error) {
+      this.logger.error(label, { ...context, error });
+      throw new NetworkError(
+        "whatsapp",
+        `${label}: request failed`,
+        error instanceof Error ? error : undefined
       );
     }
 
-    return response.json() as Promise<T>;
+    if (!response.ok) {
+      const errorBody = await response.text();
+      this.logger.error(label, {
+        status: response.status,
+        body: errorBody,
+        ...context,
+      });
+      throw new WhatsAppApiError(label, response.status, errorBody);
+    }
+
+    try {
+      return (await response.json()) as T;
+    } catch (error) {
+      this.logger.error(label, {
+        status: response.status,
+        ...context,
+        error,
+      });
+      throw new NetworkError(
+        "whatsapp",
+        `${label}: response was not valid JSON`,
+        error instanceof Error ? error : undefined
+      );
+    }
   }
 
   /**

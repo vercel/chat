@@ -1645,13 +1645,41 @@ describe("API errors", () => {
     await expect(result).rejects.toMatchObject({
       name: "WhatsAppApiError",
       adapter: "whatsapp",
-      code: "130429",
+      code: "RATE_LIMITED",
+      errorCode: 130_429,
       status: 400,
+      providerMessage: raw.error.message,
+      type: "OAuthException",
       details: raw.error.error_data.details,
       traceId: "trace123",
       raw,
     });
     expect(fetchSpy).toHaveBeenCalledOnce();
+  });
+
+  it.each(operations)("wraps transport failures for $name", async ({ run }) => {
+    const cause = new TypeError("fetch failed");
+    fetchSpy.mockRejectedValue(cause);
+
+    const result = run(createTestAdapter());
+    await expect(result).rejects.toBeInstanceOf(NetworkError);
+    await expect(result).rejects.toMatchObject({
+      adapter: "whatsapp",
+      code: "NETWORK_ERROR",
+      originalError: cause,
+    });
+  });
+
+  it.each(operations)("wraps non-JSON success bodies for $name", async ({
+    run,
+  }) => {
+    fetchSpy.mockResolvedValue(
+      new Response("<html>Bad gateway</html>", { status: 200 })
+    );
+
+    const result = run(createTestAdapter());
+    await expect(result).rejects.toBeInstanceOf(NetworkError);
+    await expect(result).rejects.toThrow("response was not valid JSON");
   });
 });
 
