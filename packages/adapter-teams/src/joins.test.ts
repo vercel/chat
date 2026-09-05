@@ -13,31 +13,42 @@ const serviceUrl = "https://smba.trafficmanager.net/amer/";
 const conversationId = "19:channel@thread.tacv2";
 const logger = createMockLogger();
 
+const token = {
+  appId,
+  serviceUrl,
+  from: "azure" as const,
+  fromId: appId,
+  isExpired: () => false,
+  toString: () => "test-token",
+};
+
 class JoinAdapter extends TeamsAdapter {
-  prepare(options?: WebhookOptions) {
+  /** Return fixed WebhookOptions from the bridge instead of the real map. */
+  stubWebhookOptions(options?: WebhookOptions) {
+    return vi
+      .spyOn(this.bridgeAdapter, "getWebhookOptions")
+      .mockReturnValue(options);
+  }
+
+  /** Stub outbound Bot Framework calls so welcome posts do not hit the network. */
+  stubOutbound() {
     vi.spyOn(this.app.api.users, "getToken").mockResolvedValue({});
-    const send = vi.spyOn(this.app, "send").mockResolvedValue({
+    return vi.spyOn(this.app, "send").mockResolvedValue({
       id: "welcome",
       type: "message",
     });
-    const lookup = vi
-      .spyOn(this.bridgeAdapter, "getWebhookOptions")
-      .mockReturnValue(options);
-    return { send, lookup };
+  }
+
+  /** Accept webhooks without a JWT so handleWebhook can be driven end to end. */
+  allowUnauthenticatedWebhooks() {
+    const server = this.app.server as unknown as {
+      authorize: () => Promise<unknown>;
+    };
+    vi.spyOn(server, "authorize").mockResolvedValue({ success: true, token });
   }
 
   receive(body: { type: string; [key: string]: unknown }) {
-    return this.app.process({
-      body,
-      token: {
-        appId,
-        serviceUrl,
-        from: "azure",
-        fromId: appId,
-        isExpired: () => false,
-        toString: () => "test-token",
-      },
-    });
+    return this.app.process({ body, token });
   }
 }
 
@@ -69,13 +80,13 @@ describe("Teams bot joins", () => {
   let adapter: JoinAdapter;
   let chat: ReturnType<typeof createMockChatInstance>;
   let options: WebhookOptions;
-  let mocks: ReturnType<JoinAdapter["prepare"]>;
+  let lookup: ReturnType<JoinAdapter["stubWebhookOptions"]>;
 
   beforeEach(async () => {
     adapter = new JoinAdapter({ appId, appPassword: "test", logger });
     chat = createMockChatInstance();
     options = { waitUntil: vi.fn() };
-    mocks = adapter.prepare(options);
+    lookup = adapter.stubWebhookOptions(options);
     await adapter.initialize(chat);
   });
 
@@ -112,10 +123,14 @@ describe("Teams bot joins", () => {
       },
       options
     );
-    expect(mocks.lookup).toHaveBeenCalledWith("join-activity");
+    expect(lookup).toHaveBeenCalledWith("join-activity");
+  });
+
+  it("caches Graph channel context from the team-install payload", async () => {
+    await adapter.receive(activity());
     expect(chat.getState().set).toHaveBeenCalledWith(
-      "teams:serviceUrl:29:inviter",
-      serviceUrl,
+      `teams:channelContext:${conversationId}`,
+      JSON.stringify({ teamId: "team-aad", channelId: conversationId }),
       expect.any(Number)
     );
   });
@@ -153,13 +168,49 @@ describe("Teams bot joins", () => {
     expect(chat.processMemberJoinedChannel).toHaveBeenCalledOnce();
   });
 
+  it("falls back to the 19: prefix when the conversation type is unresolved", async () => {
+    await adapter.receive({
+      ...activity(),
+      conversation: { id: "19:unknown@thread.tacv2" },
+      channelData: undefined,
+    });
+    expect(chat.processMemberJoinedChannel).toHaveBeenCalledExactlyOnceWith(
+      expect.objectContaining({
+        channelId: adapter.encodeThreadId({
+          conversationId: "19:unknown@thread.tacv2",
+          serviceUrl,
+        }),
+        userId: botId,
+      }),
+      options
+    );
+  });
+
+  it("matches the bot identity regardless of app ID casing", async () => {
+    const upperAppId = appId.toUpperCase();
+    const upper = new JoinAdapter({
+      appId: upperAppId,
+      appPassword: "test",
+      logger,
+    });
+    upper.stubWebhookOptions(options);
+    await upper.initialize(chat);
+
+    await upper.receive(activity());
+    expect(chat.processMemberJoinedChannel).toHaveBeenCalledExactlyOnceWith(
+      expect.objectContaining({ userId: `28:${upperAppId}` }),
+      options
+    );
+    expect(upper.botUserId).toBe(`28:${upperAppId}`);
+  });
+
   it.each([
     { membersAdded: [{ id: "29:user" }] },
     { membersAdded: [] },
     { membersAdded: undefined, membersRemoved: [{ id: botId }] },
     { recipient: { id: "28:other-app" } },
     { conversation: { id: "personal", conversationType: "personal" } },
-    { conversation: { id: "19:unknown" } },
+    { conversation: { id: "a:unknown" } },
     { conversation: { id: "", conversationType: "channel" } },
     { serviceUrl: "" },
     { type: "installationUpdate", action: "add" },
@@ -170,6 +221,34 @@ describe("Teams bot joins", () => {
     expect(chat.processMemberJoinedChannel).not.toHaveBeenCalled();
   });
 
+  it("logs the skip reason at debug level", async () => {
+    await adapter.receive({
+      ...activity(),
+      membersAdded: [{ id: "29:user" }],
+    });
+    expect(logger.debug).toHaveBeenCalledWith(
+      "Ignoring conversationUpdate",
+      expect.objectContaining({
+        activityId: "join-activity",
+        reason: "bot was not among the added members",
+      })
+    );
+  });
+
+  it("warns instead of silently dropping joins when no app ID is configured", async () => {
+    vi.stubEnv("TEAMS_APP_ID", "");
+    const unconfigured = new JoinAdapter({ appPassword: "test", logger });
+    unconfigured.stubWebhookOptions(options);
+    await unconfigured.initialize(chat);
+    expect(unconfigured.botUserId).toBeUndefined();
+
+    await unconfigured.receive(activity());
+    expect(chat.processMemberJoinedChannel).not.toHaveBeenCalled();
+    expect(logger.warn).toHaveBeenCalledWith(
+      expect.stringContaining("TEAMS_APP_ID")
+    );
+  });
+
   it("dispatches only the bot when several members are added", async () => {
     await adapter.receive({
       ...activity(),
@@ -178,19 +257,43 @@ describe("Teams bot joins", () => {
     expect(chat.processMemberJoinedChannel).toHaveBeenCalledOnce();
   });
 
+  it("passes handleWebhook options to the join through the bridge", async () => {
+    const runtime = new JoinAdapter({ appId, appPassword: "test", logger });
+    runtime.allowUnauthenticatedWebhooks();
+    await runtime.initialize(chat);
+    const webhookOptions: WebhookOptions = { waitUntil: vi.fn() };
+
+    const response = await runtime.handleWebhook(
+      new Request("https://example.com/api/webhooks/teams", {
+        method: "POST",
+        body: JSON.stringify(activity()),
+        headers: { "content-type": "application/json" },
+      }),
+      webhookOptions
+    );
+
+    expect(response.status).toBe(200);
+    expect(chat.processMemberJoinedChannel).toHaveBeenCalledExactlyOnceWith(
+      expect.objectContaining({ userId: botId }),
+      webhookOptions
+    );
+  });
+
   it("runs an asynchronous welcome handler using the existing channel API", async () => {
     const runtime = new JoinAdapter({ appId, appPassword: "test", logger });
     const tasks: Promise<unknown>[] = [];
     const waitUntil = (task: Promise<unknown>) => tasks.push(task);
-    const { send } = runtime.prepare({ waitUntil });
+    runtime.stubWebhookOptions({ waitUntil });
+    const send = runtime.stubOutbound();
     const bot = new Chat({
       userName: "test",
       adapters: { teams: runtime },
       state: createMockState(),
       logger,
     });
+    let received: MemberJoinedChannelEvent | undefined;
     const handler = vi.fn(async (event: MemberJoinedChannelEvent) => {
-      expect(event.userId).toBe(event.adapter.botUserId);
+      received = event;
       await Promise.resolve();
       await bot.channel(event.channelId).post("Welcome");
     });
@@ -201,6 +304,8 @@ describe("Teams bot joins", () => {
     expect(tasks).toHaveLength(1);
     await Promise.all(tasks);
     expect(handler).toHaveBeenCalledOnce();
+    expect(received?.userId).toBe(botId);
+    expect(received?.adapter.botUserId).toBe(botId);
     expect(send).toHaveBeenCalledWith(
       conversationId,
       expect.objectContaining({ text: "Welcome" })

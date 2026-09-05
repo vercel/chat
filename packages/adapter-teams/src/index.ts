@@ -216,30 +216,77 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
   protected handleConversationUpdate(
     activity: IConversationUpdateActivity
   ): void {
-    const conversationType = conversationTypeFromActivity(activity);
+    if (!this.chat) {
+      this.logger.warn(
+        "Chat instance not initialized, ignoring conversationUpdate"
+      );
+      return;
+    }
+
     const userId = this.botUserId;
-    if (
-      !(this.chat && userId) ||
-      (conversationType !== "channel" && conversationType !== "groupChat") ||
-      !activity.conversation?.id ||
-      !activity.serviceUrl ||
-      activity.recipient?.id !== userId ||
-      !activity.membersAdded?.some((member) => member.id === userId)
-    ) {
+    if (!userId) {
+      this.logger.warn(
+        "Teams app ID is not configured, ignoring conversationUpdate. " +
+          "Set appId or TEAMS_APP_ID to receive bot join events."
+      );
+      return;
+    }
+
+    const resolved = this.resolveBotJoin(activity);
+    if ("skip" in resolved) {
+      this.logger.debug("Ignoring conversationUpdate", {
+        activityId: activity.id,
+        reason: resolved.skip,
+      });
       return;
     }
 
     this.chat.processMemberJoinedChannel(
       {
         adapter: this,
-        channelId: this.channelIdFromThreadId(
-          this.threadIdFromActivity(activity)
-        ),
+        channelId: this.encodeThreadId(resolved.join),
         userId,
         inviterId: activity.from?.id,
       },
       this.bridgeAdapter.getWebhookOptions(activity.id)
     );
+  }
+
+  /**
+   * Decide whether a conversationUpdate is this bot being added to a channel
+   * or group chat. Returns the thread to dispatch on, or the reason to skip.
+   *
+   * Teams sends the bot's own ID as `recipient.id`, so membersAdded is
+   * compared against that platform-supplied value rather than a locally
+   * built one; the recipient itself is matched case-insensitively against
+   * the configured app ID.
+   */
+  private resolveBotJoin(
+    activity: IConversationUpdateActivity
+  ): { join: TeamsThreadId } | { skip: string } {
+    const recipientId = activity.recipient?.id;
+    if (!(recipientId && this.isBotAccountId(recipientId))) {
+      return { skip: "recipient is not this bot" };
+    }
+    if (!activity.membersAdded?.some((member) => member.id === recipientId)) {
+      return { skip: "bot was not among the added members" };
+    }
+    const conversationId = activity.conversation?.id;
+    if (!conversationId) {
+      return { skip: "missing conversation id" };
+    }
+    const serviceUrl = activity.serviceUrl;
+    if (!serviceUrl) {
+      return { skip: "missing serviceUrl" };
+    }
+    const conversationType = conversationTypeFromActivity(activity);
+    const isPersonal = conversationType
+      ? conversationType === "personal"
+      : !conversationId.startsWith("19:");
+    if (isPersonal) {
+      return { skip: "personal conversation" };
+    }
+    return { join: { conversationId, conversationType, serviceUrl } };
   }
 
   /**
@@ -285,10 +332,17 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
     const conversationId = activity.conversation?.id || "";
     const baseChannelId = conversationId.replace(MESSAGEID_STRIP_PATTERN, "");
 
-    if (teamAadGroupId && channelData?.channel?.id) {
+    // Team-scoped conversationUpdate payloads (bot added to a team) carry
+    // team.aadGroupId but no channelData.channel; the conversation itself is
+    // the channel the bot was installed into.
+    const teamChannelId =
+      channelData?.channel?.id ??
+      (baseChannelId.startsWith("19:") ? baseChannelId : undefined);
+
+    if (teamAadGroupId && teamChannelId) {
       const context: TeamsChannelContext = {
         teamId: teamAadGroupId,
-        channelId: channelData.channel.id,
+        channelId: teamChannelId,
       };
       this.chat
         .getState()
@@ -1792,19 +1846,21 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
 
   protected isMessageFromSelf(activity: Activity): boolean {
     const fromId = activity.from?.id;
-    if (!(fromId && this.app.id)) {
+    return fromId ? this.isBotAccountId(fromId) : false;
+  }
+
+  /**
+   * Whether a Teams account ID (`28:<appId>`, or a bare app ID) refers to
+   * this bot. GUID casing differs between configuration and Teams payloads,
+   * so the comparison is case-insensitive.
+   */
+  private isBotAccountId(accountId: string): boolean {
+    const appId = this.app.id?.toLowerCase();
+    if (!appId) {
       return false;
     }
-
-    if (fromId === this.app.id) {
-      return true;
-    }
-
-    if (fromId.endsWith(`:${this.app.id}`)) {
-      return true;
-    }
-
-    return false;
+    const normalized = accountId.toLowerCase();
+    return normalized === appId || normalized.endsWith(`:${appId}`);
   }
 
   renderFormatted(content: FormattedContent): string {
