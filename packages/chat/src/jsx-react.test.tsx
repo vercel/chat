@@ -25,6 +25,7 @@ import {
   Table,
   Text,
 } from "./cards";
+import { TextInput } from "./modals";
 
 // Helper to create mock React elements
 function createReactElement(
@@ -347,6 +348,41 @@ describe("fromReactElement - React JSX mode", () => {
         verticalAlign: "bottom",
         gridLines: false,
         gridStyle: "good",
+      });
+    });
+  });
+
+  describe("TextInput conversion", () => {
+    it("converts a TextInput inside a Card", () => {
+      const reactCard = createReactElement(Card, {
+        title: "Feedback",
+        children: createReactElement(TextInput, {
+          id: "notes",
+          label: "Notes",
+          placeholder: "Type...",
+          multiline: true,
+          maxLength: 500,
+          optional: true,
+          initialValue: "draft",
+        }),
+      });
+
+      const result = fromReactElement(reactCard);
+      expect(result).toMatchObject({
+        type: "card",
+        title: "Feedback",
+        children: [
+          {
+            type: "text_input",
+            id: "notes",
+            label: "Notes",
+            placeholder: "Type...",
+            multiline: true,
+            maxLength: 500,
+            optional: true,
+            initialValue: "draft",
+          },
+        ],
       });
     });
   });
