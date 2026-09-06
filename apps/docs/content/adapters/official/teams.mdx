@@ -634,6 +634,10 @@ Use the full Chat SDK card JSX when you want cross-platform rendering. Use `@cha
 
 Table children render as the Adaptive Card `Table` element with grid lines on by default. The optional `align`, `widths`, `verticalAlign`, `gridLines` and `gridStyle` fields tune the grid, a table with empty `headers` renders without a header row, and a table with no columns emits no element.
 
+A `TextInput` child renders as an Adaptive Card `Input.Text`, mapped exactly as the modal converter maps it. Teams merges the card's input values into the `Action.Submit` payload, and the adapter reports them as `event.values` on the action. An input is required unless `optional` is set, and Teams blocks every button on the card until a required input is filled. Teams enforces that in its own client, so validate `event.values` in the handler too.
+
+Because Teams flattens the inputs into the payload the adapter already uses, the ids `actionId`, `value` and `msteams` are reserved. An input given one of those ids is dropped from `event.values`, and `value` in particular overwrites the button's own payload — which is where a `callbackUrl` token is carried, so that button would stop firing its callback. Name inputs anything else.
+
 ### Modals
 
 Teams Task Modules are invoke-based dialogs backed by Adaptive Cards. The modals subpath builds those cards and parses submit data.

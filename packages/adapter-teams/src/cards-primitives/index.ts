@@ -16,6 +16,7 @@ import type {
   TeamsTableElement,
   TeamsTableVerticalAlignment,
   TeamsTextElement,
+  TeamsTextInputElement,
 } from "./types";
 
 export * from "./input";
@@ -87,6 +88,8 @@ function convertChild(child: TeamsCardChild): ConvertedChild {
       return { actions: [], body: [convertLink(child)] };
     case "table":
       return { actions: [], body: convertTable(child) };
+    case "text_input":
+      return { actions: [], body: [convertTextInput(child)] };
     default:
       return { actions: [], body: [] };
   }
@@ -105,6 +108,23 @@ function convertImage(element: TeamsImageElement): unknown {
     size: "Auto",
     type: "Image",
     url: element.url,
+  };
+}
+
+// Same mapping as the dialog converter in modals-primitives, so a text input
+// looks the same on a card as it does in a task module. An input is required
+// unless `optional` is set, and Teams validates every input on the card before
+// it lets any Action.Submit through.
+function convertTextInput(input: TeamsTextInputElement): unknown {
+  return {
+    id: input.id,
+    isMultiline: input.multiline ?? false,
+    isRequired: !(input.optional ?? false),
+    label: convertTeamsEmojiPlaceholders(input.label),
+    ...(input.maxLength ? { maxLength: input.maxLength } : {}),
+    ...(input.placeholder ? { placeholder: input.placeholder } : {}),
+    ...(input.initialValue ? { value: input.initialValue } : {}),
+    type: "Input.Text",
   };
 }
 
@@ -348,6 +368,9 @@ function cardChildToFallbackText(child: TeamsCardChild): string {
         child.headers.join(" | "),
         ...child.rows.map((row) => row.join(" | ")),
       ].join("\n");
+    case "text_input":
+      // An empty box carries nothing; its label is what the reader needs.
+      return child.label;
     default:
       return "";
   }

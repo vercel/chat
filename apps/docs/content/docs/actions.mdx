@@ -53,6 +53,7 @@ The `event` object passed to action handlers:
 | `adapter` | `Adapter` | The platform adapter |
 | `triggerId` | `string` (optional) | Platform trigger ID (used for opening modals) |
 | `openModal` | `(modal) => Promise<void>` | Open a modal dialog |
+| `values` | `Record<string, string>` (optional) | The card's own input values, keyed by input id |
 | `raw` | `unknown` | Platform-specific event payload |
 
 ## Pass data with buttons
@@ -73,6 +74,31 @@ bot.onAction("report", async (event) => {
   }
 });
 ```
+
+## Read a text box on the card
+
+On Teams a card can carry a [`TextInput`](/docs/cards), and what the user typed arrives on the action as `event.values`, keyed by input id — the same shape as `ModalSubmitEvent.values`:
+
+```tsx title="lib/bot.tsx" lineNumbers
+<Card title="Deploy to production?">
+  <TextInput id="notes" label="Notes" multiline optional />
+  <Actions>
+    <Button id="approve" style="primary">Approve</Button>
+  </Actions>
+</Card>
+```
+
+```typescript title="lib/bot.ts" lineNumbers
+bot.onAction("approve", async (event) => {
+  const notes = event.values?.notes?.trim();
+  // Typed by the user, so post it as a code span rather than raw markdown.
+  await event.thread?.post(notes ? `Approved — notes: \`${notes}\`` : "Approved");
+});
+```
+
+`values` is absent on platforms that cannot put an input on a card, and on cards that have none.
+
+`event.values` is user input, not a trusted payload. Teams enforces `optional` and `maxLength` in its own UI, but a handler still has to validate what arrives — a value can be missing, empty, or longer than the limit. Echoing it back into a message unescaped lets a user put markdown, such as a link, into a message the bot appears to have written.
 
 ## Open a modal from an action
 
@@ -140,6 +166,19 @@ The POST body sent to the `callbackUrl`:
 ```
 
 If the button also has a `value` prop, it is included in the payload as `"value"`.
+
+If the card carried inputs, what the user typed is included as `"values"`, keyed by input id — the same object the handler reads as `event.values`. It is omitted when the card has no inputs:
+
+```json
+{
+  "type": "action",
+  "actionId": "approve",
+  "values": { "notes": "ship it" },
+  "user": { "id": "U123", "name": "alice" },
+  "threadId": "teams:19%3Aabc:1700000000",
+  "messageId": "1700000000"
+}
+```
 
 <Callout type="info">
   Platform limits apply to encoded button data. Discord's `custom_id` has a 100
