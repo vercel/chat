@@ -110,12 +110,44 @@ export class WhatsAppFormatConverter extends BaseFormatConverter {
    * This only converts **bold** -> *bold* and ~~strike~~ -> ~strike~.
    */
   private toWhatsAppFormat(text: string): string {
-    let result = text;
-    // Convert **bold** -> *bold*
+    const lines = text.split("\n");
+    let inFence = false;
+    let fenceLength = 0;
+    const converted = lines.map((line) => {
+      const fence = line.match(/^(`{3,})/);
+      if (fence) {
+        if (!inFence) {
+          inFence = true;
+          fenceLength = fence[1].length;
+          return line;
+        }
+        if (fence[1].length >= fenceLength && /^\s*$/.test(line.slice(fence[1].length))) {
+          inFence = false;
+          return line;
+        }
+      }
+      if (inFence) {
+        return line;
+      }
+      return this.convertTextOutsideCode(line);
+    });
+    return converted.join("\n");
+  }
+
+  private convertTextOutsideCode(line: string): string {
+    const codeSpans: string[] = [];
+    const masked = line.replace(/(`+)([\s\S]*?)\1/g, (span) => {
+      codeSpans.push(span);
+      return `\u0000${codeSpans.length - 1}\u0000`;
+    });
+    let result = masked.replace(/(\\*)~/g, (match, slashes: string) =>
+      slashes.length % 2 === 1 ? `${slashes.slice(0, -1)}~` : match
+    );
     result = result.replace(/\*\*(.+?)\*\*/g, "*$1*");
-    // Convert ~~strikethrough~~ -> ~strikethrough~
     result = result.replace(/~~(.+?)~~/g, "~$1~");
-    return result;
+    return result.replace(/\u0000(\d+)\u0000/g, (_, index: string) =>
+      codeSpans[Number(index)]
+    );
   }
 
   /**
@@ -126,13 +158,18 @@ export class WhatsAppFormatConverter extends BaseFormatConverter {
    * Careful not to convert _italic_ (which is the same in both formats).
    */
   private fromWhatsAppFormat(text: string): string {
-    // Convert *bold* to **bold** (single * not preceded/followed by *, no newlines)
-    let result = text.replace(
+    const codeSpans: string[] = [];
+    const masked = text.replace(/(`+)([\s\S]*?)\1/g, (span) => {
+      codeSpans.push(span);
+      return `\u0000${codeSpans.length - 1}\u0000`;
+    });
+    let result = masked.replace(
       /(?<!\*)\*(?!\*)([^\n*]+?)(?<!\*)\*(?!\*)/g,
       "**$1**"
     );
-    // Convert ~strike~ to ~~strike~~ (single ~ not preceded/followed by ~, no newlines)
     result = result.replace(/(?<!~)~(?!~)([^\n~]+?)(?<!~)~(?!~)/g, "~~$1~~");
-    return result;
+    return result.replace(/\u0000(\d+)\u0000/g, (_, index: string) =>
+      codeSpans[Number(index)]
+    );
   }
 }

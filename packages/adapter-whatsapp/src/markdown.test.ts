@@ -102,11 +102,43 @@ describe("WhatsAppFormatConverter", () => {
       expect(result).not.toContain("~~strikethrough~~");
     });
 
-    it("should preserve escaped asterisks and tildes as literals", () => {
+    it("should preserve escaped asterisks as literals while keeping tildes unescaped", () => {
       const ast = converter.toAst("a \\* b and c \\~ d");
       const result = converter.fromAst(ast);
       expect(result).toContain("\\*");
-      expect(result).toContain("\\~");
+      expect(result).not.toContain("\\~");
+      expect(result).toContain("~");
+    });
+
+    it("should not escape literal tildes in plain text", () => {
+      const ast = converter.toAst("(~80 % easy)");
+      const result = converter.fromAst(ast);
+      expect(result).toBe("(~80 % easy)");
+    });
+
+    it("should not escape multiple literal tildes", () => {
+      const ast = converter.toAst("run ~45 min\n\npace ~6:29/km");
+      const result = converter.fromAst(ast);
+      expect(result).toBe("run ~45 min\n\npace ~6:29/km");
+    });
+
+    it("should preserve a literal backslash before a tilde", () => {
+      const ast = converter.toAst("a \\\\~ b");
+      const result = converter.fromAst(ast);
+      expect(result).toBe("a \\\\~ b");
+    });
+
+    it("should not rewrite markers inside fenced code", () => {
+      const ast = converter.toAst("x\n\n```\n**keep** ~y~\n```\n\nz");
+      const result = converter.fromAst(ast);
+      expect(result).toContain("```\n**keep** ~y~\n```");
+      expect(result).toContain("\nz");
+    });
+
+    it("should not rewrite markers inside inline code", () => {
+      const ast = converter.toAst("before `**keep** ~y~` after");
+      const result = converter.fromAst(ast);
+      expect(result).toContain("`**keep** ~y~`");
     });
 
     it("should convert standard italic to WhatsApp underscore italic", () => {
