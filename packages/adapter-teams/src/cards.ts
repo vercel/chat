@@ -13,10 +13,8 @@ import {
 import type {
   ActionArray,
   ActionStyle,
-  TableOptions as AdaptiveTableOptions,
   CardElementArray,
   ChoiceSetInputOptions,
-  ColumnDefinitionOptions,
   HorizontalAlignment,
   OpenUrlActionOptions,
   SubmitActionOptions,
@@ -157,10 +155,8 @@ function convertChildToAdaptive(child: CardChild): ConvertResult {
         ],
         actions: [],
       };
-    case "table": {
-      const table = convertTableToElement(child);
-      return { elements: table ? [table] : [], actions: [] };
-    }
+    case "table":
+      return { elements: convertTableToElements(child), actions: [] };
     default: {
       const text = cardChildToFallbackText(child);
       if (text) {
@@ -365,28 +361,36 @@ function columnWeight(width: number | undefined): number {
     : 1;
 }
 
-function convertTableToElement(element: TableElement): Table | null {
-  // The column count follows the widest row so a short row is padded with
-  // empty cells instead of shifting the grid, as the ASCII fallback does.
-  const columnCount = Math.max(
-    element.headers.length,
-    ...element.rows.map((row) => row.length)
-  );
-  // No columns means nothing to draw, as the empty ASCII fallback says.
+// The widest row sets the column count, so a short row is padded with empty
+// cells instead of shifting the grid. Accumulated in a loop rather than
+// `Math.max(...rows.map(...))`, which spreads one argument per row and blows
+// the call-argument limit on a large table.
+function tableColumnCount(headers: string[], rows: string[][]): number {
+  let count = headers.length;
+  for (const row of rows) {
+    if (row.length > count) {
+      count = row.length;
+    }
+  }
+  return count;
+}
+
+// Returns an array so "no columns means nothing to draw" needs no null check at
+// the call site, matching what the empty ASCII fallback says.
+function convertTableToElements(element: TableElement): Table[] {
+  const columnCount = tableColumnCount(element.headers, element.rows);
   if (columnCount === 0) {
-    return null;
+    return [];
   }
 
   const columns = Array.from({ length: columnCount }, (_, index) => {
-    const options: ColumnDefinitionOptions = {
-      width: columnWeight(element.widths?.[index]),
-    };
     const align = element.align?.[index];
-    if (align) {
-      options.horizontalCellContentAlignment =
-        TABLE_HORIZONTAL_ALIGNMENT[align];
-    }
-    return new ColumnDefinition(options);
+    return new ColumnDefinition({
+      width: columnWeight(element.widths?.[index]),
+      horizontalCellContentAlignment: align
+        ? TABLE_HORIZONTAL_ALIGNMENT[align]
+        : undefined,
+    });
   });
 
   const toRow = (cells: string[], textOptions: TextBlockOptions = {}) =>
@@ -409,23 +413,25 @@ function convertTableToElement(element: TableElement): Table | null {
     rows.unshift(toRow(element.headers, { weight: "Bolder" }));
   }
 
-  const options: AdaptiveTableOptions = {
-    columns,
-    // The Adaptive Cards schema spells this `firstRowAsHeader`, but the Teams
-    // renderers and @microsoft/teams.cards read the plural and ignore the
-    // singular.
-    firstRowAsHeaders: hasHeader,
-    rows,
-    showGridLines: element.gridLines ?? true,
-  };
-  if (element.gridStyle) {
-    options.gridStyle = element.gridStyle;
-  }
-  if (element.verticalAlign) {
-    options.verticalCellContentAlignment =
-      TABLE_VERTICAL_ALIGNMENT[element.verticalAlign];
-  }
-  return new Table(options);
+  return [
+    new Table({
+      columns,
+      // Adaptive Cards spells this `firstRowAsHeaders`: that is the name
+      // `@microsoft/teams.cards` declares (default `true`) and the name every
+      // sample on Microsoft's own Table reference page uses. The prose property
+      // table on that page says `firstRowAsHeader`, singular; the plural is what
+      // renderers read. Do not "correct" it — because the property defaults to
+      // `true` when absent, a headerless table would silently regain a header
+      // row. The plain-object converter in `cards-primitives/` says the same.
+      firstRowAsHeaders: hasHeader,
+      rows,
+      showGridLines: element.gridLines ?? true,
+      gridStyle: element.gridStyle,
+      verticalCellContentAlignment: element.verticalAlign
+        ? TABLE_VERTICAL_ALIGNMENT[element.verticalAlign]
+        : undefined,
+    }),
+  ];
 }
 
 function convertFieldsToElement(element: FieldsElement): FactSet {

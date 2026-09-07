@@ -85,10 +85,8 @@ function convertChild(child: TeamsCardChild): ConvertedChild {
       return { actions: [], body: [convertFields(child)] };
     case "link":
       return { actions: [], body: [convertLink(child)] };
-    case "table": {
-      const table = convertTable(child);
-      return { actions: [], body: table === null ? [] : [table] };
-    }
+    case "table":
+      return { actions: [], body: convertTable(child) };
     default:
       return { actions: [], body: [] };
   }
@@ -241,16 +239,26 @@ function columnWeight(width: number | undefined): number {
     : 1;
 }
 
-function convertTable(table: TeamsTableElement): unknown {
-  // The column count follows the widest row so a short row is padded with
-  // empty cells instead of shifting the grid.
-  const columnCount = Math.max(
-    table.headers.length,
-    ...table.rows.map((row) => row.length)
-  );
-  // No columns means nothing to draw, as the empty ASCII fallback says.
+// The widest row sets the column count, so a short row is padded with empty
+// cells instead of shifting the grid. Accumulated in a loop rather than
+// `Math.max(...rows.map(...))`, which spreads one argument per row and blows
+// the call-argument limit on a large table.
+function tableColumnCount(headers: string[], rows: string[][]): number {
+  let count = headers.length;
+  for (const row of rows) {
+    if (row.length > count) {
+      count = row.length;
+    }
+  }
+  return count;
+}
+
+// Returns an array so "no columns means nothing to draw" needs no null check at
+// the call site, matching what the empty ASCII fallback says.
+function convertTable(table: TeamsTableElement): unknown[] {
+  const columnCount = tableColumnCount(table.headers, table.rows);
   if (columnCount === 0) {
-    return null;
+    return [];
   }
   const toRow = (cells: string[], options: Record<string, unknown> = {}) => ({
     cells: Array.from({ length: columnCount }, (_, index) => ({
@@ -265,33 +273,38 @@ function convertTable(table: TeamsTableElement): unknown {
     rows.unshift(toRow(table.headers, { weight: "Bolder" }));
   }
 
-  return {
-    columns: Array.from({ length: columnCount }, (_, index) => {
-      const align = table.align?.[index];
-      return {
-        ...(align
-          ? {
-              horizontalCellContentAlignment: TABLE_HORIZONTAL_ALIGNMENT[align],
-            }
-          : {}),
-        width: columnWeight(table.widths?.[index]),
-      };
-    }),
-    // The Adaptive Cards schema spells this `firstRowAsHeader`, but the Teams
-    // renderers and @microsoft/teams.cards read the plural and ignore the
-    // singular.
-    firstRowAsHeaders: hasHeader,
-    ...(table.gridStyle ? { gridStyle: table.gridStyle } : {}),
-    rows,
-    showGridLines: table.gridLines ?? true,
-    type: "Table",
-    ...(table.verticalAlign
-      ? {
-          verticalCellContentAlignment:
-            TABLE_VERTICAL_ALIGNMENT[table.verticalAlign],
-        }
-      : {}),
-  };
+  return [
+    {
+      columns: Array.from({ length: columnCount }, (_, index) => {
+        const align = table.align?.[index];
+        return {
+          ...(align
+            ? {
+                horizontalCellContentAlignment:
+                  TABLE_HORIZONTAL_ALIGNMENT[align],
+              }
+            : {}),
+          width: columnWeight(table.widths?.[index]),
+        };
+      }),
+      // Plural on purpose — see the matching note in `cards.ts`. The prose
+      // property table on Microsoft's Table reference page says
+      // `firstRowAsHeader`, but the plural is what renderers read, and the
+      // property defaults to `true` when absent, so emitting the singular
+      // would give a headerless table a header row.
+      firstRowAsHeaders: hasHeader,
+      ...(table.gridStyle ? { gridStyle: table.gridStyle } : {}),
+      rows,
+      showGridLines: table.gridLines ?? true,
+      type: "Table",
+      ...(table.verticalAlign
+        ? {
+            verticalCellContentAlignment:
+              TABLE_VERTICAL_ALIGNMENT[table.verticalAlign],
+          }
+        : {}),
+    },
+  ];
 }
 
 function textBlock(

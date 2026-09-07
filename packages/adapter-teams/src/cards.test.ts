@@ -688,14 +688,38 @@ describe("cardToAdaptiveCard with Table", () => {
     expect(text).toContain("Name  | Score\n------|------\nAlice | 98");
   });
 
-  it("emits the same Table as the dependency-free cards subpath", () => {
-    const options: TableOptions = {
-      headers: ["Name", "Score"],
-      rows: [["Alice", "98"], ["Bob"]],
-      align: ["left", "right"],
-      widths: [3, 1],
-      gridStyle: "emphasis",
-    };
+  // The two converters are independent implementations by design — the
+  // primitives subpath may not import `@microsoft/teams.cards`. These cases
+  // are what stops them drifting, so they exercise every option that differs
+  // between them, not just the common path.
+  it.each<{ name: string; options: TableOptions }>([
+    {
+      name: "a ragged table with alignment, widths and a grid style",
+      options: {
+        headers: ["Name", "Score"],
+        rows: [["Alice", "98"], ["Bob"]],
+        align: ["left", "right"],
+        widths: [3, 1],
+        gridStyle: "emphasis",
+        verticalAlign: "center",
+      },
+    },
+    {
+      name: "a borderless table",
+      options: {
+        headers: ["Name"],
+        rows: [["Alice"]],
+        gridLines: false,
+      },
+    },
+    {
+      name: "a headerless table",
+      options: {
+        headers: [],
+        rows: [["Alice", "98"]],
+      },
+    },
+  ])("emits the same Table as the cards subpath for $name", ({ options }) => {
     const primitives = primitivesCardToAdaptiveCard({
       children: [{ ...options, type: "table" }],
       type: "card",

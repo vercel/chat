@@ -178,27 +178,15 @@ export type TableGridStyle =
   | "attention"
   | "warning";
 
-/** Table element for structured data display */
-export interface TableElement {
-  /** Column alignment */
-  align?: TableAlignment[];
-  /** Accessible table caption (used by platforms with native table support) */
-  caption?: string;
-  /** Draw grid lines between cells (default true). Rendered by Teams only; other adapters ignore it */
-  gridLines?: boolean;
-  /** Style of the grid lines between cells. Rendered by Teams only; other adapters ignore it */
-  gridStyle?: TableGridStyle;
-  /** Column header labels */
-  headers: string[];
-  /** Rows per page on platforms that paginate tables (Slack: 1-100, default 5) */
-  pageSize?: number;
-  /** Data rows (each row is an array of cell strings) */
-  rows: string[][];
+/**
+ * Table element for structured data display.
+ *
+ * Carries exactly the `TableOptions` fields — a table has no children, so the
+ * builder's options and the element differ only by the discriminant. Declared
+ * by extension so a new option is documented once.
+ */
+export interface TableElement extends TableOptions {
   type: "table";
-  /** Vertical alignment of cell content. Rendered by Teams only; other adapters ignore it */
-  verticalAlign?: TableVerticalAlignment;
-  /** Relative column widths, one positive integer weight per column (default 1 each). Rendered by Teams only; other adapters ignore it */
-  widths?: number[];
 }
 
 /** Chart segment for pie charts */
