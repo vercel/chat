@@ -2,7 +2,6 @@ import { describe, expect, it } from "vitest";
 import {
   endsWithOrphanBackslash,
   escapeMarkdownV2,
-  findUnescapedPositions,
   TelegramFormatConverter,
   truncateForTelegram,
 } from "./markdown";
@@ -536,7 +535,132 @@ describe("truncateForTelegram", () => {
     expect(result).toBe(input);
   });
 
+  it.each([
+    ["before \\`literal", "before \\`literal"],
+    ["before \\\\`unfinished", "before \\\\"],
+    ["`a\\`b`", "`a\\`b`"],
+    ["```\na\\`b\n```", "```\na\\`b\n```"],
+    ["`a``b`", "`a``b`"],
+  ])("respects escape parity around code delimiters: %s", (input, expected) => {
+    expect(truncateForTelegram(input, 4096, "MarkdownV2")).toBe(expected);
+  });
+
   describe("link URLs with raw entity-marker characters", () => {
+    it.each([
+      1024, 4096,
+    ])("preserves one or three URL backticks under the %i character limit", (limit) => {
+      for (const ticks of ["`", "```"]) {
+        const input = `before [x](https://example.com/a${ticks}b_*~) after`;
+        expect(truncateForTelegram(input, limit, "MarkdownV2")).toBe(input);
+      }
+    });
+
+    it("preserves an explicit Markdown link with a backtick destination", () => {
+      const converter = new TelegramFormatConverter();
+      const rendered = converter.renderPostable({
+        markdown: "[x](https://example.com/a`b)",
+      });
+      expect(rendered).toBe("[x](https://example.com/a`b)");
+      expect(truncateForTelegram(rendered, 4096, "MarkdownV2")).toBe(rendered);
+    });
+
+    it("preserves the original bare-URL underscore reproduction", () => {
+      const converter = new TelegramFormatConverter();
+      const rendered = converter.renderPostable({
+        markdown:
+          "See billing: https://example.com/org/org_abc123def456ghi789jkl/billing",
+      });
+      expect(rendered).toContain(
+        "](https://example.com/org/org_abc123def456ghi789jkl/billing)"
+      );
+      expect(truncateForTelegram(rendered, 4096, "MarkdownV2")).toBe(rendered);
+    });
+
+    it("preserves an autolinked bare URL containing a backtick", () => {
+      const converter = new TelegramFormatConverter();
+      const rendered = converter.renderPostable({
+        markdown: "before https://example.com/a`b after",
+      });
+      expect(rendered).toBe(
+        "before [https://example\\.com/a\\`b](https://example.com/a`b) after"
+      );
+      expect(truncateForTelegram(rendered, 4096, "MarkdownV2")).toBe(rendered);
+    });
+
+    it("preserves a backtick destination supplied through an AST", () => {
+      const converter = new TelegramFormatConverter();
+      const rendered = converter.fromAst({
+        type: "root",
+        children: [
+          {
+            type: "paragraph",
+            children: [
+              {
+                type: "link",
+                url: "https://example.com/a`b",
+                children: [{ type: "text", value: "x" }],
+              },
+            ],
+          },
+        ],
+      });
+      expect(rendered).toBe("[x](https://example.com/a`b)");
+      expect(truncateForTelegram(rendered, 4096, "MarkdownV2")).toBe(rendered);
+    });
+
+    it.each([
+      "`before` [x](https://example.com/a`b) `after`",
+      "```js\nbefore\n```\n[x](https://example.com/a`b)\n```js\nafter\n```",
+      "before [x\\]](https://example.com/a\\)`b\\\\) after",
+      "before [x](https://example.com/a\\`b) after",
+      "before [x](https://example.com/a\\\\`b) after",
+      "`[x](https://example.com/a\\`b)`",
+      "```\n[x](https://example.com/a\\`b)\n```",
+    ])("preserves links alongside code and escaped delimiters: %s", (input) => {
+      expect(truncateForTelegram(input, 4096, "MarkdownV2")).toBe(input);
+    });
+
+    it.each([
+      "`unfinished",
+      "```js\nunfinished",
+    ])("does not let URL backticks balance unfinished code: %s", (code) => {
+      const prefix = "before [x](https://example.com/a`b) ";
+      expect(truncateForTelegram(prefix + code, 4096, "MarkdownV2")).toBe(
+        prefix
+      );
+    });
+
+    it("retreats before a partial link at every destination cut", () => {
+      const prefix = "before ";
+      const link = "[x\\]](https://example.com/a\\)`b\\\\)";
+      const input = `${prefix}${link} after ${"z".repeat(100)}`;
+      for (
+        let cut = prefix.length;
+        cut <= prefix.length + link.length + 1;
+        cut++
+      ) {
+        const expected =
+          cut < prefix.length + link.length ? prefix : input.slice(0, cut);
+        const result = truncateForTelegram(input, cut + 6, "MarkdownV2");
+        expect(result, `cut at ${cut}`).toBe(`${expected}\\.\\.\\.`);
+        expect(endsWithOrphanBackslash(result)).toBe(false);
+      }
+    });
+
+    it.each([
+      "`code`",
+      "```js\ncode\n```",
+    ])("retreats before code when cutting through its body or delimiters: %s", (code) => {
+      const prefix = "[x](https://example.com/a`b) ";
+      const input = `${prefix}${code} ${"z".repeat(100)}`;
+      for (let cut = 1; cut < code.length; cut++) {
+        expect(
+          truncateForTelegram(input, prefix.length + cut + 6, "MarkdownV2"),
+          `cut at ${cut}`
+        ).toBe(`${prefix}\\.\\.\\.`);
+      }
+    });
+
     it("preserves a link whose URL contains one underscore", () => {
       const input = "[x](https://e.co/?a_b=1)";
       expect(truncateForTelegram(input, 4096, "MarkdownV2")).toBe(input);
@@ -586,24 +710,6 @@ describe("truncateForTelegram", () => {
     const input = `${"a".repeat(80)}*${"b".repeat(100)}`;
     const result = truncateForTelegram(input, 100, "MarkdownV2");
     expect(result).toBe(`${"a".repeat(80)}\\.\\.\\.`);
-  });
-});
-
-describe("findUnescapedPositions", () => {
-  it("finds unescaped markers", () => {
-    expect(findUnescapedPositions("*a*", "*")).toEqual([0, 2]);
-  });
-
-  it("ignores escaped markers", () => {
-    expect(findUnescapedPositions("\\*a*", "*")).toEqual([3]);
-  });
-
-  it("handles double backslash (escaped backslash) before marker", () => {
-    expect(findUnescapedPositions("\\\\*", "*")).toEqual([2]);
-  });
-
-  it("returns empty for no markers", () => {
-    expect(findUnescapedPositions("hello", "*")).toEqual([]);
   });
 });
 

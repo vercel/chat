@@ -75,37 +75,11 @@ export function escapeMarkdownV2(text: string): string {
 }
 
 /**
- * Return indices of every occurrence of `marker` in `text` that is NOT
- * preceded by an odd number of backslashes (i.e. not escaped).
+ * Return unescaped entity delimiter positions, ignoring literal markers in
+ * code and link destinations. For backticks, record one position per inline
+ * code or fence delimiter so an unfinished fence retreats to its opener.
  */
-export function findUnescapedPositions(text: string, marker: string): number[] {
-  const positions: number[] = [];
-  for (let i = 0; i < text.length; i++) {
-    if (text[i] !== marker) {
-      continue;
-    }
-    let backslashes = 0;
-    let j = i - 1;
-    while (j >= 0 && text[j] === "\\") {
-      backslashes++;
-      j--;
-    }
-    if (backslashes % 2 === 0) {
-      positions.push(i);
-    }
-  }
-  return positions;
-}
-
-/**
- * Like `findUnescapedPositions` but skips occurrences inside fenced code
- * blocks (``` ```), inline code spans (`` ` ``), or the `(...)` URL part
- * of an inline link, where Telegram treats entity markers as literal text.
- */
-function findUnescapedPositionsOutsideCode(
-  text: string,
-  marker: string
-): number[] {
+function findEntityDelimiterPositions(text: string, marker: string): number[] {
   const positions: number[] = [];
   let inFence = false;
   let inInline = false;
@@ -139,25 +113,33 @@ function findUnescapedPositionsOutsideCode(
     if (ch === "`" && !escaped) {
       const isTriple = text[i + 1] === "`" && text[i + 2] === "`";
       if (isTriple && !inInline) {
+        if (marker === "`") {
+          positions.push(i);
+        }
         inFence = !inFence;
         i += 2;
         continue;
       }
       if (!inFence) {
+        if (marker === "`") {
+          positions.push(i);
+        }
+        // A cut after two opening fence backticks is still an unfinished
+        // delimiter, not a balanced empty inline-code span.
+        if (!inInline && text[i + 1] === "`") {
+          i += 1;
+        }
         inInline = !inInline;
       }
       continue;
     }
 
-    if (
-      ch === "]" &&
-      !escaped &&
-      !inFence &&
-      !inInline &&
-      text[i + 1] === "("
-    ) {
-      linkCloseBracket = i;
-      i += 1;
+    if (ch === "]" && !escaped && !inFence && !inInline) {
+      if (text[i + 1] === "(") {
+        linkCloseBracket = i;
+        i += 1;
+      }
+      // A cut immediately after the label's `]` also leaves the link open.
       continue;
     }
 
@@ -203,10 +185,7 @@ function trimToMarkdownV2SafeBoundary(text: string): string {
     let minUnsafePosition = current.length;
 
     for (const marker of MARKDOWN_V2_ENTITY_MARKERS) {
-      const positions =
-        marker === "`"
-          ? findUnescapedPositions(current, marker)
-          : findUnescapedPositionsOutsideCode(current, marker);
+      const positions = findEntityDelimiterPositions(current, marker);
       if (positions.length % 2 === 1) {
         const lastUnpaired = positions.at(-1) ?? current.length;
         if (lastUnpaired < minUnsafePosition) {
@@ -215,8 +194,8 @@ function trimToMarkdownV2SafeBoundary(text: string): string {
       }
     }
 
-    const openBrackets = findUnescapedPositionsOutsideCode(current, "[");
-    const closeBrackets = findUnescapedPositionsOutsideCode(current, "]");
+    const openBrackets = findEntityDelimiterPositions(current, "[");
+    const closeBrackets = findEntityDelimiterPositions(current, "]");
     if (openBrackets.length > closeBrackets.length) {
       const lastOpen = openBrackets.at(-1) ?? current.length;
       if (lastOpen < minUnsafePosition) {

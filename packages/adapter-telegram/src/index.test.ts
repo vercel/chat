@@ -5406,6 +5406,62 @@ describe("message length limits", () => {
     expect(endsWithOrphanBackslash(beforeEllipsis)).toBe(false);
   });
 
+  it("preserves URL backticks and trailing text in a legacy MarkdownV2 post", async () => {
+    const adapter = await createInitializedAdapter();
+    useLegacyMessage();
+    const markdown = "before [x](https://example.com/a`b) after";
+
+    await adapter.postMessage("telegram:123", { markdown });
+
+    expect(String(mockFetch.mock.calls[2]?.[0])).toContain("/sendMessage");
+    expect(readSentBody(2)).toMatchObject({
+      parse_mode: "MarkdownV2",
+      text: markdown,
+    });
+    expect(readSentBody(2).rich_message).toBeUndefined();
+  });
+
+  it("preserves URL backticks and trailing text in a legacy MarkdownV2 edit", async () => {
+    const adapter = await createInitializedAdapter();
+    mockFetch
+      .mockResolvedValueOnce(
+        telegramError(400, 400, "Bad Request: rich message is unsupported")
+      )
+      .mockResolvedValueOnce(telegramOk(sampleMessage()));
+    const markdown = "before [x](https://example.com/a`b) after";
+
+    await adapter.editMessage("telegram:123", "123:1", { markdown });
+
+    expect(String(mockFetch.mock.calls[2]?.[0])).toContain("/editMessageText");
+    expect(readSentBody(2)).toMatchObject({
+      parse_mode: "MarkdownV2",
+      text: markdown,
+    });
+    expect(readSentBody(2).rich_message).toBeUndefined();
+  });
+
+  it("preserves URL backticks and trailing text in a MarkdownV2 file caption", async () => {
+    const adapter = await createInitializedAdapter();
+    mockFetch.mockResolvedValueOnce(telegramOk(sampleMessage()));
+    const markdown = "before [x](https://example.com/a`b) after";
+
+    await adapter.postMessage("telegram:123", {
+      markdown,
+      files: [
+        {
+          filename: "report.txt",
+          data: Buffer.from("payload"),
+          mimeType: "text/plain",
+        },
+      ],
+    });
+
+    expect(String(mockFetch.mock.calls[1]?.[0])).toContain("/sendDocument");
+    const formData = mockFetch.mock.calls[1]?.[1]?.body as FormData;
+    expect(formData.get("parse_mode")).toBe("MarkdownV2");
+    expect(formData.get("caption")).toBe(markdown);
+  });
+
   it("MarkdownV2 truncation leaves all entity delimiters balanced (no unclosed **bold**)", async () => {
     const adapter = await createInitializedAdapter();
     useLegacyMessage();
