@@ -358,7 +358,7 @@ After creating the app, go to **Basic Information** → **App Credentials** and 
 
 ## Inbound attachments
 
-Incoming file attachments expose a lazy `fetchData()`. Downloads go through a guarded fetcher that refuses private and internal addresses (including after redirects), limits responses to 25 MB, and times out after 30 seconds. The bot token is sent only to trusted Slack origins and never follows a redirect to another host. Override `createFileTransport()` in a subclass to route downloads through a proxy.
+Incoming file attachments expose a lazy `fetchData()`. Downloads go through a guarded fetcher that refuses private and internal addresses (including after redirects), limits responses to 25 MB, and times out after 30 seconds. The bot token is sent only to trusted Slack origins and never follows a redirect to another host. Set `fileTransport` to route downloads through a proxy, or override `createFileTransport()` in a subclass. See [Egress proxies](#egress-proxies) for transport requirements.
 
 ## Configuration
 
@@ -378,7 +378,9 @@ All options are auto-detected from environment variables when not provided. You 
 | `installationKeyPrefix` | No | Prefix for the state key used to store workspace installations. Defaults to `slack:installation`. The full key is `{prefix}:{teamId}` (or `{prefix}:{enterpriseId}` for Enterprise Grid org-wide installs) |
 | `installationProvider` | No | External installation lookup `{ getInstallation(installationId, isEnterpriseInstall) => Promise<SlackInstallation \| null> }`. When set, bypasses the internal state adapter for token resolution on incoming webhooks. Read-only — manage your own writes externally |
 | `apiUrl` | No | Override the Slack Web API base URL (e.g. for GovSlack or a self-hosted gateway). Auto-detected from `SLACK_API_URL` |
-| `webClientOptions` | No | Options forwarded to Slack `WebClient` instances, excluding `slackApiUrl`. Supports settings such as `retryConfig`, per-request `timeout`, and `rejectRateLimitedCalls` |
+| `fetch` | No | Fetch for response URLs and Socket Mode webhook forwarding; defaults to global fetch |
+| `fileTransport` | No | Guarded file download transport; custom transports own connection/DNS policy |
+| `webClientOptions` | No | Options forwarded to Slack `WebClient` instances, excluding `slackApiUrl`. Supports `retryConfig`, per-request `timeout`, and `rejectRateLimitedCalls`; `agent` also configures Socket Mode |
 | `logger` | No | Logger instance (defaults to `ConsoleLogger("info")`) |
 
 *`signingSecret` is required for webhook mode — either via config, `SLACK_SIGNING_SECRET` env var, or a `webhookVerifier`.
@@ -659,3 +661,51 @@ For agent-readable documentation, see [chat-sdk.dev/llms.txt](https://chat-sdk.d
 ## License
 
 MIT
+
+## Egress proxies
+
+Configure each transport your deployment uses. `webClientOptions.agent` covers Slack Web API calls (including OAuth and all upload phases) and the HTTP/WebSocket connections for both persistent and transient Socket Mode. `fetch` covers `response_url` updates and Socket Mode forwarding to your application's webhook. `fileTransport` covers lazy `fetchData()` and rehydrated attachments.
+
+For Node.js, install `https-proxy-agent` and `undici` in your application. This example assumes a **controlled proxy that rejects internal destination addresses and DNS rebinding**, including when it resolves CONNECT destinations. A custom file transport replaces the default DNS-pinned transport; local DNS checks alone cannot enforce the address a remote proxy actually uses.
+
+```ts
+import { request } from "node:https";
+import { createSlackAdapter, type SlackAdapterConfig } from "@chat-adapter/slack";
+import { HttpsProxyAgent } from "https-proxy-agent";
+import { ProxyAgent } from "undici";
+
+const proxyUrl = process.env.HTTPS_PROXY!;
+const agent = new HttpsProxyAgent(proxyUrl);
+const dispatcher = new ProxyAgent(proxyUrl);
+
+// Node's native fetch accepts an Undici dispatcher. Keep the standard fetch
+// input/output types so Request, Response, and streaming bodies retain parity.
+const proxyFetch: typeof globalThis.fetch = (input, init) => {
+  const options: RequestInit = { ...init };
+  // Add Node's dispatcher extension separately from the standard fetch options.
+  Object.assign(options, { dispatcher });
+  return globalThis.fetch(input, options);
+};
+
+const fileTransport: NonNullable<SlackAdapterConfig["fileTransport"]> = (
+  url, signal, headers
+) => new Promise((resolve, reject) => {
+  // Return each raw response; the downloader handles redirects and strips
+  // Slack credentials on untrusted hops. The signal also aborts the body read.
+  const req = request(url, { agent, signal, headers }, resolve);
+  req.on("error", reject);
+  req.end();
+});
+
+const slack = createSlackAdapter({
+  webClientOptions: { agent },
+  fetch: proxyFetch,
+  fileTransport,
+});
+```
+
+The downloader still validates each URL, limits redirects, sends credentials only to trusted Slack origins, rejects HTML login pages, enforces a 30-second deadline, and limits decoded bodies to 25 MB. The transport must honor the supplied signal and must not follow redirects itself. Existing `createFileTransport()` subclass overrides take precedence over `fileTransport`.
+
+Only `agent` is forwarded from `webClientOptions` to Socket Mode; its app-token authentication, retry options, and API URL remain SDK defaults. Web API headers are not Socket Mode headers. Configure routing/bypass in your fetch implementation if the forwarded webhook uses an internal application URL. The adapter does not close caller-owned agents or dispatchers; close them when your application shuts down.
+
+Standalone `@chat-adapter/slack/api` functions have their own `options.fetch` parameter and do not inherit adapter configuration. Application callbacks, token resolvers, installation providers, and state adapters also own their network configuration. Proxy authentication, CA trust, WebSocket support, and destination policy must be configured for your deployment.

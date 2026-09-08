@@ -2,6 +2,7 @@
  * Slack adapter types.
  */
 
+import type { AttachmentTransport } from "@chat-adapter/shared";
 import type { WebClientOptions } from "@slack/web-api";
 import type { AppContextEntity, Logger } from "chat";
 import type { SlackWebhookVerifier } from "./webhook/index";
@@ -148,6 +149,21 @@ export interface SlackAdapterConfig {
    */
   feedbackButtons?: boolean | SlackFeedbackButtonsOptions;
   /**
+   * Fetch implementation for response_url requests and Socket Mode webhook
+   * forwarding. Defaults to globalThis.fetch at request time. Does not affect
+   * Web API clients, Socket Mode connections, files, or standalone /api helpers.
+   */
+  fetch?: typeof globalThis.fetch;
+  /**
+   * Transport for lazy and rehydrated file downloads. Replaces the default
+   * DNS-pinned HTTPS transport; the transport or egress proxy must reject
+   * internal destination addresses and DNS rebinding. Return the raw response
+   * without following redirects, and honor the supplied AbortSignal. The
+   * downloader retains URL, redirect, credential, deadline, and body-size checks.
+   * Subclass createFileTransport() overrides take precedence.
+   */
+  fileTransport?: AttachmentTransport;
+  /**
    * Prefix for the state key used to store workspace installations.
    * Defaults to `slack:installation`. The full key will be `{prefix}:{teamId}`.
    */
@@ -232,7 +248,9 @@ export interface SlackAdapterConfig {
    * });
    * ```
    *
-   * Use `apiUrl` to override the Slack Web API base URL.
+   * `agent` also configures both Socket Mode connections (HTTP and WebSocket).
+   * It does not configure `fetch` or `fileTransport`. Other options apply only
+   * to Web API clients. Use `apiUrl` to override the Slack Web API base URL.
    */
   webClientOptions?: Omit<WebClientOptions, "slackApiUrl">;
   /**

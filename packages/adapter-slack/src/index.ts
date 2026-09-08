@@ -1240,6 +1240,8 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
   protected readonly tokenClientCache = new Map<string, WebClient>();
   protected readonly slackApiUrl: string | undefined;
   protected readonly webClientOptions: SlackAdapterConfig["webClientOptions"];
+  protected readonly configuredFetch: SlackAdapterConfig["fetch"];
+  protected readonly configuredFileTransport: AttachmentTransport | undefined;
   protected readonly signingSecret: string | undefined;
   protected readonly webhookVerifier:
     | ((request: Request, body: string) => unknown | Promise<unknown>)
@@ -1429,6 +1431,8 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
 
     this.slackApiUrl = config.apiUrl ?? process.env.SLACK_API_URL;
     this.webClientOptions = config.webClientOptions;
+    this.configuredFetch = config.fetch;
+    this.configuredFileTransport = config.fileTransport;
     // WebClient token argument is only a fallback; every API call below routes
     // through withToken() which resolves the current provider per-call.
     this._client = new WebClient(undefined, {
@@ -2838,6 +2842,13 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
   // Socket Mode
   // ===========================================================================
 
+  private socketTransportOptions() {
+    const agent = this.webClientOptions?.agent;
+    // SocketModeClient mutates clientOptions and supplies app-token headers.
+    // Forward only the agent in a fresh object to preserve its auth and retries.
+    return agent ? { clientOptions: { agent } } : {};
+  }
+
   /**
    * Start Socket Mode connection.
    * Creates a SocketModeClient, registers event handlers, and connects.
@@ -2850,7 +2861,10 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
       );
     }
 
-    this.socketClient = new SocketModeClient({ appToken: this.appToken });
+    this.socketClient = new SocketModeClient({
+      appToken: this.appToken,
+      ...this.socketTransportOptions(),
+    });
 
     this.socketClient.on(
       "slack_event",
@@ -3084,7 +3098,10 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
   ): Promise<void> {
     // appToken is guaranteed to exist — callers check before invoking
     const appToken = this.appToken as string;
-    const client = new SocketModeClient({ appToken });
+    const client = new SocketModeClient({
+      appToken,
+      ...this.socketTransportOptions(),
+    });
     let isShuttingDown = false;
 
     client.on(
@@ -3180,14 +3197,17 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
         webhookUrl,
       });
 
-      const response = await fetch(webhookUrl, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "x-slack-socket-token": this.socketForwardingSecret as string,
-        },
-        body: JSON.stringify(event),
-      });
+      const response = await (this.configuredFetch ?? globalThis.fetch)(
+        webhookUrl,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "x-slack-socket-token": this.socketForwardingSecret as string,
+          },
+          body: JSON.stringify(event),
+        }
+      );
 
       if (response.ok) {
         this.logger.debug("Socket event forwarded successfully", {
@@ -4619,10 +4639,10 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
 
   /**
    * Transport used for guarded file downloads. Subclasses can return a
-   * custom AttachmentTransport, e.g. to route downloads through a proxy.
+   * custom AttachmentTransport, overriding the configured fileTransport.
    */
   protected createFileTransport(): AttachmentTransport | undefined {
-    return undefined;
+    return this.configuredFileTransport;
   }
 
   rehydrateAttachment(attachment: Attachment): Attachment {
@@ -7357,11 +7377,14 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
       action,
       threadTs: options?.threadTs,
     });
-    const response = await fetch(responseUrl, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload),
-    });
+    const response = await (this.configuredFetch ?? globalThis.fetch)(
+      responseUrl,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      }
+    );
 
     if (!response.ok) {
       const errorText = await response.text();
@@ -7455,6 +7478,8 @@ export function createSlackAdapter(config?: SlackAdapterConfig): SlackAdapter {
     encryptionKey: config?.encryptionKey ?? process.env.SLACK_ENCRYPTION_KEY,
     installationKeyPrefix: config?.installationKeyPrefix,
     feedbackButtons: config?.feedbackButtons,
+    fetch: config?.fetch,
+    fileTransport: config?.fileTransport,
     installationProvider: config?.installationProvider,
     loadingMessages: config?.loadingMessages,
     logger: config?.logger ?? new ConsoleLogger("info").child("slack"),
