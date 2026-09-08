@@ -753,7 +753,7 @@ export interface ChatInstance {
     options?: WebhookOptions
   ): void;
 
-  /** Optional for compatibility with custom ChatInstance implementations. */
+  /** Optional so custom ChatInstance implementations predating it keep compiling. */
   processInstalled?(event: InstalledEvent, options?: WebhookOptions): void;
 
   processMemberJoinedChannel(
@@ -879,7 +879,7 @@ export interface ChatInstance {
     options: WebhookOptions | undefined
   ): void;
 
-  /** Optional for compatibility with custom ChatInstance implementations. */
+  /** Optional so custom ChatInstance implementations predating it keep compiling. */
   processUninstalled?(event: UninstalledEvent, options?: WebhookOptions): void;
 
   /**
@@ -2758,17 +2758,28 @@ export type AppContextChangedHandler = (
   event: AppContextChangedEvent
 ) => void | Promise<void>;
 
+/**
+ * Installation lifecycle action. `add-upgrade` and `remove-upgrade` are sent
+ * when an existing installation is upgraded rather than installed or removed.
+ */
+export type InstallationAction =
+  | "add"
+  | "add-upgrade"
+  | "remove"
+  | "remove-upgrade";
+
 /** Installation lifecycle metadata. Currently emitted by the Teams adapter. */
 export interface InstallationEvent {
-  /** Platform action, including upgrade variants such as `add-upgrade`. */
-  action: string;
+  action: InstallationAction;
   adapter: Adapter;
-  /** Normalized Chat destination, absent when the activity has no service URL. */
+  /**
+   * Normalized Chat destination for the installation location, usable with
+   * `bot.channel(channelId)` and safe to persist for later proactive sends.
+   * Absent only when the platform supplied no way to reach the conversation.
+   */
   channelId?: string;
   /** Platform conversation ID identifying the installation location. */
   conversationId: string;
-  /** Serializable platform reference. Narrow before using or persisting it. */
-  conversationReference?: unknown;
   /** Platform activity ID, useful for application-level idempotency. */
   id: string;
   locale?: string;
@@ -2778,8 +2789,14 @@ export interface InstallationEvent {
   userId?: string;
 }
 
-export type InstalledEvent = InstallationEvent;
-export type UninstalledEvent = InstallationEvent;
+export interface InstalledEvent extends InstallationEvent {
+  action: "add" | "add-upgrade";
+}
+
+export interface UninstalledEvent extends InstallationEvent {
+  action: "remove" | "remove-upgrade";
+}
+
 export type InstalledHandler = (event: InstalledEvent) => void | Promise<void>;
 export type UninstalledHandler = (
   event: UninstalledEvent

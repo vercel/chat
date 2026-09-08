@@ -397,6 +397,7 @@ export type {
   HistoryEntry,
   IdentityContext,
   IdentityResolver,
+  InstallationAction,
   InstallationEvent,
   InstalledEvent,
   InstalledHandler,

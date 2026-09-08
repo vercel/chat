@@ -2,10 +2,19 @@ import { describe, expect, it, vi } from "vitest";
 import { Chat } from "./chat";
 import { activeConversation } from "./context";
 import { createMockAdapter, createMockState, mockLogger } from "./mock-adapter";
-import type { InstallationEvent } from "./types";
+import type {
+  InstallationEvent,
+  InstalledEvent,
+  UninstalledEvent,
+  WebhookOptions,
+} from "./types";
 
 describe.each(["Installed", "Uninstalled"] as const)("on%s", (kind) => {
-  function setup(channelId: string | undefined = "teams:conversation:service") {
+  function setup(
+    { channelId }: { channelId?: string } = {
+      channelId: "teams:conversation:service",
+    }
+  ) {
     const adapter = createMockAdapter("teams");
     const chat = new Chat({
       userName: "bot",
@@ -13,8 +22,7 @@ describe.each(["Installed", "Uninstalled"] as const)("on%s", (kind) => {
       state: createMockState(),
       logger: mockLogger,
     });
-    const event: InstallationEvent = {
-      action: kind === "Installed" ? "add" : "remove",
+    const base = {
       adapter,
       channelId,
       conversationId: "personal-conversation",
@@ -24,43 +32,54 @@ describe.each(["Installed", "Uninstalled"] as const)("on%s", (kind) => {
       locale: "en-US",
       raw: {},
     };
-    return { chat, event };
+    const installed: InstalledEvent = { ...base, action: "add" };
+    const uninstalled: UninstalledEvent = { ...base, action: "remove" };
+    const event: InstallationEvent =
+      kind === "Installed" ? installed : uninstalled;
+    const on = (handler: (event: InstallationEvent) => void | Promise<void>) =>
+      kind === "Installed"
+        ? chat.onInstalled(handler)
+        : chat.onUninstalled(handler);
+    const process = (options?: WebhookOptions) =>
+      kind === "Installed"
+        ? chat.processInstalled(installed, options)
+        : chat.processUninstalled(uninstalled, options);
+    return { event, on, process };
   }
 
   it("runs registered handlers in order with the destination context", async () => {
-    const { chat, event } = setup();
+    const { event, on, process } = setup();
     const order: number[] = [];
-    chat[`on${kind}`](async (received) => {
+    on(async (received) => {
       await Promise.resolve();
       expect(received).toBe(event);
       expect(activeConversation()).toBe(event.channelId);
       order.push(1);
     });
-    chat[`on${kind}`](() => {
+    on(() => {
       order.push(2);
     });
     const tasks: Promise<unknown>[] = [];
-    chat[`process${kind}`](event, { waitUntil: (task) => tasks.push(task) });
+    process({ waitUntil: (task) => tasks.push(task) });
     expect(tasks).toHaveLength(1);
     await Promise.all(tasks);
     expect(order).toEqual([1, 2]);
   });
 
   it("waits for asynchronous handlers, including events without a destination", async () => {
-    const { chat, event } = setup();
-    event.channelId = undefined;
+    const { on, process } = setup({});
     let release = () => {};
     const gate = new Promise<void>((resolve) => {
       release = resolve;
     });
     let completed = false;
-    chat[`on${kind}`](async () => {
+    on(async () => {
       expect(activeConversation()).toBeUndefined();
       await gate;
       completed = true;
     });
     const tasks: Promise<unknown>[] = [];
-    chat[`process${kind}`](event, { waitUntil: (task) => tasks.push(task) });
+    process({ waitUntil: (task) => tasks.push(task) });
     expect(completed).toBe(false);
     release();
     await Promise.all(tasks);
@@ -68,13 +87,13 @@ describe.each(["Installed", "Uninstalled"] as const)("on%s", (kind) => {
   });
 
   it("logs handler errors and resolves the background task", async () => {
-    const { chat, event } = setup();
+    const { event, on, process } = setup();
     const error = new Error("handler failed");
-    chat[`on${kind}`](() => {
+    on(() => {
       throw error;
     });
     const tasks: Promise<unknown>[] = [];
-    chat[`process${kind}`](event, { waitUntil: (task) => tasks.push(task) });
+    process({ waitUntil: (task) => tasks.push(task) });
     await expect(Promise.all(tasks)).resolves.toEqual([undefined]);
     expect(mockLogger.error).toHaveBeenCalledWith(`${kind} handler error`, {
       error,
@@ -83,12 +102,14 @@ describe.each(["Installed", "Uninstalled"] as const)("on%s", (kind) => {
     });
   });
 
-  it("runs without waitUntil and accepts having no handlers", async () => {
-    const { chat, event } = setup();
-    chat[`process${kind}`](event);
+  it("does nothing without handlers and runs without waitUntil", async () => {
+    const { event, on, process } = setup();
+    const tasks: Promise<unknown>[] = [];
+    process({ waitUntil: (task) => tasks.push(task) });
+    expect(tasks).toHaveLength(0);
     const handler = vi.fn();
-    chat[`on${kind}`](handler);
-    chat[`process${kind}`](event);
+    on(handler);
+    process();
     await vi.waitFor(() =>
       expect(handler).toHaveBeenCalledExactlyOnceWith(event)
     );

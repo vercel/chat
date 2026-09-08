@@ -315,52 +315,33 @@ bot.onMemberJoinedChannel(async (event) => {
 
 For team installations, `channelId` identifies the channel selected during installation, not the team ID. `inviterId` comes from the activity sender. Pass your platform's `waitUntil` to the webhook handler to track asynchronous welcome handlers.
 
-This dispatches bot joins only. Personal installs, ordinary member additions, removals, and `installationUpdate` activities do not emit this event. See Microsoft's [conversation event documentation](https://learn.microsoft.com/en-us/microsoftteams/platform/bots/how-to/conversations/subscribe-to-conversation-events#members-added) for the underlying payloads.
+This dispatches bot joins only. Personal installs, ordinary member additions, and removals do not emit this event; use [`onInstalled`](#installation-lifecycle) for install welcomes that should also cover personal scope. See Microsoft's [conversation event documentation](https://learn.microsoft.com/en-us/microsoftteams/platform/bots/how-to/conversations/subscribe-to-conversation-events#members-added) for the underlying payloads.
 
 ## Installation lifecycle
 
-`bot.onInstalled` handles `installationUpdate` actions `add` and `add-upgrade`.
-`bot.onUninstalled` handles `remove` and `remove-upgrade`, including personal
-installs. Both expose the original `action`, activity `id`, actor `userId`,
-`tenantId`, `locale`, platform `conversationId`, and raw activity. These handlers
-are currently emitted only by Teams.
+`bot.onInstalled` fires for `installationUpdate` actions `add` and `add-upgrade`.
+`bot.onUninstalled` fires for `remove` and `remove-upgrade`. Both cover personal,
+group chat, and team installs and receive the `action`, the activity `id`, the
+platform `conversationId`, the actor `userId`, `tenantId`, `locale`, and the raw
+activity. These handlers are currently emitted only by Teams.
 
-A team installation can produce both a bot-join event and an installation event.
-Choose one handler for each welcome flow. Filter upgrades when you only want a
-first-install welcome; a `remove-upgrade` is not a permanent uninstall. Delivery
-may be retried: make side effects idempotent, for example using bot ID, tenant ID,
-conversation ID, and activity ID together as an application idempotency key.
-There is no automatic subscription, persistence, cleanup, or deduplication.
-
-The optional `conversationReference` is a plain `TeamsConversationReference`,
-with bot/user identity, conversation metadata, locale, channel ID, and service
-URL. It contains no credentials or live SDK context. Save it in your own durable
-storage for later proactive messages; save credentials separately. References
-contain personal metadata, so retain only what your application needs.
+`event.channelId` is the Chat SDK destination for the installation: the personal
+chat, the group chat, or the channel selected during a team install. It encodes
+the conversation's Bot Framework service URL, so you can persist the string and
+post to it later from any process with `bot.channel(channelId).post()`. When the
+activity body carries no service URL, the adapter uses the one from the validated
+request token, so `channelId` is normally present.
 
 ```typescript
-import type { TeamsConversationReference } from "@chat-adapter/teams";
-import { postTeamsMessage } from "@chat-adapter/teams/api";
-
 // `installationStore` is your application's durable key/value store.
 bot.onInstalled(async (event) => {
-  if (event.adapter.name !== "teams" || !event.conversationReference) return;
-  const reference = event.conversationReference as TeamsConversationReference;
+  if (event.adapter.name !== "teams" || !event.channelId) return;
   const key = `${event.adapter.botUserId}:${event.tenantId}:${event.conversationId}`;
   // An upsert also replaces the destination after a reinstall or upgrade.
-  await installationStore.set(key, JSON.stringify(reference));
+  await installationStore.set(key, event.channelId);
   if (event.action !== "add") return;
 
-  await postTeamsMessage({
-    credentials: {
-      appId: process.env.TEAMS_APP_ID,
-      appPassword: process.env.TEAMS_APP_PASSWORD,
-      tenantId: process.env.TEAMS_APP_TENANT_ID,
-    },
-    conversationId: reference.conversation.id,
-    serviceUrl: reference.serviceUrl,
-    text: "Thanks for installing!",
-  });
+  await bot.channel(event.channelId).post("Thanks for installing!");
 });
 
 bot.onUninstalled(async (event) => {
@@ -370,21 +351,24 @@ bot.onUninstalled(async (event) => {
 });
 ```
 
-Apply your application's idempotency check before the welcome send. To send
-later, load and validate the stored JSON as a `TeamsConversationReference`, then
-call `postTeamsMessage` with its `conversation.id` and `serviceUrl`, as above.
-This API uses the saved connector endpoint even in a fresh process; do not pass
-`activityId` as `replyToId`, since an installation activity is not a message to
-reply to. The high-level `bot.channel(id).post()` API does not currently guarantee
-that it uses a persisted Teams service URL for proactive sends.
+A team or group chat install produces both a `conversationUpdate` that adds the
+bot and an `installationUpdate`, so `onMemberJoinedChannel` and `onInstalled`
+both fire for the same conversation. Send install welcomes from one of them. If
+you use `onMemberJoinedChannel` for Slack, skip Teams there by checking
+`event.adapter.name`. Personal installs emit `onInstalled` only.
 
-When the activity lacks a service URL, the handler still receives installation
-metadata, but `channelId` and `conversationReference` are absent. Cleanup can
-still use `conversationId`; a proactive send needs a saved usable reference.
-For team installs, this conversation identifies the selected installation
-channel, while full team and selected-channel metadata remain in `raw`.
+Filter on `action` when you only want a first-install welcome; a `remove-upgrade`
+is not a permanent uninstall. Delivery may be retried, so make side effects
+idempotent, for example keyed on bot ID, tenant ID, conversation ID, and activity
+ID. The SDK does not subscribe, persist, or deduplicate installations for you.
 Do not send a farewell after removal. Pass your host's `waitUntil` to the webhook
-handler so asynchronous persistence and onboarding finish after the response.
+handler so persistence and onboarding finish after the response.
+
+If you already own routing and only need the connector call, decode the stored
+`channelId` with `decodeThreadId` and pass its `conversationId` and `serviceUrl`
+to `postTeamsMessage` from `@chat-adapter/teams/api`. Do not pass the
+installation activity ID as `replyToId`; it is not a message. Full team and
+selected-channel metadata remain in `event.raw`.
 
 See Microsoft's [installation update documentation](https://learn.microsoft.com/en-us/microsoftteams/platform/bots/how-to/conversations/subscribe-to-conversation-events#installation-update-event).
 

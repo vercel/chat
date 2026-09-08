@@ -3,48 +3,21 @@ import {
   createMockLogger,
   createMockState,
 } from "@chat-adapter/tests";
-import { Chat, type InstallationEvent, type WebhookOptions } from "chat";
+import { Chat, type ChatInstance, type InstallationEvent } from "chat";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { postTeamsMessage } from "./api/messages";
-import { TeamsAdapter } from "./index";
-import type { TeamsConversationReference } from "./types";
-
-const appId = "11111111-2222-3333-4444-555555555555";
-const botId = `28:${appId}`;
-const serviceUrl = "https://smba.trafficmanager.net/amer/";
-const token = {
+import {
   appId,
+  botId,
   serviceUrl,
-  from: "azure" as const,
-  fromId: appId,
-  isExpired: () => false,
-  toString: () => "test-token",
-};
+  TestTeamsAdapter,
+  token,
+} from "./test-utils";
 
-class InstallationAdapter extends TeamsAdapter {
-  stubWebhookOptions(options: WebhookOptions) {
-    vi.spyOn(this.bridgeAdapter, "getWebhookOptions").mockReturnValue(options);
-  }
-
-  allowUnauthenticatedWebhooks() {
-    const server = this.app.server as unknown as {
-      authorize: () => Promise<unknown>;
-    };
-    vi.spyOn(server, "authorize").mockResolvedValue({ success: true, token });
-  }
-
-  receive(body: { type: string; [key: string]: unknown }) {
-    return this.app.process({ body, token });
-  }
-
-  // Compile-time regression for the Microsoft SDK's conversation event union.
-  registerTypedJoinRoutes() {
-    this.app.on("conversationUpdate.teamMemberAdded", async () => {});
-    this.app.on("conversationUpdate.teamMemberRemoved", async () => {});
-  }
-}
-
-/** Synthetic Microsoft-documented lifecycle shape; see sample-messages.md. */
+/**
+ * Synthetic installationUpdate modeled on Microsoft's documented schema. No
+ * captured tenant traffic exists for this activity type in sample-messages.md.
+ * https://learn.microsoft.com/en-us/microsoftteams/platform/bots/how-to/conversations/subscribe-to-conversation-events#installation-update-event
+ */
 function activity(action = "add") {
   return {
     type: "installationUpdate",
@@ -69,13 +42,13 @@ function activity(action = "add") {
 }
 
 describe("Teams installation lifecycle", () => {
-  let adapter: InstallationAdapter;
+  let adapter: TestTeamsAdapter;
   let chat: ReturnType<typeof createMockChatInstance>;
   const logger = createMockLogger();
   const options = { waitUntil: vi.fn() };
 
   beforeEach(async () => {
-    adapter = new InstallationAdapter({ appId, appPassword: "secret", logger });
+    adapter = new TestTeamsAdapter({ appId, appPassword: "secret", logger });
     chat = createMockChatInstance();
     adapter.stubWebhookOptions(options);
     await adapter.initialize(chat);
@@ -95,7 +68,7 @@ describe("Teams installation lifecycle", () => {
     const response = await adapter.receive(body);
     expect(response.status).toBe(200);
     expect(chat[processor]).toHaveBeenCalledExactlyOnceWith(
-      expect.objectContaining({
+      {
         adapter,
         id: body.id,
         action,
@@ -109,16 +82,7 @@ describe("Teams installation lifecycle", () => {
         tenantId: "tenant",
         locale: "en-US",
         raw: expect.objectContaining({ action }),
-        conversationReference: expect.objectContaining({
-          bot: expect.objectContaining({ id: botId }),
-          user: expect.objectContaining({
-            id: "29:installer",
-            aadObjectId: "installer-aad",
-          }),
-          conversation: expect.objectContaining(body.conversation),
-          serviceUrl: serviceUrl.slice(0, -1),
-        }),
-      }),
+      },
       options
     );
     expect(chat.processMemberJoinedChannel).not.toHaveBeenCalled();
@@ -132,15 +96,19 @@ describe("Teams installation lifecycle", () => {
   it.each([
     "add",
     "remove",
-  ])("emits %s metadata without a service URL", async (action) => {
+  ])("falls back to the token service URL when %s omits one", async (action) => {
     await adapter.receive({ ...activity(action), serviceUrl: undefined });
     const processor =
       action === "add" ? chat.processInstalled : chat.processUninstalled;
+    // The SDK strips the trailing slash when it resolves the reference.
     expect(processor).toHaveBeenCalledWith(
       expect.objectContaining({
         conversationId: "personal-installation",
-        channelId: undefined,
-        conversationReference: undefined,
+        channelId: adapter.encodeThreadId({
+          conversationId: "personal-installation",
+          conversationType: "personal",
+          serviceUrl: token.serviceUrl.slice(0, -1),
+        }),
       }),
       options
     );
@@ -157,7 +125,6 @@ describe("Teams installation lifecycle", () => {
         conversationId: "personal-installation",
         userId: undefined,
         locale: undefined,
-        conversationReference: expect.objectContaining({ user: undefined }),
       }),
       options
     );
@@ -178,10 +145,11 @@ describe("Teams installation lifecycle", () => {
   it.each([
     "channel",
     "groupChat",
-  ] as const)("preserves %s location and classification", async (conversationType) => {
+  ] as const)("preserves %s location, tenant, and classification", async (conversationType) => {
     const conversationId = "19:selected@thread.tacv2";
     const body = {
       ...activity(),
+      // Team and group payloads carry the tenant only in channelData.
       conversation: { id: conversationId, conversationType, isGroup: true },
       channelData: {
         tenant: { id: "tenant" },
@@ -193,6 +161,7 @@ describe("Teams installation lifecycle", () => {
     expect(chat.processInstalled).toHaveBeenCalledWith(
       expect.objectContaining({
         conversationId,
+        tenantId: "tenant",
         channelId: adapter.encodeThreadId({
           conversationId,
           conversationType,
@@ -202,19 +171,45 @@ describe("Teams installation lifecycle", () => {
       }),
       options
     );
+  });
+
+  it("emits both a join and an install for a team installation", async () => {
+    const conversationId = "19:selected@thread.tacv2";
+    const body = {
+      ...activity(),
+      conversation: {
+        id: conversationId,
+        conversationType: "channel",
+        isGroup: true,
+      },
+      channelData: { tenant: { id: "tenant" }, team: { id: "19:team" } },
+    };
+    await adapter.receive(body);
     await adapter.receive({
       ...body,
       type: "conversationUpdate",
       id: "join",
       membersAdded: [{ id: botId }],
     });
-    expect(chat.processInstalled).toHaveBeenCalledOnce();
-    expect(chat.processMemberJoinedChannel).toHaveBeenCalledOnce();
+    const channelId = adapter.encodeThreadId({
+      conversationId,
+      conversationType: "channel",
+      serviceUrl,
+    });
+    expect(chat.processInstalled).toHaveBeenCalledExactlyOnceWith(
+      expect.objectContaining({ channelId }),
+      options
+    );
+    expect(chat.processMemberJoinedChannel).toHaveBeenCalledExactlyOnceWith(
+      expect.objectContaining({ channelId }),
+      options
+    );
   });
 
   it("allows older custom Chat instances to omit lifecycle processors", async () => {
-    chat.processInstalled = undefined;
-    chat.processUninstalled = undefined;
+    const legacy: Partial<ChatInstance> = chat;
+    legacy.processInstalled = undefined;
+    legacy.processUninstalled = undefined;
     await expect(adapter.receive(activity())).resolves.toMatchObject({
       status: 200,
     });
@@ -223,12 +218,8 @@ describe("Teams installation lifecycle", () => {
     });
   });
 
-  it("accepts the upstream typed team membership routes", () => {
-    expect(() => adapter.registerTypedJoinRoutes()).not.toThrow();
-  });
-
   it("tracks asynchronous installation work through the actual webhook bridge", async () => {
-    const runtime = new InstallationAdapter({
+    const runtime = new TestTeamsAdapter({
       appId,
       appPassword: "secret",
       logger,
@@ -267,15 +258,16 @@ describe("Teams installation lifecycle", () => {
     expect(done).toBe(true);
   });
 
-  it("persists references, replaces reinstalls, and sends later to each saved service URL", async () => {
+  it("persists channel IDs, replaces reinstalls, and posts later to each service URL", async () => {
     const saved = new Map<string, string>();
-    const runtime = new InstallationAdapter({
+    const runtime = new TestTeamsAdapter({
       appId,
       appPassword: "secret",
       logger,
     });
     const tasks: Promise<unknown>[] = [];
     runtime.stubWebhookOptions({ waitUntil: (task) => tasks.push(task) });
+    const send = runtime.spyActivitySender();
     const bot = new Chat({
       userName: "bot",
       adapters: { teams: runtime },
@@ -285,28 +277,21 @@ describe("Teams installation lifecycle", () => {
     const key = (event: InstallationEvent) =>
       `${event.tenantId}:${event.conversationId}`;
     bot.onInstalled((event) => {
-      saved.set(key(event), JSON.stringify(event.conversationReference));
+      if (event.channelId) {
+        saved.set(key(event), event.channelId);
+      }
     });
     bot.onUninstalled((event) => {
       saved.delete(key(event));
     });
     await bot.initialize();
-    const body = activity();
-    await runtime.receive({
-      ...body,
-      recipient: {
-        ...body.recipient,
-        properties: { accessToken: "never-save" },
-      },
-    });
+
+    await runtime.receive(activity());
     await Promise.all(tasks);
     const first = saved.get("tenant:personal-installation");
-    expect(first).not.toContain("never-save");
-    expect(first).not.toContain("secret");
-    expect(first).not.toContain("test-token");
     const nextServiceUrl = "https://smba.trafficmanager.net/emea/";
     await runtime.receive({
-      ...body,
+      ...activity(),
       id: "reinstall",
       serviceUrl: nextServiceUrl,
     });
@@ -314,37 +299,24 @@ describe("Teams installation lifecycle", () => {
     const second = saved.get("tenant:personal-installation");
     expect(second).not.toBe(first);
 
-    // A fresh transport with only persisted JSON and separately supplied credentials.
-    const fetch = vi.fn<typeof globalThis.fetch>().mockImplementation(
-      async () =>
-        new Response(JSON.stringify({ id: "proactive-message" }), {
-          status: 200,
-        })
-    );
-    for (const [serialized, endpoint] of [
+    // Only the persisted thread ID is needed to reach each installation later.
+    for (const [channelId, endpoint] of [
       [first, serviceUrl],
       [second, nextServiceUrl],
-    ]) {
-      const reference: TeamsConversationReference = JSON.parse(
-        serialized ?? "{}"
-      );
-      await postTeamsMessage({
-        credentials: { accessToken: "fresh-token" },
-        conversationId: reference.conversation.id,
-        serviceUrl: reference.serviceUrl,
-        text: "Welcome back",
-        fetch,
-      });
-      expect(fetch).toHaveBeenLastCalledWith(
-        new URL(`${endpoint}v3/conversations/personal-installation/activities`),
+    ] as const) {
+      await bot.channel(channelId ?? "").post("Welcome back");
+      expect(send).toHaveBeenLastCalledWith(
+        expect.objectContaining({ text: "Welcome back" }),
         expect.objectContaining({
-          body: expect.not.stringContaining("installation-add"),
+          serviceUrl: endpoint.slice(0, -1),
+          conversation: { id: "personal-installation" },
         })
       );
     }
+
     await runtime.receive({ ...activity("remove"), serviceUrl: undefined });
     await Promise.all(tasks);
     expect(saved.size).toBe(0);
-    expect(fetch).toHaveBeenCalledTimes(2);
+    expect(send).toHaveBeenCalledTimes(2);
   });
 });

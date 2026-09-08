@@ -529,13 +529,14 @@ The `event` object includes:
 ## Installation lifecycle
 
 `onInstalled` and `onUninstalled` receive bot installation and removal events.
-Currently, only the Teams adapter emits them, including personal installs.
+Currently only the Teams adapter emits them, for personal, group chat, and team
+installs.
 
 ```typescript
 bot.onInstalled(async (event) => {
   if (event.adapter.name !== "teams" || event.action !== "add") return;
-  // Persist installation metadata or start your onboarding flow.
-  await recordInstallation(event.tenantId, event.conversationId);
+  // Persist the destination or start your onboarding flow.
+  await recordInstallation(event.tenantId, event.conversationId, event.channelId);
 });
 
 bot.onUninstalled(async (event) => {
@@ -544,17 +545,17 @@ bot.onUninstalled(async (event) => {
 });
 ```
 
-Events include `adapter`, activity `id`, original `action`, platform
-`conversationId`, optional actor `userId`, `tenantId`, `locale`, and `raw`.
-The optional `channelId` is a normalized Chat destination. The optional
-`conversationReference` is platform-specific serializable metadata; narrow it
-before use. Teams omits both destination fields if no service URL was supplied.
+Events include `adapter`, the activity `id`, the `action`, the platform
+`conversationId`, and the optional actor `userId`, `tenantId`, `locale`, and
+`raw`. The optional `channelId` is the normalized Chat destination; persist it
+and post later with `bot.channel(channelId).post()`.
 
-Teams upgrade actions (`add-upgrade` and `remove-upgrade`) reach the corresponding
-handler; check `action` before sending welcomes or deleting durable records.
-A team install can also emit `onMemberJoinedChannel`, so keep each welcome flow
-in one handler. Make side effects idempotent for webhook retries. Handler errors
-are logged, and asynchronous work is registered with the webhook's `waitUntil`.
+`action` is `add`, `add-upgrade`, `remove`, or `remove-upgrade`. Upgrades reach
+the same handler as installs and removals, so check `action` before sending a
+welcome or deleting durable records. A Teams team or group chat install also
+emits `onMemberJoinedChannel`, so keep each welcome flow in one handler. Make
+side effects idempotent for webhook retries. Handler errors are logged, and
+asynchronous work is registered with the webhook's `waitUntil`.
 
 See [Teams installation lifecycle](/adapters/official/teams#installation-lifecycle)
-for reference persistence, reinstall cleanup, and proactive messages.
+for persistence, reinstall cleanup, and proactive messages.

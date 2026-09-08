@@ -517,6 +517,61 @@ bot.onAppHomeOpened(async (event) => {
   }}
 />
 
+### onInstalled
+
+Fires when the bot is installed or an installation is upgraded. Currently emitted only by the Teams adapter, for personal, group chat, and team installs.
+
+```typescript
+bot.onInstalled(async (event) => {
+  if (event.action !== "add" || !event.channelId) return;
+  await bot.channel(event.channelId).post("Thanks for installing!");
+});
+```
+
+<TypeTable
+  type={{
+    'event.action': {
+      description: 'Install action: "add" or "add-upgrade".',
+      type: '"add" | "add-upgrade"',
+    },
+    'event.channelId': {
+      description: 'Normalized destination for the installation, safe to persist for later proactive posts.',
+      type: 'string | undefined',
+    },
+    'event.conversationId': {
+      description: 'Platform conversation ID of the installation location.',
+      type: 'string',
+    },
+    'event.id': {
+      description: 'Platform activity ID, useful for idempotency.',
+      type: 'string',
+    },
+    'event.userId': {
+      description: 'The user who installed the bot.',
+      type: 'string | undefined',
+    },
+    'event.tenantId': {
+      description: 'Tenant the installation belongs to.',
+      type: 'string | undefined',
+    },
+    'event.adapter': {
+      description: 'The platform adapter.',
+      type: 'Adapter',
+    },
+  }}
+/>
+
+### onUninstalled
+
+Fires when the bot is removed or a removal is part of an upgrade. Same event shape as `onInstalled`, with `action` set to `"remove"` or `"remove-upgrade"`. Check `action` before deleting durable records, and do not post to the conversation after removal.
+
+```typescript
+bot.onUninstalled(async (event) => {
+  if (event.action !== "remove") return;
+  await removeInstallation(event.tenantId, event.conversationId);
+});
+```
+
 ## Utility methods
 
 ### abortTurn

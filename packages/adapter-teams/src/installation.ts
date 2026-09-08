@@ -1,32 +1,22 @@
-import type { Account, ConversationReference } from "@microsoft/teams.api";
-import type { TeamsConversationReference } from "./types";
+import type { InstallationAction } from "chat";
 
-function copyAccount(account: Account): TeamsConversationReference["bot"] {
-  return {
-    id: account.id,
-    aadObjectId: account.aadObjectId,
-    name: account.name,
-    role: account.role,
-  };
+// The Teams SDK types only `add` and `remove`; Microsoft also documents the
+// upgrade variants, so validate the wire value instead of trusting the union.
+const INSTALLATION_ACTIONS: readonly InstallationAction[] = [
+  "add",
+  "add-upgrade",
+  "remove",
+  "remove-upgrade",
+];
+
+export function parseInstallationAction(
+  value: unknown
+): InstallationAction | undefined {
+  return INSTALLATION_ACTIONS.find((action) => action === value);
 }
 
-/** Copy only destination metadata, never arbitrary properties or live SDK context. */
-export function copyInstallationReference(
-  ref: ConversationReference
-): TeamsConversationReference {
-  return {
-    activityId: ref.activityId,
-    bot: copyAccount(ref.bot),
-    channelId: String(ref.channelId),
-    conversation: {
-      id: ref.conversation.id,
-      conversationType: String(ref.conversation.conversationType ?? ""),
-      isGroup: ref.conversation.isGroup,
-      name: ref.conversation.name,
-      tenantId: ref.conversation.tenantId,
-    },
-    locale: ref.locale,
-    serviceUrl: ref.serviceUrl,
-    user: ref.user ? copyAccount(ref.user) : undefined,
-  };
+export function isInstallAction(
+  action: InstallationAction
+): action is "add" | "add-upgrade" {
+  return action === "add" || action === "add-upgrade";
 }

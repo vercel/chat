@@ -1155,7 +1155,7 @@ describe("TeamsAdapter", () => {
   // ==========================================================================
 
   describe("postMessage", () => {
-    it("should call app.send and return message ID", async () => {
+    it("should call app.sendTo and return message ID", async () => {
       const adapter = createTeamsAdapter({
         appId: "test-app-id",
         appPassword: "test",
@@ -1164,9 +1164,9 @@ describe("TeamsAdapter", () => {
 
       // Mock app.send
       const mockApp = (
-        adapter as unknown as { app: { send: ReturnType<typeof vi.fn> } }
+        adapter as unknown as { app: { sendTo: ReturnType<typeof vi.fn> } }
       ).app;
-      mockApp.send = vi.fn(async () => ({
+      mockApp.sendTo = vi.fn(async () => ({
         id: "sent-msg-123",
         type: "message",
       }));
@@ -1182,7 +1182,7 @@ describe("TeamsAdapter", () => {
 
       expect(result.id).toBe("sent-msg-123");
       expect(result.threadId).toBe(threadId);
-      expect(mockApp.send).toHaveBeenCalledTimes(1);
+      expect(mockApp.sendTo).toHaveBeenCalledTimes(1);
     });
 
     it("should handle send failure by calling handleTeamsError", async () => {
@@ -1193,9 +1193,9 @@ describe("TeamsAdapter", () => {
       });
 
       const mockApp = (
-        adapter as unknown as { app: { send: ReturnType<typeof vi.fn> } }
+        adapter as unknown as { app: { sendTo: ReturnType<typeof vi.fn> } }
       ).app;
-      mockApp.send = vi.fn(async () => {
+      mockApp.sendTo = vi.fn(async () => {
         throw new MockTeamsError({ statusCode: 401, message: "Unauthorized" });
       });
 
@@ -1219,9 +1219,9 @@ describe("TeamsAdapter", () => {
       });
 
       const mockApp = (
-        adapter as unknown as { app: { send: ReturnType<typeof vi.fn> } }
+        adapter as unknown as { app: { sendTo: ReturnType<typeof vi.fn> } }
       ).app;
-      mockApp.send = vi.fn(async () => ({
+      mockApp.sendTo = vi.fn(async () => ({
         id: "targeted-msg-123",
         type: "message",
       }));
@@ -1238,8 +1238,8 @@ describe("TeamsAdapter", () => {
       expect(result.id).toBe("targeted-msg-123");
       expect(result.threadId).toBe(threadId);
       expect(result.usedFallback).toBe(false);
-      expect(mockApp.send).toHaveBeenCalledWith(
-        "19:abc@thread.tacv2",
+      expect(mockApp.sendTo).toHaveBeenCalledWith(
+        expect.objectContaining({ conversationId: "19:abc@thread.tacv2" }),
         expect.objectContaining({
           recipient: expect.objectContaining({
             id: "29:target-user",
@@ -1259,9 +1259,9 @@ describe("TeamsAdapter", () => {
       });
 
       const mockApp = (
-        adapter as unknown as { app: { send: ReturnType<typeof vi.fn> } }
+        adapter as unknown as { app: { sendTo: ReturnType<typeof vi.fn> } }
       ).app;
-      mockApp.send = vi.fn(async () => ({
+      mockApp.sendTo = vi.fn(async () => ({
         id: "targeted-card-123",
         type: "message",
       }));
@@ -1281,8 +1281,8 @@ describe("TeamsAdapter", () => {
 
       expect(result.id).toBe("targeted-card-123");
       expect(result.usedFallback).toBe(false);
-      expect(mockApp.send).toHaveBeenCalledWith(
-        "19:abc@thread.tacv2",
+      expect(mockApp.sendTo).toHaveBeenCalledWith(
+        expect.objectContaining({ conversationId: "19:abc@thread.tacv2" }),
         expect.objectContaining({
           attachments: expect.arrayContaining([
             expect.objectContaining({
@@ -1305,9 +1305,9 @@ describe("TeamsAdapter", () => {
       });
 
       const mockApp = (
-        adapter as unknown as { app: { send: ReturnType<typeof vi.fn> } }
+        adapter as unknown as { app: { sendTo: ReturnType<typeof vi.fn> } }
       ).app;
-      mockApp.send = vi.fn(async () => {
+      mockApp.sendTo = vi.fn(async () => {
         throw new MockTeamsError({ statusCode: 401, message: "Unauthorized" });
       });
 
@@ -1329,9 +1329,9 @@ describe("TeamsAdapter", () => {
       });
 
       const mockApp = (
-        adapter as unknown as { app: { send: ReturnType<typeof vi.fn> } }
+        adapter as unknown as { app: { sendTo: ReturnType<typeof vi.fn> } }
       ).app;
-      mockApp.send = vi.fn(async () => ({
+      mockApp.sendTo = vi.fn(async () => ({
         id: "personal-msg-123",
         type: "message",
       }));
@@ -1348,7 +1348,7 @@ describe("TeamsAdapter", () => {
       expect(result.id).toBe("personal-msg-123");
       expect(result.usedFallback).toBe(true);
 
-      const sentActivity = mockApp.send.mock.calls[0]?.[1] as {
+      const sentActivity = mockApp.sendTo.mock.calls[0]?.[1] as {
         recipient?: { isTargeted?: boolean };
       };
       expect(sentActivity.recipient?.isTargeted).not.toBe(true);
@@ -1511,7 +1511,7 @@ describe("TeamsAdapter", () => {
   // ==========================================================================
 
   describe("startTyping", () => {
-    it("should send typing activity via app.send", async () => {
+    it("should send typing activity via app.sendTo", async () => {
       const adapter = createTeamsAdapter({
         appId: "test-app-id",
         appPassword: "test",
@@ -1519,9 +1519,9 @@ describe("TeamsAdapter", () => {
       });
 
       const mockApp = (
-        adapter as unknown as { app: { send: ReturnType<typeof vi.fn> } }
+        adapter as unknown as { app: { sendTo: ReturnType<typeof vi.fn> } }
       ).app;
-      mockApp.send = vi.fn(async () => ({ id: "typing-1", type: "typing" }));
+      mockApp.sendTo = vi.fn(async () => ({ id: "typing-1", type: "typing" }));
 
       const threadId = adapter.encodeThreadId({
         conversationId: "19:abc@thread.tacv2",
@@ -1530,7 +1530,7 @@ describe("TeamsAdapter", () => {
 
       await adapter.startTyping(threadId);
 
-      expect(mockApp.send).toHaveBeenCalledTimes(1);
+      expect(mockApp.sendTo).toHaveBeenCalledTimes(1);
     });
   });
 

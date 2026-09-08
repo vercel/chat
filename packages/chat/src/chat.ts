@@ -46,6 +46,7 @@ import type {
   FormattedContent,
   HistoryApi,
   IdentityResolver,
+  InstallationEvent,
   InstalledEvent,
   InstalledHandler,
   LinkPreview,
@@ -1496,28 +1497,38 @@ export class Chat<
   }
 
   processInstalled(event: InstalledEvent, options?: WebhookOptions): void {
-    const task = runInConversation(event.channelId, async () => {
-      for (const handler of this.installedHandlers) {
-        await handler(event);
-      }
-    }).catch((error) => {
-      this.logger.error("Installed handler error", {
-        error,
-        conversationId: event.conversationId,
-        activityId: event.id,
-      });
-    });
-
-    options?.waitUntil?.(task);
+    this.runInstallationHandlers(
+      "Installed",
+      this.installedHandlers,
+      event,
+      options
+    );
   }
 
   processUninstalled(event: UninstalledEvent, options?: WebhookOptions): void {
+    this.runInstallationHandlers(
+      "Uninstalled",
+      this.uninstalledHandlers,
+      event,
+      options
+    );
+  }
+
+  private runInstallationHandlers<TEvent extends InstallationEvent>(
+    kind: "Installed" | "Uninstalled",
+    handlers: readonly ((event: TEvent) => void | Promise<void>)[],
+    event: TEvent,
+    options: WebhookOptions | undefined
+  ): void {
+    if (handlers.length === 0) {
+      return;
+    }
     const task = runInConversation(event.channelId, async () => {
-      for (const handler of this.uninstalledHandlers) {
+      for (const handler of handlers) {
         await handler(event);
       }
     }).catch((error) => {
-      this.logger.error("Uninstalled handler error", {
+      this.logger.error(`${kind} handler error`, {
         error,
         conversationId: event.conversationId,
         activityId: event.id,

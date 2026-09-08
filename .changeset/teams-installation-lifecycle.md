@@ -4,4 +4,4 @@
 "@chat-adapter/tests": minor
 ---
 
-Add onInstalled and onUninstalled handlers for Teams installation lifecycle events, including upgrade actions and serializable conversation references for proactive messaging. Update the Teams SDK to support typed team membership routes and extend dispatch test helpers.
+Add `onInstalled` and `onUninstalled` handlers for installation lifecycle events. The Teams adapter emits them for `installationUpdate` activities, including the `add-upgrade` and `remove-upgrade` actions, with a persistable `channelId` for later proactive messages.

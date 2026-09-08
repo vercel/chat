@@ -232,18 +232,18 @@ This dispatches bot joins only. Personal installs, ordinary member additions, re
 
 ## Installation lifecycle
 
-Use `bot.onInstalled` for personal, group, and team installation updates, and
-`bot.onUninstalled` for removal cleanup. The original `action` distinguishes
-`add`/`remove` from upgrade variants. These events are separate from bot joins;
-keep each welcome flow in one handler and make side effects idempotent.
+Use `bot.onInstalled` for personal, group chat, and team installation updates,
+and `bot.onUninstalled` for removal cleanup. `action` distinguishes `add` and
+`remove` from the `add-upgrade` and `remove-upgrade` variants. A team or group
+chat install also emits `onMemberJoinedChannel`; keep each welcome flow in one
+handler and make side effects idempotent.
 
-Events include the platform `conversationId`, optional tenant/actor metadata,
-and a plain `TeamsConversationReference` when a service URL is available. Save
-that reference in your own durable store. Send later with `postTeamsMessage`
-from `@chat-adapter/teams/api`, using the saved `conversation.id` and `serviceUrl`
-and separately supplied credentials. Do not use the installation activity ID as
-a reply target. Removal events without a service URL still reach your cleanup
-handler. Pass webhook `waitUntil` to track asynchronous work.
+Events include the platform `conversationId`, optional tenant and actor
+metadata, and a `channelId` that encodes the conversation's service URL. Persist
+`channelId` in your own durable store and post to it later from any process with
+`bot.channel(channelId).post()`. Removal events still reach your cleanup handler
+when the activity carries no service URL. Pass webhook `waitUntil` to track
+asynchronous work.
 
 See the [installation lifecycle guide](https://chat-sdk.dev/adapters/official/teams#installation-lifecycle)
 for upgrade filtering, persistence, and proactive examples.

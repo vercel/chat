@@ -1,24 +1,27 @@
-import type { Adapter, InstallationEvent } from "chat";
+import type { Adapter } from "chat";
 import { describe, expect, it } from "vitest";
 import { createMockChatInstance } from "./factories";
 import { toHaveDispatched } from "./matchers";
 
 expect.extend({ toHaveDispatched });
 
-describe.each([
-  "processInstalled",
-  "processUninstalled",
-] as const)("%s", (name) => {
-  it("is included in dispatch matchers", () => {
+const base = {
+  adapter: {} as Adapter,
+  conversationId: "conversation",
+  id: "activity",
+  raw: {},
+};
+
+describe("installation dispatch matchers", () => {
+  it("includes processInstalled", () => {
     const chat = createMockChatInstance();
-    const event: InstallationEvent = {
-      adapter: {} as Adapter,
-      action: "add",
-      conversationId: "conversation",
-      id: "activity",
-      raw: {},
-    };
-    chat[name]?.(event);
-    expect(chat).toHaveDispatched(name);
+    chat.processInstalled?.({ ...base, action: "add" });
+    expect(chat).toHaveDispatched("processInstalled");
+  });
+
+  it("includes processUninstalled", () => {
+    const chat = createMockChatInstance();
+    chat.processUninstalled?.({ ...base, action: "remove" });
+    expect(chat).toHaveDispatched("processUninstalled");
   });
 });
