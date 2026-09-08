@@ -63,6 +63,7 @@ const state = createPostgresState({ client });
 |--------|----------|-------------|
 | `url` | No* | Postgres connection URL |
 | `client` | No | Existing `pg.Pool` instance |
+| `autoCreateSchema` | No | Create tables and indexes on connect (default: `true`); set to `false` for migrations |
 | `keyPrefix` | No | Prefix for all state rows (default: `"chat-sdk"`) |
 | `logger` | No | Logger instance (defaults to `ConsoleLogger("info").child("postgres")`) |
 
@@ -76,7 +77,7 @@ POSTGRES_URL=postgres://postgres:postgres@localhost:5432/chat
 
 ## Data model
 
-The adapter creates these tables automatically on `connect()`:
+By default, the adapter creates these tables and their indexes on `connect()`:
 
 ```sql
 chat_state_subscriptions
@@ -87,6 +88,102 @@ chat_state_queues
 ```
 
 All rows are namespaced by `key_prefix`.
+
+### Migration-owned schema
+
+Set `autoCreateSchema: false` when your migrations provision the tables and indexes. The default is `true`.
+
+```typescript
+// Explicit URL, or omit url to use POSTGRES_URL / DATABASE_URL.
+const state = createPostgresState({
+  url: process.env.POSTGRES_URL,
+  autoCreateSchema: false,
+});
+```
+
+An existing pool supports the same option. Use its PostgreSQL `search_path` to select a schema; the adapter does not have a `schemaName` option.
+
+```typescript
+import pg from "pg";
+import { createPostgresState } from "@chat-adapter/state-pg";
+
+const client = new pg.Pool({
+  connectionString: process.env.POSTGRES_URL,
+  options: "-c search_path=chat_state",
+});
+const state = createPostgresState({ client, autoCreateSchema: false });
+```
+
+Run this migration as the schema owner before starting the bot, using the same `search_path` as the runtime connection. Create your chosen schema first if needed. This is the complete adapter schema; `bigserial` also creates the list and queue sequences.
+
+```sql
+CREATE TABLE IF NOT EXISTS chat_state_subscriptions (
+  key_prefix text NOT NULL,
+  thread_id text NOT NULL,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  PRIMARY KEY (key_prefix, thread_id)
+);
+
+CREATE TABLE IF NOT EXISTS chat_state_locks (
+  key_prefix text NOT NULL,
+  thread_id text NOT NULL,
+  token text NOT NULL,
+  expires_at timestamptz NOT NULL,
+  updated_at timestamptz NOT NULL DEFAULT now(),
+  PRIMARY KEY (key_prefix, thread_id)
+);
+
+CREATE TABLE IF NOT EXISTS chat_state_cache (
+  key_prefix text NOT NULL,
+  cache_key text NOT NULL,
+  value text NOT NULL,
+  expires_at timestamptz,
+  updated_at timestamptz NOT NULL DEFAULT now(),
+  PRIMARY KEY (key_prefix, cache_key)
+);
+
+CREATE INDEX IF NOT EXISTS chat_state_locks_expires_idx
+  ON chat_state_locks (expires_at);
+
+CREATE INDEX IF NOT EXISTS chat_state_cache_expires_idx
+  ON chat_state_cache (expires_at);
+
+CREATE TABLE IF NOT EXISTS chat_state_lists (
+  key_prefix text NOT NULL,
+  list_key text NOT NULL,
+  seq bigserial NOT NULL,
+  value text NOT NULL,
+  expires_at timestamptz,
+  PRIMARY KEY (key_prefix, list_key, seq)
+);
+
+CREATE INDEX IF NOT EXISTS chat_state_lists_expires_idx
+  ON chat_state_lists (expires_at);
+
+CREATE TABLE IF NOT EXISTS chat_state_queues (
+  key_prefix text NOT NULL,
+  thread_id text NOT NULL,
+  seq bigserial NOT NULL,
+  value text NOT NULL,
+  expires_at timestamptz NOT NULL,
+  PRIMARY KEY (key_prefix, thread_id, seq)
+);
+
+CREATE INDEX IF NOT EXISTS chat_state_queues_expires_idx
+  ON chat_state_queues (expires_at);
+```
+
+Grant the runtime role access to the schema, all five tables, and both sequences. For example, after creating the objects in a dedicated `chat_state` schema with a separate owner:
+
+```sql
+GRANT USAGE ON SCHEMA chat_state TO chat_runtime;
+GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA chat_state TO chat_runtime;
+GRANT USAGE ON ALL SEQUENCES IN SCHEMA chat_state TO chat_runtime;
+```
+
+The runtime role also needs database `CONNECT` permission. It does not need schema `CREATE` permission or table ownership. Adjust the schema and role names to your deployment; these grants apply to existing objects only.
+
+With this option disabled, `connect()` still checks database connectivity with `SELECT 1`, but does not validate the schema or issue any DDL. Missing tables or grants fail on the first operation that needs them. Your application owns migrations for future adapter schema changes too. An externally supplied pool remains open after `disconnect()`.
 
 ## Features
 

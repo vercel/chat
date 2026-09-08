@@ -3,6 +3,8 @@ import { ConsoleLogger } from "chat";
 import pg from "pg";
 
 export interface PostgresStateAdapterUrlOptions {
+  /** Create tables and indexes on connect (default: true). Disable for migration-owned schemas. */
+  autoCreateSchema?: boolean;
   client?: never;
   /** Key prefix for all rows (default: "chat-sdk") */
   keyPrefix?: string;
@@ -13,6 +15,8 @@ export interface PostgresStateAdapterUrlOptions {
 }
 
 export interface PostgresStateAdapterClientOptions {
+  /** Create tables and indexes on connect (default: true). Disable for migration-owned schemas. */
+  autoCreateSchema?: boolean;
   /** Existing pg.Pool instance */
   client: pg.Pool;
   /** Key prefix for all rows (default: "chat-sdk") */
@@ -38,6 +42,7 @@ export type PostgresStateClientOptions = PostgresStateAdapterClientOptions;
 export type CreatePostgresStateOptions = PostgresStateAdapterOptions;
 
 export class PostgresStateAdapter implements StateAdapter {
+  private readonly autoCreateSchema: boolean;
   private readonly pool: pg.Pool;
   private readonly keyPrefix: string;
   private readonly logger: Logger;
@@ -60,6 +65,7 @@ export class PostgresStateAdapter implements StateAdapter {
       this.ownsClient = true;
     }
 
+    this.autoCreateSchema = options.autoCreateSchema ?? true;
     this.keyPrefix = options.keyPrefix || "chat-sdk";
     this.logger = options.logger ?? new ConsoleLogger("info").child("postgres");
   }
@@ -73,7 +79,9 @@ export class PostgresStateAdapter implements StateAdapter {
       this.connectPromise = (async () => {
         try {
           await this.pool.query("SELECT 1");
-          await this.ensureSchema();
+          if (this.autoCreateSchema) {
+            await this.ensureSchema();
+          }
           this.connected = true;
         } catch (error) {
           this.connectPromise = null;
@@ -544,6 +552,7 @@ export function createPostgresState(
   }
 
   return new PostgresStateAdapter({
+    autoCreateSchema: options.autoCreateSchema,
     url,
     keyPrefix: options.keyPrefix,
     logger: options.logger,

@@ -121,6 +121,124 @@ describe("PostgresStateAdapter", () => {
     });
   });
 
+  describe("schema initialization", () => {
+    afterEach(() => {
+      vi.unstubAllEnvs();
+      mockQuery.mockReset().mockResolvedValue({ rows: [] });
+      mockEnd.mockClear();
+    });
+
+    it.each([
+      undefined,
+      true,
+    ])("creates every table and index when autoCreateSchema is %s", async (autoCreateSchema) => {
+      const client = createMockPool();
+      const adapter = new PostgresStateAdapter({ client, autoCreateSchema });
+      await adapter.connect();
+      expect(client.query).toHaveBeenCalledTimes(10);
+      expect(vi.mocked(client.query).mock.calls.map(([sql]) => sql)).toEqual([
+        "SELECT 1",
+        expect.stringContaining(
+          "CREATE TABLE IF NOT EXISTS chat_state_subscriptions"
+        ),
+        expect.stringContaining("CREATE TABLE IF NOT EXISTS chat_state_locks"),
+        expect.stringContaining("CREATE TABLE IF NOT EXISTS chat_state_cache"),
+        expect.stringContaining(
+          "CREATE INDEX IF NOT EXISTS chat_state_locks_expires_idx"
+        ),
+        expect.stringContaining(
+          "CREATE INDEX IF NOT EXISTS chat_state_cache_expires_idx"
+        ),
+        expect.stringContaining("CREATE TABLE IF NOT EXISTS chat_state_lists"),
+        expect.stringContaining(
+          "CREATE INDEX IF NOT EXISTS chat_state_lists_expires_idx"
+        ),
+        expect.stringContaining("CREATE TABLE IF NOT EXISTS chat_state_queues"),
+        expect.stringContaining(
+          "CREATE INDEX IF NOT EXISTS chat_state_queues_expires_idx"
+        ),
+      ]);
+    });
+
+    it.each([
+      "constructor",
+      "factory",
+    ])("skips all DDL for an external pool via %s", async (method) => {
+      const client = createMockPool();
+      const options = { client, autoCreateSchema: false };
+      const adapter =
+        method === "constructor"
+          ? new PostgresStateAdapter(options)
+          : createPostgresState(options);
+      await Promise.all([
+        adapter.connect(),
+        adapter.connect(),
+        adapter.connect(),
+      ]);
+      await adapter.connect();
+      expect(client.query).toHaveBeenCalledExactlyOnceWith("SELECT 1");
+      await adapter.disconnect();
+      expect(client.end).not.toHaveBeenCalled();
+      await adapter.connect();
+      expect(client.query).toHaveBeenCalledTimes(2);
+    });
+
+    it.each([
+      "constructor",
+      "factory",
+      "POSTGRES_URL",
+      "DATABASE_URL",
+    ])("forwards opt-out for a URL from %s and closes the owned pool", async (source) => {
+      mockQuery.mockClear();
+      const url = "postgres://localhost:5432/test";
+      vi.stubEnv("POSTGRES_URL", source === "POSTGRES_URL" ? url : "");
+      vi.stubEnv("DATABASE_URL", source === "DATABASE_URL" ? url : "");
+      const adapter =
+        source === "constructor"
+          ? new PostgresStateAdapter({ url, autoCreateSchema: false })
+          : createPostgresState({
+              ...(source === "factory" ? { url } : {}),
+              autoCreateSchema: false,
+            });
+      await Promise.all([adapter.connect(), adapter.connect()]);
+      await adapter.connect();
+      expect(mockQuery).toHaveBeenCalledExactlyOnceWith("SELECT 1");
+      await adapter.disconnect();
+      expect(mockEnd).toHaveBeenCalledTimes(1);
+    });
+
+    it("retries a failed connectivity check without DDL", async () => {
+      const client = createMockPool();
+      const error = new Error("connection refused");
+      vi.mocked(client.query).mockRejectedValueOnce(error);
+      const adapter = createPostgresState({
+        client,
+        autoCreateSchema: false,
+        logger: mockLogger,
+      });
+      const results = await Promise.allSettled([
+        adapter.connect(),
+        adapter.connect(),
+      ]);
+      expect(results).toEqual([
+        { status: "rejected", reason: error },
+        { status: "rejected", reason: error },
+      ]);
+      expect(client.query).toHaveBeenCalledExactlyOnceWith("SELECT 1");
+      expect(mockLogger.error).toHaveBeenCalledWith("Postgres connect failed", {
+        error,
+      });
+      await expect(adapter.get("key")).rejects.toThrow("not connected");
+      await adapter.connect();
+      expect(client.query).toHaveBeenCalledTimes(2);
+      expect(vi.mocked(client.query).mock.calls).toEqual([
+        ["SELECT 1"],
+        ["SELECT 1"],
+      ]);
+      await expect(adapter.subscribe("thread")).resolves.toBeUndefined();
+    });
+  });
+
   describe("ensureConnected", () => {
     it("should throw when calling subscribe before connect", async () => {
       const adapter = new PostgresStateAdapter({
@@ -673,19 +791,6 @@ describe("PostgresStateAdapter", () => {
         const client = adapter.getClient();
         expect(client).toBeDefined();
       });
-    });
-  });
-
-  describe.skip("integration tests (require Postgres)", () => {
-    it("should connect to Postgres", async () => {
-      const adapter = createPostgresState({
-        url:
-          process.env.POSTGRES_URL ||
-          "postgres://postgres:postgres@localhost:5432/chat",
-        logger: mockLogger,
-      });
-      await adapter.connect();
-      await adapter.disconnect();
     });
   });
 });
