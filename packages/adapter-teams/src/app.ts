@@ -10,11 +10,13 @@ import {
 import { App } from "@microsoft/teams.apps";
 import type { TeamsThreadId } from "./types";
 
-const TRAILING_SLASHES = /\/+$/;
-
 /** Bot Framework service URLs are compared and sent without a trailing slash. */
 export function normalizeServiceUrl(serviceUrl: string): string {
-  return serviceUrl.replace(TRAILING_SLASHES, "");
+  let end = serviceUrl.length;
+  while (end > 0 && serviceUrl[end - 1] === "/") {
+    end--;
+  }
+  return serviceUrl.slice(0, end);
 }
 
 /**
