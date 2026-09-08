@@ -94,12 +94,11 @@ The package's main exports (see `src/index.ts`):
 - `TeamsAdapter` class — implements `Adapter<TeamsThreadId, unknown>`.
   Public methods: `handleWebhook`, `postMessage`, `editMessage`,
   `deleteMessage`, `addReaction`, `removeReaction`, `startTyping`,
-  `openModal`, `pushModal`, `getInstallation`, `setInstallation`,
-  `deleteInstallation`, `fetchThread`, `listThreads`, `fetchMessages`,
+  `openModal`, `pushModal`, `fetchThread`, `listThreads`, `fetchMessages`,
   `fetchSingleMessage`, `fetchChannelInfo`, `postChannelMessage`,
   `openDM`.
 - Configuration types: `TeamsAdapterConfig`, `TeamsThreadId`,
-  `TeamsInstallation`, `TeamsAppType`.
+  `TeamsConversationReference`.
 - Helpers re-exported from sub-modules:
   `cardToAdaptiveCard`, `cardToFallbackText`, `TeamsFormatConverter`,
   `decodeThreadId`, `encodeThreadId`, `isDM`.
@@ -180,10 +179,11 @@ Teams uses Bot Framework + Microsoft Entra ID. Three modes:
   needed.
 
 Channel-and-DM tokens are issued by Microsoft on the inbound JWT and
-re-used for outgoing requests. Multi-tenant deployments still need to
-persist the install metadata in the configured state adapter so the
-bot can later post out-of-band — `getInstallation` / `setInstallation`
-accept any storage shape that survives `JSON.stringify`.
+re-used for outgoing requests. Applications can persist `onInstalled`
+conversation references in their own durable store for later proactive sends
+through `@chat-adapter/teams/api`.
+Use `onUninstalled` for application-owned cleanup; there are no adapter
+installation CRUD methods.
 
 ## Microsoft Graph
 

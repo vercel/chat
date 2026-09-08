@@ -81,3 +81,30 @@ export interface TeamsDmContext {
  * Group chats are not included — their conversation ID works as-is with Graph.
  */
 export type TeamsGraphContext = TeamsChannelContext | TeamsDmContext;
+
+/** Plain installation destination that can be persisted with JSON.stringify. */
+export interface TeamsConversationReference {
+  activityId?: string;
+  bot: {
+    aadObjectId?: string;
+    id: string;
+    name?: string;
+    role?: string;
+  };
+  channelId: string;
+  conversation: {
+    conversationType?: string;
+    id: string;
+    isGroup?: boolean;
+    name?: string;
+    tenantId?: string;
+  };
+  locale?: string;
+  serviceUrl: string;
+  user?: {
+    aadObjectId?: string;
+    id: string;
+    name?: string;
+    role?: string;
+  };
+}

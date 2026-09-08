@@ -230,6 +230,24 @@ For team installations, `channelId` identifies the channel selected during insta
 
 This dispatches bot joins only. Personal installs, ordinary member additions, removals, and `installationUpdate` activities do not emit this event. See Microsoft's [conversation event documentation](https://learn.microsoft.com/en-us/microsoftteams/platform/bots/how-to/conversations/subscribe-to-conversation-events#members-added) for the underlying payloads.
 
+## Installation lifecycle
+
+Use `bot.onInstalled` for personal, group, and team installation updates, and
+`bot.onUninstalled` for removal cleanup. The original `action` distinguishes
+`add`/`remove` from upgrade variants. These events are separate from bot joins;
+keep each welcome flow in one handler and make side effects idempotent.
+
+Events include the platform `conversationId`, optional tenant/actor metadata,
+and a plain `TeamsConversationReference` when a service URL is available. Save
+that reference in your own durable store. Send later with `postTeamsMessage`
+from `@chat-adapter/teams/api`, using the saved `conversation.id` and `serviceUrl`
+and separately supplied credentials. Do not use the installation activity ID as
+a reply target. Removal events without a service URL still reach your cleanup
+handler. Pass webhook `waitUntil` to track asynchronous work.
+
+See the [installation lifecycle guide](https://chat-sdk.dev/adapters/official/teams#installation-lifecycle)
+for upgrade filtering, persistence, and proactive examples.
+
 ## Incoming attachments
 
 Incoming inline images and files are exposed through `message.attachments` with a lazy `fetchData()` method. The adapter authenticates connector-hosted inline attachments through the configured Teams bot client, while [Teams file download cards](https://learn.microsoft.com/en-us/microsoftteams/platform/bots/how-to/bots-filesv4) use their direct download URL without the bot token.

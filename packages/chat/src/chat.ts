@@ -46,6 +46,8 @@ import type {
   FormattedContent,
   HistoryApi,
   IdentityResolver,
+  InstalledEvent,
+  InstalledHandler,
   LinkPreview,
   Lock,
   LockScope,
@@ -76,6 +78,8 @@ import type {
   SubscribedMessageHandler,
   Thread,
   TranscriptsApi,
+  UninstalledEvent,
+  UninstalledHandler,
   UserInfo,
   WebhookOptions,
 } from "./types";
@@ -326,6 +330,8 @@ export class Chat<
     [];
   private readonly appHomeOpenedHandlers: AppHomeOpenedHandler[] = [];
   private readonly appContextChangedHandlers: AppContextChangedHandler[] = [];
+  private readonly installedHandlers: InstalledHandler[] = [];
+  private readonly uninstalledHandlers: UninstalledHandler[] = [];
   private readonly memberJoinedChannelHandlers: MemberJoinedChannelHandler[] =
     [];
   private readonly activeTurnControllers = new Map<
@@ -982,6 +988,16 @@ export class Chat<
     this.logger.debug("Registered app context changed handler");
   }
 
+  /** Handle bot installation and installation upgrades (currently Teams only). */
+  onInstalled(handler: InstalledHandler): void {
+    this.installedHandlers.push(handler);
+  }
+
+  /** Handle bot removal and removal upgrades (currently Teams only). */
+  onUninstalled(handler: UninstalledHandler): void {
+    this.uninstalledHandlers.push(handler);
+  }
+
   onMemberJoinedChannel(handler: MemberJoinedChannelHandler): void {
     this.memberJoinedChannelHandlers.push(handler);
     this.logger.debug("Registered member joined channel handler");
@@ -1477,6 +1493,38 @@ export class Chat<
     if (options?.waitUntil) {
       options.waitUntil(task);
     }
+  }
+
+  processInstalled(event: InstalledEvent, options?: WebhookOptions): void {
+    const task = runInConversation(event.channelId, async () => {
+      for (const handler of this.installedHandlers) {
+        await handler(event);
+      }
+    }).catch((error) => {
+      this.logger.error("Installed handler error", {
+        error,
+        conversationId: event.conversationId,
+        activityId: event.id,
+      });
+    });
+
+    options?.waitUntil?.(task);
+  }
+
+  processUninstalled(event: UninstalledEvent, options?: WebhookOptions): void {
+    const task = runInConversation(event.channelId, async () => {
+      for (const handler of this.uninstalledHandlers) {
+        await handler(event);
+      }
+    }).catch((error) => {
+      this.logger.error("Uninstalled handler error", {
+        error,
+        conversationId: event.conversationId,
+        activityId: event.id,
+      });
+    });
+
+    options?.waitUntil?.(task);
   }
 
   processMemberJoinedChannel(

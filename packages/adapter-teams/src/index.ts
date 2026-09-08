@@ -13,6 +13,7 @@ import type {
   IConversationUpdateActivity,
   IMessageActivity,
   IMessageReactionActivity,
+  InstallUpdateActivity,
   ITaskFetchInvokeActivity,
   ITaskSubmitInvokeActivity,
   MessageReactionType,
@@ -36,6 +37,7 @@ import type {
   FetchResult,
   FileUpload,
   FormattedContent,
+  InstallationEvent,
   ListThreadsOptions,
   ListThreadsResult,
   Logger,
@@ -65,6 +67,7 @@ import { AUTO_SUBMIT_ACTION_ID, cardToAdaptiveCard } from "./cards";
 import { toAppOptions } from "./config";
 import { handleTeamsError } from "./errors";
 import { TeamsGraphReader } from "./graph-api";
+import { copyInstallationReference } from "./installation";
 import { TeamsFormatConverter } from "./markdown";
 import {
   modalResponseToTaskModuleResponse,
@@ -210,7 +213,70 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
 
     this.app.on("installationUpdate", async (ctx) => {
       this.cacheUserContext(ctx.activity);
+      this.handleInstallationUpdate(ctx);
     });
+  }
+
+  protected handleInstallationUpdate(
+    ctx: IActivityContext<InstallUpdateActivity>
+  ): void {
+    const { activity } = ctx;
+    if (!this.chat) {
+      this.logger.warn(
+        "Chat instance not initialized, ignoring installationUpdate"
+      );
+      return;
+    }
+    if (
+      !(activity.recipient?.id && this.isBotAccountId(activity.recipient.id))
+    ) {
+      this.logger.debug(
+        "Ignoring installationUpdate: recipient is not this bot"
+      );
+      return;
+    }
+    const conversationId = activity.conversation?.id;
+    if (!conversationId) {
+      this.logger.debug("Ignoring installationUpdate: missing conversation id");
+      return;
+    }
+    // The SDK's action union omits documented upgrade variants. A string keeps
+    // the generic route forward compatible without casting upstream payloads.
+    const action: string = activity.action;
+    if (!["add", "add-upgrade", "remove", "remove-upgrade"].includes(action)) {
+      this.logger.debug("Ignoring installationUpdate: unknown action", {
+        action,
+      });
+      return;
+    }
+    const serviceUrl = activity.serviceUrl;
+    const event: InstallationEvent = {
+      adapter: this,
+      id: activity.id,
+      action,
+      conversationId,
+      channelId: serviceUrl
+        ? this.encodeThreadId({
+            conversationId,
+            serviceUrl,
+            conversationType: conversationTypeFromActivity(activity),
+          })
+        : undefined,
+      conversationReference: serviceUrl
+        ? copyInstallationReference(ctx.ref)
+        : undefined,
+      userId: activity.from?.id,
+      tenantId:
+        activity.conversation.tenantId ?? activity.channelData?.tenant?.id,
+      locale: activity.locale,
+      raw: activity,
+    };
+    const options = this.bridgeAdapter.getWebhookOptions(activity.id);
+    if (action === "add" || action === "add-upgrade") {
+      this.chat.processInstalled?.(event, options);
+    } else {
+      this.chat.processUninstalled?.(event, options);
+    }
   }
 
   protected handleConversationUpdate(
@@ -1880,5 +1946,6 @@ export type {
   TeamsAdapterConfig,
   TeamsAuthCertificate,
   TeamsAuthFederated,
+  TeamsConversationReference,
   TeamsThreadId,
 } from "./types";

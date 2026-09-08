@@ -753,6 +753,9 @@ export interface ChatInstance {
     options?: WebhookOptions
   ): void;
 
+  /** Optional for compatibility with custom ChatInstance implementations. */
+  processInstalled?(event: InstalledEvent, options?: WebhookOptions): void;
+
   processMemberJoinedChannel(
     event: MemberJoinedChannelEvent,
     options?: WebhookOptions
@@ -875,6 +878,9 @@ export interface ChatInstance {
     },
     options: WebhookOptions | undefined
   ): void;
+
+  /** Optional for compatibility with custom ChatInstance implementations. */
+  processUninstalled?(event: UninstalledEvent, options?: WebhookOptions): void;
 
   /**
    * Cross-platform per-user transcript store. Deprecated alias for
@@ -2750,6 +2756,33 @@ export interface AppContextChangedEvent {
 
 export type AppContextChangedHandler = (
   event: AppContextChangedEvent
+) => void | Promise<void>;
+
+/** Installation lifecycle metadata. Currently emitted by the Teams adapter. */
+export interface InstallationEvent {
+  /** Platform action, including upgrade variants such as `add-upgrade`. */
+  action: string;
+  adapter: Adapter;
+  /** Normalized Chat destination, absent when the activity has no service URL. */
+  channelId?: string;
+  /** Platform conversation ID identifying the installation location. */
+  conversationId: string;
+  /** Serializable platform reference. Narrow before using or persisting it. */
+  conversationReference?: unknown;
+  /** Platform activity ID, useful for application-level idempotency. */
+  id: string;
+  locale?: string;
+  raw: unknown;
+  tenantId?: string;
+  /** Actor who installed or removed the bot, distinct from the bot itself. */
+  userId?: string;
+}
+
+export type InstalledEvent = InstallationEvent;
+export type UninstalledEvent = InstallationEvent;
+export type InstalledHandler = (event: InstalledEvent) => void | Promise<void>;
+export type UninstalledHandler = (
+  event: UninstalledEvent
 ) => void | Promise<void>;
 
 export interface MemberJoinedChannelEvent {
