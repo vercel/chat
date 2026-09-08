@@ -5,8 +5,15 @@ import { Agent } from "node:https";
 import { connect, type Socket } from "node:net";
 import type { Duplex } from "node:stream";
 import { createMockChatInstance, mockLogger } from "@chat-adapter/tests";
+import { SocketModeClient } from "@slack/socket-mode";
 import { expect, it, vi } from "vitest";
 import { createSlackAdapter } from "./index";
+
+// Reconnects wait clientPingTimeout (5s) per attempt in the real client;
+// the delay is not what this test proves, so run the callback immediately.
+interface Reconnectable {
+  delayReconnectAttempt(this: unknown, cb: () => Promise<unknown>): unknown;
+}
 
 // Real installed Slack HTTP and WebSocket clients, with an agent that routes
 // only known test destinations to a loopback HTTP fixture. No external DNS or
@@ -104,6 +111,12 @@ it("routes Web API, OAuth, upload phases and both Socket Mode connections throug
     }
     return connect({ host: "127.0.0.1", port: address.port });
   });
+  vi.spyOn(
+    SocketModeClient.prototype as unknown as Reconnectable,
+    "delayReconnectAttempt"
+  ).mockImplementation(function (this: unknown, cb) {
+    return cb.apply(this);
+  });
   const webClientOptions = {
     agent,
     retryConfig: { retries: 0 },
@@ -150,9 +163,7 @@ it("routes Web API, OAuth, upload phases and both Socket Mode connections throug
     firstSocket?.write(
       Buffer.concat([Buffer.from([0x81, refresh.length]), refresh])
     );
-    await vi.waitFor(() => expect(websocketConnections).toBe(2), {
-      timeout: 8000,
-    });
+    await vi.waitFor(() => expect(websocketConnections).toBe(2));
     let listener: Promise<unknown> | undefined;
     await adapter.startSocketModeListener(
       {
@@ -200,4 +211,4 @@ it("routes Web API, OAuth, upload phases and both Socket Mode connections throug
     });
     vi.restoreAllMocks();
   }
-}, 15_000);
+});

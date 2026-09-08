@@ -12,7 +12,7 @@ import {
   toBuffer,
   ValidationError,
 } from "@chat-adapter/shared";
-import { SocketModeClient } from "@slack/socket-mode";
+import { SocketModeClient, type SocketModeOptions } from "@slack/socket-mode";
 import {
   type ChatAppendStreamArguments,
   type ChatStopStreamArguments,
@@ -81,6 +81,7 @@ import {
   encryptToken,
   isEncryptedTokenData,
 } from "./crypto";
+import type { SlackFetch } from "./fetch";
 import { isSlackAuthUrl } from "./file";
 import { escapeSlackText, unescapeSlackText } from "./format";
 import { SlackFormatConverter } from "./markdown";
@@ -428,6 +429,7 @@ function tableContinuation(text: string): string {
   return `${rows[separatorAt - 1]}\n${rows[separatorAt]}\n`;
 }
 
+export type { AttachmentTransport } from "@chat-adapter/shared";
 export type {
   SlackAdapterConfig,
   SlackAdapterMode,
@@ -1240,7 +1242,7 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
   protected readonly tokenClientCache = new Map<string, WebClient>();
   protected readonly slackApiUrl: string | undefined;
   protected readonly webClientOptions: SlackAdapterConfig["webClientOptions"];
-  protected readonly configuredFetch: SlackAdapterConfig["fetch"];
+  protected readonly fetch: SlackFetch;
   protected readonly configuredFileTransport: AttachmentTransport | undefined;
   protected readonly signingSecret: string | undefined;
   protected readonly webhookVerifier:
@@ -1431,7 +1433,9 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
 
     this.slackApiUrl = config.apiUrl ?? process.env.SLACK_API_URL;
     this.webClientOptions = config.webClientOptions;
-    this.configuredFetch = config.fetch;
+    // Resolve the global lazily so a fetch installed after construction (or
+    // a test stub) is still honored at request time.
+    this.fetch = config.fetch ?? ((...args) => globalThis.fetch(...args));
     this.configuredFileTransport = config.fileTransport;
     // WebClient token argument is only a fallback; every API call below routes
     // through withToken() which resolves the current provider per-call.
@@ -2842,11 +2846,37 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
   // Socket Mode
   // ===========================================================================
 
-  private socketTransportOptions() {
-    const agent = this.webClientOptions?.agent;
-    // SocketModeClient mutates clientOptions and supplies app-token headers.
-    // Forward only the agent in a fresh object to preserve its auth and retries.
-    return agent ? { clientOptions: { agent } } : {};
+  /**
+   * Transport-shaped WebClient options for Socket Mode. SocketModeClient
+   * Object.assigns clientOptions over its own app-token headers and mutates
+   * the object to install retry defaults, so headers and retryConfig are not
+   * forwarded and every call returns a fresh object.
+   */
+  private socketTransportOptions(): Pick<SocketModeOptions, "clientOptions"> {
+    const clientOptions: NonNullable<SocketModeOptions["clientOptions"]> = {};
+    if (this.webClientOptions?.agent) {
+      clientOptions.agent = this.webClientOptions.agent;
+    }
+    if (this.webClientOptions?.tls) {
+      clientOptions.tls = this.webClientOptions.tls;
+    }
+    if (this.slackApiUrl) {
+      clientOptions.slackApiUrl = this.slackApiUrl;
+    }
+    return Object.keys(clientOptions).length > 0 ? { clientOptions } : {};
+  }
+
+  /** POSTs a JSON body through the configured fetch. */
+  private postJson(
+    url: string,
+    body: unknown,
+    headers: Record<string, string> = {}
+  ): Promise<Response> {
+    return this.fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...headers },
+      body: JSON.stringify(body),
+    });
   }
 
   /**
@@ -3197,17 +3227,9 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
         webhookUrl,
       });
 
-      const response = await (this.configuredFetch ?? globalThis.fetch)(
-        webhookUrl,
-        {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            "x-slack-socket-token": this.socketForwardingSecret as string,
-          },
-          body: JSON.stringify(event),
-        }
-      );
+      const response = await this.postJson(webhookUrl, event, {
+        "x-slack-socket-token": this.socketForwardingSecret as string,
+      });
 
       if (response.ok) {
         this.logger.debug("Socket event forwarded successfully", {
@@ -7377,14 +7399,7 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
       action,
       threadTs: options?.threadTs,
     });
-    const response = await (this.configuredFetch ?? globalThis.fetch)(
-      responseUrl,
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
-      }
-    );
+    const response = await this.postJson(responseUrl, payload);
 
     if (!response.ok) {
       const errorText = await response.text();
