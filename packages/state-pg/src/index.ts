@@ -96,32 +96,45 @@ export const postgresSchemaStatements: readonly string[] = [
     ON chat_state_queues (expires_at)`,
 ];
 
-const stateTables = [
-  "chat_state_subscriptions",
-  "chat_state_locks",
-  "chat_state_cache",
-  "chat_state_lists",
-  "chat_state_queues",
-] as const;
+// Privileges each table actually needs. Subscriptions and queues are never
+// updated: subscribe() uses ON CONFLICT DO NOTHING, which needs INSERT only.
+const tablePrivileges: Readonly<Record<string, readonly string[]>> = {
+  chat_state_subscriptions: ["SELECT", "INSERT", "DELETE"],
+  chat_state_locks: ["SELECT", "INSERT", "UPDATE", "DELETE"],
+  chat_state_cache: ["SELECT", "INSERT", "UPDATE", "DELETE"],
+  chat_state_lists: ["SELECT", "INSERT", "UPDATE", "DELETE"],
+  chat_state_queues: ["SELECT", "INSERT", "DELETE"],
+};
 
 const sequenceTables = ["chat_state_lists", "chat_state_queues"] as const;
 
 // has_table_privilege() with a comma-separated list is true when ANY listed
 // privilege is held, so each privilege is checked on its own and ANDed.
-function tablePrivilegeCheck(table: string): string {
-  return ["SELECT", "INSERT", "UPDATE", "DELETE"]
+function tablePrivilegeCheck(table: string, privileges: readonly string[]) {
+  return privileges
     .map((privilege) => `has_table_privilege('${table}', '${privilege}')`)
     .join(" AND ");
 }
 
+// nextval() is allowed by either USAGE or UPDATE on the sequence, and identity
+// columns skip the sequence permission check entirely. pg_get_serial_sequence
+// returns NULL (skipped) when seq has no owned sequence.
+function sequencePrivilegeCheck(table: string) {
+  return (
+    `(SELECT attidentity <> '' FROM pg_catalog.pg_attribute WHERE attrelid = '${table}'::regclass AND attname = 'seq')` +
+    ` OR has_sequence_privilege(pg_get_serial_sequence('${table}', 'seq'), 'USAGE, UPDATE')`
+  );
+}
+
 // One round trip, no DDL rights needed. A missing table raises 42P01; a
-// missing grant yields false. pg_get_serial_sequence covers serial and
-// identity columns and returns NULL (skipped) when seq has no sequence.
+// missing grant yields false.
 const schemaProbe = `SELECT ${[
-  ...stateTables.map((table) => `${tablePrivilegeCheck(table)} AS ${table}`),
+  ...Object.entries(tablePrivileges).map(
+    ([table, privileges]) =>
+      `${tablePrivilegeCheck(table, privileges)} AS ${table}`
+  ),
   ...sequenceTables.map(
-    (table) =>
-      `has_sequence_privilege(pg_get_serial_sequence('${table}', 'seq'), 'USAGE') AS ${table}_seq`
+    (table) => `${sequencePrivilegeCheck(table)} AS ${table}_seq`
   ),
 ].join(",\n  ")}`;
 

@@ -204,6 +204,35 @@ describe("PostgresStateAdapter", () => {
       expect(client.query).toHaveBeenCalledTimes(4);
     });
 
+    it("probes only the privileges each table needs", async () => {
+      const client = createMockPool();
+      const adapter = new PostgresStateAdapter({
+        client,
+        autoCreateSchema: false,
+      });
+      await adapter.connect();
+      const probe = vi.mocked(client.query).mock.calls[1][0] as string;
+      for (const table of ["chat_state_subscriptions", "chat_state_queues"]) {
+        expect(probe).toContain(`has_table_privilege('${table}', 'DELETE')`);
+        expect(probe).not.toContain(
+          `has_table_privilege('${table}', 'UPDATE')`
+        );
+      }
+      for (const table of [
+        "chat_state_locks",
+        "chat_state_cache",
+        "chat_state_lists",
+      ]) {
+        expect(probe).toContain(`has_table_privilege('${table}', 'UPDATE')`);
+      }
+      for (const table of ["chat_state_lists", "chat_state_queues"]) {
+        expect(probe).toContain(
+          `has_sequence_privilege(pg_get_serial_sequence('${table}', 'seq'), 'USAGE, UPDATE')`
+        );
+        expect(probe).toContain(`attrelid = '${table}'::regclass`);
+      }
+    });
+
     it("rejects connect() when a migration-owned table is missing", async () => {
       const client = createMockPool();
       const error = Object.assign(

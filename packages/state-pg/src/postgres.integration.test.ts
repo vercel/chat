@@ -9,6 +9,9 @@ import { createPostgresState, postgresSchemaStatements } from "./index";
 // CREATE on the database. Superuser is not required.
 const testUrl = process.env.POSTGRES_TEST_URL;
 const ttlMs = 300_000;
+// Postgres reports whichever missing relation it resolves first.
+const missingRelation =
+  /^PostgreSQL state schema is not ready: relation "chat_state_[a-z]+" does not exist\. Run the adapter migration/;
 
 describe.skipIf(!testUrl)("PostgreSQL migration-owned schema", () => {
   const suffix = randomUUID().replaceAll("-", "");
@@ -18,7 +21,7 @@ describe.skipIf(!testUrl)("PostgreSQL migration-owned schema", () => {
   let admin: pg.Pool;
   let runtime: pg.Pool;
   let state: ReturnType<typeof createPostgresState>;
-  let schemaCreated = false;
+  const schemas: string[] = [];
   let roleCreated = false;
 
   function createRuntimePool(max = 1) {
@@ -41,7 +44,7 @@ describe.skipIf(!testUrl)("PostgreSQL migration-owned schema", () => {
     });
     // Identifiers are generated from a UUID, never user-supplied SQL.
     await admin.query(`CREATE SCHEMA ${schema}`);
-    schemaCreated = true;
+    schemas.push(schema);
     await admin.query(
       `CREATE ROLE ${role} NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT`
     );
@@ -54,12 +57,21 @@ describe.skipIf(!testUrl)("PostgreSQL migration-owned schema", () => {
     for (const statement of postgresSchemaStatements) {
       await admin.query(statement);
     }
+    // Least privilege rather than the README's blanket grants: no UPDATE on
+    // the two tables the adapter never updates, and nextval via UPDATE only
+    // on the queue sequence.
     await admin.query(`GRANT USAGE ON SCHEMA ${schema} TO ${role}`);
     await admin.query(
-      `GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA ${schema} TO ${role}`
+      `GRANT SELECT, INSERT, DELETE ON chat_state_subscriptions, chat_state_queues TO ${role}`
     );
     await admin.query(
-      `GRANT USAGE ON ALL SEQUENCES IN SCHEMA ${schema} TO ${role}`
+      `GRANT SELECT, INSERT, UPDATE, DELETE ON chat_state_locks, chat_state_cache, chat_state_lists TO ${role}`
+    );
+    await admin.query(
+      `GRANT USAGE ON SEQUENCE chat_state_lists_seq_seq TO ${role}`
+    );
+    await admin.query(
+      `GRANT UPDATE ON SEQUENCE chat_state_queues_seq_seq TO ${role}`
     );
     runtime = createRuntimePool();
     state = createPostgresState({ client: runtime, autoCreateSchema: false });
@@ -70,8 +82,8 @@ describe.skipIf(!testUrl)("PostgreSQL migration-owned schema", () => {
     await state?.disconnect();
     await Promise.all(pools.map(async (pool) => await pool.end()));
     try {
-      if (schemaCreated) {
-        await admin.query(`DROP SCHEMA ${schema} CASCADE`);
+      for (const created of schemas) {
+        await admin.query(`DROP SCHEMA ${created} CASCADE`);
       }
       if (roleCreated) {
         await admin.query(`DROP ROLE ${role}`);
@@ -87,6 +99,18 @@ describe.skipIf(!testUrl)("PostgreSQL migration-owned schema", () => {
       [schema]
     );
     expect(privileges.rows).toEqual([{ role, can_create: false }]);
+    const granted = await runtime.query(
+      `SELECT has_table_privilege('chat_state_subscriptions', 'UPDATE') AS subscriptions_update,
+              has_table_privilege('chat_state_queues', 'UPDATE') AS queues_update,
+              has_sequence_privilege('chat_state_queues_seq_seq', 'USAGE') AS queues_seq_usage`
+    );
+    expect(granted.rows).toEqual([
+      {
+        subscriptions_update: false,
+        queues_update: false,
+        queues_seq_usage: false,
+      },
+    ]);
     await expect(
       runtime.query("CREATE TABLE forbidden (id integer)")
     ).rejects.toMatchObject({ code: "42501" });
@@ -137,9 +161,7 @@ describe.skipIf(!testUrl)("PostgreSQL migration-owned schema", () => {
       autoCreateSchema: false,
     });
     await expect(adapter.connect()).rejects.toMatchObject({
-      message: expect.stringContaining(
-        'PostgreSQL state schema is not ready: relation "chat_state_subscriptions" does not exist.'
-      ),
+      message: expect.stringMatching(missingRelation),
       cause: expect.objectContaining({ code: "42P01" }),
     });
     await expect(adapter.subscribe("missing")).rejects.toThrow("not connected");
@@ -155,7 +177,7 @@ describe.skipIf(!testUrl)("PostgreSQL migration-owned schema", () => {
     });
     await admin.query(`REVOKE INSERT ON chat_state_cache FROM ${role}`);
     await admin.query(
-      `REVOKE USAGE ON SEQUENCE chat_state_queues_seq_seq FROM ${role}`
+      `REVOKE UPDATE ON SEQUENCE chat_state_queues_seq_seq FROM ${role}`
     );
     try {
       await expect(adapter.connect()).rejects.toThrow(
@@ -164,10 +186,54 @@ describe.skipIf(!testUrl)("PostgreSQL migration-owned schema", () => {
     } finally {
       await admin.query(`GRANT INSERT ON chat_state_cache TO ${role}`);
       await admin.query(
-        `GRANT USAGE ON SEQUENCE chat_state_queues_seq_seq TO ${role}`
+        `GRANT UPDATE ON SEQUENCE chat_state_queues_seq_seq TO ${role}`
       );
     }
     await expect(adapter.connect()).resolves.toBeUndefined();
+  });
+
+  it("accepts identity columns without any sequence grant", async () => {
+    const identitySchema = `${schema}_identity`;
+    const owner = new pg.Pool({
+      connectionString: testUrl,
+      options: `-c search_path=${identitySchema}`,
+      max: 1,
+    });
+    pools.push(owner);
+    await owner.query(`CREATE SCHEMA ${identitySchema}`);
+    schemas.push(identitySchema);
+    for (const statement of postgresSchemaStatements) {
+      await owner.query(
+        statement.replace(
+          "seq bigserial NOT NULL",
+          "seq bigint GENERATED ALWAYS AS IDENTITY"
+        )
+      );
+    }
+    await owner.query(`GRANT USAGE ON SCHEMA ${identitySchema} TO ${role}`);
+    await owner.query(
+      `GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA ${identitySchema} TO ${role}`
+    );
+    const pool = new pg.Pool({
+      connectionString: testUrl,
+      options: `-c search_path=${identitySchema} -c role=${role}`,
+      max: 1,
+    });
+    pools.push(pool);
+    const adapter = createPostgresState({
+      client: pool,
+      autoCreateSchema: false,
+    });
+    await adapter.connect();
+    await adapter.appendToList("list", { count: 1 }, { ttlMs });
+    expect(await adapter.getList("list")).toEqual([{ count: 1 }]);
+    const entry = {
+      message: { id: "message" },
+      enqueuedAt: Date.now(),
+      expiresAt: Date.now() + ttlMs,
+    } as QueueEntry;
+    expect(await adapter.enqueue("thread", entry, 10)).toBe(1);
+    expect(await adapter.dequeue("thread")).toEqual(entry);
   });
 
   it("claims an absent key and preserves future-expiring and permanent values", async () => {

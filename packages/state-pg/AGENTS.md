@@ -116,13 +116,16 @@ the adapter docs must match it statement for statement (a unit test
 enforces this). List and queue `seq` columns use `bigserial` sequences.
 
 With `autoCreateSchema: false`, `connect()` issues no DDL. After `SELECT 1`
-it runs one read-only probe (`has_table_privilege` per privilege on each
-table, `has_sequence_privilege` on the `seq` sequences) and rejects with a
-descriptive error when a table or grant is missing, so misconfiguration
-fails at startup rather than inside the first message. Applications must
-migrate first and grant the runtime role schema USAGE, table
-SELECT/INSERT/UPDATE/DELETE, and sequence USAGE. Future schema updates are
-also the application's responsibility.
+it runs one read-only probe and rejects with a descriptive error when a
+table or grant is missing, so misconfiguration fails at startup rather than
+inside the first message. The probe checks only what each operation needs
+(`tablePrivileges` in `index.ts`): SELECT/INSERT/DELETE on every table,
+UPDATE only on locks, cache, and lists, and `nextval` on the list and queue
+sequences via USAGE or UPDATE, skipped for identity columns. Keep that map
+in step with the SQL when adding operations. The integration suite runs
+under exactly these least-privilege grants. Applications must migrate
+first and grant the runtime role at least these privileges plus schema
+USAGE. Future schema updates are also the application's responsibility.
 
 There is no `schemaName` option. Queries use unqualified table names and
 resolve against PostgreSQL `search_path`. The docs recommend
