@@ -101,7 +101,13 @@ const state = createPostgresState({
 });
 ```
 
-An existing pool supports the same option. Use its PostgreSQL `search_path` to select a schema; the adapter does not have a `schemaName` option.
+An existing pool supports the same option. The adapter has no `schemaName` option: every query uses unqualified table names that resolve through the connection's PostgreSQL `search_path`. To keep the tables in a dedicated schema, set the runtime role's default `search_path`. A role default follows the role through connection poolers such as PgBouncer, Neon, and Supabase in transaction mode, which may reject or silently drop per-connection startup parameters.
+
+```sql
+ALTER ROLE chat_runtime SET search_path TO chat_state;
+```
+
+On a direct connection you can set it per connection instead, either with `options` on the pool or with `?options=-c%20search_path%3Dchat_state` on the connection URL.
 
 ```typescript
 import pg from "pg";
@@ -114,7 +120,17 @@ const client = new pg.Pool({
 const state = createPostgresState({ client, autoCreateSchema: false });
 ```
 
-Run this migration as the schema owner before starting the bot, using the same `search_path` as the runtime connection. Create your chosen schema first if needed. This is the complete adapter schema; `bigserial` also creates the list and queue sequences.
+Before starting the bot, run the adapter migration as the schema owner, using the same `search_path` as the runtime connection. Create your chosen schema first if needed. The adapter exports the complete migration as `postgresSchemaStatements`, an ordered array of statements you can run from your own migration tooling:
+
+```typescript
+import { postgresSchemaStatements } from "@chat-adapter/state-pg";
+
+for (const statement of postgresSchemaStatements) {
+  await client.query(statement);
+}
+```
+
+If you would rather keep the migration in SQL, these are the same statements. They make up the complete adapter schema; `bigserial` also creates the list and queue sequences.
 
 ```sql
 CREATE TABLE IF NOT EXISTS chat_state_subscriptions (
@@ -183,7 +199,7 @@ GRANT USAGE ON ALL SEQUENCES IN SCHEMA chat_state TO chat_runtime;
 
 The runtime role also needs database `CONNECT` permission. It does not need schema `CREATE` permission or table ownership. Adjust the schema and role names to your deployment; these grants apply to existing objects only.
 
-With this option disabled, `connect()` still checks database connectivity with `SELECT 1`, but does not validate the schema or issue any DDL. Missing tables or grants fail on the first operation that needs them. Your application owns migrations for future adapter schema changes too. An externally supplied pool remains open after `disconnect()`.
+With this option disabled, `connect()` checks connectivity with `SELECT 1` and then runs one read-only query to verify that all five tables exist and that the current role holds `SELECT`, `INSERT`, `UPDATE`, and `DELETE` on them plus `USAGE` on the list and queue sequences. It never issues DDL. If anything is missing, `connect()` rejects with an error naming the problem, so a wrong `search_path` or a forgotten grant fails at startup instead of on the first message. Your application owns migrations for future adapter schema changes too; the changelog for `@chat-adapter/state-pg` lists the statements to run when the schema changes. An externally supplied pool remains open after `disconnect()`.
 
 ## Features
 

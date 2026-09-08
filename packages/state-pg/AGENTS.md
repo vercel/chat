@@ -54,15 +54,23 @@ pnpm --filter @chat-adapter/state-pg build
 pnpm --filter @chat-adapter/state-pg test
 ```
 
-The unit tests use a `vi.fn()`-backed Postgres stub. Real database tests
-live in `src/postgres.integration.test.ts` and run only when
-`POSTGRES_TEST_URL` is exported. Use a disposable database and an admin
-role that can create schemas and roles and use `SET ROLE`. The tests
-create UUID-named schemas and restricted roles, execute the migration
-from the README, and remove only those resources afterward.
+The unit tests use a `vi.fn()`-backed Postgres stub. They also read the
+migration SQL block from `README.md` and the adapter docs and compare it,
+whitespace-normalized, to `postgresSchemaStatements`, so documentation
+drift fails `pnpm test` without a database.
+
+Real database tests live in `src/postgres.integration.test.ts` and run
+only when `POSTGRES_TEST_URL` is exported. Use a disposable database and
+an admin role with `CREATEROLE` and `CREATE` on the database; superuser
+is not required because the tests grant the admin membership in the
+runtime role they create. The tests create UUID-named schemas and
+restricted roles, execute `postgresSchemaStatements`, and remove only
+those resources afterward. `POSTGRES_TEST_URL` is declared in
+`turbo.json` `globalEnv`, so both invocations below see it.
 
 ```bash
 POSTGRES_TEST_URL=postgres://localhost/chat_test pnpm --filter @chat-adapter/state-pg test
+POSTGRES_TEST_URL=postgres://localhost/chat_test pnpm test
 ```
 
 Never fall back to an application's `POSTGRES_URL` for these tests.
@@ -77,6 +85,8 @@ Main exports from `src/index.ts`:
   `StateAdapter` interface. Public methods cover subscriptions,
   locks, cache, lists, queues, plus `disconnect()`.
 - `PostgresStateAdapterOptions` — URL or external-client options union.
+- `postgresSchemaStatements` — the complete DDL, in execution order, for
+  migration tooling and for the docs parity test.
 
 ## Configuration
 
@@ -98,20 +108,27 @@ defaults when only `url` is provided.
 
 ## Schema
 
-By default, `connect()` creates five tables and four expiry indexes. The
-complete, executable DDL is in [README.md](README.md#migration-owned-schema)
-and must stay synchronized with `ensureSchema()` and the adapter docs.
-List and queue `seq` columns use `bigserial` sequences.
+By default, `connect()` creates five tables and four expiry indexes by
+running `postgresSchemaStatements` in order. That array is the single
+source of the DDL; `ensureSchema()` iterates it, the unit tests assert it,
+and the SQL blocks in [README.md](README.md#migration-owned-schema) and
+the adapter docs must match it statement for statement (a unit test
+enforces this). List and queue `seq` columns use `bigserial` sequences.
 
-With `autoCreateSchema: false`, `connect()` only checks connectivity;
-applications must migrate first and grant the runtime role schema USAGE,
-table SELECT/INSERT/UPDATE/DELETE, and sequence USAGE. Missing tables or
-grants fail on the first operation that requires them. No automatic
-fallback or schema validation runs. Future schema updates are also the
-application's responsibility.
+With `autoCreateSchema: false`, `connect()` issues no DDL. After `SELECT 1`
+it runs one read-only probe (`has_table_privilege` per privilege on each
+table, `has_sequence_privilege` on the `seq` sequences) and rejects with a
+descriptive error when a table or grant is missing, so misconfiguration
+fails at startup rather than inside the first message. Applications must
+migrate first and grant the runtime role schema USAGE, table
+SELECT/INSERT/UPDATE/DELETE, and sequence USAGE. Future schema updates are
+also the application's responsibility.
 
 There is no `schemaName` option. Queries use unqualified table names and
-resolve against PostgreSQL `search_path`, configurable on an external pool.
+resolve against PostgreSQL `search_path`. The docs recommend
+`ALTER ROLE ... SET search_path` for the runtime role because it survives
+transaction-mode poolers, with per-connection `options` as the
+direct-connection alternative.
 
 ## Locking semantics
 
@@ -192,8 +209,9 @@ Connection errors are logged and rethrown. Query errors propagate from
 ## Testing approach
 
 - Unit tests in `index.test.ts` use a mocked pool to verify SQL and lifecycle.
-- Real database tests execute the documented migration with an owner role,
-  then exercise state operations under a role without DDL privileges.
+- Real database tests execute `postgresSchemaStatements` with an owner role,
+  then exercise state operations under a role without DDL privileges, and
+  assert that `connect()` rejects when tables or grants are missing.
 - Cache regressions cover expiry without a prior read, the exact `now()`
   boundary, and claims from independent connections.
 
@@ -213,10 +231,16 @@ Connection errors are logged and rethrown. Query errors propagate from
 
 Behavioural changes need a changeset (`pnpm changeset`, choose
 `@chat-adapter/state-pg` plus `chat` if a public `StateAdapter` type
-changed). Schema-changing PRs additionally need a note in
-`apps/docs/content/adapters/official/postgres.mdx` so existing
-deployments understand what migrations the next `connect()` will
-run.
+changed). Schema-changing PRs must additionally:
+
+- Update `postgresSchemaStatements` and the matching SQL blocks in
+  `README.md` and `apps/docs/content/adapters/official/postgres.mdx`
+  (the unit test fails otherwise).
+- Publish the incremental statements (`ALTER TABLE ... ADD COLUMN`,
+  `CREATE INDEX IF NOT EXISTS`, ...) in the changeset. `CREATE TABLE IF NOT
+  EXISTS` never alters an existing table, so both auto-created and
+  migration-owned deployments need them, and `autoCreateSchema: false`
+  deployments run no DDL on `connect()` at all.
 
 ## Where to look next
 

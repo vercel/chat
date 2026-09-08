@@ -41,6 +41,94 @@ export type PostgresStateClientOptions = PostgresStateAdapterClientOptions;
  */
 export type CreatePostgresStateOptions = PostgresStateAdapterOptions;
 
+/**
+ * Complete adapter schema, in execution order. `connect()` runs these with
+ * `autoCreateSchema: true`; migration-owned deployments can run them from
+ * their own tooling. Table and index names are unqualified and resolve
+ * against the connection's `search_path`.
+ */
+export const postgresSchemaStatements: readonly string[] = [
+  `CREATE TABLE IF NOT EXISTS chat_state_subscriptions (
+    key_prefix text NOT NULL,
+    thread_id text NOT NULL,
+    created_at timestamptz NOT NULL DEFAULT now(),
+    PRIMARY KEY (key_prefix, thread_id)
+  )`,
+  `CREATE TABLE IF NOT EXISTS chat_state_locks (
+    key_prefix text NOT NULL,
+    thread_id text NOT NULL,
+    token text NOT NULL,
+    expires_at timestamptz NOT NULL,
+    updated_at timestamptz NOT NULL DEFAULT now(),
+    PRIMARY KEY (key_prefix, thread_id)
+  )`,
+  `CREATE TABLE IF NOT EXISTS chat_state_cache (
+    key_prefix text NOT NULL,
+    cache_key text NOT NULL,
+    value text NOT NULL,
+    expires_at timestamptz,
+    updated_at timestamptz NOT NULL DEFAULT now(),
+    PRIMARY KEY (key_prefix, cache_key)
+  )`,
+  `CREATE INDEX IF NOT EXISTS chat_state_locks_expires_idx
+    ON chat_state_locks (expires_at)`,
+  `CREATE INDEX IF NOT EXISTS chat_state_cache_expires_idx
+    ON chat_state_cache (expires_at)`,
+  `CREATE TABLE IF NOT EXISTS chat_state_lists (
+    key_prefix text NOT NULL,
+    list_key text NOT NULL,
+    seq bigserial NOT NULL,
+    value text NOT NULL,
+    expires_at timestamptz,
+    PRIMARY KEY (key_prefix, list_key, seq)
+  )`,
+  `CREATE INDEX IF NOT EXISTS chat_state_lists_expires_idx
+    ON chat_state_lists (expires_at)`,
+  `CREATE TABLE IF NOT EXISTS chat_state_queues (
+    key_prefix text NOT NULL,
+    thread_id text NOT NULL,
+    seq bigserial NOT NULL,
+    value text NOT NULL,
+    expires_at timestamptz NOT NULL,
+    PRIMARY KEY (key_prefix, thread_id, seq)
+  )`,
+  `CREATE INDEX IF NOT EXISTS chat_state_queues_expires_idx
+    ON chat_state_queues (expires_at)`,
+];
+
+const stateTables = [
+  "chat_state_subscriptions",
+  "chat_state_locks",
+  "chat_state_cache",
+  "chat_state_lists",
+  "chat_state_queues",
+] as const;
+
+const sequenceTables = ["chat_state_lists", "chat_state_queues"] as const;
+
+// has_table_privilege() with a comma-separated list is true when ANY listed
+// privilege is held, so each privilege is checked on its own and ANDed.
+function tablePrivilegeCheck(table: string): string {
+  return ["SELECT", "INSERT", "UPDATE", "DELETE"]
+    .map((privilege) => `has_table_privilege('${table}', '${privilege}')`)
+    .join(" AND ");
+}
+
+// One round trip, no DDL rights needed. A missing table raises 42P01; a
+// missing grant yields false. pg_get_serial_sequence covers serial and
+// identity columns and returns NULL (skipped) when seq has no sequence.
+const schemaProbe = `SELECT ${[
+  ...stateTables.map((table) => `${tablePrivilegeCheck(table)} AS ${table}`),
+  ...sequenceTables.map(
+    (table) =>
+      `has_sequence_privilege(pg_get_serial_sequence('${table}', 'seq'), 'USAGE') AS ${table}_seq`
+  ),
+].join(",\n  ")}`;
+
+const schemaErrorPrefix = "PostgreSQL state schema is not ready";
+const schemaErrorHint =
+  "Run the adapter migration on this database and search_path, grant the runtime role access, or set autoCreateSchema: true.";
+
 export class PostgresStateAdapter implements StateAdapter {
   private readonly autoCreateSchema: boolean;
   private readonly pool: pg.Pool;
@@ -81,6 +169,8 @@ export class PostgresStateAdapter implements StateAdapter {
           await this.pool.query("SELECT 1");
           if (this.autoCreateSchema) {
             await this.ensureSchema();
+          } else {
+            await this.verifySchema();
           }
           this.connected = true;
         } catch (error) {
@@ -456,70 +546,34 @@ export class PostgresStateAdapter implements StateAdapter {
   }
 
   private async ensureSchema(): Promise<void> {
-    await this.pool.query(
-      `CREATE TABLE IF NOT EXISTS chat_state_subscriptions (
-        key_prefix text NOT NULL,
-        thread_id text NOT NULL,
-        created_at timestamptz NOT NULL DEFAULT now(),
-        PRIMARY KEY (key_prefix, thread_id)
-      )`
-    );
-    await this.pool.query(
-      `CREATE TABLE IF NOT EXISTS chat_state_locks (
-        key_prefix text NOT NULL,
-        thread_id text NOT NULL,
-        token text NOT NULL,
-        expires_at timestamptz NOT NULL,
-        updated_at timestamptz NOT NULL DEFAULT now(),
-        PRIMARY KEY (key_prefix, thread_id)
-      )`
-    );
-    await this.pool.query(
-      `CREATE TABLE IF NOT EXISTS chat_state_cache (
-        key_prefix text NOT NULL,
-        cache_key text NOT NULL,
-        value text NOT NULL,
-        expires_at timestamptz,
-        updated_at timestamptz NOT NULL DEFAULT now(),
-        PRIMARY KEY (key_prefix, cache_key)
-      )`
-    );
-    await this.pool.query(
-      `CREATE INDEX IF NOT EXISTS chat_state_locks_expires_idx
-       ON chat_state_locks (expires_at)`
-    );
-    await this.pool.query(
-      `CREATE INDEX IF NOT EXISTS chat_state_cache_expires_idx
-       ON chat_state_cache (expires_at)`
-    );
-    await this.pool.query(
-      `CREATE TABLE IF NOT EXISTS chat_state_lists (
-        key_prefix text NOT NULL,
-        list_key text NOT NULL,
-        seq bigserial NOT NULL,
-        value text NOT NULL,
-        expires_at timestamptz,
-        PRIMARY KEY (key_prefix, list_key, seq)
-      )`
-    );
-    await this.pool.query(
-      `CREATE INDEX IF NOT EXISTS chat_state_lists_expires_idx
-       ON chat_state_lists (expires_at)`
-    );
-    await this.pool.query(
-      `CREATE TABLE IF NOT EXISTS chat_state_queues (
-        key_prefix text NOT NULL,
-        thread_id text NOT NULL,
-        seq bigserial NOT NULL,
-        value text NOT NULL,
-        expires_at timestamptz NOT NULL,
-        PRIMARY KEY (key_prefix, thread_id, seq)
-      )`
-    );
-    await this.pool.query(
-      `CREATE INDEX IF NOT EXISTS chat_state_queues_expires_idx
-       ON chat_state_queues (expires_at)`
-    );
+    for (const statement of postgresSchemaStatements) {
+      await this.pool.query(statement);
+    }
+  }
+
+  /**
+   * Fail fast when a migration-owned schema is missing tables or grants, so
+   * the problem surfaces at connect() instead of inside the first message.
+   */
+  private async verifySchema(): Promise<void> {
+    let result: pg.QueryResult<Record<string, boolean | null>>;
+    try {
+      result = await this.pool.query(schemaProbe);
+    } catch (error) {
+      throw new Error(
+        `${schemaErrorPrefix}: ${error instanceof Error ? error.message : String(error)}. ${schemaErrorHint}`,
+        { cause: error }
+      );
+    }
+
+    const missing = Object.entries(result.rows[0] ?? {})
+      .filter(([, granted]) => granted === false)
+      .map(([name]) => name);
+    if (missing.length > 0) {
+      throw new Error(
+        `${schemaErrorPrefix}: the current role lacks privileges on ${missing.join(", ")}. ${schemaErrorHint}`
+      );
+    }
   }
 
   private ensureConnected(): void {

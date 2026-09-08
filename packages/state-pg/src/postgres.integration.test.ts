@@ -1,14 +1,13 @@
 import { randomUUID } from "node:crypto";
-import { readFile } from "node:fs/promises";
 import type { QueueEntry } from "chat";
 import pg from "pg";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { createPostgresState } from "./index";
+import { createPostgresState, postgresSchemaStatements } from "./index";
 
 // Explicit opt-in: never use an application's POSTGRES_URL for destructive tests.
-// Requires a disposable database and an administrator that can CREATE ROLE and SET ROLE.
+// Requires a disposable database and an administrator with CREATEROLE and
+// CREATE on the database. Superuser is not required.
 const testUrl = process.env.POSTGRES_TEST_URL;
-const migrationBlock = /```sql\n([\s\S]*?)```/;
 const ttlMs = 300_000;
 
 describe.skipIf(!testUrl)("PostgreSQL migration-owned schema", () => {
@@ -33,7 +32,13 @@ describe.skipIf(!testUrl)("PostgreSQL migration-owned schema", () => {
   }
 
   beforeAll(async () => {
-    admin = new pg.Pool({ connectionString: testUrl, max: 1 });
+    // search_path travels with every connection the pool hands out, unlike a
+    // one-off SET, which pg-pool would lose if it replaced the client.
+    admin = new pg.Pool({
+      connectionString: testUrl,
+      options: `-c search_path=${schema}`,
+      max: 1,
+    });
     // Identifiers are generated from a UUID, never user-supplied SQL.
     await admin.query(`CREATE SCHEMA ${schema}`);
     schemaCreated = true;
@@ -41,33 +46,14 @@ describe.skipIf(!testUrl)("PostgreSQL migration-owned schema", () => {
       `CREATE ROLE ${role} NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT`
     );
     roleCreated = true;
-    await admin.query(`SET search_path TO ${schema}`);
+    // A non-superuser admin needs membership to SET ROLE on the runtime pools.
+    await admin.query(`GRANT ${role} TO CURRENT_USER`);
 
-    // Execute the published migration itself so documentation drift breaks this test.
-    const readme = await readFile(
-      new URL("../README.md", import.meta.url),
-      "utf8"
-    );
-    const docs = await readFile(
-      new URL(
-        "../../../apps/docs/content/adapters/official/postgres.mdx",
-        import.meta.url
-      ),
-      "utf8"
-    );
-    const migration = migrationBlock.exec(
-      readme.split("### Migration-owned schema")[1]
-    )?.[1];
-    if (
-      !migration ||
-      migrationBlock.exec(docs.split("### Migration-owned schema")[1])?.[1] !==
-        migration
-    ) {
-      throw new Error(
-        "README and adapter docs must contain the same complete migration SQL"
-      );
+    // The same statements connect() runs with autoCreateSchema: true. The unit
+    // suite proves the README and adapter docs publish this exact migration.
+    for (const statement of postgresSchemaStatements) {
+      await admin.query(statement);
     }
-    await admin.query(migration);
     await admin.query(`GRANT USAGE ON SCHEMA ${schema} TO ${role}`);
     await admin.query(
       `GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA ${schema} TO ${role}`
@@ -140,7 +126,7 @@ describe.skipIf(!testUrl)("PostgreSQL migration-owned schema", () => {
     expect(await state.queueDepth("thread")).toBe(0);
   });
 
-  it("checks connectivity without requiring tables to exist", async () => {
+  it("fails connect() with a descriptive error when the tables are missing", async () => {
     const pool = new pg.Pool({
       connectionString: testUrl,
       options: `-c search_path=pg_catalog -c role=${role}`,
@@ -150,14 +136,38 @@ describe.skipIf(!testUrl)("PostgreSQL migration-owned schema", () => {
       client: pool,
       autoCreateSchema: false,
     });
-    await adapter.connect();
-    await expect(adapter.subscribe("missing")).rejects.toMatchObject({
-      code: "42P01",
+    await expect(adapter.connect()).rejects.toMatchObject({
+      message: expect.stringContaining(
+        'PostgreSQL state schema is not ready: relation "chat_state_subscriptions" does not exist.'
+      ),
+      cause: expect.objectContaining({ code: "42P01" }),
     });
-    await adapter.disconnect();
+    await expect(adapter.subscribe("missing")).rejects.toThrow("not connected");
     await expect(pool.query("SELECT 1")).resolves.toMatchObject({
       rowCount: 1,
     });
+  });
+
+  it("fails connect() naming the objects the runtime role cannot use", async () => {
+    const adapter = createPostgresState({
+      client: createRuntimePool(),
+      autoCreateSchema: false,
+    });
+    await admin.query(`REVOKE INSERT ON chat_state_cache FROM ${role}`);
+    await admin.query(
+      `REVOKE USAGE ON SEQUENCE chat_state_queues_seq_seq FROM ${role}`
+    );
+    try {
+      await expect(adapter.connect()).rejects.toThrow(
+        "PostgreSQL state schema is not ready: the current role lacks privileges on chat_state_cache, chat_state_queues_seq."
+      );
+    } finally {
+      await admin.query(`GRANT INSERT ON chat_state_cache TO ${role}`);
+      await admin.query(
+        `GRANT USAGE ON SEQUENCE chat_state_queues_seq_seq TO ${role}`
+      );
+    }
+    await expect(adapter.connect()).resolves.toBeUndefined();
   });
 
   it("claims an absent key and preserves future-expiring and permanent values", async () => {
