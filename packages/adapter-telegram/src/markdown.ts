@@ -61,8 +61,11 @@ export const TELEGRAM_MESSAGE_LIMIT = 4096;
 export const TELEGRAM_CAPTION_LIMIT = 1024;
 
 // Entity delimiters whose opener/closer pairing must be preserved when
-// truncating a rendered MarkdownV2 string.
-const MARKDOWN_V2_ENTITY_MARKERS = ["*", "_", "~", "`"] as const;
+// truncating a rendered MarkdownV2 string. Telegram reads `__` as underline,
+// which pairs separately from single `_` italics.
+const MARKDOWN_V2_ENTITY_MARKERS = ["*", "_", "__", "~", "`"] as const;
+
+type EntityMarker = (typeof MARKDOWN_V2_ENTITY_MARKERS)[number];
 
 const MARKDOWN_V2_ELLIPSIS = "\\.\\.\\.";
 const PLAIN_ELLIPSIS = "...";
@@ -74,18 +77,39 @@ export function escapeMarkdownV2(text: string): string {
   return text.replace(MARKDOWNV2_SPECIAL_CHARS, "\\$1");
 }
 
+interface DelimiterScan {
+  /** Number of `]` that close a link label. */
+  closeBrackets: number;
+  /**
+   * Unescaped entity delimiter positions outside code and link URLs. Fences
+   * and `__` record one position per delimiter so a cut through an opener
+   * retreats to its first character.
+   */
+  markers: Record<EntityMarker, number[]>;
+  /** Unescaped `[` positions outside code and link URLs. */
+  openBrackets: number[];
+}
+
 /**
- * Return unescaped entity delimiter positions, ignoring literal markers in
- * code and link destinations. For backticks, record one position per inline
- * code or fence delimiter so an unfinished fence retreats to its opener.
+ * Single pass over a MarkdownV2 string collecting every delimiter the trimmer
+ * pairs up. Markers inside fenced code, inline code, or the `(...)` part of a
+ * link are literal text and are skipped.
  */
-function findEntityDelimiterPositions(text: string, marker: string): number[] {
-  const positions: number[] = [];
+function scanDelimiters(text: string): DelimiterScan {
+  const markers: Record<EntityMarker, number[]> = {
+    "*": [],
+    _: [],
+    __: [],
+    "~": [],
+    "`": [],
+  };
+  const openBrackets: number[] = [];
+  let closeBrackets = 0;
   let inFence = false;
   let inInline = false;
+  let inLinkUrl = false;
   let backslashes = 0;
-  // Index of the `]` that opened the current `](...)` link URL, or -1.
-  let linkCloseBracket = -1;
+  const lastIndex = text.length - 1;
 
   for (let i = 0; i < text.length; i++) {
     const ch = text[i];
@@ -97,58 +121,77 @@ function findEntityDelimiterPositions(text: string, marker: string): number[] {
 
     const escaped = backslashes % 2 === 1;
     backslashes = 0;
+    if (escaped) {
+      continue;
+    }
 
-    if (linkCloseBracket >= 0) {
-      if (ch === ")" && !escaped) {
-        // A link's `]` only counts toward bracket pairing once its URL
-        // closes, so a slice mid-URL leaves the `[` unmatched.
-        if (marker === "]") {
-          positions.push(linkCloseBracket);
-        }
-        linkCloseBracket = -1;
+    if (inLinkUrl) {
+      // A link's `]` only counts toward bracket pairing once its URL
+      // closes, so a slice mid-URL leaves the `[` unmatched.
+      if (ch === ")") {
+        inLinkUrl = false;
+        closeBrackets++;
       }
       continue;
     }
 
-    if (ch === "`" && !escaped) {
-      const isTriple = text[i + 1] === "`" && text[i + 2] === "`";
-      if (isTriple && !inInline) {
-        if (marker === "`") {
-          positions.push(i);
-        }
+    if (ch === "`") {
+      if (!inInline && text.startsWith("```", i)) {
+        markers["`"].push(i);
         inFence = !inFence;
         i += 2;
         continue;
       }
-      if (!inFence) {
-        if (marker === "`") {
-          positions.push(i);
-        }
-        // A cut after two opening fence backticks is still an unfinished
-        // delimiter, not a balanced empty inline-code span.
-        if (!inInline && text[i + 1] === "`") {
-          i += 1;
-        }
-        inInline = !inInline;
+      if (inFence) {
+        continue;
       }
-      continue;
-    }
-
-    if (ch === "]" && !escaped && !inFence && !inInline) {
-      if (text[i + 1] === "(") {
-        linkCloseBracket = i;
+      markers["`"].push(i);
+      // A slice that ends in two opening backticks is a cut fence, not a
+      // balanced empty inline-code span.
+      if (!inInline && i + 2 === text.length && text[i + 1] === "`") {
         i += 1;
       }
-      // A cut immediately after the label's `]` also leaves the link open.
+      inInline = !inInline;
       continue;
     }
 
-    if (ch === marker && !escaped && !inFence && !inInline) {
-      positions.push(i);
+    if (inFence || inInline) {
+      continue;
+    }
+
+    if (ch === "[") {
+      openBrackets.push(i);
+      continue;
+    }
+
+    if (ch === "]") {
+      if (text[i + 1] === "(") {
+        inLinkUrl = true;
+        i += 1;
+      } else if (i < lastIndex) {
+        // Telegram accepts a bare `[label]`; only a `]` that ends the slice
+        // may have lost its `(url)` to the cut.
+        closeBrackets++;
+      }
+      continue;
+    }
+
+    if (ch === "_") {
+      if (text[i + 1] === "_") {
+        markers.__.push(i);
+        i += 1;
+      } else {
+        markers._.push(i);
+      }
+      continue;
+    }
+
+    if (ch === "*" || ch === "~") {
+      markers[ch].push(i);
     }
   }
 
-  return positions;
+  return { markers, openBrackets, closeBrackets };
 }
 
 export function endsWithOrphanBackslash(text: string): boolean {
@@ -164,15 +207,17 @@ export function endsWithOrphanBackslash(text: string): boolean {
  * a length-based truncation:
  *
  *  - orphan trailing `\` (would escape the appended ellipsis or nothing)
- *  - unclosed entity delimiter (`*`, `_`, `~`, `` ` ``) left open because
- *    the slice cut between the opener and its closer
+ *  - unclosed entity delimiter (`*`, `_`, `__`, `~`, `` ` ``) left open
+ *    because the slice cut between the opener and its closer
  *  - unmatched `[` from a link whose closer was cut off, or whose `(...)`
  *    URL part was left unterminated by the slice
  *
  * Best-effort: may drop more than strictly necessary in edge cases, but
  * guarantees the output is parseable MarkdownV2 (when the input was).
+ *
+ * Exported for tests; production callers go through `truncateForTelegram`.
  */
-function trimToMarkdownV2SafeBoundary(text: string): string {
+export function trimToMarkdownV2SafeBoundary(text: string): string {
   let current = text;
   const maxIterations = current.length + 1;
 
@@ -182,32 +227,25 @@ function trimToMarkdownV2SafeBoundary(text: string): string {
       continue;
     }
 
-    let minUnsafePosition = current.length;
+    const scan = scanDelimiters(current);
+    let cut = current.length;
 
     for (const marker of MARKDOWN_V2_ENTITY_MARKERS) {
-      const positions = findEntityDelimiterPositions(current, marker);
+      const positions = scan.markers[marker];
       if (positions.length % 2 === 1) {
-        const lastUnpaired = positions.at(-1) ?? current.length;
-        if (lastUnpaired < minUnsafePosition) {
-          minUnsafePosition = lastUnpaired;
-        }
+        cut = Math.min(cut, positions.at(-1) ?? cut);
       }
     }
 
-    const openBrackets = findEntityDelimiterPositions(current, "[");
-    const closeBrackets = findEntityDelimiterPositions(current, "]");
-    if (openBrackets.length > closeBrackets.length) {
-      const lastOpen = openBrackets.at(-1) ?? current.length;
-      if (lastOpen < minUnsafePosition) {
-        minUnsafePosition = lastOpen;
-      }
+    if (scan.openBrackets.length > scan.closeBrackets) {
+      cut = Math.min(cut, scan.openBrackets.at(-1) ?? cut);
     }
 
-    if (minUnsafePosition >= current.length) {
+    if (cut >= current.length) {
       return current;
     }
 
-    current = current.slice(0, minUnsafePosition);
+    current = current.slice(0, cut);
   }
 
   return current;
@@ -216,6 +254,10 @@ function trimToMarkdownV2SafeBoundary(text: string): string {
 /**
  * Truncate a rendered string to `limit` characters, appending a
  * parse-mode-appropriate ellipsis.
+ *
+ * Text that fits the limit is returned unchanged: the MarkdownV2 renderer
+ * emits balanced entities, so there is nothing to repair, and a trim there
+ * could only delete valid content.
  *
  * For MarkdownV2, the naive slice + "..." is unsafe: `.` is reserved and
  * must be escaped, and the slice can leave orphan escape characters (`\`)
@@ -229,12 +271,11 @@ export function truncateForTelegram(
   limit: number,
   parseMode: TelegramParseMode
 ): string {
-  const isMarkdownV2 = parseMode === "MarkdownV2";
-
   if (text.length <= limit) {
-    return isMarkdownV2 ? trimToMarkdownV2SafeBoundary(text) : text;
+    return text;
   }
 
+  const isMarkdownV2 = parseMode === "MarkdownV2";
   const ellipsis = isMarkdownV2 ? MARKDOWN_V2_ELLIPSIS : PLAIN_ELLIPSIS;
   let slice = text.slice(0, limit - ellipsis.length);
 

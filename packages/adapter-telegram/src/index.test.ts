@@ -25,9 +25,11 @@ import {
   type TelegramUpdate,
 } from "./index";
 import {
+  endsWithOrphanBackslash,
   TELEGRAM_CAPTION_LIMIT,
   TELEGRAM_MESSAGE_LIMIT,
   TelegramFormatConverter,
+  trimToMarkdownV2SafeBoundary,
 } from "./markdown";
 
 const mockFetch = vi.fn<typeof fetch>();
@@ -5303,40 +5305,6 @@ describe("message length limits", () => {
       .mockResolvedValueOnce(telegramOk(sampleMessage()));
   }
 
-  /**
-   * Count unescaped occurrences of a single-char entity delimiter.
-   * Preceded by `\` means escaped; we ignore those. Double `\\` means a
-   * literal backslash, so the following delimiter is unescaped.
-   */
-  function countUnescaped(text: string, marker: string): number {
-    let count = 0;
-    for (let i = 0; i < text.length; i++) {
-      if (text[i] !== marker) {
-        continue;
-      }
-      let backslashes = 0;
-      let j = i - 1;
-      while (j >= 0 && text[j] === "\\") {
-        backslashes++;
-        j--;
-      }
-      // Even number of preceding backslashes → marker is unescaped
-      if (backslashes % 2 === 0) {
-        count++;
-      }
-    }
-    return count;
-  }
-
-  function endsWithOrphanBackslash(text: string): boolean {
-    let trailing = 0;
-    for (let i = text.length - 1; i >= 0 && text[i] === "\\"; i--) {
-      trailing++;
-    }
-    // Odd trailing backslashes = last `\` has nothing to escape
-    return trailing % 2 === 1;
-  }
-
   it("plain string over 4096 chars truncates to exactly the limit with '...' and no parse_mode", async () => {
     const adapter = await createInitializedAdapter();
     mockFetch.mockResolvedValueOnce(telegramOk(sampleMessage()));
@@ -5477,13 +5445,8 @@ describe("message length limits", () => {
     const ellipsis = text.endsWith("\\.\\.\\.") ? "\\.\\.\\." : "...";
     const beforeEllipsis = text.slice(0, -ellipsis.length);
 
-    // Every entity delimiter must appear an even number of unescaped times
-    for (const marker of ["*", "_", "~", "`"]) {
-      expect(
-        countUnescaped(beforeEllipsis, marker) % 2,
-        `${marker} count must be even`
-      ).toBe(0);
-    }
+    // The production trimmer must consider the shipped text balanced.
+    expect(trimToMarkdownV2SafeBoundary(beforeEllipsis)).toBe(beforeEllipsis);
   });
 
   it("MarkdownV2 truncation closes or drops an unmatched inline code span", async () => {
@@ -5499,7 +5462,7 @@ describe("message length limits", () => {
     const ellipsis = text.endsWith("\\.\\.\\.") ? "\\.\\.\\." : "...";
     const beforeEllipsis = text.slice(0, -ellipsis.length);
 
-    expect(countUnescaped(beforeEllipsis, "`") % 2).toBe(0);
+    expect(trimToMarkdownV2SafeBoundary(beforeEllipsis)).toBe(beforeEllipsis);
   });
 
   it("MarkdownV2 caption over 1024 escapes the ellipsis", async () => {

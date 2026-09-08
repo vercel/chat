@@ -298,7 +298,7 @@ On Telegram Bot API 10.1 and newer, explicit `{ markdown }` and `{ ast }` messag
 
 Plain strings, raw messages, cards, and media captions retain their existing lightweight message paths. Cards and captions use Telegram's `MarkdownV2` parse mode with context-aware escaping. Older or custom Bot API servers automatically fall back to this existing path when rich message methods are unavailable.
 
-MarkdownV2 fallback messages and captions preserve special characters, including backticks, inside link destinations. When a length limit cuts through a link or code span, the incomplete entity is removed before the ellipsis.
+MarkdownV2 fallback messages and captions that fit the length limit ship exactly as rendered, including backticks and other special characters inside link destinations. When a length limit cuts through a link, code span, or underline, the incomplete entity is removed before the ellipsis.
 
 Pass `{ raw: "..." }` only if you need to ship a fully pre-escaped MarkdownV2 string.
 
