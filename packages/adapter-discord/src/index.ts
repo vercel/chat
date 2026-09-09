@@ -2285,12 +2285,16 @@ export class DiscordAdapter implements Adapter<DiscordThreadId, unknown> {
           type: packet.t,
         });
 
-        let data = packet.d;
+        // Snapshot before the first await. discord.js emits `raw` and handles
+        // the packet in the same turn, so once this handler yields it patches
+        // this same object in place (`Message.js` assigns `member.user`) and
+        // the webhook would receive fields that were never on the wire.
+        let data = structuredClone(packet.d);
         if (
           packet.t === "MESSAGE_CREATE" &&
           this.respondToChannelIds.length > 0
         ) {
-          const message = packet.d as DiscordGatewayMessageData;
+          const message = data as DiscordGatewayMessageData;
           if (
             !(
               message.author.bot ||
