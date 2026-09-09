@@ -1,5 +1,14 @@
 # @chat-adapter/shared
 
+## 4.41.0
+
+### Patch Changes
+
+- 6adca36: Enforce the guarded download deadline inside `downloadAttachment` itself, for both the wait for response headers and the body read. A late response is destroyed, so the timeout holds even when a custom transport ignores the supplied signal.
+- Updated dependencies [2e2426d]
+- Updated dependencies [056d883]
+  - chat@4.41.0
+
 ## 4.40.0
 
 ### Patch Changes
