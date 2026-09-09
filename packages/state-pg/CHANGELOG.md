@@ -1,5 +1,17 @@
 # @chat-adapter/state-pg
 
+## 4.41.0
+
+### Minor Changes
+
+- ea025af: Add `autoCreateSchema` to let applications provision PostgreSQL state tables and indexes through migrations. With `autoCreateSchema: false`, `connect()` issues no DDL and instead verifies that the tables and grants exist, rejecting with a descriptive error rather than failing on the first message. The complete DDL is exported as `postgresSchemaStatements` for migration tooling.
+
+### Patch Changes
+
+- Updated dependencies [2e2426d]
+- Updated dependencies [056d883]
+  - chat@4.41.0
+
 ## 4.40.0
 
 ### Patch Changes
