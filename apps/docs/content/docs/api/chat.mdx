@@ -519,11 +519,11 @@ bot.onAppHomeOpened(async (event) => {
 
 ### onInstalled
 
-Fires when the bot is installed or an installation is upgraded. Currently emitted only by the Teams adapter, for personal, group chat, and team installs.
+Fires when the bot is installed, including when an app upgrade adds the bot to the manifest. Routine upgrades do not emit this event. Currently emitted only by the Teams adapter, for personal, group chat, and team installs.
 
 ```typescript
 bot.onInstalled(async (event) => {
-  if (event.action !== "add" || !event.channelId) return;
+  if (!event.channelId) return;
   await bot.channel(event.channelId).post("Thanks for installing!");
 });
 ```
@@ -563,14 +563,17 @@ bot.onInstalled(async (event) => {
 
 ### onUninstalled
 
-Fires when the bot is removed or a removal is part of an upgrade. Same event shape as `onInstalled`, with `action` set to `"remove"` or `"remove-upgrade"`. Check `action` before deleting durable records, and do not post to the conversation after removal.
+Fires when the bot is removed, including when an app upgrade removes it from the manifest. Same event shape as `onInstalled`, with `action` set to `"remove"` or `"remove-upgrade"`. Clean up durable records for both actions, and do not post to the conversation after removal.
 
 ```typescript
 bot.onUninstalled(async (event) => {
-  if (event.action !== "remove") return;
-  await removeInstallation(event.tenantId, event.conversationId);
+  await removeInstallation(event);
 });
 ```
+
+`removeInstallation` is application-owned. For Teams team installs, associate
+records with `event.raw.channelData.team.id`, not just `conversationId`, which
+can differ between installation and removal. See the [Teams persistence example](/adapters/official/teams#installation-lifecycle).
 
 ## Utility methods
 

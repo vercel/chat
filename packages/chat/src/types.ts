@@ -2760,7 +2760,7 @@ export type AppContextChangedHandler = (
 
 /**
  * Installation lifecycle action. `add-upgrade` and `remove-upgrade` are sent
- * when an existing installation is upgraded rather than installed or removed.
+ * when an app upgrade adds or removes the bot from its manifest, respectively.
  */
 export type InstallationAction =
   | "add"

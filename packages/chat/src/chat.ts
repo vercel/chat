@@ -989,12 +989,12 @@ export class Chat<
     this.logger.debug("Registered app context changed handler");
   }
 
-  /** Handle bot installation and installation upgrades (currently Teams only). */
+  /** Handle bot installation, including upgrades that add the bot (currently Teams only). */
   onInstalled(handler: InstalledHandler): void {
     this.installedHandlers.push(handler);
   }
 
-  /** Handle bot removal and removal upgrades (currently Teams only). */
+  /** Handle bot removal, including upgrades that remove the bot (currently Teams only). */
   onUninstalled(handler: UninstalledHandler): void {
     this.uninstalledHandlers.push(handler);
   }

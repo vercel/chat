@@ -332,21 +332,40 @@ post to it later from any process with `bot.channel(channelId).post()`. When the
 activity body carries no service URL, the adapter uses the one from the validated
 request token, so `channelId` is normally present.
 
+Keep the installation key separate from the posting destination. For team
+installs, use `event.raw.channelData.team.id`: the add event can identify the
+selected channel while removal identifies the team/root conversation. Personal
+and group chat installs can use `conversationId`. Include the bot ID, tenant ID,
+and scope in the key so unrelated installations stay separate.
+
 ```typescript
+import type { TeamsActivity } from "@chat-adapter/teams/webhook";
+import type { InstallationEvent } from "chat";
+
+function installationKey(event: InstallationEvent) {
+  const activity = event.raw as TeamsActivity;
+  const teamId = activity.channelData?.team?.id;
+  return JSON.stringify([
+    event.adapter.botUserId,
+    event.tenantId,
+    teamId ? "team" : "conversation",
+    teamId ?? event.conversationId,
+  ]);
+}
+
 // `installationStore` is your application's durable key/value store.
 bot.onInstalled(async (event) => {
   if (event.adapter.name !== "teams" || !event.channelId) return;
-  const key = `${event.adapter.botUserId}:${event.tenantId}:${event.conversationId}`;
+  const key = installationKey(event);
   // An upsert also replaces the destination after a reinstall or upgrade.
   await installationStore.set(key, event.channelId);
-  if (event.action !== "add") return;
 
   await bot.channel(event.channelId).post("Thanks for installing!");
 });
 
 bot.onUninstalled(async (event) => {
-  if (event.adapter.name !== "teams" || event.action !== "remove") return;
-  const key = `${event.adapter.botUserId}:${event.tenantId}:${event.conversationId}`;
+  if (event.adapter.name !== "teams") return;
+  const key = installationKey(event);
   await installationStore.delete(key);
 });
 ```
@@ -357,10 +376,14 @@ both fire for the same conversation. Send install welcomes from one of them. If
 you use `onMemberJoinedChannel` for Slack, skip Teams there by checking
 `event.adapter.name`. Personal installs emit `onInstalled` only.
 
-Filter on `action` when you only want a first-install welcome; a `remove-upgrade`
-is not a permanent uninstall. Delivery may be retried, so make side effects
-idempotent, for example keyed on bot ID, tenant ID, conversation ID, and activity
-ID. The SDK does not subscribe, persist, or deduplicate installations for you.
+`add-upgrade` means an app upgrade added the bot to the manifest;
+`remove-upgrade` means it removed the bot. Handle them as installation and
+removal, respectively, including persistence and cleanup. Routine upgrades that
+leave the bot in place do not emit `installationUpdate`.
+
+Delivery may be retried, so make side effects idempotent, for example keyed on
+the installation key and activity ID. The SDK does not subscribe, persist, or
+deduplicate installations for you.
 Do not send a farewell after removal. Pass your host's `waitUntil` to the webhook
 handler so persistence and onboarding finish after the response.
 
