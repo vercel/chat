@@ -192,6 +192,111 @@ describe.skipIf(!testUrl)("PostgreSQL migration-owned schema", () => {
     await expect(adapter.connect()).resolves.toBeUndefined();
   });
 
+  it("accepts sufficient column grants and rejects missing required grants", async () => {
+    const columns = `${schema}_columns`;
+    const owner = new pg.Pool({
+      connectionString: testUrl,
+      options: `-c search_path=${columns}`,
+      max: 1,
+    });
+    pools.push(owner);
+    await owner.query(`CREATE SCHEMA ${columns}`);
+    schemas.push(columns);
+    for (const statement of postgresSchemaStatements) {
+      await owner.query(statement);
+    }
+    await owner.query(`GRANT USAGE ON SCHEMA ${columns} TO ${role}`);
+    await owner.query(
+      `GRANT DELETE ON ALL TABLES IN SCHEMA ${columns} TO ${role}`
+    );
+    await owner.query(
+      `GRANT USAGE ON ALL SEQUENCES IN SCHEMA ${columns} TO ${role}`
+    );
+    const grants = [
+      "SELECT (key_prefix, thread_id), INSERT (key_prefix, thread_id) ON chat_state_subscriptions",
+      "SELECT (key_prefix, thread_id, token, expires_at), INSERT (key_prefix, thread_id, token, expires_at), UPDATE (token, expires_at, updated_at) ON chat_state_locks",
+      "SELECT (key_prefix, cache_key, value, expires_at), INSERT (key_prefix, cache_key, value, expires_at), UPDATE (value, expires_at, updated_at) ON chat_state_cache",
+      "SELECT (key_prefix, list_key, seq, value, expires_at), INSERT (key_prefix, list_key, value, expires_at), UPDATE (expires_at) ON chat_state_lists",
+      "SELECT (key_prefix, thread_id, seq, value, expires_at), INSERT (key_prefix, thread_id, value, expires_at) ON chat_state_queues",
+    ];
+    for (const grant of grants) {
+      await owner.query(`GRANT ${grant} TO ${role}`);
+    }
+    const pool = new pg.Pool({
+      connectionString: testUrl,
+      options: `-c search_path=${columns} -c role=${role}`,
+      max: 1,
+    });
+    pools.push(pool);
+    const adapter = createPostgresState({
+      client: pool,
+      autoCreateSchema: false,
+    });
+    const privileges = await pool.query(
+      "SELECT has_table_privilege('chat_state_cache', 'INSERT') AS table_insert, has_column_privilege('chat_state_cache', 'value', 'INSERT') AS column_insert"
+    );
+    expect(privileges.rows).toEqual([
+      { table_insert: false, column_insert: true },
+    ]);
+    await adapter.connect();
+    await adapter.subscribe("thread");
+    await adapter.subscribe("thread");
+    expect(await adapter.isSubscribed("thread")).toBe(true);
+    await adapter.unsubscribe("thread");
+    expect(await adapter.isSubscribed("thread")).toBe(false);
+    await adapter.set("cache", "first", ttlMs);
+    await adapter.set("cache", "updated", ttlMs);
+    expect(await adapter.get("cache")).toBe("updated");
+    expect(await adapter.setIfNotExists("cache", "duplicate", ttlMs)).toBe(
+      false
+    );
+    await adapter.delete("cache");
+    expect(await adapter.get("cache")).toBeNull();
+    expect(await adapter.setIfNotExists("cache", "new", ttlMs)).toBe(true);
+    const lock = await adapter.acquireLock("thread", ttlMs);
+    expect(lock).not.toBeNull();
+    if (!lock) {
+      throw new Error("Expected lock acquisition");
+    }
+    expect(await adapter.acquireLock("thread", ttlMs)).toBeNull();
+    expect(await adapter.extendLock(lock, ttlMs)).toBe(true);
+    await adapter.releaseLock(lock);
+    await adapter.forceReleaseLock("thread");
+    await adapter.appendToList("list", "first", { ttlMs, maxLength: 1 });
+    await adapter.appendToList("list", "second", { ttlMs, maxLength: 1 });
+    expect(await adapter.getList("list")).toEqual(["second"]);
+    const entry = {
+      message: { id: "message" },
+      enqueuedAt: Date.now(),
+      expiresAt: Date.now() + ttlMs,
+    } as QueueEntry;
+    await adapter.enqueue("thread", entry, 1);
+    expect(await adapter.enqueue("thread", entry, 1)).toBe(1);
+    expect(await adapter.queueDepth("thread")).toBe(1);
+    expect(await adapter.dequeue("thread")).toEqual(entry);
+    expect(await adapter.dequeue("thread")).toBeNull();
+    await adapter.disconnect();
+
+    for (const grant of [
+      "SELECT (cache_key) ON chat_state_cache",
+      "INSERT (value) ON chat_state_cache",
+      "UPDATE (updated_at) ON chat_state_cache",
+      "DELETE ON chat_state_cache",
+      "USAGE ON SEQUENCE chat_state_lists_seq_seq",
+    ]) {
+      await owner.query(`REVOKE ${grant} FROM ${role}`);
+      try {
+        await expect(adapter.connect()).rejects.toThrow(
+          "the current role lacks privileges"
+        );
+      } finally {
+        await owner.query(`GRANT ${grant} TO ${role}`);
+      }
+      await adapter.connect();
+      await adapter.disconnect();
+    }
+  });
+
   it("accepts identity columns without any sequence grant", async () => {
     const identitySchema = `${schema}_identity`;
     const owner = new pg.Pool({

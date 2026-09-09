@@ -217,14 +217,26 @@ describe("PostgresStateAdapter", () => {
         expect(probe).not.toContain(
           `has_table_privilege('${table}', 'UPDATE')`
         );
+        expect(probe).not.toContain(
+          `has_column_privilege('${table}', 'expires_at', 'UPDATE')`
+        );
       }
       for (const table of [
         "chat_state_locks",
         "chat_state_cache",
         "chat_state_lists",
       ]) {
-        expect(probe).toContain(`has_table_privilege('${table}', 'UPDATE')`);
+        expect(probe).toContain(
+          `has_column_privilege('${table}', 'expires_at', 'UPDATE')`
+        );
       }
+      expect(probe).toContain(
+        "has_column_privilege('chat_state_cache', 'updated_at', 'UPDATE')"
+      );
+      expect(probe).not.toContain(
+        "has_column_privilege('chat_state_cache', 'updated_at', 'INSERT')"
+      );
+      expect(probe).not.toContain("has_any_column_privilege");
       for (const table of ["chat_state_lists", "chat_state_queues"]) {
         expect(probe).toContain(
           `has_sequence_privilege(pg_get_serial_sequence('${table}', 'seq'), 'USAGE, UPDATE')`

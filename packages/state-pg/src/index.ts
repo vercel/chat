@@ -98,22 +98,56 @@ export const postgresSchemaStatements: readonly string[] = [
 
 // Privileges each table actually needs. Subscriptions and queues are never
 // updated: subscribe() uses ON CONFLICT DO NOTHING, which needs INSERT only.
-const tablePrivileges: Readonly<Record<string, readonly string[]>> = {
-  chat_state_subscriptions: ["SELECT", "INSERT", "DELETE"],
-  chat_state_locks: ["SELECT", "INSERT", "UPDATE", "DELETE"],
-  chat_state_cache: ["SELECT", "INSERT", "UPDATE", "DELETE"],
-  chat_state_lists: ["SELECT", "INSERT", "UPDATE", "DELETE"],
-  chat_state_queues: ["SELECT", "INSERT", "DELETE"],
+const tablePrivileges: Readonly<
+  Record<
+    string,
+    {
+      SELECT: readonly string[];
+      INSERT: readonly string[];
+      UPDATE?: readonly string[];
+    }
+  >
+> = {
+  chat_state_subscriptions: {
+    SELECT: ["key_prefix", "thread_id"],
+    INSERT: ["key_prefix", "thread_id"],
+  },
+  chat_state_locks: {
+    SELECT: ["key_prefix", "thread_id", "token", "expires_at"],
+    INSERT: ["key_prefix", "thread_id", "token", "expires_at"],
+    UPDATE: ["token", "expires_at", "updated_at"],
+  },
+  chat_state_cache: {
+    SELECT: ["key_prefix", "cache_key", "value", "expires_at"],
+    INSERT: ["key_prefix", "cache_key", "value", "expires_at"],
+    UPDATE: ["value", "expires_at", "updated_at"],
+  },
+  chat_state_lists: {
+    SELECT: ["key_prefix", "list_key", "seq", "value", "expires_at"],
+    INSERT: ["key_prefix", "list_key", "value", "expires_at"],
+    UPDATE: ["expires_at"],
+  },
+  chat_state_queues: {
+    SELECT: ["key_prefix", "thread_id", "seq", "value", "expires_at"],
+    INSERT: ["key_prefix", "thread_id", "value", "expires_at"],
+  },
 };
 
 const sequenceTables = ["chat_state_lists", "chat_state_queues"] as const;
 
-// has_table_privilege() with a comma-separated list is true when ANY listed
-// privilege is held, so each privilege is checked on its own and ANDed.
-function tablePrivilegeCheck(table: string, privileges: readonly string[]) {
-  return privileges
-    .map((privilege) => `has_table_privilege('${table}', '${privilege}')`)
-    .join(" AND ");
+function tablePrivilegeCheck(
+  table: string,
+  privileges: (typeof tablePrivileges)[string]
+) {
+  return [
+    `has_table_privilege('${table}', 'DELETE')`,
+    ...Object.entries(privileges).flatMap(([privilege, columns]) =>
+      columns.map(
+        (column) =>
+          `has_column_privilege('${table}', '${column}', '${privilege}')`
+      )
+    ),
+  ].join(" AND ");
 }
 
 // nextval() is allowed by either USAGE or UPDATE on the sequence, and identity
