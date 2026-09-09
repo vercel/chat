@@ -1914,6 +1914,64 @@ describe("TeamsAdapter", () => {
   });
 });
 
+describe("card.action invoke ack", () => {
+  it("returns a non-empty Adaptive Card invoke response so Teams does not retry", async () => {
+    const adapter = createTeamsAdapter({
+      appId: "test-app",
+      appPassword: "test",
+      logger,
+    });
+    const chat = createMockChatInstance();
+    await adapter.initialize(chat);
+
+    type CardActionHandler = (ctx: {
+      activity: Record<string, unknown>;
+    }) => Promise<unknown>;
+
+    const app = (
+      adapter as unknown as {
+        app: {
+          router: {
+            select: (activity: Record<string, unknown>) => CardActionHandler[];
+          };
+        };
+      }
+    ).app;
+
+    const activity = {
+      conversation: { id: "19:abc@thread.tacv2" },
+      from: { id: "29:user-1", name: "Ada" },
+      id: "invoke-1",
+      name: "adaptiveCard/action",
+      serviceUrl: TEST_SERVICE_URL,
+      type: "invoke",
+      value: {
+        action: {
+          data: { actionId: "thumbs_up", value: JSON.stringify({ id: "x" }) },
+          type: "Action.Submit",
+        },
+        trigger: "manual",
+      },
+    };
+
+    const handlers = app.router.select(activity);
+    expect(handlers.length).toBeGreaterThan(0);
+
+    const response = await handlers[0]({ activity });
+
+    expect(response).toEqual({
+      statusCode: 200,
+      type: "application/vnd.microsoft.activity.message",
+      value: "OK",
+    });
+    expect(
+      typeof (response as { value: unknown }).value === "string" &&
+        (response as { value: string }).value.length > 0
+    ).toBe(true);
+    expect(chat.processAction).toHaveBeenCalledOnce();
+  });
+});
+
 describe("subclass extensibility", () => {
   it("exposes protected members and methods to subclasses", () => {
     class TestSubclass extends TeamsAdapter {
