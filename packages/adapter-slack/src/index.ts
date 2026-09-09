@@ -6044,10 +6044,22 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
       const finalText =
         (head.length > 0 ? withSegmentPrefix(head) : "") + closer;
       const ageMs = segmentAgeMs();
+      const closingTaskChunks =
+        structuredChunksSupported && openTasks.size > 0
+          ? Array.from(openTasks.values(), (task) => ({
+              ...task,
+              status: "complete" as const,
+            }))
+          : undefined;
       try {
         const result = await segment.streamer.stop({
           token,
           ...(finalText.length > 0 ? { markdown_text: finalText } : {}),
+          ...(closingTaskChunks
+            ? {
+                chunks: closingTaskChunks as ChatStopStreamArguments["chunks"],
+              }
+            : {}),
           // Keep the agent session marked busy: the reply continues in the
           // next segment, and chat.stopStream defaults to "active".
           ...(this.agentView ? { session_status: "processing" } : {}),
