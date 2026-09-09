@@ -230,6 +230,28 @@ For team installations, `channelId` identifies the channel selected during insta
 
 This dispatches bot joins only. Personal installs, ordinary member additions, removals, and `installationUpdate` activities do not emit this event. See Microsoft's [conversation event documentation](https://learn.microsoft.com/en-us/microsoftteams/platform/bots/how-to/conversations/subscribe-to-conversation-events#members-added) for the underlying payloads.
 
+## Installation lifecycle
+
+Use `bot.onInstalled` for personal, group chat, and team installation updates,
+and `bot.onUninstalled` for removal cleanup. The `add-upgrade` and
+`remove-upgrade` actions mean an app upgrade added or removed the bot from its
+manifest; handle persistence and cleanup for those actions too. Routine app
+upgrades do not emit these events. A team or group
+chat install also emits `onMemberJoinedChannel`; keep each welcome flow in one
+handler and make side effects idempotent.
+
+Events include the platform `conversationId`, optional tenant and actor
+metadata, and a `channelId` that encodes the conversation's service URL. Persist
+`channelId` in your own durable store and post to it later from any process with
+`bot.channel(channelId).post()`. Removal events still reach your cleanup handler
+when the activity carries no service URL. Pass webhook `waitUntil` to track
+asynchronous work. For team installs, associate the destination with
+`event.raw.channelData.team.id`, plus bot and tenant IDs: the selected-channel
+`conversationId` on install can differ from the team/root ID on removal.
+
+See the [installation lifecycle guide](https://chat-sdk.dev/adapters/official/teams#installation-lifecycle)
+for persistence, upgrade cleanup, and proactive examples.
+
 ## Incoming attachments
 
 Incoming inline images and files are exposed through `message.attachments` with a lazy `fetchData()` method. The adapter authenticates connector-hosted inline attachments through the configured Teams bot client, while [Teams file download cards](https://learn.microsoft.com/en-us/microsoftteams/platform/bots/how-to/bots-filesv4) use their direct download URL without the bot token.

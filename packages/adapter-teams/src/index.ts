@@ -13,6 +13,7 @@ import type {
   IConversationUpdateActivity,
   IMessageActivity,
   IMessageReactionActivity,
+  InstallUpdateActivity,
   ITaskFetchInvokeActivity,
   ITaskSubmitInvokeActivity,
   MessageReactionType,
@@ -21,7 +22,7 @@ import type {
 } from "@microsoft/teams.api";
 import { MessageActivity, TypingActivity } from "@microsoft/teams.api";
 import type { IActivityContext, IStreamer } from "@microsoft/teams.apps";
-import { App, StreamCancelledError } from "@microsoft/teams.apps";
+import { StreamCancelledError } from "@microsoft/teams.apps";
 import { users } from "@microsoft/teams.graph-endpoints";
 import type {
   ActionEvent,
@@ -54,6 +55,7 @@ import {
   defaultEmojiResolver,
   Message,
 } from "chat";
+import { TeamsApp } from "./app";
 import {
   createAnonymousAttachmentFetchData,
   createTeamsAttachment,
@@ -65,6 +67,7 @@ import { AUTO_SUBMIT_ACTION_ID, cardToAdaptiveCard } from "./cards";
 import { toAppOptions } from "./config";
 import { handleTeamsError } from "./errors";
 import { TeamsGraphReader } from "./graph-api";
+import { isInstallAction, parseInstallationAction } from "./installation";
 import { TeamsFormatConverter } from "./markdown";
 import {
   modalResponseToTaskModuleResponse,
@@ -76,6 +79,7 @@ import {
   decodeThreadId,
   encodeThreadId,
   isDM,
+  tenantIdFromActivity,
 } from "./thread-id";
 import type {
   TeamsAdapterConfig,
@@ -124,7 +128,7 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
   readonly userName: string;
   readonly botUserId?: string;
 
-  protected readonly app: App;
+  protected readonly app: TeamsApp;
   protected readonly bridgeAdapter: BridgeHttpAdapter;
   protected chat: ChatInstance | null = null;
   protected readonly logger: Logger;
@@ -142,7 +146,7 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
     this.bridgeAdapter = new BridgeHttpAdapter(this.logger);
 
     // Convert our public config (appId/appPassword/appTenantId) to Teams SDK AppOptions
-    this.app = new App({
+    this.app = new TeamsApp({
       ...toAppOptions(config),
       client: {
         headers: { "User-Agent": "Vercel.ChatSDK" },
@@ -210,7 +214,66 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
 
     this.app.on("installationUpdate", async (ctx) => {
       this.cacheUserContext(ctx.activity);
+      this.handleInstallationUpdate(ctx);
     });
+  }
+
+  protected handleInstallationUpdate(
+    ctx: IActivityContext<InstallUpdateActivity>
+  ): void {
+    const { activity } = ctx;
+    if (!this.chat) {
+      this.logger.warn(
+        "Chat instance not initialized, ignoring installationUpdate"
+      );
+      return;
+    }
+    if (
+      !(activity.recipient?.id && this.isBotAccountId(activity.recipient.id))
+    ) {
+      this.logger.debug(
+        "Ignoring installationUpdate: recipient is not this bot"
+      );
+      return;
+    }
+    const conversationId = activity.conversation?.id;
+    if (!conversationId) {
+      this.logger.debug("Ignoring installationUpdate: missing conversation id");
+      return;
+    }
+    const action = parseInstallationAction(activity.action);
+    if (!action) {
+      this.logger.debug("Ignoring installationUpdate: unknown action", {
+        action: activity.action,
+      });
+      return;
+    }
+    // Message thread IDs encode the raw activity serviceUrl, so prefer it for
+    // consistency. The SDK reference falls back to the JWT's serviceUrl when
+    // the body omits one, which still gives a sendable destination.
+    const serviceUrl = activity.serviceUrl || ctx.ref.serviceUrl;
+    const event = {
+      adapter: this,
+      id: activity.id,
+      conversationId,
+      channelId: serviceUrl
+        ? this.encodeThreadId({
+            conversationId,
+            serviceUrl,
+            conversationType: conversationTypeFromActivity(activity),
+          })
+        : undefined,
+      userId: activity.from?.id,
+      tenantId: tenantIdFromActivity(activity),
+      locale: activity.locale,
+      raw: activity,
+    };
+    const options = this.bridgeAdapter.getWebhookOptions(activity.id);
+    if (isInstallAction(action)) {
+      this.chat.processInstalled?.({ ...event, action }, options);
+    } else {
+      this.chat.processUninstalled?.({ ...event, action }, options);
+    }
   }
 
   protected handleConversationUpdate(
@@ -318,7 +381,7 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
     }
 
     const channelData = activity.channelData;
-    const tenantId = activity.conversation?.tenantId ?? channelData?.tenant?.id;
+    const tenantId = tenantIdFromActivity(activity);
 
     if (tenantId) {
       this.chat
@@ -1147,7 +1210,8 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
     threadId: string,
     message: AdapterPostableMessage
   ): Promise<RawMessage<unknown>> {
-    const { conversationId } = this.decodeThreadId(threadId);
+    const target = this.decodeThreadId(threadId);
+    const { conversationId } = target;
 
     const files = extractFiles(message);
     const fileAttachments =
@@ -1172,7 +1236,7 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
       });
 
       try {
-        const sent = await this.app.send(conversationId, activity);
+        const sent = await this.app.sendTo(target, activity);
 
         return {
           id: sent.id || "",
@@ -1204,7 +1268,7 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
     });
 
     try {
-      const sent = await this.app.send(conversationId, activity);
+      const sent = await this.app.sendTo(target, activity);
 
       this.logger.debug("Teams API: send response", { messageId: sent.id });
 
@@ -1234,7 +1298,8 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
       };
     }
 
-    const { conversationId } = this.decodeThreadId(threadId);
+    const target = this.decodeThreadId(threadId);
+    const { conversationId } = target;
     const recipient = this.createTargetedRecipient(userId);
 
     const files = extractFiles(message);
@@ -1261,7 +1326,7 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
       });
 
       try {
-        const sent = await this.app.send(conversationId, activity);
+        const sent = await this.app.sendTo(target, activity);
 
         return {
           id: sent.id || "",
@@ -1298,7 +1363,7 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
     });
 
     try {
-      const sent = await this.app.send(conversationId, activity);
+      const sent = await this.app.sendTo(target, activity);
 
       this.logger.debug("Teams API: targeted send response", {
         messageId: sent.id,
@@ -1364,7 +1429,8 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
     messageId: string,
     message: AdapterPostableMessage
   ): Promise<RawMessage<unknown>> {
-    const { conversationId } = this.decodeThreadId(threadId);
+    const target = this.decodeThreadId(threadId);
+    const { conversationId, serviceUrl } = target;
 
     const card = extractCard(message);
 
@@ -1384,8 +1450,9 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
       });
 
       try {
-        await this.app.api.conversations
-          .activities(conversationId)
+        await this.app
+          .apiFor(serviceUrl)
+          .conversations.activities(conversationId)
           .update(messageId, activity);
       } catch (error) {
         this.logger.error("Teams API: updateActivity failed", {
@@ -1414,8 +1481,9 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
     });
 
     try {
-      await this.app.api.conversations
-        .activities(conversationId)
+      await this.app
+        .apiFor(serviceUrl)
+        .conversations.activities(conversationId)
         .update(messageId, activity);
     } catch (error) {
       this.logger.error("Teams API: updateActivity failed", {
@@ -1432,7 +1500,8 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
   }
 
   async deleteMessage(threadId: string, messageId: string): Promise<void> {
-    const { conversationId } = this.decodeThreadId(threadId);
+    const target = this.decodeThreadId(threadId);
+    const { conversationId, serviceUrl } = target;
 
     this.logger.debug("Teams API: deleteActivity", {
       conversationId,
@@ -1440,8 +1509,9 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
     });
 
     try {
-      await this.app.api.conversations
-        .activities(conversationId)
+      await this.app
+        .apiFor(serviceUrl)
+        .conversations.activities(conversationId)
         .delete(messageId);
     } catch (error) {
       this.logger.error("Teams API: deleteActivity failed", {
@@ -1460,7 +1530,8 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
     messageId: string,
     emoji: EmojiValue | string
   ): Promise<void> {
-    const { conversationId } = this.decodeThreadId(threadId);
+    const target = this.decodeThreadId(threadId);
+    const { conversationId, serviceUrl } = target;
     const reactionType = resolveTeamsReactionType(emoji);
 
     this.logger.debug("Teams API: addReaction", {
@@ -1470,11 +1541,9 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
     });
 
     try {
-      await this.app.api.conversations.addReaction(
-        conversationId,
-        messageId,
-        reactionType
-      );
+      await this.app
+        .apiFor(serviceUrl)
+        .conversations.addReaction(conversationId, messageId, reactionType);
     } catch (error) {
       this.logger.error("Teams API: addReaction failed", {
         conversationId,
@@ -1493,7 +1562,8 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
     messageId: string,
     emoji: EmojiValue | string
   ): Promise<void> {
-    const { conversationId } = this.decodeThreadId(threadId);
+    const target = this.decodeThreadId(threadId);
+    const { conversationId, serviceUrl } = target;
     const reactionType = resolveTeamsReactionType(emoji);
 
     this.logger.debug("Teams API: deleteReaction", {
@@ -1503,11 +1573,9 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
     });
 
     try {
-      await this.app.api.conversations.deleteReaction(
-        conversationId,
-        messageId,
-        reactionType
-      );
+      await this.app
+        .apiFor(serviceUrl)
+        .conversations.deleteReaction(conversationId, messageId, reactionType);
     } catch (error) {
       this.logger.error("Teams API: deleteReaction failed", {
         conversationId,
@@ -1522,12 +1590,13 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
   }
 
   async startTyping(threadId: string, _status?: string): Promise<void> {
-    const { conversationId } = this.decodeThreadId(threadId);
+    const target = this.decodeThreadId(threadId);
+    const { conversationId } = target;
 
     this.logger.debug("Teams API: send (typing)", { conversationId });
 
     try {
-      await this.app.send(conversationId, new TypingActivity());
+      await this.app.sendTo(target, new TypingActivity());
     } catch (error) {
       this.logger.error("Teams API: send (typing) failed", {
         conversationId,
@@ -1676,7 +1745,7 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
     }
 
     try {
-      const result = await this.app.api.conversations.create({
+      const result = await this.app.apiFor(serviceUrl).conversations.create({
         isGroup: false,
         bot: { id: this.app.id, name: this.userName },
         // Account requires role/name but Teams API only needs id for DM members
@@ -1758,7 +1827,8 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
     channelId: string,
     message: AdapterPostableMessage
   ): Promise<RawMessage<unknown>> {
-    const { conversationId } = this.decodeThreadId(channelId);
+    const target = this.decodeThreadId(channelId);
+    const { conversationId } = target;
     const baseConversationId = conversationId.replace(
       MESSAGEID_STRIP_PATTERN,
       ""
@@ -1782,7 +1852,10 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
       ];
 
       try {
-        const sent = await this.app.send(baseConversationId, activity);
+        const sent = await this.app.sendTo(
+          { ...target, conversationId: baseConversationId },
+          activity
+        );
         return { id: sent.id || "", threadId: channelId, raw: activity };
       } catch (error) {
         this.logger.error("Teams API: postChannelMessage failed", {
@@ -1804,7 +1877,10 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
     }
 
     try {
-      const sent = await this.app.send(baseConversationId, activity);
+      const sent = await this.app.sendTo(
+        { ...target, conversationId: baseConversationId },
+        activity
+      );
       this.logger.debug("Teams API: postChannelMessage response", {
         messageId: sent.id,
       });

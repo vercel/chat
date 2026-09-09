@@ -288,6 +288,8 @@ export function createMockChatInstance(
     processModalSubmit: vi.fn().mockResolvedValue(undefined),
     processModalClose: vi.fn(),
     processSlashCommand: vi.fn(),
+    processInstalled: vi.fn(),
+    processUninstalled: vi.fn(),
     processMemberJoinedChannel: vi.fn(),
     processAppHomeOpened: vi.fn(),
     processAgentSessionStopped: vi.fn(),
