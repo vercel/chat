@@ -1,8 +1,9 @@
+import type { SlackFetch } from "../fetch";
 import { isSlackAuthUrl } from "../file";
 
-export type SlackBotToken = string | (() => Promise<string> | string);
+export type { SlackFetch } from "../fetch";
 
-export type SlackFetch = typeof fetch;
+export type SlackBotToken = string | (() => Promise<string> | string);
 
 export interface SlackApiResponse {
   error?: string;

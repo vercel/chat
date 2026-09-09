@@ -3,8 +3,6 @@
  */
 
 import { createHmac, randomBytes } from "node:crypto";
-import type { IncomingMessage } from "node:http";
-import { Readable } from "node:stream";
 import {
   type AttachmentTransport,
   AuthenticationError,
@@ -36,19 +34,17 @@ import {
   createSlackAdapter,
   SlackAdapter,
 } from "./index";
+import { incomingMessage } from "./test-fixtures";
 
 const FILE_ID_PATTERN = /^file-/;
 
 // Captures guarded file downloads at the transport seam; the resolved
 // per-hop headers show which token (if any) each hop would send.
 class TransportSlackAdapter extends SlackAdapter {
-  readonly fileTransport = vi.fn(
-    async (): Promise<IncomingMessage> =>
-      Object.assign(Readable.from([Buffer.from("file-bytes")]), {
-        headers: { "content-type": "application/octet-stream" },
-        statusCode: 200,
-        statusMessage: "OK",
-      }) as IncomingMessage
+  readonly fileTransport = vi.fn(async () =>
+    incomingMessage(Buffer.from("file-bytes"), {
+      headers: { "content-type": "application/octet-stream" },
+    })
   );
 
   protected override createFileTransport(): AttachmentTransport {

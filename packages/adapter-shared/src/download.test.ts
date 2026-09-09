@@ -328,6 +328,48 @@ describe("guarded attachment downloads", () => {
     ).rejects.toThrow("Timed out fetching the attachment");
   });
 
+  it("times out a transport that never responds and ignores the signal", async () => {
+    let settle: ((response: IncomingMessage) => void) | undefined;
+    const transport = vi.fn(
+      () =>
+        new Promise<IncomingMessage>((fulfill) => {
+          settle = fulfill;
+        })
+    );
+
+    await expect(
+      downloadAttachment("https://files.example.com/file", {
+        adapter: "test",
+        timeoutMs: 20,
+        transport,
+      })
+    ).rejects.toThrow("Timed out fetching the attachment");
+    // A response that arrives after the deadline is destroyed, not leaked.
+    const late = response("late");
+    settle?.(late);
+    await new Promise((resolve) => setImmediate(resolve));
+    expect(late.destroyed).toBe(true);
+  });
+
+  it("times out a body read that the transport does not tie to the signal", async () => {
+    // A Readable that never ends, from a transport that ignores the signal.
+    const hanging = Object.assign(new Readable({ read() {} }), {
+      headers: {},
+      statusCode: 200,
+      statusMessage: "OK",
+    }) as IncomingMessage;
+    const transport = vi.fn(async () => hanging);
+
+    await expect(
+      downloadAttachment("https://files.example.com/file", {
+        adapter: "test",
+        timeoutMs: 20,
+        transport,
+      })
+    ).rejects.toThrow("Timed out fetching the attachment");
+    expect(hanging.destroyed).toBe(true);
+  });
+
   it("decodes gzip response bodies", async () => {
     const transport = vi.fn(async () =>
       response(gzipSync(Buffer.from("file contents")), 200, {
