@@ -240,7 +240,7 @@ await thread.post({
 });
 ```
 
-Custom status text is ignored. WhatsApp shows the indicator for up to 25 seconds or until the reply is delivered; RCS up to 20 seconds. SMS has no typing API, so `startTyping()` is a no-op.
+Custom status text is ignored. WhatsApp shows the indicator for up to 25 seconds or until the reply is delivered; RCS up to 20 seconds. SMS has no typing API, so `startTyping()` is a no-op — including SMS threads keyed by a Messaging Service SID. For RCS threads keyed by `MG…`, set `rcsSenderId`.
 
 ## Media
 

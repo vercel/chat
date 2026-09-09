@@ -939,6 +939,38 @@ describe("startTyping", () => {
     });
   });
 
+  it("does not post typing for Messaging Service SMS threads", async () => {
+    const fetch = mockFetch({ success: true });
+    const adapter = createTwilioAdapter({
+      accountSid: "AC123",
+      authToken: "token",
+      fetch,
+    });
+
+    await adapter.startTyping(rcsThreadId);
+
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it("sends RCS typing from an rcs: thread sender without rcsSenderId", async () => {
+    const fetch = mockFetch({ success: true });
+    const adapter = createTwilioAdapter({
+      accountSid: "AC123",
+      authToken: "token",
+      fetch,
+    });
+    const threadId = "twilio:rcs%3Abrand_agent:%2B15550000002";
+
+    await adapter.startTyping(threadId);
+
+    expect(JSON.parse(String(fetch.mock.calls[0]?.[1]?.body))).toEqual({
+      channel: "RCS",
+      event: "START",
+      from: "rcs:brand_agent",
+      to: "rcs:+15550000002",
+    });
+  });
+
   it("does not post typing for SMS threads", async () => {
     const fetch = mockFetch({ success: true });
     const adapter = createTwilioAdapter({

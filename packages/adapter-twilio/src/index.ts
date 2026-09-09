@@ -325,27 +325,29 @@ export class TwilioAdapter
       });
       return;
     }
-    if (
-      isRcsAddress(thread.sender) ||
-      isRcsAddress(thread.recipient) ||
-      isRcsCapableSender(thread.sender)
-    ) {
-      let from = thread.sender;
-      if (!isRcsAddress(from) && this.rcsSenderId) {
-        from = normalizeRcsSenderId(this.rcsSenderId);
-      }
-      let to = thread.recipient;
-      if (!isRcsAddress(to) && to.startsWith("+")) {
-        to = `rcs:${to}`;
-      }
-      await sendTwilioTypingIndicator({
-        ...this.apiOptions(),
-        channel: "RCS",
-        event: "START",
-        from,
-        to,
-      });
+    let from = thread.sender;
+    if (!isRcsAddress(from) && this.rcsSenderId) {
+      from = normalizeRcsSenderId(this.rcsSenderId);
     }
+    // MG senders can be SMS or RCS. Only POST when `from` is a real RCS
+    // agent id so SMS threads keyed by a Messaging Service stay a no-op.
+    if (!isRcsAddress(from)) {
+      return;
+    }
+    let to = thread.recipient;
+    if (!isRcsAddress(to) && to.startsWith("+")) {
+      to = `rcs:${to}`;
+    }
+    if (!isRcsAddress(to)) {
+      return;
+    }
+    await sendTwilioTypingIndicator({
+      ...this.apiOptions(),
+      channel: "RCS",
+      event: "START",
+      from,
+      to,
+    });
   }
 
   parseMessage(raw: TwilioRawMessage): Message<TwilioRawMessage> {
