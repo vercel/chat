@@ -71,6 +71,15 @@ createTwilioAdapter({
 
 Use `phoneNumber` for a single Twilio number, or `messagingServiceSid` when sending through a Twilio Messaging Service.
 
+## Typing indicators
+
+WhatsApp and RCS conversations can show a typing indicator via `thread.startTyping()`. Twilio's v3 Indicators API uses one URL with channel-specific JSON:
+
+- WhatsApp: `{ channel: "WHATSAPP", messageId }` (inbound Message SID)
+- RCS: `{ channel: "RCS", from: "rcs:<agent_id>", to: "rcs:+E164", event: "START" }`
+
+Messaging Service (`MG…`) threads are treated as SMS unless `rcsSenderId` is set or the thread sender is already `rcs:`.
+
 ## Media
 
 Inbound MMS media is exposed as attachments. Twilio media URLs are private, so attachments include `fetchData()` for authenticated downloads.
