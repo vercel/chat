@@ -11118,7 +11118,7 @@ describe("native stream rotation", () => {
     });
   });
 
-  it("replays the plan and open task cards into the new segment", async () => {
+  it("completes open task cards before replaying them into the new segment", async () => {
     await withClock(async (tick) => {
       const { adapter, segments } = setup();
       const plan = { type: "plan_update" as const, title: "Plan" };
@@ -11146,7 +11146,10 @@ describe("native stream rotation", () => {
 
       await adapter.stream(THREAD, stream());
 
-      expect(segments[0].stop).toHaveBeenCalledWith({ token: TOKEN });
+      expect(segments[0].stop).toHaveBeenCalledWith({
+        chunks: [{ ...oneInProgress, status: "complete" }],
+        token: TOKEN,
+      });
       expect(segments[1].append).toHaveBeenNthCalledWith(1, {
         chunks: [plan, oneInProgress],
         token: TOKEN,
