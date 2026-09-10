@@ -15,21 +15,26 @@ import type {
   ActionStyle,
   CardElementArray,
   ChoiceSetInputOptions,
+  HorizontalAlignment,
   OpenUrlActionOptions,
   SubmitActionOptions,
+  TextBlockOptions,
+  VerticalAlignment,
 } from "@microsoft/teams.cards";
 import {
   AdaptiveCard,
   Image as AdaptiveImage,
   Choice,
   ChoiceSetInput,
-  Column,
-  ColumnSet,
+  ColumnDefinition,
   Container,
   Fact,
   FactSet,
   OpenUrlAction,
   SubmitAction,
+  Table,
+  TableCell,
+  TableRow,
   TextBlock,
 } from "@microsoft/teams.cards";
 import type {
@@ -44,7 +49,9 @@ import type {
   RadioSelectElement,
   SectionElement,
   SelectElement,
+  TableAlignment,
   TableElement,
+  TableVerticalAlignment,
   TextElement,
 } from "chat";
 import { cardChildToFallbackText } from "chat";
@@ -149,7 +156,7 @@ function convertChildToAdaptive(child: CardChild): ConvertResult {
         actions: [],
       };
     case "table":
-      return { elements: [convertTableToElement(child)], actions: [] };
+      return { elements: convertTableToElements(child), actions: [] };
     default: {
       const text = cardChildToFallbackText(child);
       if (text) {
@@ -329,26 +336,102 @@ function convertSectionToElements(element: SectionElement): ConvertResult {
   return { elements, actions };
 }
 
-function convertTableToElement(element: TableElement): Container {
-  // Adaptive Cards Table element
-  const headerColumns = element.headers.map((header) =>
-    new Column(
-      new TextBlock(convertEmoji(header), { weight: "Bolder", wrap: true })
-    ).withOptions({ width: "stretch" })
-  );
+const TABLE_HORIZONTAL_ALIGNMENT: Record<TableAlignment, HorizontalAlignment> =
+  {
+    left: "Left",
+    center: "Center",
+    right: "Right",
+  };
 
-  const headerRow = new ColumnSet().withColumns(...headerColumns);
+const TABLE_VERTICAL_ALIGNMENT: Record<
+  TableVerticalAlignment,
+  VerticalAlignment
+> = {
+  top: "Top",
+  center: "Center",
+  bottom: "Bottom",
+};
 
-  const dataRows = element.rows.map((row) => {
-    const cols = row.map((cell) =>
-      new Column(new TextBlock(convertEmoji(cell), { wrap: true })).withOptions(
-        { width: "stretch" }
-      )
-    );
-    return new ColumnSet().withColumns(...cols);
+// Adaptive Cards treats a column width as a relative weight only when it is a
+// positive integer; Teams desktop and mobile disagree on anything else, so an
+// invalid weight falls back to the default instead of reaching the wire.
+function columnWeight(width: number | undefined): number {
+  return width !== undefined && Number.isInteger(width) && width > 0
+    ? width
+    : 1;
+}
+
+// The widest row sets the column count, so a short row is padded with empty
+// cells instead of shifting the grid. Accumulated in a loop rather than
+// `Math.max(...rows.map(...))`, which spreads one argument per row and blows
+// the call-argument limit on a large table.
+function tableColumnCount(headers: string[], rows: string[][]): number {
+  let count = headers.length;
+  for (const row of rows) {
+    if (row.length > count) {
+      count = row.length;
+    }
+  }
+  return count;
+}
+
+// Returns an array so "no columns means nothing to draw" needs no null check at
+// the call site, matching what the empty ASCII fallback says.
+function convertTableToElements(element: TableElement): Table[] {
+  const columnCount = tableColumnCount(element.headers, element.rows);
+  if (columnCount === 0) {
+    return [];
+  }
+
+  const columns = Array.from({ length: columnCount }, (_, index) => {
+    const align = element.align?.[index];
+    return new ColumnDefinition({
+      width: columnWeight(element.widths?.[index]),
+      horizontalCellContentAlignment: align
+        ? TABLE_HORIZONTAL_ALIGNMENT[align]
+        : undefined,
+    });
   });
 
-  return new Container(headerRow, ...dataRows);
+  const toRow = (cells: string[], textOptions: TextBlockOptions = {}) =>
+    new TableRow({
+      cells: Array.from(
+        { length: columnCount },
+        (_, index) =>
+          new TableCell(
+            new TextBlock(convertEmoji(cells[index] ?? ""), {
+              wrap: true,
+              ...textOptions,
+            })
+          )
+      ),
+    });
+
+  const hasHeader = element.headers.length > 0;
+  const rows = element.rows.map((row) => toRow(row));
+  if (hasHeader) {
+    rows.unshift(toRow(element.headers, { weight: "Bolder" }));
+  }
+
+  return [
+    new Table({
+      columns,
+      // Adaptive Cards spells this `firstRowAsHeaders`: that is the name
+      // `@microsoft/teams.cards` declares (default `true`) and the name every
+      // sample on Microsoft's own Table reference page uses. The prose property
+      // table on that page says `firstRowAsHeader`, singular; the plural is what
+      // renderers read. Do not "correct" it — because the property defaults to
+      // `true` when absent, a headerless table would silently regain a header
+      // row. The plain-object converter in `cards-primitives/` says the same.
+      firstRowAsHeaders: hasHeader,
+      rows,
+      showGridLines: element.gridLines ?? true,
+      gridStyle: element.gridStyle,
+      verticalCellContentAlignment: element.verticalAlign
+        ? TABLE_VERTICAL_ALIGNMENT[element.verticalAlign]
+        : undefined,
+    }),
+  ];
 }
 
 function convertFieldsToElement(element: FieldsElement): FactSet {

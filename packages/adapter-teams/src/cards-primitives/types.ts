@@ -1,5 +1,14 @@
 export type TeamsButtonStyle = "danger" | "default" | "primary";
 export type TeamsCardWidth = "default" | "full";
+export type TeamsTableAlignment = "center" | "left" | "right";
+export type TeamsTableGridStyle =
+  | "accent"
+  | "attention"
+  | "default"
+  | "emphasis"
+  | "good"
+  | "warning";
+export type TeamsTableVerticalAlignment = "bottom" | "center" | "top";
 export type TeamsTextStyle = "bold" | "muted" | "plain";
 
 export interface TeamsCardElement {
@@ -108,9 +117,19 @@ export interface TeamsLinkElement {
 }
 
 export interface TeamsTableElement {
+  /** Horizontal alignment of cell content, one entry per column */
+  align?: TeamsTableAlignment[];
+  /** Draw grid lines between cells (default true) */
+  gridLines?: boolean;
+  /** Style of the grid lines between cells */
+  gridStyle?: TeamsTableGridStyle;
   headers: string[];
   rows: string[][];
   type: "table";
+  /** Vertical alignment of cell content */
+  verticalAlign?: TeamsTableVerticalAlignment;
+  /** Relative column widths, one positive integer weight per column (default 1 each) */
+  widths?: number[];
 }
 
 export interface TeamsAdaptiveCard {

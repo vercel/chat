@@ -245,6 +245,23 @@ Optional column alignment:
 />
 ```
 
+On Teams, tables render as the native Adaptive Card `Table` element: grid lines between cells, columns sized by relative weight and a header row marked for accessibility. The optional `widths`, `verticalAlign`, `gridLines` and `gridStyle` props tune that rendering and are ignored on other platforms:
+
+```tsx title="lib/bot.tsx"
+<Table
+  headers={["Service", "Status", "Latency"]}
+  rows={[
+    ["api", "ok", "120 ms"],
+    ["worker", "degraded", "840 ms"],
+  ]}
+  widths={[2, 1, 1]}
+  align={["left", "center", "right"]}
+  gridStyle="emphasis"
+/>
+```
+
+Pass `gridLines={false}` for a borderless table. A table with empty `headers` renders without a header row.
+
 On Slack, tables render as paginated, sortable [data tables](https://docs.slack.dev/reference/block-kit/blocks/data-table-block). The optional `caption` (accessible table description) and `pageSize` (rows per page, 1–100) props tune that rendering and are ignored on other platforms:
 
 ```tsx title="lib/bot.tsx"
