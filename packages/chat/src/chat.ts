@@ -497,9 +497,17 @@ export class Chat<
       return;
     }
 
-    // Avoid concurrent initialization
+    // Avoid concurrent initialization. A failed attempt is forgotten so the
+    // next caller retries once the dependency (e.g. Redis) has recovered,
+    // instead of every later webhook rejecting with the first error (#922).
     if (!this.initPromise) {
-      this.initPromise = this.doInitialize();
+      const attempt = this.doInitialize().catch((error: unknown) => {
+        if (this.initPromise === attempt) {
+          this.initPromise = null;
+        }
+        throw error;
+      });
+      this.initPromise = attempt;
     }
 
     await this.initPromise;

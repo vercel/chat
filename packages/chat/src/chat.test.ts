@@ -5826,3 +5826,72 @@ describe("Chat", () => {
     });
   });
 });
+
+describe("Chat initialization retry (#922)", () => {
+  it("retries initialization after a failed attempt once the state recovers", async () => {
+    const mockAdapter = createMockAdapter("slack");
+    const mockState = createMockState();
+    const refused = Object.assign(new Error("connect ECONNREFUSED"), {
+      code: "ECONNREFUSED",
+    });
+    mockState.connect = vi
+      .fn()
+      .mockRejectedValueOnce(refused)
+      .mockResolvedValue(undefined);
+
+    const chat = new Chat({
+      userName: "testbot",
+      adapters: { slack: mockAdapter },
+      state: mockState,
+      logger: mockLogger,
+    });
+
+    await expect(chat.initialize()).rejects.toBe(refused);
+    // The adapters were never reached by the failed attempt.
+    expect(mockAdapter.initialize).not.toHaveBeenCalled();
+
+    // Redis is back: the next call must try again instead of replaying the
+    // rejected promise.
+    await expect(chat.initialize()).resolves.toBeUndefined();
+    expect(mockState.connect).toHaveBeenCalledTimes(2);
+    expect(mockAdapter.initialize).toHaveBeenCalledTimes(1);
+
+    // Once initialized, further calls are no-ops.
+    await chat.initialize();
+    expect(mockState.connect).toHaveBeenCalledTimes(2);
+  });
+
+  it("still shares one attempt between concurrent callers, including a failing one", async () => {
+    const mockAdapter = createMockAdapter("slack");
+    const mockState = createMockState();
+    let rejectConnect: (error: Error) => void = () => {};
+    mockState.connect = vi
+      .fn()
+      .mockImplementationOnce(
+        () =>
+          new Promise<void>((_, reject) => {
+            rejectConnect = reject;
+          })
+      )
+      .mockResolvedValue(undefined);
+
+    const chat = new Chat({
+      userName: "testbot",
+      adapters: { slack: mockAdapter },
+      state: mockState,
+      logger: mockLogger,
+    });
+
+    const first = chat.initialize();
+    const second = chat.initialize();
+    expect(mockState.connect).toHaveBeenCalledTimes(1);
+
+    const refused = new Error("connect ECONNREFUSED");
+    rejectConnect(refused);
+    await expect(first).rejects.toBe(refused);
+    await expect(second).rejects.toBe(refused);
+
+    await expect(chat.initialize()).resolves.toBeUndefined();
+    expect(mockState.connect).toHaveBeenCalledTimes(2);
+  });
+});
