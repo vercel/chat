@@ -753,6 +753,9 @@ export interface ChatInstance {
     options?: WebhookOptions
   ): void;
 
+  /** Optional so custom ChatInstance implementations predating it keep compiling. */
+  processInstalled?(event: InstalledEvent, options?: WebhookOptions): void;
+
   processMemberJoinedChannel(
     event: MemberJoinedChannelEvent,
     options?: WebhookOptions
@@ -875,6 +878,9 @@ export interface ChatInstance {
     },
     options: WebhookOptions | undefined
   ): void;
+
+  /** Optional so custom ChatInstance implementations predating it keep compiling. */
+  processUninstalled?(event: UninstalledEvent, options?: WebhookOptions): void;
 
   /**
    * Cross-platform per-user transcript store. Deprecated alias for
@@ -2750,6 +2756,50 @@ export interface AppContextChangedEvent {
 
 export type AppContextChangedHandler = (
   event: AppContextChangedEvent
+) => void | Promise<void>;
+
+/**
+ * Installation lifecycle action. `add-upgrade` and `remove-upgrade` are sent
+ * when an app upgrade adds or removes the bot from its manifest, respectively.
+ */
+export type InstallationAction =
+  | "add"
+  | "add-upgrade"
+  | "remove"
+  | "remove-upgrade";
+
+/** Installation lifecycle metadata. Currently emitted by the Teams adapter. */
+export interface InstallationEvent {
+  action: InstallationAction;
+  adapter: Adapter;
+  /**
+   * Normalized Chat destination for the installation location, usable with
+   * `bot.channel(channelId)` and safe to persist for later proactive sends.
+   * Absent only when the platform supplied no way to reach the conversation.
+   */
+  channelId?: string;
+  /** Platform conversation ID identifying the installation location. */
+  conversationId: string;
+  /** Platform activity ID, useful for application-level idempotency. */
+  id: string;
+  locale?: string;
+  raw: unknown;
+  tenantId?: string;
+  /** Actor who installed or removed the bot, distinct from the bot itself. */
+  userId?: string;
+}
+
+export interface InstalledEvent extends InstallationEvent {
+  action: "add" | "add-upgrade";
+}
+
+export interface UninstalledEvent extends InstallationEvent {
+  action: "remove" | "remove-upgrade";
+}
+
+export type InstalledHandler = (event: InstalledEvent) => void | Promise<void>;
+export type UninstalledHandler = (
+  event: UninstalledEvent
 ) => void | Promise<void>;
 
 export interface MemberJoinedChannelEvent {

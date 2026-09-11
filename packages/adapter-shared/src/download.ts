@@ -215,7 +215,68 @@ function createTransport(adapter: string): AttachmentTransport {
 export async function readAttachmentBody(
   response: IncomingMessage,
   adapter: string,
-  limit = LIMIT
+  limit = LIMIT,
+  signal?: AbortSignal
+): Promise<Buffer> {
+  // Enforce the deadline here as well as in the transport, so a transport
+  // that resolves a response without tying its stream to the signal cannot
+  // leave the body read hanging past the deadline.
+  if (signal?.aborted) {
+    response.destroy();
+    throw new NetworkError(adapter, "Timed out fetching the attachment");
+  }
+  const abort = () => response.destroy(signalError(signal));
+  signal?.addEventListener("abort", abort, { once: true });
+  try {
+    return await readBody(response, adapter, limit);
+  } finally {
+    signal?.removeEventListener("abort", abort);
+  }
+}
+
+function signalError(signal: AbortSignal | undefined): Error {
+  const reason: unknown = signal?.reason;
+  return reason instanceof Error ? reason : new Error(String(reason));
+}
+
+/**
+ * Waits for the transport's response, but gives up when the signal aborts so
+ * a transport that never settles cannot stall the download past its deadline.
+ * A response that arrives after the abort is destroyed rather than leaked.
+ */
+function awaitResponse(
+  pending: Promise<IncomingMessage>,
+  signal: AbortSignal,
+  adapter: string
+): Promise<IncomingMessage> {
+  return new Promise((fulfill, reject) => {
+    const abort = () =>
+      reject(new NetworkError(adapter, "Timed out fetching the attachment"));
+    if (signal.aborted) {
+      abort();
+    } else {
+      signal.addEventListener("abort", abort, { once: true });
+    }
+    pending.then(
+      (response) => {
+        signal.removeEventListener("abort", abort);
+        if (signal.aborted) {
+          response.destroy();
+        }
+        fulfill(response);
+      },
+      (error: unknown) => {
+        signal.removeEventListener("abort", abort);
+        reject(error);
+      }
+    );
+  });
+}
+
+async function readBody(
+  response: IncomingMessage,
+  adapter: string,
+  limit: number
 ): Promise<Buffer> {
   const header =
     response.headers["content-encoding"]?.trim().toLowerCase() || "identity";
@@ -272,7 +333,10 @@ export async function readAttachmentBody(
  * Downloads an untrusted attachment URL with SSRF protection: HTTPS only,
  * private and internal addresses refused (both as literals and after DNS
  * resolution), redirects revalidated, the decoded body capped at
- * options.limit, and the whole operation bounded by options.timeoutMs.
+ * options.limit, and the whole operation bounded by options.timeoutMs. The
+ * deadline is enforced by the downloader itself for both the wait for
+ * response headers and the body read (a late response is destroyed), so it
+ * holds even for a transport that ignores the signal.
  */
 export async function downloadAttachment(
   value: string,
@@ -293,11 +357,15 @@ export async function downloadAttachment(
   let url = validateAttachmentUrl(value, adapter, hosts);
   try {
     for (let hop = 0; hop <= redirects; hop += 1) {
-      const response = await send(url, signal, {
-        "accept-encoding": "gzip, deflate, br",
-        "user-agent": "Vercel.ChatSDK",
-        ...(typeof headers === "function" ? headers(url) : headers),
-      });
+      const response = await awaitResponse(
+        send(url, signal, {
+          "accept-encoding": "gzip, deflate, br",
+          "user-agent": "Vercel.ChatSDK",
+          ...(typeof headers === "function" ? headers(url) : headers),
+        }),
+        signal,
+        adapter
+      );
       const status = response.statusCode ?? 0;
       if (STATUSES.has(status)) {
         const location = response.headers.location;
@@ -329,7 +397,7 @@ export async function downloadAttachment(
           throw error;
         }
       }
-      return await readAttachmentBody(response, adapter, limit);
+      return await readAttachmentBody(response, adapter, limit, signal);
     }
     throw new NetworkError(adapter, "Too many attachment redirects");
   } catch (error) {

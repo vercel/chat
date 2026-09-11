@@ -2,8 +2,8 @@ import { describe, expect, it } from "vitest";
 import {
   endsWithOrphanBackslash,
   escapeMarkdownV2,
-  findUnescapedPositions,
   TelegramFormatConverter,
+  trimToMarkdownV2SafeBoundary,
   truncateForTelegram,
 } from "./markdown";
 
@@ -475,6 +475,11 @@ describe("truncateForTelegram", () => {
     expect(truncateForTelegram("hello", 100, "plain")).toBe("hello");
   });
 
+  it("returns MarkdownV2 that fits the limit unchanged, even with unpaired markers", () => {
+    const input = "Hello *world* _italic and bold *bold*";
+    expect(truncateForTelegram(input, 4096, "MarkdownV2")).toBe(input);
+  });
+
   it("truncates plain text with literal ellipsis", () => {
     const result = truncateForTelegram("a".repeat(200), 100, "plain");
     expect(result.length).toBe(100);
@@ -495,14 +500,6 @@ describe("truncateForTelegram", () => {
     expect(result.endsWith("\\.\\.\\.")).toBe(true);
   });
 
-  it("strips unclosed bold before ellipsis", () => {
-    const input = `${"a".repeat(80)}*${"b".repeat(100)}`;
-    const result = truncateForTelegram(input, 100, "MarkdownV2");
-    const beforeEllipsis = result.replace(ESCAPED_ELLIPSIS_PATTERN, "");
-    const stars = [...beforeEllipsis].filter((c) => c === "*").length;
-    expect(stars % 2).toBe(0);
-  });
-
   it("handles input that is all special chars", () => {
     const input = ".".repeat(200);
     const rendered = escapeMarkdownV2(input);
@@ -511,68 +508,10 @@ describe("truncateForTelegram", () => {
     expect(result.endsWith("\\.\\.\\.")).toBe(true);
   });
 
-  it("strips unpaired entity markers when under the limit (streaming leak)", () => {
-    const input = "Hello *world* _italic and bold *bold*";
-    const result = truncateForTelegram(input, 4096, "MarkdownV2");
-    const underscores = [...result].filter((c) => c === "_").length;
-    expect(underscores % 2).toBe(0);
-  });
-
-  it("preserves code fences with literal asterisks (no false-positive trim)", () => {
-    const input = "```python\nprint(*args, **kwargs)\n```";
-    const result = truncateForTelegram(input, 4096, "MarkdownV2");
-    expect(result).toBe(input);
-  });
-
   it("does not modify plain parseMode messages", () => {
     const input = "Hello *world* _unclosed";
     const result = truncateForTelegram(input, 4096, "plain");
     expect(result).toBe(input);
-  });
-
-  it("preserves balanced MarkdownV2 under the limit (no-op)", () => {
-    const input = "*bold* _italic_ ~strike~ `code`";
-    const result = truncateForTelegram(input, 4096, "MarkdownV2");
-    expect(result).toBe(input);
-  });
-
-  describe("link URLs with raw entity-marker characters", () => {
-    it("preserves a link whose URL contains one underscore", () => {
-      const input = "[x](https://e.co/?a_b=1)";
-      expect(truncateForTelegram(input, 4096, "MarkdownV2")).toBe(input);
-    });
-
-    it("preserves a link whose URL contains an odd number of underscores", () => {
-      const input = "[x](https://e.co/?a_b=1&c_d=2&e_f=3)";
-      expect(truncateForTelegram(input, 4096, "MarkdownV2")).toBe(input);
-    });
-
-    it("preserves surrounding entities alongside an underscore-bearing URL", () => {
-      const input = "text *bold* [x](https://e.co/?a_b=1)";
-      expect(truncateForTelegram(input, 4096, "MarkdownV2")).toBe(input);
-    });
-
-    it("preserves a link whose URL contains * and ~", () => {
-      const input = "[x](https://e.co/?glob=*.ts&home=~user)";
-      expect(truncateForTelegram(input, 4096, "MarkdownV2")).toBe(input);
-    });
-
-    it("preserves a message ending with a link whose URL has odd underscores (regression)", () => {
-      const converter = new TelegramFormatConverter();
-      const rendered = converter.renderPostable({
-        markdown:
-          "body text\n\n[Read more](https://example.com/page?first_param=a&second_param=b&third_param=c)",
-      });
-      const result = truncateForTelegram(rendered, 4096, "MarkdownV2");
-      expect(result).toBe(rendered);
-      expect(result).toContain("&third_param=c)");
-    });
-
-    it("still strips an unpaired underscore outside any link URL", () => {
-      const input = "_oops [x](https://e.co/?a_b=1)";
-      const result = truncateForTelegram(input, 4096, "MarkdownV2");
-      expect(result).toBe("");
-    });
   });
 
   it("trims back to before the [ when hard-truncated inside a link URL", () => {
@@ -587,23 +526,160 @@ describe("truncateForTelegram", () => {
     const result = truncateForTelegram(input, 100, "MarkdownV2");
     expect(result).toBe(`${"a".repeat(80)}\\.\\.\\.`);
   });
+
+  it("trims at the __ opener when hard-truncated inside underline", () => {
+    const input = `__b__ rest ${"z".repeat(100)}`;
+    expect(truncateForTelegram(input, 9, "MarkdownV2")).toBe("\\.\\.\\.");
+    expect(truncateForTelegram(input, 11, "MarkdownV2")).toBe("__b__\\.\\.\\.");
+  });
+
+  it("keeps a rendered link whose URL has odd underscores when the cut lands after it", () => {
+    const converter = new TelegramFormatConverter();
+    const rendered = converter.renderPostable({
+      markdown:
+        "body text\n\n[Read more](https://example.com/page?first_param=a&second_param=b&third_param=c)",
+    });
+    const input = `${rendered} ${"z".repeat(100)}`;
+    const result = truncateForTelegram(
+      input,
+      rendered.length + 6,
+      "MarkdownV2"
+    );
+    expect(result).toBe(`${rendered}\\.\\.\\.`);
+    expect(result).toContain("&third_param=c)");
+  });
+
+  it("retreats before a partial link at every destination cut", () => {
+    const prefix = "before ";
+    const link = "[x\\]](https://example.com/a\\)`b\\\\)";
+    const input = `${prefix}${link} after ${"z".repeat(100)}`;
+    for (
+      let cut = prefix.length;
+      cut <= prefix.length + link.length + 1;
+      cut++
+    ) {
+      const expected =
+        cut < prefix.length + link.length ? prefix : input.slice(0, cut);
+      const result = truncateForTelegram(input, cut + 6, "MarkdownV2");
+      expect(result, `cut at ${cut}`).toBe(`${expected}\\.\\.\\.`);
+      expect(endsWithOrphanBackslash(result)).toBe(false);
+    }
+  });
+
+  it.each([
+    "`code`",
+    "```js\ncode\n```",
+  ])("retreats before code when cutting through its body or delimiters: %s", (code) => {
+    const prefix = "[x](https://example.com/a`b) ";
+    const input = `${prefix}${code} ${"z".repeat(100)}`;
+    for (let cut = 1; cut < code.length; cut++) {
+      expect(
+        truncateForTelegram(input, prefix.length + cut + 6, "MarkdownV2"),
+        `cut at ${cut}`
+      ).toBe(`${prefix}\\.\\.\\.`);
+    }
+  });
 });
 
-describe("findUnescapedPositions", () => {
-  it("finds unescaped markers", () => {
-    expect(findUnescapedPositions("*a*", "*")).toEqual([0, 2]);
+describe("trimToMarkdownV2SafeBoundary", () => {
+  it.each([
+    "*bold* _italic_ ~strike~ `code`",
+    "__underline__ and _italic_",
+    "```python\nprint(*args, **kwargs)\n```",
+    "Result: `` done",
+    "``x`` done",
+    "`` x\n\n```\ncode\n```",
+    "[a] b",
+    "see [ref] and *bold*",
+    "*b* [x](u) [y] z",
+  ])("leaves balanced MarkdownV2 unchanged: %s", (input) => {
+    expect(trimToMarkdownV2SafeBoundary(input)).toBe(input);
   });
 
-  it("ignores escaped markers", () => {
-    expect(findUnescapedPositions("\\*a*", "*")).toEqual([3]);
+  it.each([
+    ["Hello *world* _italic and bold *bold*", "Hello *world* "],
+    ["_oops [x](https://e.co/?a_b=1)", ""],
+    ["__b", ""],
+    ["_a_ __b__ _c", "_a_ __b__ "],
+    ["before [x]", "before "],
+    ["before [x](https://e", "before "],
+    ["a `", "a "],
+    ["a ``", "a "],
+    ["a ```js\ncode", "a "],
+  ])("drops the unpaired tail of %j", (input, expected) => {
+    expect(trimToMarkdownV2SafeBoundary(input)).toBe(expected);
   });
 
-  it("handles double backslash (escaped backslash) before marker", () => {
-    expect(findUnescapedPositions("\\\\*", "*")).toEqual([2]);
+  it.each([
+    ["before \\`literal", "before \\`literal"],
+    ["before \\\\`unfinished", "before \\\\"],
+    ["`a\\`b`", "`a\\`b`"],
+    ["```\na\\`b\n```", "```\na\\`b\n```"],
+    ["`a``b`", "`a``b`"],
+    ["\\*a*", "\\*a"],
+    ["\\\\*a", "\\\\"],
+    ["\\_a_", "\\_a"],
+    ["\\\\_a", "\\\\"],
+    ["\\~a~", "\\~a"],
+    ["\\\\~a", "\\\\"],
+  ])("respects escape parity around delimiters: %j", (input, expected) => {
+    expect(trimToMarkdownV2SafeBoundary(input)).toBe(expected);
   });
 
-  it("returns empty for no markers", () => {
-    expect(findUnescapedPositions("hello", "*")).toEqual([]);
+  describe("link URLs with raw entity-marker characters", () => {
+    it.each(["`", "```"])("preserves %s inside a link destination", (ticks) => {
+      const input = `before [x](https://example.com/a${ticks}b_*~) after`;
+      expect(trimToMarkdownV2SafeBoundary(input)).toBe(input);
+    });
+
+    it("preserves an explicit Markdown link with a backtick destination", () => {
+      const converter = new TelegramFormatConverter();
+      const rendered = converter.renderPostable({
+        markdown: "[x](https://example.com/a`b)",
+      });
+      expect(rendered).toBe("[x](https://example.com/a`b)");
+      expect(trimToMarkdownV2SafeBoundary(rendered)).toBe(rendered);
+    });
+
+    it("preserves an autolinked bare URL containing a backtick", () => {
+      const converter = new TelegramFormatConverter();
+      const rendered = converter.renderPostable({
+        markdown: "before https://example.com/a`b after",
+      });
+      expect(rendered).toBe(
+        "before [https://example\\.com/a\\`b](https://example.com/a`b) after"
+      );
+      expect(trimToMarkdownV2SafeBoundary(rendered)).toBe(rendered);
+    });
+
+    it.each([
+      "`before` [x](https://example.com/a`b) `after`",
+      "```js\nbefore\n```\n[x](https://example.com/a`b)\n```js\nafter\n```",
+      "before [x\\]](https://example.com/a\\)`b\\\\) after",
+      "before [x](https://example.com/a\\`b) after",
+      "before [x](https://example.com/a\\\\`b) after",
+      "`[x](https://example.com/a\\`b)`",
+      "```\n[x](https://example.com/a\\`b)\n```",
+    ])("preserves links alongside code and escaped delimiters: %s", (input) => {
+      expect(trimToMarkdownV2SafeBoundary(input)).toBe(input);
+    });
+
+    it.each([
+      "`unfinished",
+      "```js\nunfinished",
+    ])("does not let URL backticks balance unfinished code: %s", (code) => {
+      const prefix = "before [x](https://example.com/a`b) ";
+      expect(trimToMarkdownV2SafeBoundary(prefix + code)).toBe(prefix);
+    });
+
+    it.each([
+      "[x](https://e.co/?a_b=1)",
+      "[x](https://e.co/?a_b=1&c_d=2&e_f=3)",
+      "text *bold* [x](https://e.co/?a_b=1)",
+      "[x](https://e.co/?glob=*.ts&home=~user)",
+    ])("preserves a link whose URL contains entity markers: %s", (input) => {
+      expect(trimToMarkdownV2SafeBoundary(input)).toBe(input);
+    });
   });
 });
 

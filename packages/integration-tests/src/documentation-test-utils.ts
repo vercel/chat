@@ -141,6 +141,9 @@ export const VALID_PACKAGE_README_IMPORTS = [
   "ioredis",
   "pg",
   "postgres",
+  // Application-installed dependencies used by the Slack proxy recipe.
+  "https-proxy-agent",
+  "undici",
 ];
 
 export const VALID_DOC_PACKAGES = [
@@ -208,6 +211,9 @@ export const VALID_DOC_PACKAGES = [
   "ioredis",
   "pg",
   "postgres",
+  // Application-installed dependencies used by the Slack proxy recipe.
+  "https-proxy-agent",
+  "undici",
   "tsup",
   "vitest",
   "vitest/config",
