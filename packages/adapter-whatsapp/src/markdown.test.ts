@@ -105,8 +105,7 @@ describe("WhatsAppFormatConverter", () => {
     it("should preserve escaped asterisks and tildes as literals", () => {
       const ast = converter.toAst("a \\* b and c \\~ d");
       const result = converter.fromAst(ast);
-      expect(result).toContain("\\*");
-      expect(result).toContain("\\~");
+      expect(result).toBe("a * b and c ~ d");
     });
 
     it("should convert standard italic to WhatsApp underscore italic", () => {
@@ -165,6 +164,49 @@ describe("WhatsAppFormatConverter", () => {
   });
 
   describe("renderPostable", () => {
+    it.each([
+      ["(~80 % easy)", "(~80 % easy)"],
+      ["~45 min, Pace ~6:29/km", "~45 min, Pace ~6:29/km"],
+      [
+        String.raw`C:\Users\Luis and foo_bar`,
+        String.raw`C:\Users\Luis and foo_bar`,
+      ],
+      [
+        String.raw`A backslash before a tilde: \\\~80`,
+        String.raw`A backslash before a tilde: \~80`,
+      ],
+      [String.raw`Literal \*\*stars\*\*`, "Literal **stars**"],
+      ["`~80 **literal** ~~literal~~`", "`~80 **literal** ~~literal~~`"],
+      [
+        "```\n~80 **literal** ~~literal~~ C:\\Users\\Luis\n```",
+        "```\n~80 **literal** ~~literal~~ C:\\Users\\Luis\n```",
+      ],
+      [
+        "- **Monday** — Rest\n- _Tuesday_ — ~~Tempo~~",
+        "- *Monday* — Rest\n- _Tuesday_ — ~Tempo~",
+      ],
+      ["**bold _italic_ ~~strike~~**", "*bold _italic_ ~strike~*"],
+    ])("preserves literal text and formatting in %s", (markdown, expected) => {
+      expect(converter.renderPostable({ markdown })).toBe(expected);
+    });
+
+    it("renders deeply nested formatting without exponential lookahead", () => {
+      let markdown = "end";
+      let expected = "end";
+      for (let depth = 0; depth < 23; depth++) {
+        const marker = depth % 2 === 0 ? "*" : "~";
+        markdown = `text ${marker}${marker}${markdown} end${marker}${marker}`;
+        expected = `text ${marker}${expected} end${marker}`;
+      }
+
+      const start = performance.now();
+      const result = converter.renderPostable({ markdown });
+      const elapsed = performance.now() - start;
+      expect(result).toBe(expected);
+      // Allow ample CI headroom while catching repeated subtree serialization.
+      expect(elapsed).toBeLessThan(1000);
+    });
+
     it("should render a plain string", () => {
       const result = converter.renderPostable("Hello world");
       expect(result).toBe("Hello world");
