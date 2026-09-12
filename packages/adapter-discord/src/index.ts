@@ -53,11 +53,11 @@ import {
   type MessageComponentInteraction,
   Partials,
 } from "discord.js";
-import { MessageType } from "discord-api-types/v9";
 import {
   type APIMessage,
   ChannelType,
   InteractionType,
+  MessageType,
 } from "discord-api-types/v10";
 import {
   InteractionResponseType as DiscordInteractionResponseType,
