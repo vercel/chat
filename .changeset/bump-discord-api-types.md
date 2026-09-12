@@ -2,4 +2,4 @@
 "@chat-adapter/discord": patch
 ---
 
-Update `discord-api-types` from 0.37 to 0.38 and import `MessageType` from `discord-api-types/v10` instead of the deprecated `v9` entrypoint. This also dedupes the copy pulled in by `discord.js`, so only one version of the package is installed.
+Update `discord-api-types` from 0.37 to 0.38 and use its types for every Discord payload instead of hand-written copies. `DiscordComponentType` and `DiscordMessageFlag` are now re-exports of `ComponentType` and `MessageFlags`, with the same values. Gateway forwarding now includes the channel type and, for DM reactions, the reacting user on reaction events, so forwarded reactions in threads and DMs resolve correctly.

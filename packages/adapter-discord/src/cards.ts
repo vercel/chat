@@ -27,24 +27,31 @@ import {
   convertEmojiPlaceholders,
   tableElementToAscii,
 } from "chat";
-import type { APIEmbed, APIEmbedField } from "discord-api-types/v10";
-import { ButtonStyle } from "discord-api-types/v10";
-import type {
-  DiscordActionRow,
-  DiscordButton,
-  DiscordContainerChild,
-  DiscordMediaGallery,
-  DiscordMessageComponent,
-  DiscordSection,
-  DiscordStringSelect,
-  DiscordTextDisplay,
-  DiscordThumbnail,
-} from "./types";
 import {
-  DiscordComponentType,
-  DiscordContentFormat,
-  DiscordMessageFlag,
-} from "./types";
+  type APIActionRowComponent,
+  type APIButtonComponent,
+  type APIButtonComponentWithCustomId,
+  type APIButtonComponentWithURL,
+  type APIComponentInContainer,
+  type APIEmbed,
+  type APIEmbedField,
+  type APIMediaGalleryComponent,
+  type APIMessageTopLevelComponent,
+  type APISectionComponent,
+  type APIStringSelectComponent,
+  type APITextDisplayComponent,
+  type APIThumbnailComponent,
+  ButtonStyle,
+  ComponentType,
+  MessageFlags,
+  type RESTPostAPIChannelMessageJSONBody,
+  SeparatorSpacingSize,
+} from "discord-api-types/v10";
+import { DiscordContentFormat } from "./types";
+
+type DiscordActionRow = APIActionRowComponent<
+  APIButtonComponent | APIStringSelectComponent
+>;
 
 const DISCORD_CUSTOM_ID_DELIMITER = "\n";
 const DISCORD_CUSTOM_ID_MAX_LENGTH = 100;
@@ -59,22 +66,18 @@ interface DiscordCardPayloadOptions {
   contentFormat?: DiscordContentFormat;
 }
 
-interface DiscordEmbedCardPayload {
+type DiscordCardPayload = Required<
+  Pick<RESTPostAPIChannelMessageJSONBody, "components" | "embeds">
+> &
+  Pick<RESTPostAPIChannelMessageJSONBody, "flags">;
+
+interface DiscordEmbedCardPayload extends DiscordCardPayload {
   components: DiscordActionRow[];
-  embeds: APIEmbed[];
-  flags?: number;
 }
 
-interface DiscordComponentsV2CardPayload {
-  components: DiscordMessageComponent[];
+interface DiscordComponentsV2CardPayload extends DiscordCardPayload {
   embeds: [];
-  flags: number;
-}
-
-interface DiscordCardPayload {
-  components: DiscordMessageComponent[];
-  embeds: APIEmbed[];
-  flags?: number;
+  flags: MessageFlags;
 }
 
 function validateDiscordCustomId(customId: string): void {
@@ -197,19 +200,19 @@ export function cardToDiscordPayload(
  * section accessories. Discord caps a single message at 40 total components.
  */
 function countComponentsV2(
-  components: readonly DiscordMessageComponent[]
+  components: readonly APIMessageTopLevelComponent[]
 ): number {
   let total = 0;
   for (const component of components) {
     total += 1;
     switch (component.type) {
-      case DiscordComponentType.Container:
+      case ComponentType.Container:
         total += countComponentsV2(component.components);
         break;
-      case DiscordComponentType.ActionRow:
+      case ComponentType.ActionRow:
         total += component.components.length;
         break;
-      case DiscordComponentType.Section:
+      case ComponentType.Section:
         total += component.components.length + 1;
         break;
       default:
@@ -223,17 +226,19 @@ function countComponentsV2(
  * Sum the character length of every Text Display in a Components v2 tree.
  * Discord caps the combined text across all text displays at 4000 characters.
  */
-function countTextV2(components: readonly DiscordMessageComponent[]): number {
+function countTextV2(
+  components: readonly APIMessageTopLevelComponent[]
+): number {
   let total = 0;
   for (const component of components) {
     switch (component.type) {
-      case DiscordComponentType.TextDisplay:
+      case ComponentType.TextDisplay:
         total += component.content.length;
         break;
-      case DiscordComponentType.Container:
+      case ComponentType.Container:
         total += countTextV2(component.components);
         break;
-      case DiscordComponentType.Section:
+      case ComponentType.Section:
         total += countTextV2(component.components);
         break;
       default:
@@ -250,7 +255,7 @@ function countTextV2(components: readonly DiscordMessageComponent[]): number {
  * overflow from either source with a clear error instead of an opaque 400.
  */
 export function validateComponentsV2(
-  components: readonly DiscordMessageComponent[]
+  components: readonly APIMessageTopLevelComponent[]
 ): void {
   const componentCount = countComponentsV2(components);
   if (componentCount > DISCORD_MAX_COMPONENTS_V2) {
@@ -272,7 +277,7 @@ export function validateComponentsV2(
 function cardToDiscordComponentsV2Payload(
   card: CardElement
 ): DiscordComponentsV2CardPayload {
-  const children: DiscordContainerChild[] = [];
+  const children: APIComponentInContainer[] = [];
 
   if (card.title) {
     children.push(toTextDisplay(`# ${convertEmoji(card.title)}`));
@@ -290,9 +295,9 @@ function cardToDiscordComponentsV2Payload(
     children.push(...cardChildToComponentsV2(child));
   }
 
-  const components: DiscordMessageComponent[] = [
+  const components: APIMessageTopLevelComponent[] = [
     {
-      type: DiscordComponentType.Container,
+      type: ComponentType.Container,
       accent_color: DISCORD_BLURPLE,
       components: children.length > 0 ? children : [toTextDisplay(" ")],
     },
@@ -302,7 +307,7 @@ function cardToDiscordComponentsV2Payload(
 
   return {
     embeds: [],
-    flags: DiscordMessageFlag.IsComponentsV2,
+    flags: MessageFlags.IsComponentsV2,
     components,
   };
 }
@@ -354,7 +359,7 @@ function processChild(
   }
 }
 
-function cardChildToComponentsV2(child: CardChild): DiscordContainerChild[] {
+function cardChildToComponentsV2(child: CardChild): APIComponentInContainer[] {
   switch (child.type) {
     case "text":
       return [toTextDisplay(convertTextElement(child))];
@@ -362,7 +367,11 @@ function cardChildToComponentsV2(child: CardChild): DiscordContainerChild[] {
       return [toMediaGallery(child)];
     case "divider":
       return [
-        { type: DiscordComponentType.Separator, divider: true, spacing: 1 },
+        {
+          type: ComponentType.Separator,
+          divider: true,
+          spacing: SeparatorSpacingSize.Small,
+        },
       ];
     case "actions":
       return convertActionsToV2Rows(child);
@@ -398,18 +407,18 @@ function convertTextElement(element: TextElement): string {
   return text;
 }
 
-function toTextDisplay(content: string): DiscordTextDisplay {
+function toTextDisplay(content: string): APITextDisplayComponent {
   return {
-    type: DiscordComponentType.TextDisplay,
+    type: ComponentType.TextDisplay,
     content,
   };
 }
 
 function toMediaGallery(
   image: ImageElement | { url: string }
-): DiscordMediaGallery {
+): APIMediaGalleryComponent {
   return {
-    type: DiscordComponentType.MediaGallery,
+    type: ComponentType.MediaGallery,
     items: [
       {
         media: {
@@ -423,9 +432,9 @@ function toMediaGallery(
   };
 }
 
-function toThumbnail(image: ImageElement): DiscordThumbnail {
+function toThumbnail(image: ImageElement): APIThumbnailComponent {
   return {
-    type: DiscordComponentType.Thumbnail,
+    type: ComponentType.Thumbnail,
     media: {
       url: image.url,
     },
@@ -446,7 +455,7 @@ function convertTableElement(element: TableElement): string {
  * Discord limits each action row to 5 components, so we chunk buttons.
  */
 function convertActionsToRows(element: ActionsElement): DiscordActionRow[] {
-  const buttons: DiscordButton[] = element.children
+  const buttons: APIButtonComponent[] = element.children
     .filter((child) => child.type === "button" || child.type === "link-button")
     .map((button) => {
       if (button.type === "link-button") {
@@ -458,7 +467,7 @@ function convertActionsToRows(element: ActionsElement): DiscordActionRow[] {
   const rows: DiscordActionRow[] = [];
   for (let i = 0; i < buttons.length; i += DISCORD_MAX_BUTTONS_PER_ROW) {
     rows.push({
-      type: DiscordComponentType.ActionRow,
+      type: ComponentType.ActionRow,
       components: buttons.slice(i, i + DISCORD_MAX_BUTTONS_PER_ROW),
     });
   }
@@ -467,12 +476,12 @@ function convertActionsToRows(element: ActionsElement): DiscordActionRow[] {
 
 function convertActionsToV2Rows(element: ActionsElement): DiscordActionRow[] {
   const rows: DiscordActionRow[] = [];
-  let buttons: DiscordButton[] = [];
+  let buttons: APIButtonComponent[] = [];
 
   const flushButtons = () => {
     for (let i = 0; i < buttons.length; i += DISCORD_MAX_BUTTONS_PER_ROW) {
       rows.push({
-        type: DiscordComponentType.ActionRow,
+        type: ComponentType.ActionRow,
         components: buttons.slice(i, i + DISCORD_MAX_BUTTONS_PER_ROW),
       });
     }
@@ -492,7 +501,7 @@ function convertActionsToV2Rows(element: ActionsElement): DiscordActionRow[] {
 
     flushButtons();
     rows.push({
-      type: DiscordComponentType.ActionRow,
+      type: ComponentType.ActionRow,
       components: [convertSelectElement(child)],
     });
   }
@@ -504,9 +513,11 @@ function convertActionsToV2Rows(element: ActionsElement): DiscordActionRow[] {
 /**
  * Convert a button element to a Discord button.
  */
-function convertButtonElement(button: ButtonElement): DiscordButton {
-  const discordButton: DiscordButton = {
-    type: DiscordComponentType.Button,
+function convertButtonElement(
+  button: ButtonElement
+): APIButtonComponentWithCustomId {
+  const discordButton: APIButtonComponentWithCustomId = {
+    type: ComponentType.Button,
     style: getButtonStyle(button.style),
     label: button.label,
     custom_id: encodeDiscordCustomId(button.id, button.value),
@@ -522,9 +533,11 @@ function convertButtonElement(button: ButtonElement): DiscordButton {
 /**
  * Convert a link button element to a Discord link button.
  */
-function convertLinkButtonElement(button: LinkButtonElement): DiscordButton {
+function convertLinkButtonElement(
+  button: LinkButtonElement
+): APIButtonComponentWithURL {
   return {
-    type: DiscordComponentType.Button,
+    type: ComponentType.Button,
     style: ButtonStyle.Link,
     label: button.label,
     url: button.url,
@@ -533,7 +546,7 @@ function convertLinkButtonElement(button: LinkButtonElement): DiscordButton {
 
 function convertSelectElement(
   select: SelectElement | RadioSelectElement
-): DiscordStringSelect {
+): APIStringSelectComponent {
   const options = select.options
     .slice(0, DISCORD_MAX_SELECT_OPTIONS)
     .map((option) => ({
@@ -546,7 +559,7 @@ function convertSelectElement(
     }));
 
   return {
-    type: DiscordComponentType.StringSelect,
+    type: ComponentType.StringSelect,
     custom_id: encodeDiscordCustomId(select.id),
     options,
     max_values: 1,
@@ -560,7 +573,9 @@ function convertSelectElement(
 /**
  * Map button style to Discord button style.
  */
-function getButtonStyle(style?: ButtonElement["style"]): ButtonStyle {
+function getButtonStyle(
+  style?: ButtonElement["style"]
+): APIButtonComponentWithCustomId["style"] {
   switch (style) {
     case "primary":
       return ButtonStyle.Primary;
@@ -587,10 +602,10 @@ function processSectionElement(
 
 function convertSectionElementToV2(
   element: SectionElement
-): DiscordContainerChild[] {
-  const textDisplays: DiscordTextDisplay[] = [];
-  const extraComponents: DiscordContainerChild[] = [];
-  let accessory: DiscordSection["accessory"] | undefined;
+): APIComponentInContainer[] {
+  const textDisplays: APITextDisplayComponent[] = [];
+  const extraComponents: APIComponentInContainer[] = [];
+  let accessory: APISectionComponent["accessory"] | undefined;
 
   for (const child of element.children) {
     switch (child.type) {
@@ -624,9 +639,9 @@ function convertSectionElementToV2(
       }
       case "divider":
         extraComponents.push({
-          type: DiscordComponentType.Separator,
+          type: ComponentType.Separator,
           divider: true,
-          spacing: 1,
+          spacing: SeparatorSpacingSize.Small,
         });
         break;
       case "section":
@@ -646,11 +661,11 @@ function convertSectionElementToV2(
     // A Discord Section requires text components to hold an accessory. When
     // there are no text displays, fall back to rendering the accessory as a
     // standalone component so its content isn't silently dropped.
-    const accessoryComponents: DiscordContainerChild[] = [];
+    const accessoryComponents: APIComponentInContainer[] = [];
     if (accessory) {
-      if (accessory.type === DiscordComponentType.Thumbnail) {
+      if (accessory.type === ComponentType.Thumbnail) {
         accessoryComponents.push({
-          type: DiscordComponentType.MediaGallery,
+          type: ComponentType.MediaGallery,
           items: [
             {
               media: { url: accessory.media.url },
@@ -662,7 +677,7 @@ function convertSectionElementToV2(
         });
       } else {
         accessoryComponents.push({
-          type: DiscordComponentType.ActionRow,
+          type: ComponentType.ActionRow,
           components: [accessory],
         });
       }
@@ -670,8 +685,8 @@ function convertSectionElementToV2(
     return [...textDisplays, ...accessoryComponents, ...extraComponents];
   }
 
-  const section: DiscordSection = {
-    type: DiscordComponentType.Section,
+  const section: APISectionComponent = {
+    type: ComponentType.Section,
     components: textDisplays.slice(0, DISCORD_MAX_SECTION_TEXT_DISPLAYS),
     accessory,
   };
@@ -685,7 +700,7 @@ function convertSectionElementToV2(
 
 function getSectionAccessoryButton(
   element: ActionsElement
-): DiscordButton | undefined {
+): APIButtonComponent | undefined {
   if (element.children.length !== 1) {
     return undefined;
   }
@@ -724,7 +739,7 @@ function convertFieldsElement(
 
 function convertFieldsElementToV2(
   element: FieldsElement
-): DiscordTextDisplay[] {
+): APITextDisplayComponent[] {
   if (element.children.length === 0) {
     return [];
   }

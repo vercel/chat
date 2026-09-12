@@ -1,14 +1,27 @@
 /**
  * Discord adapter types.
+ *
+ * Discord payload shapes come from `discord-api-types`. Only adapter-specific
+ * configuration and the Gateway forwarding envelope are declared here.
  */
 
 import type { Logger } from "chat";
-import type {
-  APIEmbed,
-  APIMessage,
-  ButtonStyle,
-  ChannelType,
-  InteractionType,
+import {
+  type APIApplicationCommandInteraction,
+  type APIUser,
+  type ChannelType,
+  type ComponentType,
+  type GatewayMessageCreateDispatchData,
+  type GatewayMessageReactionAddDispatchData,
+  type GatewayMessageReactionRemoveDispatchData,
+  MessageFlags,
+  type RESTPatchAPIChannelMessageJSONBody,
+  type RESTPostAPIChannelMessageJSONBody,
+} from "discord-api-types/v10";
+
+export {
+  ComponentType as DiscordComponentType,
+  MessageFlags as DiscordMessageFlag,
 } from "discord-api-types/v10";
 
 /**
@@ -69,11 +82,11 @@ export interface DiscordInteractionFlagsContext {
   /** Parsed slash command name, including subcommands (e.g. "/project issue create"). */
   command: string;
   /** Raw Discord interaction payload. */
-  interaction: DiscordInteraction;
+  interaction: APIApplicationCommandInteraction;
   /** Flattened slash command option text. */
   text: string;
   /** User who invoked the command. */
-  user: DiscordUser;
+  user: APIUser;
 }
 
 /**
@@ -107,279 +120,30 @@ export interface DiscordRequestContext {
 }
 
 /**
- * Incoming Discord interaction from webhook.
+ * Message body sent when creating or editing a message, or responding to an
+ * interaction. `content: null` is only meaningful on edits.
  */
-export interface DiscordInteraction {
-  application_id: string;
-  channel?: {
-    id: string;
-    type: ChannelType;
-    name?: string;
-    /** Parent channel ID (present when channel is a thread) */
-    parent_id?: string;
-  };
-  channel_id?: string;
-  data?: DiscordInteractionData;
-  guild_id?: string;
-  id: string;
-  member?: {
-    user: DiscordUser;
-    nick?: string;
-    roles: string[];
-    joined_at: string;
-  };
-  message?: APIMessage;
-  token: string;
-  type: InteractionType;
-  user?: DiscordUser;
-  version: number;
-}
+export type DiscordMessagePayload = Omit<
+  RESTPostAPIChannelMessageJSONBody,
+  "content"
+> &
+  Pick<RESTPatchAPIChannelMessageJSONBody, "content">;
+
+export type DiscordComponentTypeValue = ComponentType;
+
+export type DiscordMessageFlagValue = MessageFlags;
+
+export type DiscordMessageFlags = MessageFlags;
 
 /**
- * Discord user object.
+ * Flags accepted on the initial deferred interaction response.
  */
-export interface DiscordUser {
-  avatar?: string;
-  bot?: boolean;
-  discriminator: string;
-  global_name?: string;
-  id: string;
-  username: string;
-}
-
-/**
- * Discord interaction data (for components/commands).
- */
-export interface DiscordInteractionData {
-  component_type?: number;
-  custom_id?: string;
-  name?: string;
-  options?: DiscordCommandOption[];
-  type?: number;
-  values?: string[];
-}
-
-/**
- * Discord command option.
- */
-export interface DiscordCommandOption {
-  name: string;
-  options?: DiscordCommandOption[];
-  type: number;
-  value?: string | number | boolean;
-}
-
-/**
- * Discord emoji.
- */
-export interface DiscordEmoji {
-  animated?: boolean;
-  id?: string;
-  name: string;
-}
-
-export const DiscordComponentType = {
-  ActionRow: 1,
-  Button: 2,
-  StringSelect: 3,
-  Section: 9,
-  TextDisplay: 10,
-  Thumbnail: 11,
-  MediaGallery: 12,
-  File: 13,
-  Separator: 14,
-  Container: 17,
-} as const;
-
-export type DiscordComponentTypeValue =
-  (typeof DiscordComponentType)[keyof typeof DiscordComponentType];
-
-/**
- * Discord button component.
- */
-export interface DiscordButton {
-  custom_id?: string;
-  disabled?: boolean;
-  emoji?: DiscordEmoji;
-  label?: string;
-  style: ButtonStyle;
-  type: typeof DiscordComponentType.Button;
-  url?: string;
-}
-
-/**
- * Discord string select component.
- */
-export interface DiscordStringSelect {
-  custom_id: string;
-  disabled?: boolean;
-  max_values?: number;
-  min_values?: number;
-  options: {
-    default?: boolean;
-    description?: string;
-    emoji?: DiscordEmoji;
-    label: string;
-    value: string;
-  }[];
-  placeholder?: string;
-  type: typeof DiscordComponentType.StringSelect;
-}
-
-export type DiscordActionRowComponent = DiscordButton | DiscordStringSelect;
-
-/**
- * Discord action row component.
- */
-export interface DiscordActionRow {
-  components: DiscordActionRowComponent[];
-  type: typeof DiscordComponentType.ActionRow;
-}
-
-export interface DiscordTextDisplay {
-  content: string;
-  type: typeof DiscordComponentType.TextDisplay;
-}
-
-export interface DiscordThumbnail {
-  description?: string;
-  media: {
-    url: string;
-  };
-  spoiler?: boolean;
-  type: typeof DiscordComponentType.Thumbnail;
-}
-
-export interface DiscordMediaGallery {
-  items: {
-    description?: string;
-    media: {
-      url: string;
-    };
-    spoiler?: boolean;
-  }[];
-  type: typeof DiscordComponentType.MediaGallery;
-}
-
-export interface DiscordFileComponent {
-  file: {
-    url: string;
-  };
-  spoiler?: boolean;
-  type: typeof DiscordComponentType.File;
-}
-
-export interface DiscordSeparator {
-  divider?: boolean;
-  spacing?: 1 | 2;
-  type: typeof DiscordComponentType.Separator;
-}
-
-export interface DiscordSection {
-  accessory: DiscordButton | DiscordThumbnail;
-  components: DiscordTextDisplay[];
-  type: typeof DiscordComponentType.Section;
-}
-
-export type DiscordContainerChild =
-  | DiscordActionRow
-  | DiscordFileComponent
-  | DiscordMediaGallery
-  | DiscordSection
-  | DiscordSeparator
-  | DiscordTextDisplay;
-
-export interface DiscordContainer {
-  accent_color?: number;
-  components: DiscordContainerChild[];
-  spoiler?: boolean;
-  type: typeof DiscordComponentType.Container;
-}
-
-export type DiscordMessageComponent =
-  | DiscordActionRow
-  | DiscordContainer
-  | DiscordFileComponent
-  | DiscordMediaGallery
-  | DiscordSection
-  | DiscordSeparator
-  | DiscordTextDisplay;
-
-/**
- * Discord message create payload.
- */
-export interface DiscordMessagePayload {
-  allowed_mentions?: {
-    parse?: ("roles" | "users" | "everyone")[];
-    roles?: string[];
-    users?: string[];
-    replied_user?: boolean;
-  };
-  attachments?: {
-    id: string;
-    filename: string;
-    description?: string;
-  }[];
-  components?: DiscordMessageComponent[];
-  content?: string | null;
-  embeds?: APIEmbed[];
-  flags?: number;
-  message_reference?: {
-    message_id: string;
-    fail_if_not_exists?: boolean;
-  };
-}
-
-export const DiscordMessageFlag = {
-  Crossposted: 1,
-  IsCrosspost: 2,
-  SuppressEmbeds: 4,
-  SourceMessageDeleted: 8,
-  Urgent: 16,
-  HasThread: 32,
-  Ephemeral: 64,
-  Loading: 128,
-  FailedToMentionSomeRolesInThread: 256,
-  SuppressNotifications: 4096,
-  IsVoiceMessage: 8192,
-  HasSnapshot: 16_384,
-  IsComponentsV2: 32_768,
-} as const;
-
-export type DiscordMessageFlagValue =
-  (typeof DiscordMessageFlag)[keyof typeof DiscordMessageFlag];
-
-export type DiscordMessageFlags = DiscordMessageFlagValue;
-
 export const DiscordInteractionResponseFlag = {
-  Ephemeral: 64,
+  Ephemeral: MessageFlags.Ephemeral,
 } as const;
 
 export type DiscordInteractionResponseFlags =
   (typeof DiscordInteractionResponseFlag)[keyof typeof DiscordInteractionResponseFlag];
-
-/**
- * Discord interaction response types.
- * Note: Only the types currently used are defined here.
- * Additional types: ChannelMessageWithSource (4), UpdateMessage (7)
- */
-export const InteractionResponseType = {
-  /** ACK and edit later (deferred) */
-  DeferredChannelMessageWithSource: 5,
-  /** ACK component interaction, update message later */
-  DeferredUpdateMessage: 6,
-} as const;
-
-export type InteractionResponseType =
-  (typeof InteractionResponseType)[keyof typeof InteractionResponseType];
-
-/**
- * Discord interaction response.
- */
-export interface DiscordInteractionResponse {
-  data?: DiscordMessagePayload;
-  type: InteractionResponseType;
-}
 
 // ============================================================================
 // Gateway Forwarded Events
@@ -410,90 +174,26 @@ export interface DiscordForwardedEvent {
 }
 
 /**
- * Message data from a MESSAGE_CREATE Gateway event.
+ * MESSAGE_CREATE dispatch data as forwarded by the Gateway listener.
  */
-export interface DiscordGatewayMessageData {
-  /** File attachments */
-  attachments: Array<{
-    id: string;
-    url: string;
-    filename: string;
-    content_type?: string;
-    size: number;
-  }>;
-  /** Message author */
-  author: {
-    id: string;
-    username: string;
-    global_name?: string;
-    bot: boolean;
-  };
-  /** Channel where the message was sent */
-  channel_id: string;
-  /** Channel type (11 = public thread, 12 = private thread) */
-  channel_type?: number;
-  /** Message content */
-  content: string;
-  /** Guild ID, or null for DMs */
-  guild_id: string | null;
-  /** Message ID */
-  id: string;
-  /** Whether the bot was mentioned */
-  is_mention?: boolean;
-  /** Whether the message pings @everyone or @here */
-  mention_everyone?: boolean;
-  /** Role IDs mentioned in the message */
-  mention_roles?: string[];
-  /** Users mentioned in the message */
-  mentions: Array<{ id: string; username: string }>;
-  /** Immutable content captured from a forwarded message */
-  message_snapshots?: Array<{
-    message: {
-      attachments: DiscordGatewayMessageData["attachments"];
-      content: string;
-    };
-  }>;
-  /** Thread info if message is in a thread */
+export type DiscordGatewayMessageData = GatewayMessageCreateDispatchData & {
+  /** Set by the forwarder when it resolved the thread the message was posted in. */
   thread?: {
     id: string;
     parent_id: string;
   };
-  /** ISO timestamp */
-  timestamp: string;
-}
+};
 
 /**
- * Reaction data from REACTION_ADD or REACTION_REMOVE Gateway events.
+ * MESSAGE_REACTION_ADD / MESSAGE_REACTION_REMOVE dispatch data as forwarded by
+ * the Gateway listener.
  */
-export interface DiscordGatewayReactionData {
-  /** Channel containing the message */
-  channel_id: string;
-  /** Channel type (11 = public thread, 12 = private thread) */
-  channel_type?: number;
-  /** Emoji used for the reaction */
-  emoji: {
-    name: string | null;
-    id: string | null;
-  };
-  /** Guild ID, or null for DMs */
-  guild_id: string | null;
-  /** Member details (for guild reactions) */
-  member?: {
-    user: {
-      id: string;
-      username: string;
-      global_name?: string;
-      bot?: boolean;
-    };
-  };
-  /** ID of the message that was reacted to */
-  message_id: string;
-  /** User details (for DMs) */
-  user?: {
-    id: string;
-    username: string;
-    bot?: boolean;
-  };
-  /** User who added/removed the reaction */
-  user_id: string;
-}
+export type DiscordGatewayReactionData = (
+  | GatewayMessageReactionAddDispatchData
+  | GatewayMessageReactionRemoveDispatchData
+) & {
+  /** Set by the forwarder from its channel cache. Discord does not send it. */
+  channel_type?: ChannelType;
+  /** Set by the forwarder for DM reactions, where Discord sends no `member`. */
+  user?: APIUser;
+};

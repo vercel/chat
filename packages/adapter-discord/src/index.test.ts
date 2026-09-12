@@ -12,7 +12,7 @@ import {
 } from "@chat-adapter/tests";
 import type { ChatInstance } from "chat";
 import { Actions, Button, Card, Select, SelectOption } from "chat";
-import { type Client, Events } from "discord.js";
+import { type Client, Collection, Events } from "discord.js";
 import { InteractionType } from "discord-api-types/v10";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
@@ -4097,6 +4097,17 @@ describe("legacy gateway interactions", () => {
     return new EventEmitter() as Client;
   }
 
+  // Fields discord.js sets on every BaseInteraction.
+  const gatewayInteractionBase = {
+    appPermissions: { bitfield: 0n },
+    attachmentSizeLimit: 8_388_608,
+    authorizingIntegrationOwners: {},
+    context: 0,
+    entitlements: new Collection(),
+    guildLocale: "en-US",
+    locale: "en-US",
+  };
+
   it("handles slash command interactions from the gateway", async () => {
     const adapter = new TestGatewayDiscordAdapter({
       botToken: "test-token",
@@ -4113,6 +4124,7 @@ describe("legacy gateway interactions", () => {
 
     adapter.listen(client);
     client.emit(Events.InteractionCreate, {
+      ...gatewayInteractionBase,
       id: "interaction123",
       applicationId: "test-app-id",
       token: "interaction-token",
@@ -4131,6 +4143,8 @@ describe("legacy gateway interactions", () => {
         globalName: "Test User",
         bot: false,
       },
+      commandGuildId: null,
+      commandId: "command123",
       commandName: "test",
       commandType: 1,
       options: {
@@ -4181,6 +4195,7 @@ describe("legacy gateway interactions", () => {
 
     adapter.listen(client);
     client.emit(Events.InteractionCreate, {
+      ...gatewayInteractionBase,
       id: "interaction123",
       applicationId: "test-app-id",
       token: "interaction-token",
@@ -4199,6 +4214,8 @@ describe("legacy gateway interactions", () => {
         globalName: "Test User",
         bot: false,
       },
+      commandGuildId: null,
+      commandId: "command123",
       commandName: "test",
       commandType: 1,
       options: {
@@ -4455,6 +4472,7 @@ describe("legacy gateway interactions", () => {
 
     adapter.listen(client);
     client.emit(Events.InteractionCreate, {
+      ...gatewayInteractionBase,
       id: "interaction123",
       applicationId: "test-app-id",
       token: "interaction-token",
@@ -4478,6 +4496,7 @@ describe("legacy gateway interactions", () => {
       message: {
         id: "message123",
       },
+      isAnySelectMenu: () => false,
       isChatInputCommand: () => false,
       isMessageComponent: () => true,
       deferUpdate,
@@ -4888,7 +4907,6 @@ describe("handleForwardedMessage - thread handling", () => {
           username: "testuser",
           bot: false,
         },
-        is_mention: true,
         mentions: [{ id: "test-app-id", username: "bot" }],
         attachments: [],
       },
