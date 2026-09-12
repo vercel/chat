@@ -55,8 +55,8 @@ import {
   type MessageComponentInteraction,
   Partials,
 } from "discord.js";
+import { isChatInputApplicationCommandInteraction } from "discord-api-types/utils/v10";
 import {
-  type APIApplicationCommandInteraction,
   type APIApplicationCommandInteractionDataOption,
   type APIChatInputApplicationCommandInteraction,
   type APIComponentInContainer,
@@ -481,6 +481,14 @@ export class DiscordAdapter implements Adapter<DiscordThreadId, unknown> {
 
     // Handle APPLICATION_COMMAND (slash commands)
     if (interaction.type === InteractionType.ApplicationCommand) {
+      if (!isChatInputApplicationCommandInteraction(interaction)) {
+        this.logger.warn("Unsupported Discord application command type", {
+          commandType: interaction.data.type,
+        });
+        return new Response("Unsupported application command type", {
+          status: 400,
+        });
+      }
       const context = this.getApplicationCommandContext(interaction);
       const flags = this.getInteractionFlags(context);
       this.handleApplicationCommandInteraction(context, flags, options);
@@ -653,7 +661,7 @@ export class DiscordAdapter implements Adapter<DiscordThreadId, unknown> {
    * Handle APPLICATION_COMMAND interactions (slash commands).
    */
   protected getApplicationCommandContext(
-    interaction: APIApplicationCommandInteraction
+    interaction: APIChatInputApplicationCommandInteraction
   ): DiscordInteractionFlagsContext | null {
     const commandName = interaction.data.name;
     if (!commandName) {
@@ -695,7 +703,7 @@ export class DiscordAdapter implements Adapter<DiscordThreadId, unknown> {
 
     const { command, text } = this.parseSlashCommand(
       commandName,
-      "options" in interaction.data ? interaction.data.options : undefined
+      interaction.data.options
     );
 
     return {

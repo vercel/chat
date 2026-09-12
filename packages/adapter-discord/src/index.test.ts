@@ -589,6 +589,38 @@ describe("handleWebhook - APPLICATION_COMMAND", () => {
     expect(responseBody).toEqual({ type: 5 }); // DeferredChannelMessageWithSource
   });
 
+  it("rejects application commands that are not chat input", async () => {
+    const body = JSON.stringify({
+      type: InteractionType.ApplicationCommand,
+      id: "interaction123",
+      application_id: "test-app-id",
+      token: "interaction-token",
+      version: 1,
+      guild_id: "guild123",
+      channel_id: "channel456",
+      member: {
+        user: {
+          id: "user789",
+          username: "testuser",
+          discriminator: "0001",
+        },
+        roles: [],
+        joined_at: "2021-01-01T00:00:00.000Z",
+      },
+      data: {
+        id: "cmd123",
+        name: "Report message",
+        type: 3, // Message context menu command
+        target_id: "msg123",
+      },
+    });
+    const request = createWebhookRequest(body);
+
+    const response = await adapter.handleWebhook(request);
+    expect(response.status).toBe(400);
+    expect(await response.text()).toBe("Unsupported application command type");
+  });
+
   it("sets initial deferred slash command interaction flags from config", async () => {
     const interactionFlags = vi
       .fn()

@@ -7,7 +7,7 @@
 
 import type { Logger } from "chat";
 import {
-  type APIApplicationCommandInteraction,
+  type APIChatInputApplicationCommandInteraction,
   type APIUser,
   type ChannelType,
   type ComponentType,
@@ -82,7 +82,7 @@ export interface DiscordInteractionFlagsContext {
   /** Parsed slash command name, including subcommands (e.g. "/project issue create"). */
   command: string;
   /** Raw Discord interaction payload. */
-  interaction: APIApplicationCommandInteraction;
+  interaction: APIChatInputApplicationCommandInteraction;
   /** Flattened slash command option text. */
   text: string;
   /** User who invoked the command. */
