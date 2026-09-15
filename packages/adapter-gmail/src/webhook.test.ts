@@ -1,5 +1,5 @@
 import { generateKeyPair, type JWTPayload, SignJWT } from "jose";
-import { beforeAll, describe, expect, it } from "vitest";
+import { beforeAll, describe, expect, it, vi } from "vitest";
 import { createGmailWebhookVerifier, parseGmailNotification } from "./webhook";
 
 const audience = "https://example.com/gmail";
@@ -74,6 +74,7 @@ describe("Gmail Pub/Sub primitives", () => {
       historyId: "9007199254740993",
       messageId: "delivery",
       subscription,
+      envelope: JSON.parse(body()),
     });
   });
 
@@ -154,5 +155,37 @@ describe("Gmail Pub/Sub primitives", () => {
     expect(() => parseGmailNotification("{")).toThrow(
       "Invalid Gmail Pub/Sub notification"
     );
+  });
+
+  it("preserves the provider envelope for caller-owned event handling", async () => {
+    const payload = {
+      ...JSON.parse(body()),
+      deliveryAttempt: 2,
+    };
+    payload.message.attributes = { source: "mailbox" };
+    payload.message.orderingKey = "account";
+    const fetch = vi.spyOn(globalThis, "fetch");
+    try {
+      const result = await verifier()(
+        request(await token(), JSON.stringify(payload))
+      );
+      expect(result).toMatchObject({
+        emailAddress: "agent@example.com",
+        historyId: "9007199254740993",
+        envelope: payload,
+      });
+      expect(JSON.parse(JSON.stringify(result)).envelope).toEqual(payload);
+      expect(fetch).not.toHaveBeenCalled();
+    } finally {
+      fetch.mockRestore();
+    }
+  });
+
+  it("rejects malformed provider attributes even with valid transport identity", async () => {
+    const payload = JSON.parse(body());
+    payload.message.attributes = { source: 123 };
+    await expect(
+      verifier()(request(await token(), JSON.stringify(payload)))
+    ).rejects.toMatchObject({ status: 400 });
   });
 });

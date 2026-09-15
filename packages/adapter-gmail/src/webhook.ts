@@ -15,15 +15,17 @@ export class GmailWebhookError extends Error {
   }
 }
 
-const envelope = z.object({
+const envelope = z.looseObject({
   subscription: z.string().regex(/^projects\/[^/\s]+\/subscriptions\/[^/\s]+$/),
-  message: z.object({
+  message: z.looseObject({
     messageId: z.string().min(1).max(256),
     data: z
       .string()
       .regex(/^[a-zA-Z0-9+/_-]+={0,2}$/)
       .max(16_384),
     publishTime: z.string().optional(),
+    attributes: z.record(z.string(), z.string()).optional(),
+    orderingKey: z.string().optional(),
   }),
 });
 const notification = z.object({
@@ -39,8 +41,11 @@ const notification = z.object({
   ]),
 });
 
+export type GmailEnvelope = z.infer<typeof envelope>;
+
 export interface GmailNotification {
   emailAddress: string;
+  envelope: GmailEnvelope;
   historyId: string;
   messageId: string;
   subscription: string;
@@ -64,6 +69,7 @@ export function parseGmailNotification(body: string): GmailNotification {
       ...data,
       messageId: payload.message.messageId,
       subscription: payload.subscription,
+      envelope: payload,
     };
   } catch {
     throw new GmailWebhookError(400, "Invalid Gmail Pub/Sub notification");
