@@ -69,6 +69,8 @@ features:
 
 <Callout type="info">
 The adapter auto-detects `TELEGRAM_ALLOWED_USER_IDS`, `TELEGRAM_BOT_TOKEN`, `TELEGRAM_WEBHOOK_SECRET_TOKEN`, `TELEGRAM_ALLOW_UNVERIFIED_WEBHOOKS`, `TELEGRAM_BOT_USERNAME`, and `TELEGRAM_MENTION_ON_REPLY` from the environment.
+
+For managed credentials, see [**Vercel Connect**](#option-a--vercel-connect).
 </Callout>
 
 ```typescript title="lib/bot.ts" lineNumbers
@@ -105,27 +107,6 @@ curl -X POST "https://api.telegram.org/bot$TELEGRAM_BOT_TOKEN/setWebhook" \
     "secret_token": "your-secret-token"
   }'
 ```
-
-## Vercel Connect
-
-Use Vercel Connect for the outbound Telegram bot token:
-
-```typescript title="lib/bot.ts" lineNumbers
-import { createTelegramAdapter } from "@chat-adapter/telegram";
-import { connectTelegramAdapter } from "@vercel/connect/chat";
-
-const telegram = createTelegramAdapter({
-  ...connectTelegramAdapter("telegram/acme-telegram"),
-  secretToken: process.env.TELEGRAM_WEBHOOK_SECRET_TOKEN,
-});
-```
-
-<Callout type="info">
-  Connect does not forward Telegram webhooks. Keep
-  `TELEGRAM_WEBHOOK_SECRET_TOKEN` for native webhook verification, or use
-  polling mode without an inbound webhook. `TELEGRAM_BOT_TOKEN` is not needed
-  when using `connectTelegramAdapter`.
-</Callout>
 
 ## Configuration
 
@@ -202,6 +183,39 @@ const telegram = createTelegramAdapter({
 
 `botToken` is always required. Webhook mode also requires `secretToken` unless `allowUnverifiedWebhooks` is explicitly enabled. Polling mode does not require webhook verification.
 
+## Authentication
+
+Use Vercel Connect to manage the outbound bot token, or provide the token directly. Both options use Telegram's native webhook verification; polling does not require a webhook secret.
+
+### Option A — Vercel Connect
+
+Use [Vercel Connect](/docs/vercel-connect) to resolve the outbound Telegram bot token at runtime:
+
+```typescript title="lib/bot.ts" lineNumbers
+import { createTelegramAdapter } from "@chat-adapter/telegram";
+import { connectTelegramAdapter } from "@vercel/connect/chat";
+
+const telegram = createTelegramAdapter({
+  ...connectTelegramAdapter("telegram/acme-telegram"),
+  secretToken: process.env.TELEGRAM_WEBHOOK_SECRET_TOKEN,
+});
+```
+
+<Callout type="info">
+  Connect does not forward Telegram webhooks. Keep
+  `TELEGRAM_WEBHOOK_SECRET_TOKEN` for native webhook verification, or use
+  polling mode without an inbound webhook. `TELEGRAM_BOT_TOKEN` is not needed
+  when using `connectTelegramAdapter`.
+</Callout>
+
+### Option B — Bot token
+
+Create a bot via [BotFather](https://t.me/BotFather) and provide its token directly to the adapter:
+
+1. Send `/newbot` and follow the prompts.
+2. Copy the token to `TELEGRAM_BOT_TOKEN`.
+3. Optionally pick a username and copy it to `TELEGRAM_BOT_USERNAME`.
+
 ## Business mode
 
 Telegram [Connected Business Bots](https://core.telegram.org/api/bots/connected-business-bots) let a bot reply to customer messages on behalf of a business account. Enable it with `businessMode: true`:
@@ -225,14 +239,6 @@ A few Bot API limits apply to business threads:
 When polling, Business mode always sends an explicit `allowed_updates` list (the default update types plus the business ones, or your `longPolling.allowedUpdates` merged with them). Telegram otherwise reuses the list from an earlier call, which can silently exclude business updates. When registering a webhook yourself, add `business_connection`, `business_message`, and `edited_business_message` to `allowed_updates`.
 
 Business thread IDs start with `telegram:biz`, so state adapters that shard by the first two ID segments (such as [Cloudflare Agents](/adapters/vendor-official/cloudflare-agents#state-sharding)) place every business conversation in one shard. Override the sharder with a key that includes the connection ID if that matters for your deployment.
-
-## Authentication
-
-Create a bot via [BotFather](https://t.me/BotFather):
-
-1. Send `/newbot` and follow the prompts.
-2. Copy the token to `TELEGRAM_BOT_TOKEN`.
-3. Optionally pick a username and copy it to `TELEGRAM_BOT_USERNAME`.
 
 ## Advanced
 

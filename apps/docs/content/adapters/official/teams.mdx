@@ -68,6 +68,8 @@ features:
 
 <Callout type="info">
 The adapter auto-detects `TEAMS_APP_ID`, `TEAMS_APP_PASSWORD`, and `TEAMS_APP_TENANT_ID` from the environment.
+
+For managed credentials and webhook verification, see [**Vercel Connect**](#option-a--vercel-connect).
 </Callout>
 
 ```typescript title="lib/bot.ts" lineNumbers
@@ -87,10 +89,6 @@ bot.onNewMention(async (thread, message) => {
   await thread.post("Hello from Teams!");
 });
 ```
-
-## Mentions
-
-Incoming Teams mentions are supported. Outgoing `@name` text, including multi-word names, stays plain text and does not notify the user. The adapter does not resolve display names into user identities or generate mention entities. Teams requires [matching mention text and entities](https://learn.microsoft.com/en-us/microsoftteams/platform/bots/how-to/conversations/channel-and-group-conversations#add-mentions-to-your-messages) for a real mention; `<at>` markup alone is not sufficient.
 
 ## Configuration
 
@@ -143,7 +141,11 @@ Incoming Teams mentions are supported. Outgoing `@name` text, including multi-wo
 
 `appId` is required, along with one authentication method (`appPassword`, `federated`, or `token`). If more than one is configured, `token` takes precedence over `federated`, which takes precedence over `appPassword`.
 
-## Vercel Connect
+## Authentication
+
+Use Vercel Connect to manage the bot identity and tokens, or configure Microsoft app credentials directly.
+
+### Option A — Vercel Connect
 
 Use [Vercel Connect](/docs/vercel-connect) to resolve the bot's app ID and request short-lived tokens for Bot Framework and Microsoft Graph:
 
@@ -164,17 +166,17 @@ An `appId` resolver runs once during successful initialization. Call `await bot.
 
 A custom `webhookVerifier` receives the incoming request and its raw body. Return a truthy value to accept, or return a falsy value or throw to reject with HTTP 401. Without a verifier, the adapter retains Microsoft's native JWT verification.
 
-## Authentication
+### Option B — Microsoft app credentials
 
 The [Teams CLI](https://microsoft.github.io/teams-sdk/cli) handles AAD app registration, client secret generation, bot registration, and Teams channel setup in one command.
 
-### Install the CLI
+#### Install the CLI
 
 ```bash
 npm install -g @microsoft/teams.cli
 ```
 
-### 1. Create the app
+#### 1. Create the app
 
 ```bash
 teams login
@@ -194,7 +196,7 @@ TEAMS_APP_PASSWORD=<CLIENT_SECRET>
 TEAMS_APP_TENANT_ID=<TENANT_ID>
 ```
 
-### 2. Install in Teams
+#### 2. Install in Teams
 
 Get a direct install link:
 
@@ -204,15 +206,15 @@ teams app get <appId> --install-link
 
 Or download the app package for sideloading and upload via **Apps** then **Manage your apps** then **Upload an app** then **Upload a custom app**.
 
-### 3. Verify
+#### 3. Verify
 
 ```bash
 teams app doctor <appId>
 ```
 
-### Authentication methods
+#### Credential methods
 
-**Client secret (default)** — provide `appPassword` or set `TEAMS_APP_PASSWORD`:
+**Client secret** — provide `appPassword` or set `TEAMS_APP_PASSWORD`:
 
 ```typescript
 createTeamsAdapter({
@@ -247,6 +249,10 @@ createTeamsAdapter({
 <Callout type="warn">
 A custom token factory takes precedence over configured credentials and client-secret environment variables, including `CLIENT_SECRET`.
 </Callout>
+
+## Mentions
+
+Incoming Teams mentions are supported. Outgoing `@name` text, including multi-word names, stays plain text and does not notify the user. The adapter does not resolve display names into user identities or generate mention entities. Teams requires [matching mention text and entities](https://learn.microsoft.com/en-us/microsoftteams/platform/bots/how-to/conversations/channel-and-group-conversations#add-mentions-to-your-messages) for a real mention; `<at>` markup alone is not sufficient.
 
 ## Advanced
 

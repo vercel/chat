@@ -27,7 +27,9 @@ npx create-chat-sdk@latest my-bot --adapter notion memory
 
 Visit the [adapters directory](https://chat-sdk.dev/adapters) to see other available official and vendor-official adapters.
 
-## Usage
+## Quick start
+
+For managed credentials, see [**Vercel Connect**](#vercel-connect).
 
 The adapter auto-detects credentials from `NOTION_TOKEN`, `NOTION_VERIFICATION_TOKEN`, and optional `NOTION_BOT_USERNAME` / `NOTION_VERSION` / `NOTION_MENTION_MODE` / `NOTION_KEYWORDS`:
 
@@ -46,6 +48,15 @@ bot.onNewMention(async (thread, message) => {
   await thread.post("Hello from Notion!");
 });
 ```
+
+## Configuration
+
+| Option | Description |
+|--------|-------------|
+| `token` | Notion access token or async resolver. Auto-detected from `NOTION_TOKEN`. |
+| `verificationToken` | Native webhook verification token. Auto-detected from `NOTION_VERIFICATION_TOKEN`. |
+
+Both are required. See the [full configuration reference](https://chat-sdk.dev/adapters/official/notion#configuration) for mention detection and other options.
 
 ## Vercel Connect
 

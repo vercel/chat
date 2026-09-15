@@ -345,6 +345,39 @@ describe("Vercel Connect generation", () => {
     expect(result).toContain("SLACK_CONNECTOR");
   });
 
+  it("directs Connect-forwarded webhook testing to a deployment", () => {
+    const result = generateReadme(connectConfig(["teams"]));
+    expect(result).toContain(
+      "Deploy the app and configure Connect trigger destinations for Microsoft Teams"
+    );
+    expect(result).not.toContain("Expose your local server");
+  });
+
+  it("keeps local setup for native webhooks with or without Connect", () => {
+    for (const config of [
+      makeConfig(["slack"]),
+      connectConfig(["notion"]),
+      connectConfig(["gchat"]),
+    ]) {
+      const result = generateReadme(config);
+      expect(result).toContain("Expose your local server");
+      expect(result).not.toContain(
+        "Deploy the app and configure Connect trigger destinations"
+      );
+    }
+  });
+
+  it("distinguishes deployed Connect triggers from native webhooks in mixed projects", () => {
+    const result = generateReadme(connectConfig(["slack", "notion", "gchat"]));
+    expect(result).toContain("Connect trigger destinations for Slack");
+    expect(result).toContain(
+      "For Notion, Google Chat, configure native webhook URLs"
+    );
+    expect(result).toContain(
+      "use a tunnel when testing those webhooks locally"
+    );
+  });
+
   it("omits the README Connect section without a Connect-capable adapter", () => {
     const result = generateReadme({
       ...makeConfig(["gchat"]),

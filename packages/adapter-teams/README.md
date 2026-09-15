@@ -27,7 +27,9 @@ npx create-chat-sdk@latest my-bot --adapter teams memory
 
 Visit the [adapters directory](https://chat-sdk.dev/adapters) to see other available official and vendor-official adapters.
 
-## Usage
+## Quick start
+
+For managed credentials and webhook verification, see [**Vercel Connect**](#option-a--vercel-connect).
 
 The adapter auto-detects `TEAMS_APP_ID`, `TEAMS_APP_PASSWORD`, and `TEAMS_APP_TENANT_ID` from environment variables:
 
@@ -48,57 +50,6 @@ bot.onNewMention(async (thread, message) => {
   await thread.post("Hello from Teams!");
 });
 ```
-
-## Bot setup
-
-The [Teams CLI](https://microsoft.github.io/teams-sdk/cli) handles AAD app registration, client secret generation, bot registration, and Teams channel setup in one command.
-
-```bash
-npm install -g @microsoft/teams.cli
-```
-
-### 1. Create the app
-
-```bash
-teams login
-teams status          # verify auth + sideloading permissions
-teams app create --name "My Bot" --endpoint "https://your-domain.com/api/webhooks/teams" --env .env
-```
-
-> [!TIP]
-> For local development, use a tunnel (e.g. [devtunnel](https://learn.microsoft.com/en-us/azure/developer/dev-tunnels/), ngrok) to expose your local server.
-
-Credentials (`CLIENT_ID`, `CLIENT_SECRET`, `TENANT_ID`) are written to `.env`. Rename them to match the adapter:
-
-```bash
-TEAMS_APP_ID=<CLIENT_ID>
-TEAMS_APP_PASSWORD=<CLIENT_SECRET>
-TEAMS_APP_TENANT_ID=<TENANT_ID>
-```
-
-### 2. Install in Teams
-
-Get a direct install link:
-
-```bash
-teams app get <appId> --install-link
-```
-
-Or download the app package for sideloading:
-
-```bash
-teams app package download <appId> -o my-bot.zip
-```
-
-Then in Teams: **Apps** > **Manage your apps** > **Upload an app** > **Upload a custom app**.
-
-### 3. Verify
-
-```bash
-teams app doctor <appId>
-```
-
-Checks bot registration, AAD app health, manifest consistency, and endpoint reachability.
 
 ## Configuration
 
@@ -121,37 +72,11 @@ All options are auto-detected from environment variables when not provided. Inte
 
 \*\*One authentication method is required: `appPassword`, `federated`, or `token`. `token` takes precedence over `federated`, which takes precedence over `appPassword`.
 
-### Authentication methods
+## Authentication
 
-The adapter supports client-secret, federated, and custom-token authentication. When no explicit auth is provided, `TEAMS_APP_PASSWORD` is auto-detected from environment variables.
+Use Vercel Connect to manage the bot identity and tokens, or configure Microsoft app credentials directly.
 
-#### Client secret (default)
-
-The simplest option — provide `appPassword` directly or set `TEAMS_APP_PASSWORD`:
-
-```typescript
-createTeamsAdapter({
-  appPassword: "your_app_password_here",
-});
-```
-
-#### Federated (workload identity)
-
-For environments with managed identities (e.g. Azure Kubernetes Service, GitHub Actions). Maps to `managedIdentityClientId` in the Teams SDK:
-
-```typescript
-createTeamsAdapter({
-  federated: {
-    clientId: "your_managed_identity_client_id_here",
-  },
-});
-```
-
-#### Custom token factory
-
-Provide `token: (scope, tenantId?) => string | Promise<string>` to acquire tokens externally. The requested scope identifies Bot Framework or Microsoft Graph. This takes precedence over configured credentials and client-secret environment variables, including `CLIENT_SECRET`.
-
-## Vercel Connect
+### Option A — Vercel Connect
 
 Use [Vercel Connect](https://chat-sdk.dev/docs/vercel-connect) to resolve the bot's app ID and request short-lived tokens for Bot Framework and Microsoft Graph:
 
@@ -171,6 +96,87 @@ The callback requests separate tokens for `https://api.botframework.com/.default
 An `appId` resolver runs once during successful initialization. Call `await bot.initialize()` before using adapter methods directly; Chat initializes automatically before handling webhooks. `botUserId` becomes available after initialization when using a resolver.
 
 A custom `webhookVerifier` receives the incoming request and its raw body. Return a truthy value to accept, or return a falsy value or throw to reject with HTTP 401. Without a verifier, the adapter retains Microsoft's native JWT verification.
+
+### Option B — Microsoft app credentials
+
+The [Teams CLI](https://microsoft.github.io/teams-sdk/cli) handles AAD app registration, client secret generation, bot registration, and Teams channel setup in one command.
+
+```bash
+npm install -g @microsoft/teams.cli
+```
+
+#### 1. Create the app
+
+```bash
+teams login
+teams status          # verify auth + sideloading permissions
+teams app create --name "My Bot" --endpoint "https://your-domain.com/api/webhooks/teams" --env .env
+```
+
+> [!TIP]
+> For local development, use a tunnel (e.g. [devtunnel](https://learn.microsoft.com/en-us/azure/developer/dev-tunnels/), ngrok) to expose your local server.
+
+Credentials (`CLIENT_ID`, `CLIENT_SECRET`, `TENANT_ID`) are written to `.env`. Rename them to match the adapter:
+
+```bash
+TEAMS_APP_ID=<CLIENT_ID>
+TEAMS_APP_PASSWORD=<CLIENT_SECRET>
+TEAMS_APP_TENANT_ID=<TENANT_ID>
+```
+
+#### 2. Install in Teams
+
+Get a direct install link:
+
+```bash
+teams app get <appId> --install-link
+```
+
+Or download the app package for sideloading:
+
+```bash
+teams app package download <appId> -o my-bot.zip
+```
+
+Then in Teams: **Apps** > **Manage your apps** > **Upload an app** > **Upload a custom app**.
+
+#### 3. Verify
+
+```bash
+teams app doctor <appId>
+```
+
+Checks bot registration, AAD app health, manifest consistency, and endpoint reachability.
+
+#### Credential methods
+
+The adapter supports client-secret, federated, and custom-token authentication. When no explicit auth is provided, `TEAMS_APP_PASSWORD` is auto-detected from environment variables.
+
+##### Client secret (default)
+
+The simplest option — provide `appPassword` directly or set `TEAMS_APP_PASSWORD`:
+
+```typescript
+createTeamsAdapter({
+  appPassword: "your_app_password_here",
+});
+```
+
+##### Federated (workload identity)
+
+For environments with managed identities (e.g. Azure Kubernetes Service, GitHub Actions). Maps to `managedIdentityClientId` in the Teams SDK:
+
+```typescript
+createTeamsAdapter({
+  federated: {
+    clientId: "your_managed_identity_client_id_here",
+  },
+});
+```
+
+##### Custom token factory
+
+Provide `token: (scope, tenantId?) => string | Promise<string>` to acquire tokens externally. The requested scope identifies Bot Framework or Microsoft Graph. This takes precedence over configured credentials and client-secret environment variables, including `CLIENT_SECRET`.
 
 ## Environment variables
 

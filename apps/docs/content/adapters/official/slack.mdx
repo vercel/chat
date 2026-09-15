@@ -63,6 +63,8 @@ features:
 
 <Callout type="info">
 The adapter auto-detects `SLACK_BOT_TOKEN` and `SLACK_SIGNING_SECRET` from the environment.
+
+For managed credentials and webhook verification, see [**Vercel Connect**](#vercel-connect).
 </Callout>
 
 ```typescript title="lib/bot.ts" lineNumbers
@@ -199,6 +201,21 @@ bot.onNewMention(async (thread, message) => {
 `signingSecret` is required for webhook mode (or supply a `webhookVerifier`). `appToken` is required for socket mode.
 
 ## Authentication
+
+### Vercel Connect
+
+Use [Vercel Connect](https://vercel.com/docs/connect) to source the Slack bot token at runtime instead of storing one. The `connectSlackAdapter()` helper from [`@vercel/connect/chat`](https://www.npmjs.com/package/@vercel/connect) wires both a `botToken` resolver and a `webhookVerifier` for Connect trigger-forwarded webhooks:
+
+```typescript
+import { createSlackAdapter } from "@chat-adapter/slack";
+import { connectSlackAdapter } from "@vercel/connect/chat";
+
+createSlackAdapter({
+  ...connectSlackAdapter("slack/acme-slack"),
+});
+```
+
+This is equivalent to passing a `botToken` resolver that calls `getToken` and a `webhookVerifier` that validates the Vercel OIDC token Connect attaches. Omit `signingSecret` / `SLACK_SIGNING_SECRET` when using it.
 
 ### Single-workspace mode
 
@@ -1014,21 +1031,6 @@ createSlackAdapter({
 ```
 
 If both `signingSecret` and `webhookVerifier` are set, `webhookVerifier` wins. When using `webhookVerifier`, you are responsible for replay/timestamp protection.
-
-### Vercel Connect
-
-Use [Vercel Connect](https://vercel.com/docs/connect) to source the Slack bot token at runtime instead of storing one. The `connectSlackAdapter()` helper from [`@vercel/connect/chat`](https://www.npmjs.com/package/@vercel/connect) wires both a `botToken` resolver and a `webhookVerifier` for Connect trigger-forwarded webhooks:
-
-```typescript
-import { createSlackAdapter } from "@chat-adapter/slack";
-import { connectSlackAdapter } from "@vercel/connect/chat";
-
-createSlackAdapter({
-  ...connectSlackAdapter("slack/acme-slack"),
-});
-```
-
-This is equivalent to passing a `botToken` resolver that calls `getToken` and a `webhookVerifier` that validates the Vercel OIDC token Connect attaches. Omit `signingSecret` / `SLACK_SIGNING_SECRET` when using it.
 
 ### Token encryption
 

@@ -77,6 +77,28 @@ const connectSection = (config: ProjectConfig): string => {
   return lines.join("\n");
 };
 
+const webhookSetupInstruction = (config: ProjectConfig): string => {
+  const forwarded: string[] = [];
+  const native: string[] = [];
+  for (const adapter of config.platformAdapters) {
+    const connect = config.useConnect
+      ? getAdapterConnectSpec(adapter.slug)
+      : undefined;
+    if (connect && connect.inbound !== "native") {
+      forwarded.push(adapter.name);
+    } else {
+      native.push(adapter.name);
+    }
+  }
+  if (forwarded.length === 0) {
+    return "Expose your local server to the internet and configure platform webhook URLs.";
+  }
+  const deploy = `Deploy the app and configure Connect trigger destinations for ${forwarded.join(", ")}. Test forwarded webhooks against the deployment.`;
+  return native.length > 0
+    ? `${deploy} For ${native.join(", ")}, configure native webhook URLs; use a tunnel when testing those webhooks locally.`
+    : deploy;
+};
+
 const webhookLines = (config: ProjectConfig): string[] => {
   const lines = config.platformAdapters.map(
     (adapter) => `- ${adapter.name}: \`/api/webhooks/${adapter.slug}\``
@@ -99,5 +121,5 @@ const webhookLines = (config: ProjectConfig): string[] => {
  * @returns Markdown README contents.
  */
 export function generateReadme(config: ProjectConfig): string {
-  return `# ${config.name}\n\n${config.description || "A chat bot built with Chat SDK."}\n\n## Getting Started\n\n1. Copy the example environment file and fill in your credentials:\n\n\`\`\`bash\ncp .env.example .env.local\n\`\`\`\n\n2. Start the dev server:\n\n\`\`\`bash\n${config.packageManager} run dev\n\`\`\`\n\n3. Expose your local server to the internet and configure platform webhook URLs.\n\n${connectSection(config)}## Endpoints\n\n${webhookLines(config).join("\n")}\n\n## Project Structure\n\n\`\`\`\nsrc/\n  lib/bot.ts                              Bot configuration and handlers\n  app/api/webhooks/[platform]/route.ts    Webhook endpoint for platform adapters\n  app/api/chat/route.ts                   Web adapter endpoint when selected\n.env.example                              Required environment variables\n\`\`\`\n\n## Scripts\n\n| Command | Description |\n| --- | --- |\n| \`${config.packageManager} run dev\` | Start the development server |\n| \`${config.packageManager} run build\` | Create a production build |\n| \`${config.packageManager} run start\` | Start the production server |\n| \`${config.packageManager} run typecheck\` | Type-check the project |\n\n## Learn More\n\n- [Chat SDK Documentation](https://chat-sdk.dev/docs)\n- [Adapter Setup Guides](https://chat-sdk.dev/adapters)\n- [GitHub Repository](https://github.com/vercel/chat)\n`;
+  return `# ${config.name}\n\n${config.description || "A chat bot built with Chat SDK."}\n\n## Getting Started\n\n1. Copy the example environment file and fill in your credentials:\n\n\`\`\`bash\ncp .env.example .env.local\n\`\`\`\n\n2. Start the dev server:\n\n\`\`\`bash\n${config.packageManager} run dev\n\`\`\`\n\n3. ${webhookSetupInstruction(config)}\n\n${connectSection(config)}## Endpoints\n\n${webhookLines(config).join("\n")}\n\n## Project Structure\n\n\`\`\`\nsrc/\n  lib/bot.ts                              Bot configuration and handlers\n  app/api/webhooks/[platform]/route.ts    Webhook endpoint for platform adapters\n  app/api/chat/route.ts                   Web adapter endpoint when selected\n.env.example                              Required environment variables\n\`\`\`\n\n## Scripts\n\n| Command | Description |\n| --- | --- |\n| \`${config.packageManager} run dev\` | Start the development server |\n| \`${config.packageManager} run build\` | Create a production build |\n| \`${config.packageManager} run start\` | Start the production server |\n| \`${config.packageManager} run typecheck\` | Type-check the project |\n\n## Learn More\n\n- [Chat SDK Documentation](https://chat-sdk.dev/docs)\n- [Adapter Setup Guides](https://chat-sdk.dev/adapters)\n- [GitHub Repository](https://github.com/vercel/chat)\n`;
 }

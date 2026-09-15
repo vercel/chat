@@ -60,6 +60,8 @@ features:
 
 <Callout type="info">
 The adapter auto-detects credentials from `GITHUB_TOKEN` (or `GITHUB_APP_ID`/`GITHUB_PRIVATE_KEY`), `GITHUB_WEBHOOK_SECRET`, and `GITHUB_BOT_USERNAME`.
+
+For managed credentials and webhook verification, see [**Vercel Connect**](#option-a--vercel-connect).
 </Callout>
 
 ```typescript title="lib/bot.ts" lineNumbers
@@ -135,7 +137,36 @@ required, plus either `webhookSecret` or a `webhookVerifier`.
 
 ## Authentication
 
-### Option A — Personal Access Token
+### Option A — Vercel Connect
+
+Use [Vercel Connect](https://vercel.com/docs/connect) to source installation access tokens at runtime instead of storing a GitHub App private key. The `connectGitHubAdapter()` helper from [`@vercel/connect/chat`](https://www.npmjs.com/package/@vercel/connect) wires an `installationToken` resolver (skipping the App JWT exchange) and a `webhookVerifier` for Connect trigger-forwarded webhooks:
+
+```typescript
+import { createGitHubAdapter } from "@chat-adapter/github";
+import { connectGitHubAdapter } from "@vercel/connect/chat";
+
+createGitHubAdapter({
+  ...connectGitHubAdapter("github/acme-github"),
+  userName: "my-bot[bot]",
+});
+```
+
+`installationToken` accepts a `string` or `() => string | Promise<string>` resolver invoked per API call. When `webhookVerifier` is set it takes precedence over `webhookSecret` and `GITHUB_WEBHOOK_SECRET`.
+
+<Callout type="warn">
+  In Connect mode the adapter only holds an installation token, so it can't auto-detect its own bot user id (the `/app` lookup needs the App's JWT). Without it the adapter can't recognize its own comments and will reply to itself in a loop. It learns the id from the first comment it posts, but that's in-memory only — not enough on serverless, where each webhook can hit a fresh instance. Pass `botUserId` (the numeric id of your `…[bot]` user, e.g. from `curl -s 'https://api.github.com/users/your-app%5Bbot%5D'`) so every instance knows it up front:
+
+```typescript
+createGitHubAdapter({
+  ...connectGitHubAdapter("github/acme-github"),
+  botUserId: 12345678,
+});
+```
+
+Or set the `GITHUB_BOT_USER_ID` environment variable, which the adapter auto-detects.
+</Callout>
+
+### Option B — Personal Access Token
 
 Best for personal projects, testing, or single-repo bots.
 
@@ -149,7 +180,7 @@ createGitHubAdapter({
 });
 ```
 
-### Option B — GitHub App (recommended)
+### Option C — GitHub App (recommended)
 
 Better rate limits, security, and supports multiple installations.
 
@@ -187,35 +218,6 @@ createGitHubAdapter({
 ```
 
 The adapter automatically extracts installation IDs from webhooks and caches API clients per-installation.
-
-### Option C — Vercel Connect
-
-Use [Vercel Connect](https://vercel.com/docs/connect) to source installation access tokens at runtime instead of storing a GitHub App private key. The `connectGitHubAdapter()` helper from [`@vercel/connect/chat`](https://www.npmjs.com/package/@vercel/connect) wires an `installationToken` resolver (skipping the App JWT exchange) and a `webhookVerifier` for Connect trigger-forwarded webhooks:
-
-```typescript
-import { createGitHubAdapter } from "@chat-adapter/github";
-import { connectGitHubAdapter } from "@vercel/connect/chat";
-
-createGitHubAdapter({
-  ...connectGitHubAdapter("github/acme-github"),
-  userName: "my-bot[bot]",
-});
-```
-
-`installationToken` accepts a `string` or `() => string | Promise<string>` resolver invoked per API call. When `webhookVerifier` is set it takes precedence over `webhookSecret` and `GITHUB_WEBHOOK_SECRET`.
-
-<Callout type="warn">
-  In Connect mode the adapter only holds an installation token, so it can't auto-detect its own bot user id (the `/app` lookup needs the App's JWT). Without it the adapter can't recognize its own comments and will reply to itself in a loop. It learns the id from the first comment it posts, but that's in-memory only — not enough on serverless, where each webhook can hit a fresh instance. Pass `botUserId` (the numeric id of your `…[bot]` user, e.g. from `curl -s 'https://api.github.com/users/your-app%5Bbot%5D'`) so every instance knows it up front:
-
-```typescript
-createGitHubAdapter({
-  ...connectGitHubAdapter("github/acme-github"),
-  botUserId: 12345678,
-});
-```
-
-Or set the `GITHUB_BOT_USER_ID` environment variable, which the adapter auto-detects.
-</Callout>
 
 ## Advanced
 

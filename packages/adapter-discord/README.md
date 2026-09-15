@@ -27,7 +27,9 @@ npx create-chat-sdk@latest my-bot --adapter discord memory
 
 Visit the [adapters directory](https://chat-sdk.dev/adapters) to see other available official and vendor-official adapters.
 
-## Usage
+## Quick start
+
+For managed credentials and webhook verification, see [**Vercel Connect**](#option-a--vercel-connect).
 
 The adapter auto-detects `DISCORD_BOT_TOKEN`, `DISCORD_PUBLIC_KEY`, `DISCORD_APPLICATION_ID`, and `DISCORD_MENTION_ROLE_IDS` from environment variables:
 
@@ -48,16 +50,58 @@ bot.onNewMention(async (thread, message) => {
 });
 ```
 
-## Discord application setup
+## Configuration
 
-### 1. Create application
+All options are auto-detected from environment variables when not provided.
+
+| Option | Required | Description |
+|--------|----------|-------------|
+| `botToken` | No* | Discord bot token or async resolver. Auto-detected from `DISCORD_BOT_TOKEN` |
+| `publicKey` | No* | Application public key. Auto-detected from `DISCORD_PUBLIC_KEY` |
+| `applicationId` | No* | Discord application ID or async resolver. Auto-detected from `DISCORD_APPLICATION_ID` |
+| `webhookVerifier` | No | Custom webhook verifier that replaces Discord's Ed25519 `publicKey` verification |
+| `contentFormat` | No | Render Chat SDK cards as `DiscordContentFormat.Embeds` or `DiscordContentFormat.ComponentsV2`. Defaults to `DiscordContentFormat.Embeds` |
+| `mentionRoleIds` | No | Array of role IDs that trigger mention handlers. Auto-detected from `DISCORD_MENTION_ROLE_IDS` (comma-separated) |
+| `respondToChannelIds` | No | Parent channel IDs whose non-bot messages, including messages in child threads, trigger mention handlers without an @mention. Top-level messages use the adapter's normal per-message Discord thread. Auto-detected from `DISCORD_RESPOND_TO_CHANNEL_IDS` (comma-separated). Defaults to `[]` |
+| `respondToGlobalMentions` | No | Treat `@everyone`/`@here` pings as mentions of the bot. Defaults to `false` |
+| `interactionFlags` | No | Function returning Discord interaction flags for the initial deferred slash command response |
+| `apiUrl` | No | Override the Discord API base URL. Auto-detected from `DISCORD_API_URL` |
+| `logger` | No | Logger instance (defaults to `ConsoleLogger("info")`) |
+
+*`botToken` and `applicationId` are required via config or env vars. Provide either `publicKey` or `webhookVerifier` for inbound webhook verification.
+
+## Authentication
+
+### Option A — Vercel Connect
+
+Use `connectDiscordAdapter` to resolve the bot token and application ID from a
+Vercel Connect Discord connector and verify trigger-forwarded interactions with
+Vercel OIDC:
+
+```typescript
+import { createDiscordAdapter } from "@chat-adapter/discord";
+import { connectDiscordAdapter } from "@vercel/connect/chat";
+
+const discord = createDiscordAdapter({
+  ...connectDiscordAdapter("discord/acme-discord"),
+});
+```
+
+No `DISCORD_BOT_TOKEN`, `DISCORD_PUBLIC_KEY`, or `DISCORD_APPLICATION_ID` is
+needed in this mode.
+
+Regular messages and reactions still require a [Gateway connection](#architecture-http-interactions-vs-gateway).
+
+### Option B — Discord app credentials
+
+#### 1. Create application
 
 1. Go to the [Discord Developer Portal](https://discord.com/developers/applications)
 2. Click **New Application** and give it a name
 3. Note the **Application ID** from the General Information page
 4. Copy the **Public Key** from the General Information page
 
-### 2. Create bot
+#### 2. Create bot
 
 1. Go to the **Bot** section in the left sidebar
 2. Click **Reset Token** to generate a new bot token
@@ -66,13 +110,13 @@ bot.onNewMention(async (thread, message) => {
    - Message Content Intent
    - Server Members Intent (if needed)
 
-### 3. Configure interactions endpoint
+#### 3. Configure interactions endpoint
 
 1. Go to **General Information**
 2. Set **Interactions Endpoint URL** to `https://your-domain.com/api/webhooks/discord`
 3. Discord sends a PING to verify the endpoint
 
-### 4. Add bot to server
+#### 4. Add bot to server
 
 1. Go to **OAuth2** then **URL Generator**
 2. Select scopes: `bot`, `applications.commands`
@@ -218,44 +262,6 @@ across all text. When a card exceeds either limit the adapter throws a
 ## Inbound attachments
 
 Incoming attachments expose a lazy `fetchData()` that downloads from Discord's CDN anonymously. Downloads refuse private and internal addresses (including after redirects), are limited to 25 MB, and time out after 30 seconds.
-
-## Configuration
-
-All options are auto-detected from environment variables when not provided.
-
-| Option | Required | Description |
-|--------|----------|-------------|
-| `botToken` | No* | Discord bot token or async resolver. Auto-detected from `DISCORD_BOT_TOKEN` |
-| `publicKey` | No* | Application public key. Auto-detected from `DISCORD_PUBLIC_KEY` |
-| `applicationId` | No* | Discord application ID or async resolver. Auto-detected from `DISCORD_APPLICATION_ID` |
-| `webhookVerifier` | No | Custom webhook verifier that replaces Discord's Ed25519 `publicKey` verification |
-| `contentFormat` | No | Render Chat SDK cards as `DiscordContentFormat.Embeds` or `DiscordContentFormat.ComponentsV2`. Defaults to `DiscordContentFormat.Embeds` |
-| `mentionRoleIds` | No | Array of role IDs that trigger mention handlers. Auto-detected from `DISCORD_MENTION_ROLE_IDS` (comma-separated) |
-| `respondToChannelIds` | No | Parent channel IDs whose non-bot messages, including messages in child threads, trigger mention handlers without an @mention. Top-level messages use the adapter's normal per-message Discord thread. Auto-detected from `DISCORD_RESPOND_TO_CHANNEL_IDS` (comma-separated). Defaults to `[]` |
-| `respondToGlobalMentions` | No | Treat `@everyone`/`@here` pings as mentions of the bot. Defaults to `false` |
-| `interactionFlags` | No | Function returning Discord interaction flags for the initial deferred slash command response |
-| `apiUrl` | No | Override the Discord API base URL. Auto-detected from `DISCORD_API_URL` |
-| `logger` | No | Logger instance (defaults to `ConsoleLogger("info")`) |
-
-*`botToken` and `applicationId` are required via config or env vars. Provide either `publicKey` or `webhookVerifier` for inbound webhook verification.
-
-### Vercel Connect
-
-Use `connectDiscordAdapter` to resolve the bot token and application ID from a
-Vercel Connect Discord connector and verify trigger-forwarded interactions with
-Vercel OIDC:
-
-```typescript
-import { createDiscordAdapter } from "@chat-adapter/discord";
-import { connectDiscordAdapter } from "@vercel/connect/chat";
-
-const discord = createDiscordAdapter({
-  ...connectDiscordAdapter("discord/acme-discord"),
-});
-```
-
-No `DISCORD_BOT_TOKEN`, `DISCORD_PUBLIC_KEY`, or `DISCORD_APPLICATION_ID` is
-needed in this mode.
 
 ## Discord thread channel names
 

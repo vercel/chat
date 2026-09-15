@@ -58,6 +58,8 @@ features:
 
 <Callout type="info">
 The adapter auto-detects `DISCORD_BOT_TOKEN`, `DISCORD_PUBLIC_KEY`, `DISCORD_APPLICATION_ID`, and `DISCORD_MENTION_ROLE_IDS` from the environment.
+
+For managed credentials and webhook verification, see [**Vercel Connect**](#option-a--vercel-connect).
 </Callout>
 
 ```typescript title="lib/bot.ts" lineNumbers
@@ -136,6 +138,47 @@ bot.onNewMention(async (thread, message) => {
 `botToken` and `applicationId` are required. Provide either `publicKey` or
 `webhookVerifier`.
 
+## Authentication
+
+### Option A — Vercel Connect
+
+Use [Vercel Connect](/docs/vercel-connect) to resolve the bot token and application ID from a Discord connector and verify trigger-forwarded interactions with Vercel OIDC:
+
+```typescript title="lib/bot.ts" lineNumbers
+import { createDiscordAdapter } from "@chat-adapter/discord";
+import { connectDiscordAdapter } from "@vercel/connect/chat";
+
+const discord = createDiscordAdapter({
+  ...connectDiscordAdapter("discord/acme-discord"),
+});
+```
+
+Replace `discord/acme-discord` with your connector UID. The helper supplies `botToken`, `applicationId`, and `webhookVerifier`, so you don't need `DISCORD_BOT_TOKEN`, `DISCORD_PUBLIC_KEY`, or `DISCORD_APPLICATION_ID` in your deployment. Configure the Connect trigger to forward interactions to `/api/webhooks/discord` on your deployed app.
+
+Connect OIDC verification replaces Discord's Ed25519 public-key check for forwarded interactions. Regular messages and reactions still require a [Gateway connection](#http-interactions-vs-gateway).
+
+### Option B — Discord app credentials
+
+Configure your own Discord application and set `DISCORD_BOT_TOKEN`, `DISCORD_PUBLIC_KEY`, and `DISCORD_APPLICATION_ID` for the adapter to auto-detect.
+
+#### 1. Create the application
+
+1. Go to the [Discord Developer Portal](https://discord.com/developers/applications) and click **New Application**.
+2. Note the **Application ID** and copy the **Public Key** from the General Information page.
+
+#### 2. Create the bot
+
+1. Open **Bot** in the sidebar and click **Reset Token** to generate a bot token (you only see it once).
+2. Enable **Message Content Intent** (and **Server Members Intent** if needed).
+
+#### 3. Set the interactions endpoint
+
+In **General Information**, set **Interactions Endpoint URL** to `https://your-domain.com/api/webhooks/discord`. Discord sends a PING to verify.
+
+#### 4. Add the bot to your server
+
+In **OAuth2** then **URL Generator**, select scopes `bot` and `applications.commands`, pick the permissions your bot needs (Send Messages, Send Messages in Threads, Create Public Threads, Manage Threads, Read Message History, Add Reactions, Attach Files), and use the generated URL to invite the bot.
+
 ## Components cards
 
 Discord cards render as embeds by default. Set `contentFormat` to render Chat SDK cards with [Discord Components](https://docs.discord.com/developers/components/reference):
@@ -182,26 +225,6 @@ createDiscordAdapter({
 ```
 
 The callback receives the parsed command path, flattened option text, invoking user, normalized Chat SDK channel ID, and raw Discord interaction. Later calls to `event.channel.post()` continue through the normal Discord interaction response flow. Calls to `event.channel.postEphemeral()` still use the normal Chat SDK fallback behavior.
-
-## Authentication
-
-### 1. Create the application
-
-1. Go to the [Discord Developer Portal](https://discord.com/developers/applications) and click **New Application**.
-2. Note the **Application ID** and copy the **Public Key** from the General Information page.
-
-### 2. Create the bot
-
-1. Open **Bot** in the sidebar and click **Reset Token** to generate a bot token (you only see it once).
-2. Enable **Message Content Intent** (and **Server Members Intent** if needed).
-
-### 3. Set the interactions endpoint
-
-In **General Information**, set **Interactions Endpoint URL** to `https://your-domain.com/api/webhooks/discord`. Discord sends a PING to verify.
-
-### 4. Add the bot to your server
-
-In **OAuth2** then **URL Generator**, select scopes `bot` and `applications.commands`, pick the permissions your bot needs (Send Messages, Send Messages in Threads, Create Public Threads, Manage Threads, Read Message History, Add Reactions, Attach Files), and use the generated URL to invite the bot.
 
 ## Discord thread channel names
 

@@ -66,6 +66,8 @@ features:
 
 <Callout type="info">
 The adapter auto-detects credentials from `LINEAR_API_KEY`, `LINEAR_ACCESS_TOKEN`, `LINEAR_CLIENT_CREDENTIALS_*`, or `LINEAR_CLIENT_ID`/`LINEAR_CLIENT_SECRET`, plus `LINEAR_WEBHOOK_SECRET` and `LINEAR_BOT_USERNAME`.
+
+For managed credentials and webhook verification, see [**Vercel Connect**](#option-a--vercel-connect).
 </Callout>
 
 ```typescript title="lib/bot.ts" lineNumbers
@@ -155,7 +157,25 @@ One of `apiKey`, `accessToken` (string or Vercel Connect resolver), top-level
 
 ## Authentication
 
-### Option A — Personal API key
+### Option A — Vercel Connect
+
+Use [Vercel Connect](https://vercel.com/docs/connect) to source the Linear access token at runtime instead of storing a long-lived token or OAuth secret. The `connectLinearAdapter()` helper from [`@vercel/connect/chat`](https://www.npmjs.com/package/@vercel/connect) wires an `accessToken` resolver and a `webhookVerifier` for Connect trigger-forwarded webhooks:
+
+```typescript
+import { createLinearAdapter } from "@chat-adapter/linear";
+import { connectLinearAdapter } from "@vercel/connect/chat";
+
+createLinearAdapter({
+  ...connectLinearAdapter("linear/acme-linear"),
+  mode: "agent-sessions",
+});
+```
+
+We recommend agent sessions for Vercel Connect bots. Enable **Agent session events** on the Linear app and use an app-actor installation. Omitting `mode` keeps the `"comments"` default; existing bots do not need to change their configuration. Changing the adapter mode does not change the app's webhook subscriptions or permissions.
+
+`accessToken` accepts a `string` or `() => string | Promise<string>` resolver invoked per API call. When `webhookVerifier` is set it takes precedence over `webhookSecret` and `LINEAR_WEBHOOK_SECRET`.
+
+### Option B — Personal API key
 
 Best for personal projects or single-workspace bots. Actions are attributed to you as an individual.
 
@@ -168,7 +188,7 @@ Best for personal projects or single-workspace bots. Actions are attributed to y
 createLinearAdapter({ apiKey: process.env.LINEAR_API_KEY! });
 ```
 
-### Option B — OAuth access token
+### Option C — OAuth access token
 
 Use this when your app already manages the OAuth flow:
 
@@ -176,7 +196,7 @@ Use this when your app already manages the OAuth flow:
 createLinearAdapter({ accessToken: process.env.LINEAR_ACCESS_TOKEN! });
 ```
 
-### Option C — Multi-tenant OAuth installs
+### Option D — Multi-tenant OAuth installs
 
 Use top-level `clientId` / `clientSecret` for Slack-style multi-tenant installs. Each Linear workspace install is stored separately, webhook requests resolve the correct workspace token by `organizationId`, and `withInstallation()` lets you target a specific organization outside webhook handling.
 
@@ -201,7 +221,7 @@ await adapter.withInstallation(organizationId, async () => {
 });
 ```
 
-### Option D — Single-tenant client credentials
+### Option E — Single-tenant client credentials
 
 App identity without multi-tenant installs. The adapter fetches and refreshes the token automatically.
 
@@ -215,24 +235,6 @@ createLinearAdapter({
   mode: "agent-sessions",
 });
 ```
-
-### Option E — Vercel Connect
-
-Use [Vercel Connect](https://vercel.com/docs/connect) to source the Linear access token at runtime instead of storing a long-lived token or OAuth secret. The `connectLinearAdapter()` helper from [`@vercel/connect/chat`](https://www.npmjs.com/package/@vercel/connect) wires an `accessToken` resolver and a `webhookVerifier` for Connect trigger-forwarded webhooks:
-
-```typescript
-import { createLinearAdapter } from "@chat-adapter/linear";
-import { connectLinearAdapter } from "@vercel/connect/chat";
-
-createLinearAdapter({
-  ...connectLinearAdapter("linear/acme-linear"),
-  mode: "agent-sessions",
-});
-```
-
-We recommend agent sessions for Vercel Connect bots. Enable **Agent session events** on the Linear app and use an app-actor installation. Omitting `mode` keeps the `"comments"` default; existing bots do not need to change their configuration. Changing the adapter mode does not change the app's webhook subscriptions or permissions.
-
-`accessToken` accepts a `string` or `() => string | Promise<string>` resolver invoked per API call. When `webhookVerifier` is set it takes precedence over `webhookSecret` and `LINEAR_WEBHOOK_SECRET`.
 
 ## Advanced
 

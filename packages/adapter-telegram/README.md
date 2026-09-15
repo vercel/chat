@@ -27,7 +27,9 @@ npx create-chat-sdk@latest my-bot --adapter telegram memory
 
 Visit the [adapters directory](https://chat-sdk.dev/adapters) to see other available official and vendor-official adapters.
 
-## Usage
+## Quick start
+
+For managed credentials, see [**Vercel Connect**](#option-a--vercel-connect).
 
 The adapter auto-detects `TELEGRAM_BOT_TOKEN`, `TELEGRAM_WEBHOOK_SECRET_TOKEN`, `TELEGRAM_ALLOW_UNVERIFIED_WEBHOOKS`, `TELEGRAM_BOT_USERNAME`, `TELEGRAM_MENTION_ON_REPLY`, and `TELEGRAM_API_BASE_URL` from environment variables:
 
@@ -47,7 +49,33 @@ bot.onNewMention(async (thread, message) => {
 });
 ```
 
-## Vercel Connect
+## Configuration
+
+Most options are auto-detected from environment variables when not provided. `nativeStreaming` and `streamingEditIntervalMs` are config only and have no environment variables.
+
+| Option | Required | Description |
+|--------|----------|-------------|
+| `allowUnverifiedWebhooks` | No | Accept webhook requests without secret-token verification. Auto-detected from `TELEGRAM_ALLOW_UNVERIFIED_WEBHOOKS=true`. Use only for local development or behind a trusted verifying proxy |
+| `allowedUserIds` | No | Telegram user IDs allowed to trigger the adapter. Auto-detected from `TELEGRAM_ALLOWED_USER_IDS` (comma-separated). All users are allowed when omitted or empty |
+| `botToken` | No* | Telegram bot token. Auto-detected from `TELEGRAM_BOT_TOKEN` |
+| `secretToken` | Webhook* | Webhook secret token. Auto-detected from `TELEGRAM_WEBHOOK_SECRET_TOKEN` |
+| `mode` | No | Adapter mode: `auto` (default), `webhook`, or `polling` |
+| `longPolling` | No | Optional long polling config for `getUpdates` (`timeout`, `limit`, `allowedUpdates`, `deleteWebhook`, `dropPendingUpdates`, `retryDelayMs`) |
+| `businessMode` | No | Enable Telegram Business mode (`business_connection`, `business_message`, `edited_business_message`). Defaults to `false` |
+| `userName` | No | Bot username used for mention detection. Auto-detected from `TELEGRAM_BOT_USERNAME` or `getMe` |
+| `mentionOnReply` | No | Treat a reply to one of the bot's own messages as a mention, so it routes to `onNewMention`. Defaults to `false`. Auto-detected from `TELEGRAM_MENTION_ON_REPLY=true`. Implicit forum-topic replies and the bot's own messages never count |
+| `nativeStreaming` | No | Stream with Telegram's native draft previews in private chats. Defaults to `false`, which uses post-and-edit in every chat type |
+| `streamingEditIntervalMs` | No | Minimum interval between edits on the post-and-edit streaming path. Defaults to `1100` in private chats and `3100` in other chats, and acts as a floor for the Chat-level `streamingUpdateIntervalMs` |
+| `apiUrl` | No | Telegram API base URL. Auto-detected from `TELEGRAM_API_BASE_URL`. Use `apiUrl` for cross-adapter consistency; the legacy `apiBaseUrl` alias is still accepted |
+| `logger` | No | Logger instance (defaults to `ConsoleLogger("info")`) |
+
+*`botToken` is always required. Webhook mode also requires `secretToken` unless `allowUnverifiedWebhooks` is explicitly enabled. Polling mode does not require webhook verification.
+
+## Authentication
+
+Use Vercel Connect to manage the outbound bot token, or provide the token directly. Both options use Telegram's native webhook verification; polling does not require a webhook secret.
+
+### Option A — Vercel Connect
 
 Use `connectTelegramAdapter` to resolve the outbound bot token from Vercel
 Connect:
@@ -68,6 +96,14 @@ without an inbound webhook. `TELEGRAM_BOT_TOKEN` is not needed when using the
 Connect helper. The adapter derives webhook deduplication scope from Telegram's
 stable bot identity, so token rotation does not split update claims. If bot
 identity lookup fails at startup, the next accepted webhook retries it.
+
+### Option B — Bot token
+
+Create a bot via [BotFather](https://t.me/BotFather) and provide its token directly to the adapter:
+
+1. Send `/newbot` and follow the prompts.
+2. Copy the token to `TELEGRAM_BOT_TOKEN`.
+3. Optionally pick a username and copy it to `TELEGRAM_BOT_USERNAME`.
 
 ## Webhook route
 
@@ -185,28 +221,6 @@ console.log(telegram.runtimeMode); // "webhook" | "polling"
 ## Inbound attachments
 
 Incoming file attachments expose a lazy `fetchData()` served from the configured Bot API host. Downloads are limited to 25 MB and time out after 30 seconds. They use the Web Fetch API, so file downloads keep working in runtimes like Cloudflare Workers.
-
-## Configuration
-
-Most options are auto-detected from environment variables when not provided. `nativeStreaming` and `streamingEditIntervalMs` are config only and have no environment variables.
-
-| Option | Required | Description |
-|--------|----------|-------------|
-| `allowUnverifiedWebhooks` | No | Accept webhook requests without secret-token verification. Auto-detected from `TELEGRAM_ALLOW_UNVERIFIED_WEBHOOKS=true`. Use only for local development or behind a trusted verifying proxy |
-| `allowedUserIds` | No | Telegram user IDs allowed to trigger the adapter. Auto-detected from `TELEGRAM_ALLOWED_USER_IDS` (comma-separated). All users are allowed when omitted or empty |
-| `botToken` | No* | Telegram bot token. Auto-detected from `TELEGRAM_BOT_TOKEN` |
-| `secretToken` | Webhook* | Webhook secret token. Auto-detected from `TELEGRAM_WEBHOOK_SECRET_TOKEN` |
-| `mode` | No | Adapter mode: `auto` (default), `webhook`, or `polling` |
-| `longPolling` | No | Optional long polling config for `getUpdates` (`timeout`, `limit`, `allowedUpdates`, `deleteWebhook`, `dropPendingUpdates`, `retryDelayMs`) |
-| `businessMode` | No | Enable Telegram Business mode (`business_connection`, `business_message`, `edited_business_message`). Defaults to `false` |
-| `userName` | No | Bot username used for mention detection. Auto-detected from `TELEGRAM_BOT_USERNAME` or `getMe` |
-| `mentionOnReply` | No | Treat a reply to one of the bot's own messages as a mention, so it routes to `onNewMention`. Defaults to `false`. Auto-detected from `TELEGRAM_MENTION_ON_REPLY=true`. Implicit forum-topic replies and the bot's own messages never count |
-| `nativeStreaming` | No | Stream with Telegram's native draft previews in private chats. Defaults to `false`, which uses post-and-edit in every chat type |
-| `streamingEditIntervalMs` | No | Minimum interval between edits on the post-and-edit streaming path. Defaults to `1100` in private chats and `3100` in other chats, and acts as a floor for the Chat-level `streamingUpdateIntervalMs` |
-| `apiUrl` | No | Telegram API base URL. Auto-detected from `TELEGRAM_API_BASE_URL`. Use `apiUrl` for cross-adapter consistency; the legacy `apiBaseUrl` alias is still accepted |
-| `logger` | No | Logger instance (defaults to `ConsoleLogger("info")`) |
-
-*`botToken` is always required. Webhook mode also requires `secretToken` unless `allowUnverifiedWebhooks` is explicitly enabled. Polling mode does not require webhook verification.
 
 ## Environment variables
 
