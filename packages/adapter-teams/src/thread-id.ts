@@ -29,6 +29,11 @@ export function conversationTypeFromActivity(
   return undefined;
 }
 
+/** Tenant from the conversation, falling back to Teams channelData (team and group payloads). */
+export function tenantIdFromActivity(activity: Activity): string | undefined {
+  return activity.conversation?.tenantId ?? activity.channelData?.tenant?.id;
+}
+
 export function encodeThreadId(platformData: TeamsThreadId): string {
   const encodedConversationId = Buffer.from(
     platformData.conversationId

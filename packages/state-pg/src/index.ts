@@ -3,6 +3,8 @@ import { ConsoleLogger } from "chat";
 import pg from "pg";
 
 export interface PostgresStateAdapterUrlOptions {
+  /** Create tables and indexes on connect (default: true). Disable for migration-owned schemas. */
+  autoCreateSchema?: boolean;
   client?: never;
   /** Key prefix for all rows (default: "chat-sdk") */
   keyPrefix?: string;
@@ -13,6 +15,8 @@ export interface PostgresStateAdapterUrlOptions {
 }
 
 export interface PostgresStateAdapterClientOptions {
+  /** Create tables and indexes on connect (default: true). Disable for migration-owned schemas. */
+  autoCreateSchema?: boolean;
   /** Existing pg.Pool instance */
   client: pg.Pool;
   /** Key prefix for all rows (default: "chat-sdk") */
@@ -37,7 +41,143 @@ export type PostgresStateClientOptions = PostgresStateAdapterClientOptions;
  */
 export type CreatePostgresStateOptions = PostgresStateAdapterOptions;
 
+/**
+ * Complete adapter schema, in execution order. `connect()` runs these with
+ * `autoCreateSchema: true`; migration-owned deployments can run them from
+ * their own tooling. Table and index names are unqualified and resolve
+ * against the connection's `search_path`.
+ */
+export const postgresSchemaStatements: readonly string[] = [
+  `CREATE TABLE IF NOT EXISTS chat_state_subscriptions (
+    key_prefix text NOT NULL,
+    thread_id text NOT NULL,
+    created_at timestamptz NOT NULL DEFAULT now(),
+    PRIMARY KEY (key_prefix, thread_id)
+  )`,
+  `CREATE TABLE IF NOT EXISTS chat_state_locks (
+    key_prefix text NOT NULL,
+    thread_id text NOT NULL,
+    token text NOT NULL,
+    expires_at timestamptz NOT NULL,
+    updated_at timestamptz NOT NULL DEFAULT now(),
+    PRIMARY KEY (key_prefix, thread_id)
+  )`,
+  `CREATE TABLE IF NOT EXISTS chat_state_cache (
+    key_prefix text NOT NULL,
+    cache_key text NOT NULL,
+    value text NOT NULL,
+    expires_at timestamptz,
+    updated_at timestamptz NOT NULL DEFAULT now(),
+    PRIMARY KEY (key_prefix, cache_key)
+  )`,
+  `CREATE INDEX IF NOT EXISTS chat_state_locks_expires_idx
+    ON chat_state_locks (expires_at)`,
+  `CREATE INDEX IF NOT EXISTS chat_state_cache_expires_idx
+    ON chat_state_cache (expires_at)`,
+  `CREATE TABLE IF NOT EXISTS chat_state_lists (
+    key_prefix text NOT NULL,
+    list_key text NOT NULL,
+    seq bigserial NOT NULL,
+    value text NOT NULL,
+    expires_at timestamptz,
+    PRIMARY KEY (key_prefix, list_key, seq)
+  )`,
+  `CREATE INDEX IF NOT EXISTS chat_state_lists_expires_idx
+    ON chat_state_lists (expires_at)`,
+  `CREATE TABLE IF NOT EXISTS chat_state_queues (
+    key_prefix text NOT NULL,
+    thread_id text NOT NULL,
+    seq bigserial NOT NULL,
+    value text NOT NULL,
+    expires_at timestamptz NOT NULL,
+    PRIMARY KEY (key_prefix, thread_id, seq)
+  )`,
+  `CREATE INDEX IF NOT EXISTS chat_state_queues_expires_idx
+    ON chat_state_queues (expires_at)`,
+];
+
+// Privileges each table actually needs. Subscriptions and queues are never
+// updated: subscribe() uses ON CONFLICT DO NOTHING, which needs INSERT only.
+const tablePrivileges: Readonly<
+  Record<
+    string,
+    {
+      SELECT: readonly string[];
+      INSERT: readonly string[];
+      UPDATE?: readonly string[];
+    }
+  >
+> = {
+  chat_state_subscriptions: {
+    SELECT: ["key_prefix", "thread_id"],
+    INSERT: ["key_prefix", "thread_id"],
+  },
+  chat_state_locks: {
+    SELECT: ["key_prefix", "thread_id", "token", "expires_at"],
+    INSERT: ["key_prefix", "thread_id", "token", "expires_at"],
+    UPDATE: ["token", "expires_at", "updated_at"],
+  },
+  chat_state_cache: {
+    SELECT: ["key_prefix", "cache_key", "value", "expires_at"],
+    INSERT: ["key_prefix", "cache_key", "value", "expires_at"],
+    UPDATE: ["value", "expires_at", "updated_at"],
+  },
+  chat_state_lists: {
+    SELECT: ["key_prefix", "list_key", "seq", "value", "expires_at"],
+    INSERT: ["key_prefix", "list_key", "value", "expires_at"],
+    UPDATE: ["expires_at"],
+  },
+  chat_state_queues: {
+    SELECT: ["key_prefix", "thread_id", "seq", "value", "expires_at"],
+    INSERT: ["key_prefix", "thread_id", "value", "expires_at"],
+  },
+};
+
+const sequenceTables = ["chat_state_lists", "chat_state_queues"] as const;
+
+function tablePrivilegeCheck(
+  table: string,
+  privileges: (typeof tablePrivileges)[string]
+) {
+  return [
+    `has_table_privilege('${table}', 'DELETE')`,
+    ...Object.entries(privileges).flatMap(([privilege, columns]) =>
+      columns.map(
+        (column) =>
+          `has_column_privilege('${table}', '${column}', '${privilege}')`
+      )
+    ),
+  ].join(" AND ");
+}
+
+// nextval() is allowed by either USAGE or UPDATE on the sequence, and identity
+// columns skip the sequence permission check entirely. pg_get_serial_sequence
+// returns NULL (skipped) when seq has no owned sequence.
+function sequencePrivilegeCheck(table: string) {
+  return (
+    `(SELECT attidentity <> '' FROM pg_catalog.pg_attribute WHERE attrelid = '${table}'::regclass AND attname = 'seq')` +
+    ` OR has_sequence_privilege(pg_get_serial_sequence('${table}', 'seq'), 'USAGE, UPDATE')`
+  );
+}
+
+// One round trip, no DDL rights needed. A missing table raises 42P01; a
+// missing grant yields false.
+const schemaProbe = `SELECT ${[
+  ...Object.entries(tablePrivileges).map(
+    ([table, privileges]) =>
+      `${tablePrivilegeCheck(table, privileges)} AS ${table}`
+  ),
+  ...sequenceTables.map(
+    (table) => `${sequencePrivilegeCheck(table)} AS ${table}_seq`
+  ),
+].join(",\n  ")}`;
+
+const schemaErrorPrefix = "PostgreSQL state schema is not ready";
+const schemaErrorHint =
+  "Run the adapter migration on this database and search_path, grant the runtime role access, or set autoCreateSchema: true.";
+
 export class PostgresStateAdapter implements StateAdapter {
+  private readonly autoCreateSchema: boolean;
   private readonly pool: pg.Pool;
   private readonly keyPrefix: string;
   private readonly logger: Logger;
@@ -60,6 +200,7 @@ export class PostgresStateAdapter implements StateAdapter {
       this.ownsClient = true;
     }
 
+    this.autoCreateSchema = options.autoCreateSchema ?? true;
     this.keyPrefix = options.keyPrefix || "chat-sdk";
     this.logger = options.logger ?? new ConsoleLogger("info").child("postgres");
   }
@@ -73,7 +214,11 @@ export class PostgresStateAdapter implements StateAdapter {
       this.connectPromise = (async () => {
         try {
           await this.pool.query("SELECT 1");
-          await this.ensureSchema();
+          if (this.autoCreateSchema) {
+            await this.ensureSchema();
+          } else {
+            await this.verifySchema();
+          }
           this.connected = true;
         } catch (error) {
           this.connectPromise = null;
@@ -448,70 +593,34 @@ export class PostgresStateAdapter implements StateAdapter {
   }
 
   private async ensureSchema(): Promise<void> {
-    await this.pool.query(
-      `CREATE TABLE IF NOT EXISTS chat_state_subscriptions (
-        key_prefix text NOT NULL,
-        thread_id text NOT NULL,
-        created_at timestamptz NOT NULL DEFAULT now(),
-        PRIMARY KEY (key_prefix, thread_id)
-      )`
-    );
-    await this.pool.query(
-      `CREATE TABLE IF NOT EXISTS chat_state_locks (
-        key_prefix text NOT NULL,
-        thread_id text NOT NULL,
-        token text NOT NULL,
-        expires_at timestamptz NOT NULL,
-        updated_at timestamptz NOT NULL DEFAULT now(),
-        PRIMARY KEY (key_prefix, thread_id)
-      )`
-    );
-    await this.pool.query(
-      `CREATE TABLE IF NOT EXISTS chat_state_cache (
-        key_prefix text NOT NULL,
-        cache_key text NOT NULL,
-        value text NOT NULL,
-        expires_at timestamptz,
-        updated_at timestamptz NOT NULL DEFAULT now(),
-        PRIMARY KEY (key_prefix, cache_key)
-      )`
-    );
-    await this.pool.query(
-      `CREATE INDEX IF NOT EXISTS chat_state_locks_expires_idx
-       ON chat_state_locks (expires_at)`
-    );
-    await this.pool.query(
-      `CREATE INDEX IF NOT EXISTS chat_state_cache_expires_idx
-       ON chat_state_cache (expires_at)`
-    );
-    await this.pool.query(
-      `CREATE TABLE IF NOT EXISTS chat_state_lists (
-        key_prefix text NOT NULL,
-        list_key text NOT NULL,
-        seq bigserial NOT NULL,
-        value text NOT NULL,
-        expires_at timestamptz,
-        PRIMARY KEY (key_prefix, list_key, seq)
-      )`
-    );
-    await this.pool.query(
-      `CREATE INDEX IF NOT EXISTS chat_state_lists_expires_idx
-       ON chat_state_lists (expires_at)`
-    );
-    await this.pool.query(
-      `CREATE TABLE IF NOT EXISTS chat_state_queues (
-        key_prefix text NOT NULL,
-        thread_id text NOT NULL,
-        seq bigserial NOT NULL,
-        value text NOT NULL,
-        expires_at timestamptz NOT NULL,
-        PRIMARY KEY (key_prefix, thread_id, seq)
-      )`
-    );
-    await this.pool.query(
-      `CREATE INDEX IF NOT EXISTS chat_state_queues_expires_idx
-       ON chat_state_queues (expires_at)`
-    );
+    for (const statement of postgresSchemaStatements) {
+      await this.pool.query(statement);
+    }
+  }
+
+  /**
+   * Fail fast when a migration-owned schema is missing tables or grants, so
+   * the problem surfaces at connect() instead of inside the first message.
+   */
+  private async verifySchema(): Promise<void> {
+    let result: pg.QueryResult<Record<string, boolean | null>>;
+    try {
+      result = await this.pool.query(schemaProbe);
+    } catch (error) {
+      throw new Error(
+        `${schemaErrorPrefix}: ${error instanceof Error ? error.message : String(error)}. ${schemaErrorHint}`,
+        { cause: error }
+      );
+    }
+
+    const missing = Object.entries(result.rows[0] ?? {})
+      .filter(([, granted]) => granted === false)
+      .map(([name]) => name);
+    if (missing.length > 0) {
+      throw new Error(
+        `${schemaErrorPrefix}: the current role lacks privileges on ${missing.join(", ")}. ${schemaErrorHint}`
+      );
+    }
   }
 
   private ensureConnected(): void {
@@ -544,6 +653,7 @@ export function createPostgresState(
   }
 
   return new PostgresStateAdapter({
+    autoCreateSchema: options.autoCreateSchema,
     url,
     keyPrefix: options.keyPrefix,
     logger: options.logger,

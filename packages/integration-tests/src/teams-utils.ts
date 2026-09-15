@@ -129,7 +129,7 @@ export function createMockTeamsApp() {
 
   let conversationCounter = 0;
 
-  const mockSend = vi.fn(async (_convId: string, activity: unknown) => {
+  const mockSendTo = vi.fn(async (_target: unknown, activity: unknown) => {
     sentActivities.push(activity);
     return { id: `response-${Date.now()}`, type: "message" };
   });
@@ -184,8 +184,10 @@ export function createMockTeamsApp() {
     updatedActivities,
     deletedActivities,
     createdConversations,
-    send: mockSend,
+    sendTo: mockSendTo,
     api: mockApi,
+    /** The adapter resolves a per-thread connector client; serve the same mock. */
+    apiFor: vi.fn(() => mockApi),
     graph: mockGraph,
     initialize: vi.fn(async () => undefined),
     /** Backwards-compat alias for api.conversations.create */
@@ -219,8 +221,9 @@ export function injectMockTeamsApp(
   const config = (adapter as unknown as { config: { appId?: string } }).config;
   adapterInternal.app = {
     id: config.appId || TEAMS_APP_ID,
-    send: mockApp.send,
+    sendTo: mockApp.sendTo,
     api: mockApp.api,
+    apiFor: mockApp.apiFor,
     graph: mockApp.graph,
     initialize: mockApp.initialize,
     on: vi.fn(),

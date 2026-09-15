@@ -524,3 +524,44 @@ The `event` object includes:
 | `channelId` | `string` | The channel that was joined |
 | `userId` | `string` | The user who joined. On Teams this is always the bot (`28:<appId>`) |
 | `inviterId` | `string` (optional) | The user who invited them |
+
+
+## Installation lifecycle
+
+`onInstalled` and `onUninstalled` receive bot installation and removal events.
+Currently only the Teams adapter emits them, for personal, group chat, and team
+installs.
+
+```typescript
+bot.onInstalled(async (event) => {
+  if (event.adapter.name !== "teams") return;
+  // Persist the destination or start your onboarding flow.
+  await recordInstallation(event);
+});
+
+bot.onUninstalled(async (event) => {
+  if (event.adapter.name !== "teams") return;
+  await removeInstallation(event);
+});
+```
+
+Events include `adapter`, the activity `id`, the `action`, the platform
+`conversationId`, `raw`, and the optional actor `userId`, `tenantId`, and
+`locale`. The optional `channelId` is the normalized Chat destination; persist it
+and post later with `bot.channel(channelId).post()`.
+
+`recordInstallation` and `removeInstallation` are application-owned. For Teams
+team installs, use `event.raw.channelData.team.id` as the installation scope;
+the install and removal events can carry different `conversationId` values.
+Include the bot ID and tenant ID in your persistence key.
+
+`action` is `add`, `add-upgrade`, `remove`, or `remove-upgrade`. The upgrade
+variants mean the app manifest added or removed the bot, so persist and clean
+up for both variants. Routine app upgrades do not emit these events.
+A Teams team or group chat install also
+emits `onMemberJoinedChannel`, so keep each welcome flow in one handler. Make
+side effects idempotent for webhook retries. Handler errors are logged, and
+asynchronous work is registered with the webhook's `waitUntil`.
+
+See [Teams installation lifecycle](/adapters/official/teams#installation-lifecycle)
+for persistence, reinstall cleanup, and proactive messages.

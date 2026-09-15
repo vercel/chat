@@ -1,3 +1,4 @@
+import { readFile } from "node:fs/promises";
 import type { Lock, Logger } from "chat";
 import type pg from "pg";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -13,7 +14,27 @@ vi.mock("pg", () => {
   return { default: { Pool: MockPool } };
 });
 
-const { createPostgresState, PostgresStateAdapter } = await import("./index");
+const { createPostgresState, PostgresStateAdapter, postgresSchemaStatements } =
+  await import("./index");
+
+const schemaProbe = expect.stringContaining("has_table_privilege(");
+const migrationHeading = "### Migration-owned schema";
+const sqlFences = /```sql[^\n]*\r?\n([\s\S]*?)```/g;
+const whitespace = /\s+/g;
+
+/** Statements of the DDL block under the migration heading, whitespace-normalized. */
+async function documentedSchemaStatements(path: string): Promise<string[]> {
+  const content = await readFile(new URL(path, import.meta.url), "utf8");
+  const section = content.split(migrationHeading)[1] ?? "";
+  const block =
+    Array.from(section.matchAll(sqlFences), (match) => match[1]).find((sql) =>
+      sql.trimStart().startsWith(postgresSchemaStatements[0].slice(0, 40))
+    ) ?? "";
+  return block
+    .split(";")
+    .map((statement) => statement.replaceAll(whitespace, " ").trim())
+    .filter(Boolean);
+}
 
 const mockLogger: Logger = {
   debug: vi.fn(),
@@ -118,6 +139,217 @@ describe("PostgresStateAdapter", () => {
       } finally {
         vi.unstubAllEnvs();
       }
+    });
+  });
+
+  describe("schema initialization", () => {
+    afterEach(() => {
+      vi.unstubAllEnvs();
+      mockQuery.mockReset().mockResolvedValue({ rows: [] });
+      mockEnd.mockClear();
+    });
+
+    it.each([
+      undefined,
+      true,
+    ])("creates every table and index when autoCreateSchema is %s", async (autoCreateSchema) => {
+      const client = createMockPool();
+      const adapter = new PostgresStateAdapter({ client, autoCreateSchema });
+      await adapter.connect();
+      expect(vi.mocked(client.query).mock.calls.map(([sql]) => sql)).toEqual([
+        "SELECT 1",
+        ...postgresSchemaStatements,
+      ]);
+    });
+
+    it("keeps the published migration in sync with the statements connect() runs", async () => {
+      const source = postgresSchemaStatements.map((statement) =>
+        statement.replaceAll(whitespace, " ").trim()
+      );
+      expect(source).toHaveLength(9);
+      await expect(documentedSchemaStatements("../README.md")).resolves.toEqual(
+        source
+      );
+      await expect(
+        documentedSchemaStatements(
+          "../../../apps/docs/content/adapters/official/postgres.mdx"
+        )
+      ).resolves.toEqual(source);
+    });
+
+    it.each([
+      "constructor",
+      "factory",
+    ])("probes instead of creating the schema for an external pool via %s", async (method) => {
+      const client = createMockPool();
+      const options = { client, autoCreateSchema: false };
+      const adapter =
+        method === "constructor"
+          ? new PostgresStateAdapter(options)
+          : createPostgresState(options);
+      await Promise.all([
+        adapter.connect(),
+        adapter.connect(),
+        adapter.connect(),
+      ]);
+      await adapter.connect();
+      expect(vi.mocked(client.query).mock.calls).toEqual([
+        ["SELECT 1"],
+        [schemaProbe],
+      ]);
+      expect(vi.mocked(client.query).mock.calls[1][0]).not.toContain("CREATE");
+      await adapter.disconnect();
+      expect(client.end).not.toHaveBeenCalled();
+      await adapter.connect();
+      expect(client.query).toHaveBeenCalledTimes(4);
+    });
+
+    it("probes only the privileges each table needs", async () => {
+      const client = createMockPool();
+      const adapter = new PostgresStateAdapter({
+        client,
+        autoCreateSchema: false,
+      });
+      await adapter.connect();
+      const probe = vi.mocked(client.query).mock.calls[1][0] as string;
+      for (const table of ["chat_state_subscriptions", "chat_state_queues"]) {
+        expect(probe).toContain(`has_table_privilege('${table}', 'DELETE')`);
+        expect(probe).not.toContain(
+          `has_table_privilege('${table}', 'UPDATE')`
+        );
+        expect(probe).not.toContain(
+          `has_column_privilege('${table}', 'expires_at', 'UPDATE')`
+        );
+      }
+      for (const table of [
+        "chat_state_locks",
+        "chat_state_cache",
+        "chat_state_lists",
+      ]) {
+        expect(probe).toContain(
+          `has_column_privilege('${table}', 'expires_at', 'UPDATE')`
+        );
+      }
+      expect(probe).toContain(
+        "has_column_privilege('chat_state_cache', 'updated_at', 'UPDATE')"
+      );
+      expect(probe).not.toContain(
+        "has_column_privilege('chat_state_cache', 'updated_at', 'INSERT')"
+      );
+      expect(probe).not.toContain("has_any_column_privilege");
+      for (const table of ["chat_state_lists", "chat_state_queues"]) {
+        expect(probe).toContain(
+          `has_sequence_privilege(pg_get_serial_sequence('${table}', 'seq'), 'USAGE, UPDATE')`
+        );
+        expect(probe).toContain(`attrelid = '${table}'::regclass`);
+      }
+    });
+
+    it("rejects connect() when a migration-owned table is missing", async () => {
+      const client = createMockPool();
+      const error = Object.assign(
+        new Error('relation "chat_state_locks" does not exist'),
+        { code: "42P01" }
+      );
+      vi.mocked(client.query).mockImplementation((sql: string) =>
+        sql === "SELECT 1"
+          ? Promise.resolve({ rows: [] })
+          : Promise.reject(error)
+      );
+      const adapter = createPostgresState({
+        client,
+        autoCreateSchema: false,
+        logger: mockLogger,
+      });
+      await expect(adapter.connect()).rejects.toMatchObject({
+        message: expect.stringContaining(
+          'PostgreSQL state schema is not ready: relation "chat_state_locks" does not exist. Run the adapter migration'
+        ),
+        cause: error,
+      });
+      await expect(adapter.get("key")).rejects.toThrow("not connected");
+    });
+
+    it("rejects connect() naming every object the runtime role cannot use", async () => {
+      const client = createMockPool((sql) => ({
+        rows:
+          sql === "SELECT 1"
+            ? []
+            : [
+                {
+                  chat_state_subscriptions: true,
+                  chat_state_locks: true,
+                  chat_state_cache: false,
+                  chat_state_lists: true,
+                  chat_state_queues: true,
+                  chat_state_lists_seq: null,
+                  chat_state_queues_seq: false,
+                },
+              ],
+      }));
+      const adapter = createPostgresState({
+        client,
+        autoCreateSchema: false,
+        logger: mockLogger,
+      });
+      await expect(adapter.connect()).rejects.toThrow(
+        "PostgreSQL state schema is not ready: the current role lacks privileges on chat_state_cache, chat_state_queues_seq. Run the adapter migration"
+      );
+    });
+
+    it.each([
+      "constructor",
+      "factory",
+      "POSTGRES_URL",
+      "DATABASE_URL",
+    ])("forwards opt-out for a URL from %s and closes the owned pool", async (source) => {
+      mockQuery.mockClear();
+      const url = "postgres://localhost:5432/test";
+      vi.stubEnv("POSTGRES_URL", source === "POSTGRES_URL" ? url : "");
+      vi.stubEnv("DATABASE_URL", source === "DATABASE_URL" ? url : "");
+      const adapter =
+        source === "constructor"
+          ? new PostgresStateAdapter({ url, autoCreateSchema: false })
+          : createPostgresState({
+              ...(source === "factory" ? { url } : {}),
+              autoCreateSchema: false,
+            });
+      await Promise.all([adapter.connect(), adapter.connect()]);
+      await adapter.connect();
+      expect(mockQuery.mock.calls).toEqual([["SELECT 1"], [schemaProbe]]);
+      await adapter.disconnect();
+      expect(mockEnd).toHaveBeenCalledTimes(1);
+    });
+
+    it("retries a failed connectivity check without DDL", async () => {
+      const client = createMockPool();
+      const error = new Error("connection refused");
+      vi.mocked(client.query).mockRejectedValueOnce(error);
+      const adapter = createPostgresState({
+        client,
+        autoCreateSchema: false,
+        logger: mockLogger,
+      });
+      const results = await Promise.allSettled([
+        adapter.connect(),
+        adapter.connect(),
+      ]);
+      expect(results).toEqual([
+        { status: "rejected", reason: error },
+        { status: "rejected", reason: error },
+      ]);
+      expect(client.query).toHaveBeenCalledExactlyOnceWith("SELECT 1");
+      expect(mockLogger.error).toHaveBeenCalledWith("Postgres connect failed", {
+        error,
+      });
+      await expect(adapter.get("key")).rejects.toThrow("not connected");
+      await adapter.connect();
+      expect(vi.mocked(client.query).mock.calls).toEqual([
+        ["SELECT 1"],
+        ["SELECT 1"],
+        [schemaProbe],
+      ]);
+      await expect(adapter.subscribe("thread")).resolves.toBeUndefined();
     });
   });
 
@@ -673,19 +905,6 @@ describe("PostgresStateAdapter", () => {
         const client = adapter.getClient();
         expect(client).toBeDefined();
       });
-    });
-  });
-
-  describe.skip("integration tests (require Postgres)", () => {
-    it("should connect to Postgres", async () => {
-      const adapter = createPostgresState({
-        url:
-          process.env.POSTGRES_URL ||
-          "postgres://postgres:postgres@localhost:5432/chat",
-        logger: mockLogger,
-      });
-      await adapter.connect();
-      await adapter.disconnect();
     });
   });
 });
