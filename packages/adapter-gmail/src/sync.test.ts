@@ -69,7 +69,7 @@ describe("Gmail history synchronization", () => {
                   labelsAdded: [
                     {
                       message: {
-                        id: next ? "latest" : "old",
+                        id: next ? "old" : "latest",
                         threadId: "thread",
                       },
                       labelIds: [label],
@@ -81,6 +81,10 @@ describe("Gmail history synchronization", () => {
           );
         }
         if (url.pathname.includes("/threads/")) {
+          expect(url.searchParams.get("format")).toBe("minimal");
+          expect(url.searchParams.get("fields")).toBe(
+            "id,messages(id,threadId)"
+          );
           return Promise.resolve(
             Response.json({
               id: "thread",
@@ -106,6 +110,48 @@ describe("Gmail history synchronization", () => {
     await synchronizer.sync();
     expect(dispatch).toHaveBeenCalledOnce();
     await state.disconnect();
+  });
+
+  it("catches up from the saved cursor after watch renewal without resetting history", async () => {
+    const fetch = vi
+      .fn<typeof globalThis.fetch>()
+      .mockImplementation((input) => {
+        const url = new URL(String(input));
+        if (url.pathname.endsWith("/profile")) {
+          return Promise.resolve(
+            Response.json({
+              emailAddress: mailbox,
+              historyId: "9007199254741000",
+            })
+          );
+        }
+        if (url.pathname.endsWith("/watch")) {
+          return Promise.resolve(
+            Response.json({
+              historyId: "9007199254741001",
+              expiration: "1789086553000",
+            })
+          );
+        }
+        if (url.pathname.endsWith("/history")) {
+          expect(url.searchParams.get("startHistoryId")).toBe(
+            "9007199254740993"
+          );
+          return Promise.resolve(Response.json(history()));
+        }
+        expect(url.pathname).not.toContain("/threads/");
+        return Promise.resolve(Response.json(message()));
+      });
+    const { state, synchronizer, dispatch } = await setup(fetch);
+    try {
+      await synchronizer.watch("projects/project/topics/mail");
+      expect(dispatch).not.toHaveBeenCalled();
+      await synchronizer.sync();
+      expect(dispatch).toHaveBeenCalledOnce();
+      expect(await state.get(`${key}:cursor`)).toBe("9007199254740995");
+    } finally {
+      await state.disconnect();
+    }
   });
 
   it("keeps the saved cursor when renewing a watch", async () => {

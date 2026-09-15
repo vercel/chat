@@ -35,7 +35,6 @@ import {
 import {
   composeGmailMessage,
   extractGmailContinuation,
-  type GmailContinuation,
   type GmailEmail,
   type GmailOutgoing,
   parseGmailMessage,
@@ -48,7 +47,7 @@ import {
   gmailChannel,
 } from "./ids";
 import { GmailFormatConverter } from "./markdown";
-import { identifier, mailbox } from "./schema";
+import { address, identifier, mailbox } from "./schema";
 import { GmailSynchronizer } from "./sync";
 import type {
   GmailAdapterConfig,
@@ -81,6 +80,7 @@ export class GmailAdapter implements Adapter<GmailThreadId, GmailRawMessage> {
   private readonly api: GmailApiOptions;
   private readonly labelId: string;
   private readonly topicName?: string;
+  private readonly replyAll: boolean;
   private readonly verifier: ReturnType<typeof createGmailWebhookVerifier>;
   private readonly logger;
   private readonly formatter = new GmailFormatConverter();
@@ -88,6 +88,13 @@ export class GmailAdapter implements Adapter<GmailThreadId, GmailRawMessage> {
   private synchronizer?: GmailSynchronizer;
 
   constructor(config: GmailAdapterConfig = {}) {
+    if ((config.mailbox ?? process.env.GMAIL_MAILBOX) === "me") {
+      throw new ValidationError(
+        "gmail",
+        'Use the mailbox email address instead of "me" so notifications and state can be scoped to the account'
+      );
+    }
+    this.replyAll = config.replyAll ?? process.env.GMAIL_REPLY_ALL === "true";
     try {
       this.userName = mailbox.parse(
         config.mailbox ?? process.env.GMAIL_MAILBOX
@@ -125,11 +132,12 @@ export class GmailAdapter implements Adapter<GmailThreadId, GmailRawMessage> {
           "",
         subscription:
           config.subscription ?? process.env.GMAIL_SUBSCRIPTION ?? "",
+        webhookVerifier: config.webhookVerifier,
       });
     } catch {
       throw new ValidationError(
         "gmail",
-        "Gmail requires mailbox, labelId, OAuth credentials or accessToken, and Pub/Sub audience, service account email and subscription"
+        "Gmail requires mailbox, labelId, OAuth credentials or accessToken, subscription, and either webhookVerifier or Pub/Sub audience and service account email"
       );
     }
     this.logger = config.logger ?? new ConsoleLogger("info").child("gmail");
@@ -221,7 +229,25 @@ export class GmailAdapter implements Adapter<GmailThreadId, GmailRawMessage> {
   }
 
   getChannelVisibility() {
-    return "private" as const;
+    return "unknown" as const;
+  }
+
+  isDM(threadId: string): boolean {
+    return this.decodeThreadId(threadId).recipient !== undefined;
+  }
+
+  async openDM(userId: string): Promise<string> {
+    const recipient = address.shape.address.safeParse(userId);
+    if (!recipient.success) {
+      throw new ValidationError(
+        "gmail",
+        "Provide a single recipient email address"
+      );
+    }
+    return this.encodeThreadId({
+      mailbox: this.userName,
+      recipient: recipient.data,
+    });
   }
 
   parseMessage(raw: GmailRawMessage): Message<GmailRawMessage> {
@@ -296,6 +322,12 @@ export class GmailAdapter implements Adapter<GmailThreadId, GmailRawMessage> {
     messageId: string
   ): Promise<Message<GmailRawMessage>> {
     const thread = this.decodeThreadId(threadId);
+    if (thread.recipient !== undefined) {
+      throw new ValidationError(
+        "gmail",
+        "Read messages using their native Gmail thread, not a recipient route"
+      );
+    }
     const email = await this.load(decodeGmailMessage(messageId, this.userName));
     if (email.message.threadId !== thread.threadId) {
       throw new ValidationError(
@@ -311,6 +343,9 @@ export class GmailAdapter implements Adapter<GmailThreadId, GmailRawMessage> {
     options: FetchOptions = {}
   ): Promise<FetchResult<GmailRawMessage>> {
     const thread = this.decodeThreadId(threadId);
+    if (thread.recipient !== undefined) {
+      return { messages: [] };
+    }
     const direction = options.direction ?? "backward";
     const limit = z
       .number()
@@ -360,13 +395,22 @@ export class GmailAdapter implements Adapter<GmailThreadId, GmailRawMessage> {
 
   async fetchThread(threadId: string): Promise<ThreadInfo> {
     const thread = this.decodeThreadId(threadId);
+    if (thread.recipient !== undefined) {
+      return {
+        id: threadId,
+        channelId: this.channelIdFromThreadId(threadId),
+        channelVisibility: "unknown",
+        isDM: true,
+        metadata: { mailbox: this.userName, recipient: thread.recipient },
+      };
+    }
     const result = await this.call(() =>
       getGmailThread(thread.threadId, this.api)
     );
     return {
       id: threadId,
       channelId: this.channelIdFromThreadId(threadId),
-      channelVisibility: "private",
+      channelVisibility: "unknown",
       isDM: false,
       metadata: { mailbox: this.userName, threadId: result.id },
     };
@@ -384,10 +428,21 @@ export class GmailAdapter implements Adapter<GmailThreadId, GmailRawMessage> {
     const signal = options?.signal;
     signal?.throwIfAborted();
     const thread = this.decodeThreadId(threadId);
+    if (thread.recipient !== undefined) {
+      return this.send(
+        { to: [{ address: thread.recipient }], subject: "Private message" },
+        message,
+        signal
+      );
+    }
     const current = this.context.getStore();
     if (current?.message.threadId === thread.threadId) {
       return this.send(
-        extractGmailContinuation(current, this.userName),
+        {
+          continuation: extractGmailContinuation(current, this.userName, {
+            replyAll: this.replyAll,
+          }),
+        },
         message,
         signal
       );
@@ -404,7 +459,11 @@ export class GmailAdapter implements Adapter<GmailThreadId, GmailRawMessage> {
         )
       ) {
         return this.send(
-          extractGmailContinuation(email, this.userName),
+          {
+            continuation: extractGmailContinuation(email, this.userName, {
+              replyAll: this.replyAll,
+            }),
+          },
           message,
           signal
         );
@@ -423,7 +482,11 @@ export class GmailAdapter implements Adapter<GmailThreadId, GmailRawMessage> {
   ): Promise<RawMessage<GmailRawMessage>> {
     const source = await this.fetchMessage(threadId, messageId);
     return this.send(
-      extractGmailContinuation(source.raw, this.userName),
+      {
+        continuation: extractGmailContinuation(source.raw, this.userName, {
+          replyAll: this.replyAll,
+        }),
+      },
       message
     );
   }
@@ -454,7 +517,7 @@ export class GmailAdapter implements Adapter<GmailThreadId, GmailRawMessage> {
   }
 
   private async send(
-    continuation: GmailContinuation,
+    target: Pick<GmailOutgoing, "continuation" | "to" | "subject">,
     message: AdapterPostableMessage,
     signal?: AbortSignal
   ): Promise<RawMessage<GmailRawMessage>> {
@@ -481,20 +544,20 @@ export class GmailAdapter implements Adapter<GmailThreadId, GmailRawMessage> {
     signal?.throwIfAborted();
     const content = composeGmailMessage({
       from: this.userName,
-      continuation,
+      ...target,
       text: this.formatter.renderPostable(message),
       attachments,
     });
     const raw = await parseGmailMessage({
       id: "pending",
-      threadId: continuation.threadId,
+      threadId: target.continuation?.threadId ?? "pending",
       internalDate: String(Date.now()),
       labelIds: ["SENT"],
       raw: content,
     });
     const result = await this.call(() =>
       sendGmailMessage(
-        { raw: content, threadId: continuation.threadId },
+        { raw: content, threadId: target.continuation?.threadId },
         { ...this.api, signal }
       )
     );

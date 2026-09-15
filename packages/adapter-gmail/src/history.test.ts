@@ -121,12 +121,12 @@ describe("Gmail thread history", () => {
     ).rejects.toThrow("another Gmail thread");
   });
 
-  it("returns private thread metadata without reading message bodies", async () => {
+  it("does not infer recipient trust from mailbox privacy", async () => {
     const { adapter, fetch, threadId } = fixture();
     await expect(adapter.fetchThread(threadId)).resolves.toMatchObject({
       id: threadId,
       channelId: adapter.channelIdFromThreadId(threadId),
-      channelVisibility: "private",
+      channelVisibility: "unknown",
       isDM: false,
       metadata: { mailbox, threadId: "thread" },
     });

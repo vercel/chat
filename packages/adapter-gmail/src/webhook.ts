@@ -47,10 +47,11 @@ export interface GmailNotification {
 }
 
 export interface GmailWebhookOptions {
-  audience: string;
-  serviceAccountEmail: string;
+  audience?: string;
+  serviceAccountEmail?: string;
   subscription: string;
   verificationKey?: JWTVerifyGetKey;
+  webhookVerifier?: (request: Request) => unknown | Promise<unknown>;
 }
 
 export function parseGmailNotification(body: string): GmailNotification {
@@ -72,8 +73,13 @@ export function parseGmailNotification(body: string): GmailNotification {
 export function createGmailWebhookVerifier(
   options: GmailWebhookOptions
 ): (request: Request) => Promise<GmailNotification> {
-  const audience = z.string().min(1).parse(options.audience);
-  const serviceAccountEmail = mailbox.parse(options.serviceAccountEmail);
+  const verifier = options.webhookVerifier;
+  const audience = verifier
+    ? undefined
+    : z.string().min(1).parse(options.audience);
+  const serviceAccountEmail = verifier
+    ? undefined
+    : mailbox.parse(options.serviceAccountEmail);
   const subscription = envelope.shape.subscription.parse(options.subscription);
   const key =
     options.verificationKey ??
@@ -81,6 +87,29 @@ export function createGmailWebhookVerifier(
   return async (request) => {
     if (request.method !== "POST") {
       throw new GmailWebhookError(405, "Gmail notifications require POST");
+    }
+    if (verifier) {
+      let body: string;
+      try {
+        body = await readGmailBody(new Response(request.body), 32_768);
+      } catch {
+        throw new GmailWebhookError(400, "Invalid Gmail Pub/Sub body");
+      }
+      try {
+        if (!(await verifier(new Request(request, { body })))) {
+          throw new Error("Rejected");
+        }
+      } catch {
+        throw new GmailWebhookError(
+          401,
+          "Gmail webhook verifier rejected the request"
+        );
+      }
+      const notification = parseGmailNotification(body);
+      if (notification.subscription !== subscription) {
+        throw new GmailWebhookError(403, "Unexpected Pub/Sub subscription");
+      }
+      return notification;
     }
     const token = bearer.exec(request.headers.get("authorization") ?? "")?.[1];
     if (!token) {

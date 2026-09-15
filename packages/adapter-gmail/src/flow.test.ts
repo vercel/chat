@@ -17,7 +17,10 @@ describe("Gmail authenticated delivery through Chat", () => {
     vi.unstubAllGlobals();
   });
 
-  it("verifies Google-style JWTs, replies to the selected email and suppresses redelivery", async () => {
+  it.each([
+    false,
+    true,
+  ])("verifies delivery, applies replyAll=%s and suppresses redelivery", async (replyAll) => {
     const keys = await generateKeyPair("RS256");
     const jwk = await exportJWK(keys.publicKey);
     vi.stubGlobal(
@@ -42,7 +45,7 @@ describe("Gmail authenticated delivery through Chat", () => {
       internalDate: "1788481753000",
       labelIds: [label],
       raw: Buffer.from(
-        "From: sender@example.com\r\nReply-To: replies@example.com\r\nSubject: review\r\nMessage-ID: <original@example.com>\r\n\r\nplease review"
+        "From: sender@example.com\r\nReply-To: replies@example.com\r\nTo: agent@example.com, visible@example.com\r\nCc: colleague@example.com\r\nBcc: hidden@example.com\r\nSubject: review\r\nMessage-ID: <original@example.com>\r\n\r\nplease review"
       ).toString("base64url"),
     };
     const send = vi.fn();
@@ -87,11 +90,15 @@ describe("Gmail authenticated delivery through Chat", () => {
       pubsubAudience: audience,
       pubsubServiceAccountEmail: service,
       subscription,
+      replyAll,
       fetch,
     });
     const bot = new Chat({ userName: "agent", adapters: { gmail }, state });
     const handler = vi.fn(async (thread: Thread) => {
       await thread.post("reviewed");
+      await thread.postEphemeral("owner@example.com", "private approval", {
+        fallbackToDM: true,
+      });
     });
     bot.onNewMention(handler);
     await bot.initialize();
@@ -122,7 +129,7 @@ describe("Gmail authenticated delivery through Chat", () => {
       expect((await bot.webhooks.gmail(request())).status).toBe(204);
       expect((await bot.webhooks.gmail(request())).status).toBe(204);
       expect(handler).toHaveBeenCalledOnce();
-      expect(send).toHaveBeenCalledOnce();
+      expect(send).toHaveBeenCalledTimes(2);
       const body = JSON.parse(String(send.mock.calls[0][0])) as {
         raw: string;
         threadId: string;
@@ -130,7 +137,32 @@ describe("Gmail authenticated delivery through Chat", () => {
       const reply = await parseGmailMessage({ ...source, raw: body.raw });
       expect(reply.email.inReplyTo).toBe("<original@example.com>");
       expect(reply.email.to?.[0].address).toBe("replies@example.com");
+      expect(reply.email.to?.map((value) => value.address)).toEqual(
+        replyAll
+          ? ["replies@example.com", "visible@example.com"]
+          : ["replies@example.com"]
+      );
+      expect(reply.email.cc?.map((value) => value.address)).toEqual(
+        replyAll ? ["colleague@example.com"] : undefined
+      );
+      expect(reply.email.bcc).toBeUndefined();
       expect(body.threadId).toBe("thread");
+      const privateBody = JSON.parse(String(send.mock.calls[1][0])) as {
+        raw: string;
+        threadId?: string;
+      };
+      const privateReply = await parseGmailMessage({
+        ...source,
+        raw: privateBody.raw,
+      });
+      expect(privateBody.threadId).toBeUndefined();
+      expect(privateReply.email.to?.map((value) => value.address)).toEqual([
+        "owner@example.com",
+      ]);
+      expect(privateReply.email.cc).toBeUndefined();
+      expect(privateReply.email.bcc).toBeUndefined();
+      expect(privateReply.email.inReplyTo).toBeUndefined();
+      expect(privateReply.email.references).toBeUndefined();
       expect(
         await state.get(`${gmailChannel(mailbox)}:sync:${label}:cursor`)
       ).toBe("200");
