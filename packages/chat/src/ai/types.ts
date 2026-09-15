@@ -1,4 +1,3 @@
-import type { Tool } from "ai";
 import type { Chat } from "../chat";
 import type { ScopeGuard } from "./scope";
 
@@ -18,25 +17,3 @@ export interface ToolOptions {
   guard?: ScopeGuard;
   needsApproval?: boolean;
 }
-
-/**
- * Per-tool overrides for customizing tool behavior without changing the
- * underlying implementation. `execute`, `inputSchema`, and `outputSchema`
- * are intentionally excluded so tool semantics stay stable.
- */
-export type ToolOverrides = Partial<
-  Pick<
-    Tool,
-    | "description"
-    | "inputExamples"
-    | "metadata"
-    | "needsApproval"
-    | "onInputAvailable"
-    | "onInputDelta"
-    | "onInputStart"
-    | "providerOptions"
-    | "strict"
-    | "title"
-    | "toModelOutput"
-  >
->;

@@ -1,25 +1,14 @@
-import { createScopeGuard, type ReadScope } from "./scope";
-import { getChannelInfo } from "./tools/channels";
+import type { Tool } from "ai";
+import { type ToolOverrides, toAiTool } from "./tools/ai-sdk";
+import type { ChatToolSpec } from "./tools/spec";
 import {
-  deleteMessage,
-  editMessage,
-  postChannelMessage,
-  postMessage,
-  sendDirectMessage,
-} from "./tools/messages";
-import { addReaction, removeReaction } from "./tools/reactions";
-import {
-  fetchChannelMessages,
-  fetchMessages,
-  fetchThread,
-  getThreadParticipants,
-  listThreads,
-  startTyping,
-  subscribeThread,
-  unsubscribeThread,
-} from "./tools/threads";
-import { getUser } from "./tools/users";
-import type { ChatBinding, ToolOverrides } from "./types";
+  applyOverrides,
+  type ChatToolName,
+  type ChatToolSpecFactories,
+  type ChatToolsBaseOptions,
+  createToolSpecFactories,
+  selectToolSpecs,
+} from "./toolset";
 
 const PROTECTED_TOOL_FIELDS = new Set<string>([
   "args",
@@ -31,125 +20,7 @@ const PROTECTED_TOOL_FIELDS = new Set<string>([
   "type",
 ]);
 
-export type ChatToolName =
-  | "fetchMessages"
-  | "fetchChannelMessages"
-  | "fetchThread"
-  | "listThreads"
-  | "getThreadParticipants"
-  | "getChannelInfo"
-  | "getUser"
-  | "startTyping"
-  | "postMessage"
-  | "postChannelMessage"
-  | "sendDirectMessage"
-  | "editMessage"
-  | "deleteMessage"
-  | "addReaction"
-  | "removeReaction"
-  | "subscribeThread"
-  | "unsubscribeThread";
-
-/**
- * Names of every tool that mutates platform state.
- * These default to `needsApproval: true` and can be toggled via
- * `requireApproval` on {@link createChatTools}.
- */
-export type ChatWriteToolName =
-  | "postMessage"
-  | "postChannelMessage"
-  | "sendDirectMessage"
-  | "editMessage"
-  | "deleteMessage"
-  | "addReaction"
-  | "removeReaction"
-  | "subscribeThread"
-  | "unsubscribeThread";
-
-/**
- * Names of tools that require approval by default.
- *
- * This includes every write tool plus `getUser`, whose arbitrary user lookup
- * can expose profile details outside the active conversation.
- */
-export type ChatApprovalToolName = ChatWriteToolName | "getUser";
-
-/**
- * Whether sensitive operations require user approval.
- *
- * - `true`  — every approval-gated tool needs approval (default)
- * - `false` — no tool needs approval
- * - object  — per-tool override; unspecified approval-gated tools default to `true`
- *
- * @example
- * ```ts
- * requireApproval: {
- *   deleteMessage: true,
- *   postMessage: false,
- *   sendDirectMessage: false,
- *   addReaction: false,
- * }
- * ```
- */
-export type ApprovalConfig =
-  | boolean
-  | Partial<Record<ChatApprovalToolName, boolean>>;
-
-/**
- * Predefined tool presets for common chat-agent use cases.
- *
- * - `'reader'`    — read-only: fetch threads, messages, channel info, users
- * - `'messenger'` — basic posting: post in thread/channel, DM, react, typing
- * - `'moderator'` — full management: read + write + edit/delete + subscriptions
- */
-export type ChatToolPreset = "reader" | "messenger" | "moderator";
-
-const PRESET_TOOLS: Record<ChatToolPreset, ChatToolName[]> = {
-  reader: [
-    "fetchMessages",
-    "fetchChannelMessages",
-    "fetchThread",
-    "listThreads",
-    "getThreadParticipants",
-    "getChannelInfo",
-    "getUser",
-  ],
-  messenger: [
-    "fetchMessages",
-    "fetchThread",
-    "getChannelInfo",
-    "getUser",
-    "postMessage",
-    "postChannelMessage",
-    "sendDirectMessage",
-    "addReaction",
-    "removeReaction",
-    "startTyping",
-  ],
-  moderator: [
-    "fetchMessages",
-    "fetchChannelMessages",
-    "fetchThread",
-    "listThreads",
-    "getThreadParticipants",
-    "getChannelInfo",
-    "getUser",
-    "postMessage",
-    "postChannelMessage",
-    "sendDirectMessage",
-    "editMessage",
-    "deleteMessage",
-    "addReaction",
-    "removeReaction",
-    "subscribeThread",
-    "unsubscribeThread",
-    "startTyping",
-  ],
-};
-
-export interface ChatToolsOptions {
-  /** The Chat instance the tools dispatch operations against. */
-  chat: ChatBinding;
+export interface ChatToolsOptions extends ChatToolsBaseOptions {
   /**
    * Per-tool overrides for customizing tool behavior (description, title,
    * needsApproval, etc.) without changing the underlying implementation.
@@ -167,106 +38,16 @@ export interface ChatToolsOptions {
    * ```
    */
   overrides?: Partial<Record<ChatToolName, ToolOverrides>>;
-  /**
-   * Restrict the returned tools to a predefined preset.
-   * Omit to get all tools (same as `'moderator'`).
-   *
-   * @example
-   * ```ts
-   * createChatTools({ chat, preset: 'reader' })
-   * createChatTools({ chat, preset: ['reader', 'messenger'] })
-   * ```
-   */
-  preset?: ChatToolPreset | ChatToolPreset[];
-  /**
-   * Whether sensitive operations require user approval before executing.
-   * Defaults to `true` for all write tools and `getUser`.
-   *
-   * @see {@link ApprovalConfig}
-   */
-  requireApproval?: ApprovalConfig;
-  /**
-   * Confine tools to a single conversation, so a thread or channel id the
-   * model supplies that resolves elsewhere is rejected. Applies to reads and
-   * writes that target a thread or channel; `getUser` and `sendDirectMessage`
-   * target user ids and are gated by approval instead.
-   *
-   * Scoping is channel-level: a call is allowed when it resolves to the same
-   * channel as the scoped conversation, so a thread scope still permits sibling
-   * threads within that channel. Set {@link ChatToolsOptions.strictScope} to
-   * tighten a thread scope to that thread alone.
-   *
-   * Defaults to the conversation being handled, so tools created inside a
-   * handler are already confined to it. Set this when the agent runs outside
-   * a handler and still acts on a user's behalf, or pass a channel id to
-   * operate channel-wide.
-   *
-   * Pass `false` to reach every conversation the bot can see. When no
-   * scope resolves (outside a handler, no explicit scope), tools run
-   * workspace-wide and a warning is logged.
-   *
-   * @example
-   * ```ts
-   * bot.onNewMention(async (thread) => {
-   *   const tools = createChatTools({ chat, preset: 'reader' })
-   * })
-   * ```
-   */
-  scope?: ReadScope | false;
-  /**
-   * Tighten `scope` from channel-level (default) to conversation-level.
-   *
-   * By default a call is in scope when it resolves to the same channel as the
-   * scoped conversation, so a thread scope still permits sibling threads in
-   * that channel. Set `true` to confine a thread scope to that thread alone:
-   * sibling threads and the parent channel are both rejected, which matters
-   * on platforms where a channel is the widest surface available (a GitHub
-   * channel is an entire repo). A channel scope is unaffected; it still
-   * allows any thread within the channel.
-   *
-   * @default false
-   */
-  strictScope?: boolean;
 }
 
-function resolveApproval(
-  toolName: ChatApprovalToolName,
-  config: ApprovalConfig
-): boolean {
-  if (typeof config === "boolean") {
-    return config;
-  }
-  return config[toolName] ?? true;
-}
+type AiToolOf<TSpec> =
+  TSpec extends ChatToolSpec<infer TInput, infer TOutput>
+    ? Tool<TInput, TOutput>
+    : never;
 
-function resolvePresetTools(
-  preset: ChatToolPreset | ChatToolPreset[]
-): Set<ChatToolName> {
-  const presets = Array.isArray(preset) ? preset : [preset];
-  const tools = new Set<ChatToolName>();
-  for (const p of presets) {
-    for (const t of PRESET_TOOLS[p]) {
-      tools.add(t);
-    }
-  }
-  return tools;
-}
-
-function applyOverrides(
-  tool: Record<string, unknown>,
-  overrides: ToolOverrides | undefined
-): Record<string, unknown> {
-  if (!overrides) {
-    return tool;
-  }
-
-  const safeOverrides = Object.fromEntries(
-    Object.entries(overrides as Record<string, unknown>).filter(
-      ([key]) => !PROTECTED_TOOL_FIELDS.has(key)
-    )
-  );
-  return { ...tool, ...safeOverrides };
-}
+type ChatToolMap = {
+  [K in ChatToolName]: AiToolOf<ReturnType<ChatToolSpecFactories[K]>>;
+};
 
 /**
  * Create a set of Chat SDK tools for the Vercel AI SDK.
@@ -309,74 +90,25 @@ function applyOverrides(
  * ```
  */
 export function createChatTools({
-  chat,
-  requireApproval = true,
-  preset,
   overrides,
-  scope,
-  strictScope = false,
+  preset,
+  ...base
 }: ChatToolsOptions) {
-  if (!chat) {
-    throw new Error(
-      "createChatTools requires a `chat` instance. Pass your `new Chat({ ... })` instance as the `chat` option."
-    );
-  }
+  const factories = createToolSpecFactories(base, "createChatTools");
 
-  const guard = createScopeGuard(chat, scope, strictScope);
+  const entries = selectToolSpecs(factories, preset).map(
+    ([name, spec]) =>
+      [
+        name,
+        applyOverrides(
+          toAiTool(spec) as Record<string, unknown>,
+          overrides?.[name],
+          PROTECTED_TOOL_FIELDS
+        ),
+      ] as const
+  );
 
-  const approval = (name: ChatApprovalToolName) => ({
-    needsApproval: resolveApproval(name, requireApproval),
-  });
-  // Write tools take the same guard as reads so a thread/channel id the model
-  // supplies that resolves outside the scoped conversation is rejected.
-  const guardedApproval = (name: ChatWriteToolName) => ({
-    ...approval(name),
-    guard,
-  });
-
-  const allowed = preset ? resolvePresetTools(preset) : null;
-
-  // Each entry is built lazily so a preset filter skips both the
-  // `approval()` lookup and the underlying `tool({ ... })` (and its zod
-  // schema) construction for tools the agent will never see.
-  const factories = {
-    fetchMessages: () => fetchMessages(chat, guard),
-    fetchChannelMessages: () => fetchChannelMessages(chat, guard),
-    fetchThread: () => fetchThread(chat, guard),
-    listThreads: () => listThreads(chat, guard),
-    getThreadParticipants: () => getThreadParticipants(chat, guard),
-    getChannelInfo: () => getChannelInfo(chat, guard),
-    getUser: () => getUser(chat, approval("getUser").needsApproval),
-    startTyping: () => startTyping(chat, guard),
-    postMessage: () => postMessage(chat, guardedApproval("postMessage")),
-    postChannelMessage: () =>
-      postChannelMessage(chat, guardedApproval("postChannelMessage")),
-    // User-id tools do not resolve to a conversation, so approval is their
-    // gate instead of the conversation-scope guard.
-    sendDirectMessage: () =>
-      sendDirectMessage(chat, approval("sendDirectMessage")),
-    editMessage: () => editMessage(chat, guardedApproval("editMessage")),
-    deleteMessage: () => deleteMessage(chat, guardedApproval("deleteMessage")),
-    addReaction: () => addReaction(chat, guardedApproval("addReaction")),
-    removeReaction: () =>
-      removeReaction(chat, guardedApproval("removeReaction")),
-    subscribeThread: () =>
-      subscribeThread(chat, guardedApproval("subscribeThread")),
-    unsubscribeThread: () =>
-      unsubscribeThread(chat, guardedApproval("unsubscribeThread")),
-  } satisfies Record<ChatToolName, () => unknown>;
-
-  type ToolName = keyof typeof factories;
-  type Tools = { [K in ToolName]: ReturnType<(typeof factories)[K]> };
-
-  const entries = (Object.entries(factories) as [ToolName, () => unknown][])
-    .filter(([name]) => !allowed || allowed.has(name))
-    .map(([name, build]) => {
-      const built = build() as Record<string, unknown>;
-      return [name, applyOverrides(built, overrides?.[name])] as const;
-    });
-
-  return Object.fromEntries(entries) as Partial<Tools>;
+  return Object.fromEntries(entries) as Partial<ChatToolMap>;
 }
 
 /** The shape of the object returned by {@link createChatTools}. */
@@ -394,24 +126,31 @@ export {
   toAiMessages,
 } from "./messages";
 export type { ReadScope } from "./scope";
-export { getChannelInfo } from "./tools/channels";
 export {
+  addReaction,
   deleteMessage,
   editMessage,
-  postChannelMessage,
-  postMessage,
-  sendDirectMessage,
-} from "./tools/messages";
-export { addReaction, removeReaction } from "./tools/reactions";
-export {
   fetchChannelMessages,
   fetchMessages,
   fetchThread,
+  getChannelInfo,
   getThreadParticipants,
+  getUser,
   listThreads,
+  postChannelMessage,
+  postMessage,
+  removeReaction,
+  sendDirectMessage,
   startTyping,
   subscribeThread,
+  type ToolOverrides,
   unsubscribeThread,
-} from "./tools/threads";
-export { getUser } from "./tools/users";
-export type { ChatBinding, ToolOptions, ToolOverrides } from "./types";
+} from "./tools/ai-sdk";
+export type {
+  ApprovalConfig,
+  ChatApprovalToolName,
+  ChatToolName,
+  ChatToolPreset,
+  ChatWriteToolName,
+} from "./toolset";
+export type { ChatBinding, ToolOptions } from "./types";

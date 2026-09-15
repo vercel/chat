@@ -8,8 +8,7 @@ import {
   mockLogger,
 } from "../mock-adapter";
 import type { Adapter, StateAdapter } from "../types";
-import { createChatTools, getUser } from "./index";
-import type { ToolOverrides } from "./types";
+import { createChatTools, getUser, type ToolOverrides } from "./index";
 
 const REQUIRES_CHAT_INSTANCE_REGEX = /requires a `chat` instance/;
 const NO_LIST_THREADS_REGEX = /does not implement listThreads/;

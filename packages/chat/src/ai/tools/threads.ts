@@ -1,9 +1,9 @@
-import { type Tool, tool } from "ai";
 import { z } from "zod";
 import type { Message } from "../../message";
 import type { ChannelVisibility, ThreadSummary } from "../../types";
 import type { ScopeGuard } from "../scope";
 import type { ChatBinding, ToolOptions } from "../types";
+import type { ChatToolSpec } from "./spec";
 
 const FETCH_DIRECTION = z
   .enum(["forward", "backward"])
@@ -36,10 +36,9 @@ function projectMessage(message: Message) {
 
 type ProjectedMessage = ReturnType<typeof projectMessage>;
 
-// Tool factories carry explicit `Tool<Input, Output>` return types so the
-// emitted declarations only reference types exported from `ai`. Relying on
-// inference would surface `ai` internals (e.g. `ExecutableTool` from
-// `@ai-sdk/provider-utils`) that consumers cannot resolve.
+// Spec factories carry explicit `ChatToolSpec<Input, Output>` return types so
+// the framework wrappers (AI SDK, TanStack AI) inherit precise input and output
+// types without surfacing framework internals in the emitted declarations.
 
 const FETCH_MESSAGES_INPUT = z.object({
   threadId: z.string().describe("Full thread id"),
@@ -60,30 +59,30 @@ const FETCH_MESSAGES_INPUT = z.object({
   ),
 });
 
-export const fetchMessages = (
+export const fetchMessagesSpec = (
   chat: ChatBinding,
   guard?: ScopeGuard
-): Tool<
+): ChatToolSpec<
   z.infer<typeof FETCH_MESSAGES_INPUT>,
   { messages: ProjectedMessage[]; nextCursor: string | undefined }
-> =>
-  tool({
-    description:
-      "Fetch recent messages from a thread, ordered chronologically (oldest first within the page). Use to read the conversation before responding.",
-    inputSchema: FETCH_MESSAGES_INPUT,
-    execute: async ({ threadId, limit, cursor, direction }) => {
-      guard?.(threadId);
-      const result = await chat.history.thread.list(threadId, {
-        limit,
-        cursor,
-        direction,
-      });
-      return {
-        messages: result.messages.map(projectMessage),
-        nextCursor: result.nextCursor,
-      };
-    },
-  });
+> => ({
+  name: "fetchMessages",
+  description:
+    "Fetch recent messages from a thread, ordered chronologically (oldest first within the page). Use to read the conversation before responding.",
+  inputSchema: FETCH_MESSAGES_INPUT,
+  execute: async ({ threadId, limit, cursor, direction }) => {
+    guard?.(threadId);
+    const result = await chat.history.thread.list(threadId, {
+      limit,
+      cursor,
+      direction,
+    });
+    return {
+      messages: result.messages.map(projectMessage),
+      nextCursor: result.nextCursor,
+    };
+  },
+});
 
 const FETCH_CHANNEL_MESSAGES_INPUT = z.object({
   channelId: z.string().describe("Full channel id"),
@@ -92,39 +91,39 @@ const FETCH_CHANNEL_MESSAGES_INPUT = z.object({
   direction: FETCH_DIRECTION,
 });
 
-export const fetchChannelMessages = (
+export const fetchChannelMessagesSpec = (
   chat: ChatBinding,
   guard?: ScopeGuard
-): Tool<
+): ChatToolSpec<
   z.infer<typeof FETCH_CHANNEL_MESSAGES_INPUT>,
   { messages: ProjectedMessage[]; nextCursor: string | undefined }
-> =>
-  tool({
-    description:
-      "Fetch top-level messages in a channel (not thread replies). Returns messages in chronological order within the page.",
-    inputSchema: FETCH_CHANNEL_MESSAGES_INPUT,
-    execute: async ({ channelId, limit, cursor, direction }) => {
-      guard?.(channelId);
-      const result = await chat.history.channel.listMessages(channelId, {
-        limit,
-        cursor,
-        direction,
-      });
-      return {
-        messages: result.messages.map(projectMessage),
-        nextCursor: result.nextCursor,
-      };
-    },
-  });
+> => ({
+  name: "fetchChannelMessages",
+  description:
+    "Fetch top-level messages in a channel (not thread replies). Returns messages in chronological order within the page.",
+  inputSchema: FETCH_CHANNEL_MESSAGES_INPUT,
+  execute: async ({ channelId, limit, cursor, direction }) => {
+    guard?.(channelId);
+    const result = await chat.history.channel.listMessages(channelId, {
+      limit,
+      cursor,
+      direction,
+    });
+    return {
+      messages: result.messages.map(projectMessage),
+      nextCursor: result.nextCursor,
+    };
+  },
+});
 
 const FETCH_THREAD_INPUT = z.object({
   threadId: z.string().describe("Full thread id"),
 });
 
-export const fetchThread = (
+export const fetchThreadSpec = (
   chat: ChatBinding,
   guard?: ScopeGuard
-): Tool<
+): ChatToolSpec<
   z.infer<typeof FETCH_THREAD_INPUT>,
   {
     id: string;
@@ -133,24 +132,24 @@ export const fetchThread = (
     channelVisibility: ChannelVisibility | undefined;
     isDM: boolean;
   }
-> =>
-  tool({
-    description:
-      "Fetch metadata about a thread (channel id, channel name, visibility, DM status, etc).",
-    inputSchema: FETCH_THREAD_INPUT,
-    execute: async ({ threadId }) => {
-      guard?.(threadId);
-      const thread = chat.thread(threadId);
-      const info = await thread.adapter.fetchThread(threadId);
-      return {
-        id: info.id,
-        channelId: info.channelId,
-        channelName: info.channelName,
-        channelVisibility: info.channelVisibility,
-        isDM: info.isDM ?? false,
-      };
-    },
-  });
+> => ({
+  name: "fetchThread",
+  description:
+    "Fetch metadata about a thread (channel id, channel name, visibility, DM status, etc).",
+  inputSchema: FETCH_THREAD_INPUT,
+  execute: async ({ threadId }) => {
+    guard?.(threadId);
+    const thread = chat.thread(threadId);
+    const info = await thread.adapter.fetchThread(threadId);
+    return {
+      id: info.id,
+      channelId: info.channelId,
+      channelName: info.channelName,
+      channelVisibility: info.channelVisibility,
+      isDM: info.isDM ?? false,
+    };
+  },
+});
 
 const LIST_THREADS_INPUT = z.object({
   channelId: z.string().describe("Full channel id"),
@@ -158,10 +157,10 @@ const LIST_THREADS_INPUT = z.object({
   cursor: z.string().optional(),
 });
 
-export const listThreads = (
+export const listThreadsSpec = (
   chat: ChatBinding,
   guard?: ScopeGuard
-): Tool<
+): ChatToolSpec<
   z.infer<typeof LIST_THREADS_INPUT>,
   {
     threads: {
@@ -172,37 +171,37 @@ export const listThreads = (
     }[];
     nextCursor: string | undefined;
   }
-> =>
-  tool({
-    description:
-      "List recent threads in a channel. Returns lightweight summaries with the root message of each thread.",
-    inputSchema: LIST_THREADS_INPUT,
-    execute: async ({ channelId, limit, cursor }) => {
-      guard?.(channelId);
-      const result = await chat.history.channel.listThreads(channelId, {
-        limit,
-        cursor,
-      });
-      return {
-        threads: result.threads.map((t: ThreadSummary) => ({
-          id: t.id,
-          replyCount: t.replyCount,
-          lastReplyAt: t.lastReplyAt?.toISOString(),
-          rootMessage: projectMessage(t.rootMessage),
-        })),
-        nextCursor: result.nextCursor,
-      };
-    },
-  });
+> => ({
+  name: "listThreads",
+  description:
+    "List recent threads in a channel. Returns lightweight summaries with the root message of each thread.",
+  inputSchema: LIST_THREADS_INPUT,
+  execute: async ({ channelId, limit, cursor }) => {
+    guard?.(channelId);
+    const result = await chat.history.channel.listThreads(channelId, {
+      limit,
+      cursor,
+    });
+    return {
+      threads: result.threads.map((t: ThreadSummary) => ({
+        id: t.id,
+        replyCount: t.replyCount,
+        lastReplyAt: t.lastReplyAt?.toISOString(),
+        rootMessage: projectMessage(t.rootMessage),
+      })),
+      nextCursor: result.nextCursor,
+    };
+  },
+});
 
 const GET_THREAD_PARTICIPANTS_INPUT = z.object({
   threadId: z.string().describe("Full thread id"),
 });
 
-export const getThreadParticipants = (
+export const getThreadParticipantsSpec = (
   chat: ChatBinding,
   guard?: ScopeGuard
-): Tool<
+): ChatToolSpec<
   z.infer<typeof GET_THREAD_PARTICIPANTS_INPUT>,
   {
     participants: {
@@ -212,77 +211,77 @@ export const getThreadParticipants = (
       isBot: boolean | "unknown";
     }[];
   }
-> =>
-  tool({
-    description:
-      "Return the unique non-bot participants in a thread. Useful for deciding whether to subscribe (1:1) or stay quiet (group).",
-    inputSchema: GET_THREAD_PARTICIPANTS_INPUT,
-    execute: async ({ threadId }) => {
-      guard?.(threadId);
-      const thread = chat.thread(threadId);
-      const participants = await thread.getParticipants();
-      return {
-        participants: participants.map((author) => ({
-          userId: author.userId,
-          userName: author.userName,
-          fullName: author.fullName,
-          isBot: author.isBot,
-        })),
-      };
-    },
-  });
+> => ({
+  name: "getThreadParticipants",
+  description:
+    "Return the unique non-bot participants in a thread. Useful for deciding whether to subscribe (1:1) or stay quiet (group).",
+  inputSchema: GET_THREAD_PARTICIPANTS_INPUT,
+  execute: async ({ threadId }) => {
+    guard?.(threadId);
+    const thread = chat.thread(threadId);
+    const participants = await thread.getParticipants();
+    return {
+      participants: participants.map((author) => ({
+        userId: author.userId,
+        userName: author.userName,
+        fullName: author.fullName,
+        isBot: author.isBot,
+      })),
+    };
+  },
+});
 
 const SUBSCRIBE_THREAD_INPUT = z.object({
   threadId: z.string().describe("Full thread id to subscribe to"),
 });
 
-export const subscribeThread = (
+export const subscribeThreadSpec = (
   chat: ChatBinding,
   { needsApproval = true, guard }: ToolOptions = {}
-): Tool<
+): ChatToolSpec<
   z.infer<typeof SUBSCRIBE_THREAD_INPUT>,
   { subscribed: boolean; threadId: string }
-> =>
-  tool({
-    description:
-      "Subscribe to all future messages in a thread. After subscribing, the bot will receive every message in this thread (not just @mentions).",
-    needsApproval,
-    inputSchema: SUBSCRIBE_THREAD_INPUT,
-    execute: async ({
-      threadId,
-    }): Promise<{ subscribed: boolean; threadId: string }> => {
-      guard?.(threadId);
-      const thread = chat.thread(threadId);
-      await thread.subscribe();
-      return { subscribed: true, threadId };
-    },
-  });
+> => ({
+  name: "subscribeThread",
+  description:
+    "Subscribe to all future messages in a thread. After subscribing, the bot will receive every message in this thread (not just @mentions).",
+  needsApproval,
+  inputSchema: SUBSCRIBE_THREAD_INPUT,
+  execute: async ({
+    threadId,
+  }): Promise<{ subscribed: boolean; threadId: string }> => {
+    guard?.(threadId);
+    const thread = chat.thread(threadId);
+    await thread.subscribe();
+    return { subscribed: true, threadId };
+  },
+});
 
 const UNSUBSCRIBE_THREAD_INPUT = z.object({
   threadId: z.string().describe("Full thread id to unsubscribe from"),
 });
 
-export const unsubscribeThread = (
+export const unsubscribeThreadSpec = (
   chat: ChatBinding,
   { needsApproval = true, guard }: ToolOptions = {}
-): Tool<
+): ChatToolSpec<
   z.infer<typeof UNSUBSCRIBE_THREAD_INPUT>,
   { subscribed: boolean; threadId: string }
-> =>
-  tool({
-    description:
-      "Unsubscribe from a thread. The bot will stop receiving non-mention messages in this thread.",
-    needsApproval,
-    inputSchema: UNSUBSCRIBE_THREAD_INPUT,
-    execute: async ({
-      threadId,
-    }): Promise<{ subscribed: boolean; threadId: string }> => {
-      guard?.(threadId);
-      const thread = chat.thread(threadId);
-      await thread.unsubscribe();
-      return { subscribed: false, threadId };
-    },
-  });
+> => ({
+  name: "unsubscribeThread",
+  description:
+    "Unsubscribe from a thread. The bot will stop receiving non-mention messages in this thread.",
+  needsApproval,
+  inputSchema: UNSUBSCRIBE_THREAD_INPUT,
+  execute: async ({
+    threadId,
+  }): Promise<{ subscribed: boolean; threadId: string }> => {
+    guard?.(threadId);
+    const thread = chat.thread(threadId);
+    await thread.unsubscribe();
+    return { subscribed: false, threadId };
+  },
+});
 
 const START_TYPING_INPUT = z.object({
   threadId: z.string().describe("Full thread id"),
@@ -294,24 +293,24 @@ const START_TYPING_INPUT = z.object({
     ),
 });
 
-export const startTyping = (
+export const startTypingSpec = (
   chat: ChatBinding,
   guard?: ScopeGuard
-): Tool<
+): ChatToolSpec<
   z.infer<typeof START_TYPING_INPUT>,
   { typing: boolean; threadId: string }
-> =>
-  tool({
-    description:
-      "Show a typing indicator in a thread. Use this when starting a long-running operation so users know the bot is working.",
-    inputSchema: START_TYPING_INPUT,
-    execute: async ({
-      threadId,
-      status,
-    }): Promise<{ typing: boolean; threadId: string }> => {
-      guard?.(threadId);
-      const thread = chat.thread(threadId);
-      await thread.startTyping(status);
-      return { typing: true, threadId };
-    },
-  });
+> => ({
+  name: "startTyping",
+  description:
+    "Show a typing indicator in a thread. Use this when starting a long-running operation so users know the bot is working.",
+  inputSchema: START_TYPING_INPUT,
+  execute: async ({
+    threadId,
+    status,
+  }): Promise<{ typing: boolean; threadId: string }> => {
+    guard?.(threadId);
+    const thread = chat.thread(threadId);
+    await thread.startTyping(status);
+    return { typing: true, threadId };
+  },
+});
