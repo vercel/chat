@@ -88,13 +88,16 @@ function keyFor(userKey: string): string {
  */
 export class UserHistoryApiImpl implements TranscriptsApi {
   private readonly state: StateAdapter;
-  private readonly maxPerUser: number;
+  private readonly maxPerUser: number | undefined;
   private readonly retentionMs: number | undefined;
   private readonly storeFormatted: boolean;
 
   constructor(state: StateAdapter, config: TranscriptsConfig) {
     this.state = state;
-    this.maxPerUser = config.maxPerUser ?? DEFAULT_MAX_PER_USER;
+    this.maxPerUser =
+      config.maxPerUser === false
+        ? undefined
+        : (config.maxPerUser ?? DEFAULT_MAX_PER_USER);
     this.retentionMs = parseDuration(config.retention);
     this.storeFormatted = config.storeFormatted ?? false;
   }

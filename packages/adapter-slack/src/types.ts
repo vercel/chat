@@ -2,8 +2,10 @@
  * Slack adapter types.
  */
 
+import type { AttachmentTransport } from "@chat-adapter/shared";
 import type { WebClientOptions } from "@slack/web-api";
 import type { AppContextEntity, Logger } from "chat";
+import type { SlackFetch } from "./fetch";
 import type { SlackWebhookVerifier } from "./webhook/index";
 
 export type SlackAdapterMode = "webhook" | "socket";
@@ -148,6 +150,24 @@ export interface SlackAdapterConfig {
    */
   feedbackButtons?: boolean | SlackFeedbackButtonsOptions;
   /**
+   * Fetch implementation for response_url requests and Socket Mode webhook
+   * forwarding. Defaults to globalThis.fetch at request time. Does not affect
+   * Web API clients, Socket Mode connections, files, or standalone /api helpers.
+   */
+  fetch?: SlackFetch;
+  /**
+   * Transport for lazy and rehydrated file downloads. Replaces the default
+   * DNS-pinned HTTPS transport, which is the only place resolved addresses
+   * are checked against the private-range blocklist, so the transport or
+   * egress proxy must reject internal destination addresses and DNS
+   * rebinding. Return the raw response without following redirects, and
+   * honor the supplied AbortSignal. The downloader still validates URLs,
+   * limits redirects, scopes credentials, destroys the response at the
+   * deadline, and caps the body size. Subclass createFileTransport()
+   * overrides take precedence.
+   */
+  fileTransport?: AttachmentTransport;
+  /**
    * Prefix for the state key used to store workspace installations.
    * Defaults to `slack:installation`. The full key will be `{prefix}:{teamId}`.
    */
@@ -232,7 +252,12 @@ export interface SlackAdapterConfig {
    * });
    * ```
    *
-   * Use `apiUrl` to override the Slack Web API base URL.
+   * `agent` also configures Socket Mode, both its HTTP calls and its
+   * WebSocket. `tls` and `apiUrl` reach only Socket Mode's HTTP calls; the
+   * SDK opens the WebSocket with the agent alone, so a custom CA or other
+   * TLS settings for that connection belong on the agent. None of these
+   * configure `fetch` or `fileTransport`. Other options apply only to Web
+   * API clients. Use `apiUrl` to override the Slack Web API base URL.
    */
   webClientOptions?: Omit<WebClientOptions, "slackApiUrl">;
   /**

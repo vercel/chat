@@ -114,7 +114,10 @@ describe("Chat — History API wiring", () => {
     expect(chat.transcripts).toBe(api);
   });
 
-  it("merges legacy transcripts settings under history.user during migration", async () => {
+  it.each([
+    50,
+    false,
+  ] as const)("merges legacy maxPerUser=%s under history.user", async (maxPerUser) => {
     // A config migrating one field at a time: identity moved to history.user,
     // retention/maxPerUser still on the legacy transcripts block. Both must
     // apply — the legacy settings must not be silently dropped.
@@ -124,7 +127,7 @@ describe("Chat — History API wiring", () => {
       state: mockState,
       logger: mockLogger,
       history: { user: { identity: () => "u1" } },
-      transcripts: { maxPerUser: 50, retention: "30d" },
+      transcripts: { maxPerUser, retention: "30d" },
     });
 
     const msg = createTestMessage("m1", "hello");
@@ -138,7 +141,10 @@ describe("Chat — History API wiring", () => {
     expect(mockState.appendToList).toHaveBeenCalledWith(
       expect.stringContaining("u1"),
       expect.objectContaining({ userKey: "u1" }),
-      { maxLength: 50, ttlMs: thirtyDaysMs }
+      {
+        maxLength: maxPerUser === false ? undefined : maxPerUser,
+        ttlMs: thirtyDaysMs,
+      }
     );
   });
 

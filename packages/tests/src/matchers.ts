@@ -11,6 +11,8 @@ const PROCESS_HANDLERS = [
   "processOptionsLoad",
   "processModalSubmit",
   "processModalClose",
+  "processInstalled",
+  "processUninstalled",
   "processMemberJoinedChannel",
   "processAppHomeOpened",
   "processAssistantThreadStarted",

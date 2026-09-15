@@ -6,51 +6,10 @@ import {
 import { Chat, type MemberJoinedChannelEvent, type WebhookOptions } from "chat";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { TeamsAdapter } from "./index";
+import { appId, botId, serviceUrl, TestTeamsAdapter } from "./test-utils";
 
-const appId = "11111111-2222-3333-4444-555555555555";
-const botId = `28:${appId}`;
-const serviceUrl = "https://smba.trafficmanager.net/amer/";
 const conversationId = "19:channel@thread.tacv2";
 const logger = createMockLogger();
-
-const token = {
-  appId,
-  serviceUrl,
-  from: "azure" as const,
-  fromId: appId,
-  isExpired: () => false,
-  toString: () => "test-token",
-};
-
-class JoinAdapter extends TeamsAdapter {
-  /** Return fixed WebhookOptions from the bridge instead of the real map. */
-  stubWebhookOptions(options?: WebhookOptions) {
-    return vi
-      .spyOn(this.bridgeAdapter, "getWebhookOptions")
-      .mockReturnValue(options);
-  }
-
-  /** Stub outbound Bot Framework calls so welcome posts do not hit the network. */
-  stubOutbound() {
-    vi.spyOn(this.app.api.users, "getToken").mockResolvedValue({});
-    return vi.spyOn(this.app, "send").mockResolvedValue({
-      id: "welcome",
-      type: "message",
-    });
-  }
-
-  /** Accept webhooks without a JWT so handleWebhook can be driven end to end. */
-  allowUnauthenticatedWebhooks() {
-    const server = this.app.server as unknown as {
-      authorize: () => Promise<unknown>;
-    };
-    vi.spyOn(server, "authorize").mockResolvedValue({ success: true, token });
-  }
-
-  receive(body: { type: string; [key: string]: unknown }) {
-    return this.app.process({ body, token });
-  }
-}
 
 function activity() {
   return {
@@ -77,13 +36,13 @@ function activity() {
 }
 
 describe("Teams bot joins", () => {
-  let adapter: JoinAdapter;
+  let adapter: TestTeamsAdapter;
   let chat: ReturnType<typeof createMockChatInstance>;
   let options: WebhookOptions;
-  let lookup: ReturnType<JoinAdapter["stubWebhookOptions"]>;
+  let lookup: ReturnType<TestTeamsAdapter["stubWebhookOptions"]>;
 
   beforeEach(async () => {
-    adapter = new JoinAdapter({ appId, appPassword: "test", logger });
+    adapter = new TestTeamsAdapter({ appId, appPassword: "test", logger });
     chat = createMockChatInstance();
     options = { waitUntil: vi.fn() };
     lookup = adapter.stubWebhookOptions(options);
@@ -188,7 +147,7 @@ describe("Teams bot joins", () => {
 
   it("matches the bot identity regardless of app ID casing", async () => {
     const upperAppId = appId.toUpperCase();
-    const upper = new JoinAdapter({
+    const upper = new TestTeamsAdapter({
       appId: upperAppId,
       appPassword: "test",
       logger,
@@ -237,7 +196,7 @@ describe("Teams bot joins", () => {
 
   it("warns instead of silently dropping joins when no app ID is configured", async () => {
     vi.stubEnv("TEAMS_APP_ID", "");
-    const unconfigured = new JoinAdapter({ appPassword: "test", logger });
+    const unconfigured = new TestTeamsAdapter({ appPassword: "test", logger });
     unconfigured.stubWebhookOptions(options);
     await unconfigured.initialize(chat);
     expect(unconfigured.botUserId).toBeUndefined();
@@ -258,7 +217,11 @@ describe("Teams bot joins", () => {
   });
 
   it("passes handleWebhook options to the join through the bridge", async () => {
-    const runtime = new JoinAdapter({ appId, appPassword: "test", logger });
+    const runtime = new TestTeamsAdapter({
+      appId,
+      appPassword: "test",
+      logger,
+    });
     runtime.allowUnauthenticatedWebhooks();
     await runtime.initialize(chat);
     const webhookOptions: WebhookOptions = { waitUntil: vi.fn() };
@@ -280,7 +243,11 @@ describe("Teams bot joins", () => {
   });
 
   it("runs an asynchronous welcome handler using the existing channel API", async () => {
-    const runtime = new JoinAdapter({ appId, appPassword: "test", logger });
+    const runtime = new TestTeamsAdapter({
+      appId,
+      appPassword: "test",
+      logger,
+    });
     const tasks: Promise<unknown>[] = [];
     const waitUntil = (task: Promise<unknown>) => tasks.push(task);
     runtime.stubWebhookOptions({ waitUntil });
@@ -307,7 +274,7 @@ describe("Teams bot joins", () => {
     expect(received?.userId).toBe(botId);
     expect(received?.adapter.botUserId).toBe(botId);
     expect(send).toHaveBeenCalledWith(
-      conversationId,
+      expect.objectContaining({ conversationId, serviceUrl }),
       expect.objectContaining({ text: "Welcome" })
     );
   });

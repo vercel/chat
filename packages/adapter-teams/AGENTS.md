@@ -32,6 +32,7 @@ packages/adapter-teams/
 ├── src/
 │   ├── index.ts             # TeamsAdapter + createTeamsAdapter factory
 │   ├── index.test.ts
+│   ├── app.ts               # TeamsApp: SDK App that targets per-thread service URLs
 │   ├── bridge-adapter.ts    # adapter-side glue between Bot Framework + Chat SDK
 │   ├── api/                 # low-level Bot Connector REST primitives
 │   ├── cards.ts             # Card / PostableMessage → Adaptive Cards
@@ -44,11 +45,13 @@ packages/adapter-teams/
 │   ├── graph/               # low-level Microsoft Graph REST primitives
 │   ├── graph-api.ts         # Microsoft Graph client wrapper
 │   ├── graph-api.test.ts
+│   ├── installation.ts      # installationUpdate action parsing
 │   ├── markdown.ts          # TeamsFormatConverter (mdast ↔ Teams HTML)
 │   ├── markdown.test.ts
 │   ├── modals.ts            # Modal → Task Module conversion
 │   ├── modals-primitives/   # plain-object Task Module primitives
 │   ├── modals.test.ts
+│   ├── test-utils.ts        # TestTeamsAdapter harness shared by SDK-router tests
 │   ├── thread-id.ts         # encode/decode/isDM helpers
 │   ├── types.ts             # internal Teams payload typings
 │   └── webhook/             # parse-only Activity webhook primitives
@@ -94,12 +97,10 @@ The package's main exports (see `src/index.ts`):
 - `TeamsAdapter` class — implements `Adapter<TeamsThreadId, unknown>`.
   Public methods: `handleWebhook`, `postMessage`, `editMessage`,
   `deleteMessage`, `addReaction`, `removeReaction`, `startTyping`,
-  `openModal`, `pushModal`, `getInstallation`, `setInstallation`,
-  `deleteInstallation`, `fetchThread`, `listThreads`, `fetchMessages`,
+  `openModal`, `pushModal`, `fetchThread`, `listThreads`, `fetchMessages`,
   `fetchSingleMessage`, `fetchChannelInfo`, `postChannelMessage`,
   `openDM`.
-- Configuration types: `TeamsAdapterConfig`, `TeamsThreadId`,
-  `TeamsInstallation`, `TeamsAppType`.
+- Configuration types: `TeamsAdapterConfig`, `TeamsThreadId`.
 - Helpers re-exported from sub-modules:
   `cardToAdaptiveCard`, `cardToFallbackText`, `TeamsFormatConverter`,
   `decodeThreadId`, `encodeThreadId`, `isDM`.
@@ -180,10 +181,12 @@ Teams uses Bot Framework + Microsoft Entra ID. Three modes:
   needed.
 
 Channel-and-DM tokens are issued by Microsoft on the inbound JWT and
-re-used for outgoing requests. Multi-tenant deployments still need to
-persist the install metadata in the configured state adapter so the
-bot can later post out-of-band — `getInstallation` / `setInstallation`
-accept any storage shape that survives `JSON.stringify`.
+re-used for outgoing requests. Outbound calls go through `TeamsApp`
+(`app.ts`), which targets the service URL encoded in each thread ID
+rather than the SDK's single app-wide URL. Applications can persist the
+`channelId` from `onInstalled` in their own durable store and post to it
+later with `bot.channel()`. Use `onUninstalled` for application-owned
+cleanup; there are no adapter installation CRUD methods.
 
 ## Microsoft Graph
 
@@ -283,7 +286,10 @@ between edits avoids hitting the per-conversation rate limit (default
   `graph-api.test.ts`) — never call the real Graph API in unit tests.
 
 When you add support for a new Activity type, capture a fresh fixture
-in `sample-messages.md` so the parser tests stay grounded.
+in `sample-messages.md` so the parser tests stay grounded. The
+`installationUpdate` tests use a synthetic payload modeled on Microsoft's
+documented schema because no captured traffic exists yet; replace it with
+a real capture when one is available.
 
 ## Coding conventions
 

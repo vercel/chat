@@ -819,7 +819,7 @@ export const ADAPTERS = {
     description:
       "Production state adapter using PostgreSQL for persistence and distributed locking.",
     env: {
-      config: ["client", "keyPrefix", "schemaName"],
+      config: ["client", "keyPrefix", "autoCreateSchema"],
       credentialModes: [
         {
           label: "Connection URL",

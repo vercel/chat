@@ -55,6 +55,8 @@ const bot = new Chat({
 
 `history.user` requires an identity resolver — set `history.user.identity`, or keep the deprecated top-level `identity` field during migration. Omitting both when `history.user` (or legacy `transcripts`) is set throws at construction.
 
+Set `history.user.maxPerUser: false` to disable count-based eviction. Omit `retention` as well to keep entries without a TTL. The state adapter must use durable storage to retain history across restarts. The legacy `transcripts.maxPerUser` field also accepts `false`.
+
 Thread and channel scopes are always available on `bot.history`. The **thread cache** (for adapters with `persistThreadHistory: true`, e.g. Telegram and WhatsApp) is tuned via `history.thread`:
 
 ```typescript

@@ -44,8 +44,8 @@ Same fields as the deprecated `TranscriptsConfig`, plus an optional `identity` r
       type: 'number | DurationString | undefined',
     },
     maxPerUser: {
-      description: 'Hard cap per user key. Older entries are evicted on append.',
-      type: 'number',
+      description: 'Hard cap per user key. Older entries are evicted on append. Set `false` for no cap.',
+      type: 'number | false',
       default: '200',
     },
     storeFormatted: {
