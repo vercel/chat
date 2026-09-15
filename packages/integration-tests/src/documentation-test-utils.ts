@@ -153,6 +153,7 @@ export const VALID_PACKAGE_README_IMPORTS = [
 export const VALID_DOC_PACKAGES = [
   "chat",
   "chat/ai",
+  "chat/ai/tanstack",
   "chat/adapters",
   "chat/serialization",
   "chat/workflow",
