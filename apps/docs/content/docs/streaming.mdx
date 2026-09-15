@@ -88,7 +88,7 @@ bot.onNewMention(async (thread, message) => {
 
 TanStack AI streams follow the AG-UI protocol. Chat SDK extracts the text from `TEXT_MESSAGE_CONTENT` deltas and treats each `TEXT_MESSAGE_END` as a paragraph break, so when the tool loop runs several model turns their text is separated by `\n\n` (the same behavior as `finish-step` for the AI SDK). Tool call, reasoning, run, and step events are skipped.
 
-This is for text responses. A structured-output run (`chat({ ..., outputSchema })`) streams its JSON as `TEXT_MESSAGE_CONTENT` deltas, so posting that stream would show raw JSON in the channel. Format the result yourself and post the string instead.
+This is for text responses. A structured-output run (`chat({ ..., outputSchema, stream: true })`) streams its JSON as `TEXT_MESSAGE_CONTENT` deltas, so posting that stream would show raw JSON in the channel. Format the result yourself and post the string instead.
 
 TanStack's `chat()` takes an `AbortController` rather than a signal. Forwarding `thread.signal` to it, as above, lets platform cancellation stop model generation.
 
