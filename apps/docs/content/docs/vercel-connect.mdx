@@ -147,7 +147,7 @@ createLinearAdapter({
 });
 ```
 
-Use `mode: "agent-sessions"` for app-actor installs. For outbound calls outside webhook handling (cron jobs, workflows), wrap them in `withInstallation()` so a request-scoped client is bound:
+We recommend `mode: "agent-sessions"` for Linear Connect bots. Enable **Agent session events** on the Linear app and use an app-actor installation. Projects generated with `create-chat-sdk --adapter linear --connect` include this mode explicitly. The adapter still defaults to `"comments"` when `mode` is omitted, so existing bots keep their behavior. For outbound calls outside webhook handling (cron jobs, workflows), wrap them in `withInstallation()` so a request-scoped client is bound:
 
 ```typescript title="lib/jobs.ts" lineNumbers
 await linear.withInstallation("org-id", async () => {

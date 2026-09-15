@@ -77,7 +77,8 @@ interface LinearAdapterBaseConfig {
   logger?: Logger;
   /**
    * Controls which inbound Linear webhook model should trigger message handling.
-   * Defaults to "comments". Use "agent-sessions" for app-actor installs.
+   * Defaults to "comments". Set "agent-sessions" for the recommended
+   * Vercel Connect setup with Linear app-actor installations.
    */
   mode?: LinearAdapterMode;
   /**

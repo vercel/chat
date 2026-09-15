@@ -75,6 +75,8 @@ export interface AdapterConnectSpec {
    * forwarding; use `native` when Connect supplies outbound credentials only.
    */
   inbound?: "connect-triggers" | "native";
+  /** Adapter options emitted after the Connect helper spread. */
+  properties?: readonly ScaffoldProperty[];
 }
 
 /**
@@ -214,6 +216,7 @@ export const CLI_SCAFFOLD_SPEC = {
     connect: {
       connectorEnvVar: "LINEAR_CONNECTOR",
       helper: "connectLinearAdapter",
+      properties: [{ key: "mode", value: literal('"agent-sessions"') }],
     },
     invocation: { kind: "zero-arg" },
   },

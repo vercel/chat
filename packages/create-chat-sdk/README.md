@@ -47,6 +47,8 @@ npm create chat-sdk@latest -- my-bot --adapter slack --connect -y
 
 The generated bot spreads the matching helper from `@vercel/connect/chat` into the adapter factory, adds `@vercel/connect` to dependencies, and lists each connector UID (such as `SLACK_CONNECTOR`) in `.env.example`. Native webhook verification secrets are retained for adapters such as Notion and Telegram.
 
+For Linear, `--adapter linear --connect` explicitly sets `mode: "agent-sessions"`, the recommended setup for Connect bots. Enable **Agent session events** on the Linear app and use an app-actor installation. The adapter itself still defaults to `"comments"` when `mode` is omitted.
+
 For Microsoft Teams, use `--adapter teams --connect`. The generated bot uses
 `connectTeamsAdapter(requireEnv("TEAMS_CONNECTOR"))`, and `.env.example` expects
 a connector UID such as `microsoft-teams/my-bot` instead of Azure credentials.

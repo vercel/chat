@@ -66,6 +66,14 @@ const connectSection = (config: ProjectConfig): string => {
       ""
     );
   }
+  if (hasAdapter(config, "linear")) {
+    lines.splice(
+      -2,
+      0,
+      'Agent sessions are recommended for Linear Connect bots. This project explicitly sets `mode: "agent-sessions"`. Enable **Agent session events** on the Linear app and use an app-actor installation. See the [Linear setup guide](https://chat-sdk.dev/adapters/official/linear).',
+      ""
+    );
+  }
   return lines.join("\n");
 };
 

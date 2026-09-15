@@ -84,7 +84,7 @@ bot.onNewMention(async (thread, message) => {
 });
 ```
 
-By default, the adapter runs in `mode: "comments"` and treats `Comment` webhooks as the inbound message source. For Linear app-actor installs, set `mode: "agent-sessions"` so inbound handling is driven by `AgentSessionEvent`.
+The adapter defaults to `mode: "comments"` and handles `Comment` webhooks. For Vercel Connect and Linear app-actor installations, we recommend explicitly setting `mode: "agent-sessions"` to handle `AgentSessionEvent` webhooks, including mentions and replies within a session.
 
 ## Configuration
 
@@ -124,7 +124,7 @@ By default, the adapter runs in `mode: "comments"` and treats `Comment` webhooks
       type: '"comments" | "agent-sessions"',
       default: '"comments"',
       description:
-        "Inbound webhook handling mode. Use `agent-sessions` for app-actor installs.",
+        "Set agent-sessions for the recommended Vercel Connect setup with a Linear app-actor installation.",
     },
     webhookSecret: {
       type: "string",
@@ -229,6 +229,8 @@ createLinearAdapter({
   mode: "agent-sessions",
 });
 ```
+
+We recommend agent sessions for Vercel Connect bots. Enable **Agent session events** on the Linear app and use an app-actor installation. Omitting `mode` keeps the `"comments"` default; existing bots do not need to change their configuration. Changing the adapter mode does not change the app's webhook subscriptions or permissions.
 
 `accessToken` accepts a `string` or `() => string | Promise<string>` resolver invoked per API call. When `webhookVerifier` is set it takes precedence over `webhookSecret` and `LINEAR_WEBHOOK_SECRET`.
 

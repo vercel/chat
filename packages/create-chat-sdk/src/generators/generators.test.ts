@@ -254,6 +254,31 @@ describe("Vercel Connect generation", () => {
     );
   });
 
+  it("explicitly enables agent sessions only for Linear Connect bots", () => {
+    const result = generateBotTs(connectConfig(["linear"]));
+    expect(result).toContain(
+      '...connectLinearAdapter(requireEnv("LINEAR_CONNECTOR")),\n      mode: "agent-sessions",'
+    );
+    expect(generateBotTs(makeConfig(["linear"]))).toContain(
+      "linear: createLinearAdapter(),"
+    );
+    expect(generateBotTs(makeConfig(["linear"]))).not.toContain(
+      'mode: "agent-sessions"'
+    );
+    expect(generateBotTs(connectConfig(["slack"]))).not.toContain(
+      'mode: "agent-sessions"'
+    );
+    const readme = generateReadme(connectConfig(["linear"]));
+    expect(readme).toContain('mode: "agent-sessions"');
+    expect(readme).toContain("Enable **Agent session events**");
+    expect(generateReadme(makeConfig(["linear"]))).not.toContain(
+      "Enable **Agent session events**"
+    );
+    expect(generateReadme(connectConfig(["slack"]))).not.toContain(
+      "Enable **Agent session events**"
+    );
+  });
+
   it("imports every selected Connect helper, sorted", () => {
     const result = generateBotTs(
       connectConfig([

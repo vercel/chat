@@ -25,7 +25,8 @@ const renderValue = (
 
 const renderObjectInvocation = (
   factoryExport: string,
-  invocation: Extract<ScaffoldInvocation, { kind: "object" }>
+  invocation: Extract<ScaffoldInvocation, { kind: "object" }>,
+  leadingLines: readonly string[] = []
 ): string => {
   const lines = invocation.properties.flatMap((property) => {
     const rendered = `${INDENT.repeat(3)}${property.key}: ${renderValue(property.value)},`;
@@ -38,7 +39,7 @@ const renderObjectInvocation = (
     return [rendered];
   });
 
-  return `${factoryExport}({\n${lines.join("\n")}\n${INDENT.repeat(2)}})`;
+  return `${factoryExport}({\n${[...leadingLines, ...lines].join("\n")}\n${INDENT.repeat(2)}})`;
 };
 
 const renderFactoryCall = (
@@ -61,7 +62,13 @@ const renderConnectCall = (
   adapter: CatalogAdapter,
   connect: AdapterConnectSpec
 ): string =>
-  `${adapter.factoryExport}({\n${INDENT.repeat(3)}...${connect.helper}(requireEnv(${quote(connect.connectorEnvVar)})),\n${INDENT.repeat(2)}})`;
+  renderObjectInvocation(
+    adapter.factoryExport,
+    { kind: "object", properties: connect.properties ?? [] },
+    [
+      `${INDENT.repeat(3)}...${connect.helper}(requireEnv(${quote(connect.connectorEnvVar)})),`,
+    ]
+  );
 
 const REQUIRE_ENV_HELPER = `const requireEnv = (name: string): string => {\n${INDENT}const value = process.env[name];\n${INDENT}if (!value) {\n${INDENT.repeat(2)}throw new Error(\`Missing required environment variable: \${name}\`);\n${INDENT}}\n${INDENT}return value;\n};`;
 

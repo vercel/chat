@@ -49,7 +49,7 @@ bot.onNewMention(async (thread, message) => {
 });
 ```
 
-By default, the adapter runs in `mode: "comments"` and treats `Comment` webhooks as the inbound message source. For Linear app-actor installs, set `mode: "agent-sessions"` so inbound handling is driven by `AgentSessionEvent`.
+The adapter defaults to `mode: "comments"` and handles `Comment` webhooks. For Vercel Connect and Linear app-actor installations, we recommend explicitly setting `mode: "agent-sessions"` to handle `AgentSessionEvent` webhooks, including mentions and replies within a session.
 
 ## Authentication
 
@@ -155,6 +155,8 @@ createLinearAdapter({
   mode: "agent-sessions",
 });
 ```
+
+We recommend agent sessions for Vercel Connect bots. Enable **Agent session events** on the Linear app and use an app-actor installation. Omitting `mode` keeps the `"comments"` default; existing bots do not need to change their configuration. Changing the adapter mode does not change the app's webhook subscriptions or permissions.
 
 `accessToken` accepts a `string` or `() => string | Promise<string>` resolver invoked per API call, so it composes with Connect's short-lived tokens. When `webhookVerifier` is set it takes precedence over `webhookSecret` and `LINEAR_WEBHOOK_SECRET`.
 
@@ -284,7 +286,7 @@ All options are auto-detected from environment variables when not provided.
 | `encryptionKey` | No | AES-256-GCM key for encrypting stored OAuth tokens. Auto-detected from `LINEAR_ENCRYPTION_KEY` |
 | `clientCredentials` | No* | Single-tenant client credentials config |
 | `clientCredentials.scopes` | No | Scopes for client credentials auth. Defaults to `["read", "write", "comments:create", "issues:create"]` |
-| `mode` | No | Inbound webhook handling mode. `"comments"` by default, or `"agent-sessions"` for app-actor installs |
+| `mode` | No | Inbound webhook handling mode. Defaults to `"comments"`. Set `"agent-sessions"` for the recommended Connect setup |
 | `webhookSecret` | No** | Webhook signing secret. Auto-detected from `LINEAR_WEBHOOK_SECRET` |
 | `webhookVerifier` | No** | Custom verifier `(request, body) => unknown \| Promise<unknown>` used in place of `webhookSecret`. Takes precedence over `webhookSecret`/`LINEAR_WEBHOOK_SECRET`. Required in Connect mode |
 | `userName` | No | Bot display name. Auto-detected from `LINEAR_BOT_USERNAME` (default: `"linear-bot"`) |
