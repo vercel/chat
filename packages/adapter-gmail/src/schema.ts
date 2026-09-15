@@ -28,17 +28,27 @@ export const message = metadata.extend({
   raw: z.string().regex(/^[a-zA-Z0-9_-]*={0,2}$/),
   snippet: z.string().optional(),
 });
+const changed = reference.extend({ labelIds: z.array(identifier).optional() });
+const membership = z.object({
+  message: changed,
+  labelIds: z.array(identifier),
+});
+export const historyType = z.enum([
+  "messageAdded",
+  "messageDeleted",
+  "labelAdded",
+  "labelRemoved",
+]);
 export const history = z.object({
   history: z
     .array(
       z.object({
         id: historyId,
-        messagesAdded: z.array(z.object({ message: reference })).default([]),
-        labelsAdded: z
-          .array(
-            z.object({ message: reference, labelIds: z.array(identifier) })
-          )
-          .default([]),
+        messages: z.array(changed).default([]),
+        messagesAdded: z.array(z.object({ message: changed })).default([]),
+        messagesDeleted: z.array(z.object({ message: changed })).default([]),
+        labelsAdded: z.array(membership).default([]),
+        labelsRemoved: z.array(membership).default([]),
       })
     )
     .default([]),
@@ -48,6 +58,7 @@ export const history = z.object({
 export const listing = z.object({
   messages: z.array(reference).default([]),
   nextPageToken: z.string().optional(),
+  resultSizeEstimate: z.number().int().nonnegative().optional(),
 });
 export const thread = z.object({
   id: identifier,
@@ -101,6 +112,7 @@ export type GmailMessage = z.infer<typeof message>;
 export type GmailMetadata = z.infer<typeof metadata>;
 export type GmailPreparedMessage = z.infer<typeof prepared>;
 export type GmailHistory = z.infer<typeof history>;
+export type GmailHistoryType = z.infer<typeof historyType>;
 export type GmailListing = z.infer<typeof listing>;
 export type GmailThread = z.infer<typeof thread>;
 export type GmailWatch = z.infer<typeof watch>;

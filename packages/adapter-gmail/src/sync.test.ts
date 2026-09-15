@@ -52,6 +52,28 @@ describe("Gmail history synchronization", () => {
     vi.useRealTimers();
   });
 
+  it("accounts for deletions and label removals without loading or dispatching email", async () => {
+    const fetch = vi.fn<typeof globalThis.fetch>().mockResolvedValue(
+      Response.json({
+        historyId: "9007199254740995",
+        history: [
+          {
+            id: "9007199254740994",
+            messages: [reference],
+            messagesDeleted: [{ message: reference }],
+            labelsRemoved: [{ message: reference, labelIds: [label] }],
+          },
+        ],
+      })
+    );
+    const { state, dispatch, synchronizer } = await setup(fetch);
+    await synchronizer.sync();
+    expect(fetch).toHaveBeenCalledOnce();
+    expect(String(fetch.mock.calls[0][0])).toContain("/history?");
+    expect(dispatch).not.toHaveBeenCalled();
+    expect(await state.get(`${key}:cursor`)).toBe("9007199254740995");
+  });
+
   it("coalesces a conversation label across history pages into its latest incoming message", async () => {
     const fetch = vi
       .fn<typeof globalThis.fetch>()

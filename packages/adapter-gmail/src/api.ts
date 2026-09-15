@@ -5,6 +5,7 @@ import {
   draft,
   type GmailDraft,
   type GmailHistory,
+  type GmailHistoryType,
   type GmailLabels,
   type GmailListing,
   type GmailMessage,
@@ -16,6 +17,7 @@ import {
   type GmailWatch,
   history,
   historyId,
+  historyType,
   identifier,
   labels,
   listing,
@@ -30,6 +32,7 @@ import {
 } from "./schema";
 
 const topic = /^projects\/[^/\s]+\/topics\/[^/\s]+$/;
+const size = z.number().int().min(1).max(500).default(100);
 const stopped = z
   .object({})
   .optional()
@@ -44,6 +47,7 @@ export type {
   GmailContinuation,
   GmailDraft,
   GmailHistory,
+  GmailHistoryType,
   GmailLabel,
   GmailLabels,
   GmailListing,
@@ -152,13 +156,27 @@ export function getGmailMessageMetadata(
 }
 
 export function listGmailMessages(
-  input: { labelId: string; pageToken?: string },
+  input: {
+    includeSpamTrash?: boolean;
+    labelId?: string;
+    maxResults?: number;
+    pageToken?: string;
+    q?: string;
+  },
   options: GmailApiOptions
 ): Promise<GmailListing> {
   const query = new URLSearchParams({
-    labelIds: identifier.parse(input.labelId),
-    maxResults: "100",
+    maxResults: String(size.parse(input.maxResults)),
   });
+  if (input.labelId !== undefined) {
+    query.set("labelIds", identifier.parse(input.labelId));
+  }
+  if (input.q !== undefined) {
+    query.set("q", input.q);
+  }
+  if (input.includeSpamTrash !== undefined) {
+    query.set("includeSpamTrash", String(input.includeSpamTrash));
+  }
   if (input.pageToken) {
     query.set("pageToken", input.pageToken);
   }
@@ -166,31 +184,44 @@ export function listGmailMessages(
 }
 
 export function listGmailHistory(
-  input: { startHistoryId: string; pageToken?: string; labelId?: string },
+  input: {
+    historyTypes?: GmailHistoryType[];
+    labelId?: string;
+    maxResults?: number;
+    pageToken?: string;
+    startHistoryId: string;
+  },
   options: GmailApiOptions
 ): Promise<GmailHistory> {
   const query = new URLSearchParams({
     startHistoryId: historyId.parse(input.startHistoryId),
-    maxResults: "100",
+    maxResults: String(size.parse(input.maxResults)),
   });
   if (input.pageToken) {
     query.set("pageToken", input.pageToken);
   }
-  if (input.labelId) {
+  if (input.labelId !== undefined) {
     query.set("labelId", identifier.parse(input.labelId));
+  }
+  for (const type of input.historyTypes ?? []) {
+    query.append("historyTypes", historyType.parse(type));
   }
   return request(options, `history?${query}`, history);
 }
 
 export function watchGmailMailbox(
-  input: { topicName: string; labelId: string },
+  input: { topicName: string; labelId?: string },
   options: GmailApiOptions
 ): Promise<GmailWatch> {
   const topicName = z.string().regex(topic).parse(input.topicName);
   return request(options, "watch", watch, {
     topicName,
-    labelIds: [identifier.parse(input.labelId)],
-    labelFilterBehavior: "include",
+    ...(input.labelId === undefined
+      ? {}
+      : {
+          labelIds: [identifier.parse(input.labelId)],
+          labelFilterBehavior: "include",
+        }),
   });
 }
 

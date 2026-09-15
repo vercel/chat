@@ -8,6 +8,7 @@ import {
   getGmailProfile,
   listGmailHistory,
   listGmailLabels,
+  listGmailMessages,
   sendGmailMessage,
   stopGmailMailbox,
   watchGmailMailbox,
@@ -76,6 +77,104 @@ describe("Gmail API primitives", () => {
     expect(url.searchParams.get("pageToken")).toBe("page+/=");
     expect(result.historyId).toBe("9007199254740995");
     expect(result.nextPageToken).toBe("next+/=");
+  });
+
+  it("returns every history change without loading messages or advancing a cursor", async () => {
+    const message = { id: "message", threadId: "thread", labelIds: ["INBOX"] };
+    const change = {
+      id: "101",
+      messages: [message],
+      messagesAdded: [{ message }],
+      messagesDeleted: [{ message }],
+      labelsAdded: [{ message, labelIds: ["INBOX"] }],
+      labelsRemoved: [{ message, labelIds: ["UNREAD"] }],
+    };
+    const fetch = vi.fn<typeof globalThis.fetch>().mockResolvedValue(
+      Response.json({
+        history: [change],
+        historyId: "102",
+        nextPageToken: "next",
+      })
+    );
+    const result = await listGmailHistory(
+      {
+        startHistoryId: "100",
+        historyTypes: ["messageDeleted", "labelRemoved"],
+        maxResults: 1,
+      },
+      configuration(fetch)
+    );
+    expect(result.history).toEqual([change]);
+    expect(result.nextPageToken).toBe("next");
+    const query = new URL(String(fetch.mock.calls[0][0])).searchParams;
+    expect(query.getAll("historyTypes")).toEqual([
+      "messageDeleted",
+      "labelRemoved",
+    ]);
+    expect(query.get("maxResults")).toBe("1");
+    expect(fetch).toHaveBeenCalledOnce();
+  });
+
+  it("lists mailbox pointers with native search and explicit pagination", async () => {
+    const result = {
+      messages: [{ id: "message", threadId: "thread" }],
+      nextPageToken: "next+/=",
+      resultSizeEstimate: 2,
+    };
+    const fetch = vi
+      .fn<typeof globalThis.fetch>()
+      .mockResolvedValue(Response.json(result));
+    await expect(
+      listGmailMessages(
+        {
+          q: "from:sender@example.com in:anywhere",
+          includeSpamTrash: true,
+          maxResults: 1,
+          pageToken: "page+/=",
+        },
+        configuration(fetch)
+      )
+    ).resolves.toEqual(result);
+    const query = new URL(String(fetch.mock.calls[0][0])).searchParams;
+    expect(query.has("labelIds")).toBe(false);
+    expect(query.get("q")).toBe("from:sender@example.com in:anywhere");
+    expect(query.get("includeSpamTrash")).toBe("true");
+    expect(query.get("maxResults")).toBe("1");
+    expect(query.get("pageToken")).toBe("page+/=");
+    expect(fetch).toHaveBeenCalledOnce();
+  });
+
+  it.each([
+    0,
+    -1,
+    501,
+    1.5,
+    Number.NaN,
+  ])("rejects invalid page size %s before accessing credentials", (maxResults) => {
+    const fetch = vi.fn<typeof globalThis.fetch>();
+    const token = vi.fn();
+    const options = { ...configuration(fetch), token };
+    expect(() => listGmailMessages({ maxResults }, options)).toThrow();
+    expect(() =>
+      listGmailHistory({ startHistoryId: "100", maxResults }, options)
+    ).toThrow();
+    expect(token).not.toHaveBeenCalled();
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it("allows a caller-owned whole-mailbox watch without label policy", async () => {
+    const fetch = vi
+      .fn<typeof globalThis.fetch>()
+      .mockResolvedValue(
+        Response.json({ historyId: "100", expiration: "1789086553000" })
+      );
+    await watchGmailMailbox(
+      { topicName: "projects/project/topics/mail" },
+      configuration(fetch)
+    );
+    expect(JSON.parse(String(fetch.mock.calls[0][1]?.body))).toEqual({
+      topicName: "projects/project/topics/mail",
+    });
   });
 
   it.each([
