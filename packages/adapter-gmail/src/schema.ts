@@ -94,6 +94,7 @@ export const continuation = z.object({
     )
     .max(100),
   to: z.array(address).min(1).max(100),
+  cc: z.array(address).max(100).optional(),
 });
 
 export type GmailMessage = z.infer<typeof message>;

@@ -31,6 +31,7 @@ export interface GmailEmail {
 
 export interface GmailOutgoing {
   attachments?: GmailAttachment[];
+  cc?: GmailAddress[];
   continuation?: GmailContinuation;
   html?: string;
   subject?: string;
@@ -91,11 +92,30 @@ function addresses(values: Address[]): GmailAddress[] {
 
 export function extractGmailContinuation(
   input: GmailEmail,
-  mailbox: string
+  mailbox: string,
+  options: { replyAll?: boolean } = {}
 ): GmailContinuation {
   const email = input.email;
   const sender = email.from ? [email.from] : [];
   const recipients = addresses(email.replyTo?.length ? email.replyTo : sender);
+  const account = mailboxSchema.parse(mailbox);
+  const seen = new Set<string>();
+  const unique = (values: GmailAddress[]) =>
+    values.filter((value) => {
+      const position = value.address.lastIndexOf("@");
+      const key =
+        value.address.slice(0, position) +
+        value.address.slice(position).toLowerCase();
+      if (value.address.toLowerCase() === account || seen.has(key)) {
+        return false;
+      }
+      seen.add(key);
+      return true;
+    });
+  const to = options.replyAll
+    ? unique([...recipients, ...addresses(email.to ?? [])])
+    : recipients;
+  const cc = options.replyAll ? unique(addresses(email.cc ?? [])) : undefined;
   const inReplyTo = messageId.parse(email.messageId);
   const references = (email.references?.match(referencesPattern) ?? []).slice(
     -99
@@ -110,7 +130,8 @@ export function extractGmailContinuation(
     subject: email.subject ?? "",
     inReplyTo,
     references,
-    to: recipients,
+    to,
+    ...(cc?.length ? { cc } : {}),
   });
 }
 
@@ -128,12 +149,24 @@ export function composeGmailMessage(
   const subject = header.parse(continuation?.subject ?? input.subject ?? "");
   const message = createMimeMessage();
   message.setSender(mailboxSchema.parse(input.from));
-  message.setRecipients(
-    recipients.map((value) => ({
-      addr: value.address,
-      name: value.name === undefined ? undefined : header.parse(value.name),
-    }))
-  );
+  const cc = z
+    .array(address)
+    .max(100)
+    .parse(input.cc ?? continuation?.cc ?? []);
+  for (const [type, values] of [
+    ["To", recipients],
+    ["Cc", cc],
+  ] as const) {
+    if (values.length) {
+      message.setRecipients(
+        values.map((value) => ({
+          addr: value.address,
+          name: value.name === undefined ? undefined : header.parse(value.name),
+        })),
+        { type }
+      );
+    }
+  }
   message.setSubject(subject);
   if (continuation) {
     message.setHeader("In-Reply-To", continuation.inReplyTo);

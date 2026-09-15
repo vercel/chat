@@ -14,6 +14,45 @@ const raw = (content: string) => ({
 });
 
 describe("Gmail email primitives", () => {
+  it("opts into reply-all without copying the mailbox or hidden recipients", async () => {
+    const source = await parseGmailMessage(
+      raw(
+        [
+          "From: sender@example.com",
+          "Reply-To: replies@example.com",
+          "To: Agent@example.com, visible@example.com, replies@example.com, CaseSensitive@example.com, casesensitive@example.com",
+          "Cc: visible@example.com, colleague@example.com",
+          "Bcc: hidden@example.com",
+          "Subject: review",
+          "Message-ID: <original@example.com>",
+          "",
+          "review",
+        ].join("\r\n")
+      )
+    );
+    const continuation = extractGmailContinuation(source, "agent@example.com", {
+      replyAll: true,
+    });
+    const output = await parseGmailMessage({
+      ...raw(""),
+      raw: composeGmailMessage({
+        from: "agent@example.com",
+        continuation,
+        text: "reviewed",
+      }),
+    });
+    expect(output.email.to?.map((value) => value.address)).toEqual([
+      "replies@example.com",
+      "visible@example.com",
+      "CaseSensitive@example.com",
+      "casesensitive@example.com",
+    ]);
+    expect(output.email.cc?.map((value) => value.address)).toEqual([
+      "colleague@example.com",
+    ]);
+    expect(output.email.bcc).toBeUndefined();
+    expect(output.email.inReplyTo).toBe("<original@example.com>");
+  });
   it("preserves case-sensitive external recipient addresses", async () => {
     const output = await parseGmailMessage({
       ...raw(""),

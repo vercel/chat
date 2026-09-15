@@ -30,6 +30,14 @@ import {
 } from "./schema";
 
 const topic = /^projects\/[^/\s]+\/topics\/[^/\s]+$/;
+const stopped = z
+  .object({})
+  .optional()
+  .transform(() => undefined);
+const credentials = z.object({
+  access_token: z.string().min(1),
+  expires_in: z.number().positive(),
+});
 
 export { GmailApiError, GmailContentError } from "./http";
 export type {
@@ -107,16 +115,7 @@ export function listGmailLabels(
 }
 
 export function stopGmailMailbox(options: GmailApiOptions): Promise<void> {
-  return request(
-    options,
-    "stop",
-    z
-      .object({})
-      .optional()
-      .transform(() => undefined),
-    undefined,
-    "POST"
-  );
+  return request(options, "stop", stopped, undefined, "POST");
 }
 
 export function getGmailMessage(
@@ -136,7 +135,7 @@ export function getGmailThread(
 ): Promise<GmailThread> {
   return request(
     options,
-    `threads/${identifier.parse(id)}?format=minimal`,
+    `threads/${identifier.parse(id)}?format=minimal&fields=id,messages(id,threadId)`,
     thread
   );
 }
@@ -278,12 +277,7 @@ export function createGmailTokenProvider(
         signal: AbortSignal.timeout(30_000),
       }
     );
-    const token = z
-      .object({
-        access_token: z.string().min(1),
-        expires_in: z.number().positive(),
-      })
-      .parse(await readGmailJson(response, 65_536));
+    const token = credentials.parse(await readGmailJson(response, 65_536));
     cached = {
       value: token.access_token,
       expiration: Date.now() + Math.max(0, token.expires_in - 60) * 1000,
