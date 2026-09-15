@@ -66,6 +66,46 @@ For reply-all, use `extractGmailContinuation(email, mailbox, { replyAll: true })
 
 Both methods also accept a provider-native `{ raw, threadId? }` object when the caller already has a base64url-encoded MIME message. When constructing raw replies, the caller must include matching Subject, In-Reply-To and References headers as required by [Google's threading contract](https://developers.google.com/workspace/gmail/api/guides/threads).
 
+### native events and history
+
+An integration that owns its sessions can use the primitives without the root adapter's label filtering or message coalescing. `createGmailWebhookVerifier` returns decoded notification fields plus the original wrapped Pub/Sub `envelope`, including delivery metadata. It verifies transport identity and the configured subscription but does not load messages, change a cursor or dispatch a handler. Check `event.emailAddress` against the mailbox authorized for the route before accessing that mailbox. `parseGmailNotification` only parses; it does not authenticate requests.
+
+After verification, the application can durably enqueue the event and acknowledge it, or finish processing before acknowledging. Do not acknowledge fire-and-forget work that can disappear when the request ends. The application owns duplicate handling, mailbox-level serialization and checkpoint persistence.
+
+`listGmailHistory` returns one page of native changes: `messagesAdded`, `messagesDeleted`, `labelsAdded`, `labelsRemoved` and the general `messages` references. Message references retain `labelIds` when Google supplies them. Use the specific change arrays to avoid processing the same message twice; deleting a message differs from adding the `TRASH` label. There is no implicit message hydration.
+
+```typescript
+import {
+  type GmailApiOptions,
+  type GmailHistory,
+  listGmailHistory,
+} from "@chat-adapter/gmail/api";
+
+async function catchUp(
+  startHistoryId: string,
+  options: GmailApiOptions,
+  consume: (changes: GmailHistory["history"]) => Promise<void>,
+) {
+  let pageToken: string | undefined;
+  let cursor = startHistoryId;
+  do {
+    const page = await listGmailHistory({ startHistoryId, pageToken }, options);
+    await consume(page.history);
+    cursor = page.historyId;
+    pageToken = page.nextPageToken;
+  } while (pageToken);
+  return cursor;
+}
+```
+
+Persist the returned cursor only after every page has been handled durably. A notification's `historyId` is a wake-up watermark, not a replacement for the saved cursor. History IDs and page tokens remain strings. History is ordered by mailbox changes, not email date; it includes sent and received mail according to the selected filters. The application chooses what warrants a turn and loads only needed content with `getGmailMessage` and `parseGmailMessage`. `getGmailThread` returns ordered message pointers, not hydrated email bodies.
+
+History retention is limited. An expired `startHistoryId` returns `GmailApiError` with status `404`; standalone integrations must perform their own full synchronization. To bootstrap or recover, capture a fresh profile cursor before scanning current messages, reconcile the scan, then catch up from that cursor. The primitives do not hide this decision or silently reset state. See [Google's synchronization guide](https://developers.google.com/workspace/gmail/api/guides/sync).
+
+`listGmailMessages({ q, labelId, includeSpamTrash, maxResults, pageToken }, options)` searches current mailbox contents and returns pointers, `nextPageToken` and an optional `resultSizeEstimate`. Every filter is optional, so `{}` lists across the mailbox. Search uses Gmail's native `q` syntax and requires a scope such as `gmail.readonly`; `gmail.metadata` does not allow `q`. Search is not a history of deletions. `listGmailHistory` accepts optional `historyTypes`, `labelId`, `maxResults` and `pageToken`. Both list calls return one page, default to 100 records and allow up to 500; the caller decides whether to continue.
+
+`watchGmailMailbox({ topicName }, options)` watches the whole mailbox; pass `labelId` to restrict notifications. It returns the watch cursor and expiration but does not import mail or schedule renewal. The root Chat adapter still requires its intake label. See [message listing](https://developers.google.com/workspace/gmail/api/reference/rest/v1/users.messages/list), [history listing](https://developers.google.com/workspace/gmail/api/reference/rest/v1/users.history/list) and [watch configuration](https://developers.google.com/workspace/gmail/api/reference/rest/v1/users/watch).
+
 ## with Chat
 
 ```typescript
