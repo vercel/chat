@@ -60,6 +60,9 @@ type ChatToolMap = {
  * default. Control this globally or per-tool via `requireApproval`. Use
  * `preset` to scope the toolset.
  *
+ * Using TanStack AI instead? Import `createTanStackTools` from
+ * `chat/ai/tanstack`; it exposes the same tools, options, and presets.
+ *
  * @example
  * ```ts
  * import { Chat } from 'chat'

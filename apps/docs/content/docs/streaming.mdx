@@ -92,6 +92,8 @@ This is for text responses. A structured-output run (`chat({ ..., outputSchema, 
 
 TanStack's `chat()` takes an `AbortController` rather than a signal. Forwarding `thread.signal` to it, as above, lets platform cancellation stop model generation.
 
+To feed prior thread history into `chat()` and give it Chat SDK tools, use `toTanStackMessages` and `createTanStackTools` from `chat/ai/tanstack`, covered in [TanStack AI](/docs/ai/tanstack-ai).
+
 ## Custom streams
 
 Any async iterable works:

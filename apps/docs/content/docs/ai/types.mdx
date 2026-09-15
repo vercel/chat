@@ -250,3 +250,33 @@ type ToolOverrides = Partial<
 ```
 
 Per-tool overrides accepted by `createChatTools({ overrides })`. Core fields like `execute`, `inputSchema`, `outputSchema`, `type`, `id`, and `args` are intentionally excluded so tool semantics stay stable across upgrades.
+
+## TanStack AI
+
+The `chat/ai/tanstack` subpath exports its own message and tool shapes, declared locally so nothing from `@tanstack/ai` is imported at runtime:
+
+```ts
+import type {
+  TanStackMessage,
+  TanStackUserMessage,
+  TanStackAssistantMessage,
+  TanStackContentPart,
+  TanStackTextPart,
+  TanStackImagePart,
+  ToTanStackMessagesOptions,
+  TanStackTool,
+  TanStackToolOverrides,
+  TanStackChatToolsOptions,
+} from "chat/ai/tanstack";
+```
+
+| Type | Purpose |
+|---|---|
+| `TanStackMessage` | `TanStackUserMessage \| TanStackAssistantMessage`, structurally assignable to TanStack AI's `ModelMessage`. Returned by `toTanStackMessages`. |
+| `TanStackContentPart` | `TanStackTextPart \| TanStackImagePart`, the parts inside a multipart user message. Text parts use `content`, image parts carry base64 data under `source`. |
+| `ToTanStackMessagesOptions` | `includeNames`, `transformMessage`, and `onUnsupportedAttachment`, mirroring `ToAiMessagesOptions`. |
+| `TanStackTool` | A plain tool object (`name`, `description`, `inputSchema`, `execute`, optional `needsApproval`, `metadata`, `lazy`) accepted by `chat({ tools })`. |
+| `TanStackToolOverrides` | The subset of `TanStackTool` that `createTanStackTools({ overrides })` lets you change: `description`, `needsApproval`, `metadata`, `lazy`. |
+| `TanStackChatToolsOptions` | Options for `createTanStackTools`: `chat`, `preset`, `requireApproval`, `scope`, `strictScope`, `overrides`. |
+
+`ChatToolName`, `ChatToolPreset`, `ChatWriteToolName`, `ChatApprovalToolName`, `ApprovalConfig`, `ReadScope`, and `ChatBinding` are re-exported from `chat/ai/tanstack` unchanged. Full definitions are on the [TanStack AI](/docs/ai/tanstack-ai#types) page.

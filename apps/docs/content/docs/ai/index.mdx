@@ -4,10 +4,11 @@ description: AI utilities that ship with Chat SDK — agent tools, message conve
 type: overview
 ---
 
-The `chat/ai` subpath is the home for AI utilities that ship with Chat SDK.
+The `chat/ai` subpath is the home for AI utilities that ship with Chat SDK. Bots built on the [AI SDK](https://ai-sdk.dev) import from `chat/ai`; bots built on [TanStack AI](https://tanstack.com/ai) import the equivalent helpers from `chat/ai/tanstack`.
 
 ```ts
 import { createChatTools, toAiMessages } from "chat/ai";
+import { createTanStackTools, toTanStackMessages } from "chat/ai/tanstack";
 ```
 
 Add the optional peers if you don't already have them:
@@ -20,6 +21,7 @@ Add the optional peers if you don't already have them:
 |---|---|
 | [AI SDK Tools](/docs/ai/ai-sdk-tools) | `createChatTools` and standalone tool factories that let an agent post messages, send DMs, react, edit, delete, and manage subscriptions across every adapter your `Chat` instance has registered. Built-in approval gates and presets keep writes safe. |
 | [`toAiMessages`](/docs/ai/to-ai-messages) | Convert Chat SDK [`Message[]`](/docs/api/message) into the `{ role, content }[]` shape expected by AI SDK calls. Handles role mapping, attachments, links, sorting, and optional per-message transforms. |
+| [TanStack AI](/docs/ai/tanstack-ai) | `toTanStackMessages` and `createTanStackTools` from `chat/ai/tanstack`: the same history conversion and tools, shaped for `chat()` from `@tanstack/ai`. No runtime dependency on `@tanstack/ai`. |
 | [Types](/docs/ai/types) | Reference for every type exported from `chat/ai` — agent message shapes, tool option contracts, presets, approval config, and the binding type that ties tools to your `Chat` instance. |
 
 ## Typical flow
@@ -52,6 +54,8 @@ bot.onSubscribedMessage(async (thread) => {
 1. [`toAiMessages`](/docs/ai/to-ai-messages) converts messages into an output compatible with AI SDK's `ModelMessage[]`.
 2. [`createChatTools`](/docs/ai/ai-sdk-tools) gives the agent pre-built and fully customizable AI SDK tools.
 3. The streamed response is rendered back into the thread via the standard [`thread.post(stream)`](/docs/streaming) flow.
+
+Using TanStack AI instead? The same flow works with `toTanStackMessages` and `createTanStackTools`; see [TanStack AI](/docs/ai/tanstack-ai) for the `chat()` version of this example.
 
 ## Backwards compatibility
 

@@ -9,6 +9,12 @@ related:
   - /docs/streaming
 ---
 
+<Callout type="info">
+  Using TanStack AI? `toTanStackMessages` in `chat/ai/tanstack` converts the
+  same history into the `ModelMessage[]` shape that `chat()` expects. See
+  [TanStack AI](/docs/ai/tanstack-ai).
+</Callout>
+
 Convert an array of [`Message`](/docs/api/message) objects into the `{ role, content }[]` format expected by the AI SDK. The output is structurally compatible with AI SDK's `ModelMessage[]`.
 
 ```typescript

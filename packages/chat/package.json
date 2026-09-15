@@ -18,6 +18,10 @@
       "types": "./dist/ai/index.d.ts",
       "import": "./dist/ai/index.js"
     },
+    "./ai/tanstack": {
+      "types": "./dist/ai/tanstack/index.d.ts",
+      "import": "./dist/ai/tanstack/index.js"
+    },
     "./adapters": {
       "types": "./dist/adapters/index.d.ts",
       "import": "./dist/adapters/index.js"
@@ -62,6 +66,7 @@
     "unified": "^11.0.5"
   },
   "devDependencies": {
+    "@tanstack/ai": "0.54.0",
     "@types/mdast": "^4.0.4",
     "@types/node": "^25.3.2",
     "ai": "^7.0.0",

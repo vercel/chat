@@ -12,6 +12,12 @@ related:
   - /docs/approvals
 ---
 
+<Callout type="info">
+  Building on TanStack AI instead of the AI SDK? `createTanStackTools` in
+  `chat/ai/tanstack` returns the same tools for `chat({ tools })`. See
+  [TanStack AI](/docs/ai/tanstack-ai).
+</Callout>
+
 `createChatTools` exposes Chat SDK operations as ready-to-use [AI SDK](https://ai-sdk.dev) tools so an agent can act inside the same workspaces your bot is connected to: read messages, post replies, send DMs, react, edit, delete, and manage thread subscriptions across every adapter you've registered.
 
 Write operations and arbitrary `getUser` profile lookups require user approval out of the box. Toggle them globally or per-tool when you want unattended execution.
