@@ -555,8 +555,8 @@ export interface SlackMessageBlock extends SlackBlock {
 }
 
 /**
- * Slack's user-mention syntax for `userId`: `<@U…>` or `<@U…|name>`. Applied to
- * mrkdwn text; rich-text blocks carry mentions as `user` elements instead.
+ * Slack's user-mention syntax for `userId`: `<@U…>` or `<@U…|name>`. Used for
+ * mrkdwn content, where a mention is a token in the text.
  */
 function mentionTokenPattern(userId: string): RegExp {
   return new RegExp(`<@!?${escapeRegExp(userId)}(?:\\|[^>]*)?>`, "i");
@@ -567,8 +567,8 @@ const SLACK_INLINE_CODE_PATTERN = /`[^`\n]*`/g;
 
 /**
  * Blank out fenced and inline code so a mention token inside them is not read
- * as an invocation. The mrkdwn `text` field carries code as backticks;
- * rich-text blocks carry it as `style.code` or `rich_text_preformatted`.
+ * as an invocation. Only mrkdwn content carries code as backticks; rich-text
+ * elements carry it as `style.code` or `rich_text_preformatted`.
  */
 function maskSlackCode(text: string): string {
   return text
@@ -577,30 +577,26 @@ function maskSlackCode(text: string): string {
 }
 
 /**
- * Whether rich-text and table blocks reference `userId` outside code.
+ * Whether blocks mention `userId` the way Slack renders a mention.
  *
- * `hasStructuredBody` reports whether a block models the message body
- * structurally (`rich_text`, `table`, `data_table`). When one does, the
- * flattened `text` field must not add mention evidence: it loses the
- * code/literal distinction that the blocks preserve.
+ * Slack renders a mention from a `user` element, and from a `<@U…>` token in a
+ * text object explicitly typed `mrkdwn`. A rich-text `text` element, a link
+ * label, and a `raw_text` table cell are display text: a token there stays
+ * literal, so it is not scanned. Inline code (`style.code`) and preformatted
+ * elements are skipped for the same reason.
  */
-function scanStructuredContent(
-  blocks: SlackMessageBlock[] | undefined,
+function structuredBlocksMentionUser(
+  blocks: SlackMessageBlock[],
   userId: string
-): { mentioned: boolean; hasStructuredBody: boolean } {
+): boolean {
   const mention = mentionTokenPattern(userId);
-  let mentioned = false;
-  let hasStructuredBody = false;
 
-  const visit = (value: unknown, inCode: boolean): void => {
+  const visit = (value: unknown, inCode: boolean): boolean => {
     if (Array.isArray(value)) {
-      for (const item of value) {
-        visit(item, inCode);
-      }
-      return;
+      return value.some((item) => visit(item, inCode));
     }
     if (!isRecord(value)) {
-      return;
+      return false;
     }
 
     const isCode =
@@ -608,30 +604,25 @@ function scanStructuredContent(
       value.type === "rich_text_preformatted" ||
       (isRecord(value.style) && value.style.code === true);
 
-    // A `user` element is a mention; app-built rich text can also inline a
-    // `<@U…>` token in a text element.
     if (
       !isCode &&
       ((value.type === "user" && value.user_id === userId) ||
-        (typeof value.text === "string" &&
+        (value.type === "mrkdwn" &&
+          typeof value.text === "string" &&
           mention.test(maskSlackCode(value.text))))
     ) {
-      mentioned = true;
+      return true;
     }
 
-    visit(value.elements, isCode);
-    // Table rows nest their cells, and a cell can itself hold rich text.
-    visit(value.rows, isCode);
+    return (
+      visit(value.elements, isCode) ||
+      visit(value.rows, isCode) ||
+      visit(value.fields, isCode) ||
+      visit(value.text, isCode)
+    );
   };
 
-  for (const block of blocks ?? []) {
-    if (block.type === "rich_text" || TABLE_BLOCK_TYPES.has(block.type)) {
-      hasStructuredBody = true;
-    }
-    visit(block, false);
-  }
-
-  return { mentioned, hasStructuredBody };
+  return blocks.some((block) => visit(block, false));
 }
 
 type SlackContentNode = FormattedContent["children"][number];
@@ -4473,40 +4464,50 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
    * Whether the message invokes the bot.
    *
    * Slack fires `app_mention` for a bot id that only appears inside code, so the
-   * invocation is classified from the message content: a `user` element outside
-   * code, or a `<@U…>` token outside code, is a mention. Inline (`style.code`)
-   * and preformatted content renders literally, so a bot id there is not.
+   * invocation is classified from the message content: a `user` element for the
+   * bot outside code, or a `<@U…>` token outside code in mrkdwn content, is a
+   * mention. Inline (`style.code`) and preformatted content renders literally,
+   * so a bot id there is not.
    *
-   * Returns `true` for an invocation, `false` when the content holds no
-   * invocation of the bot, and `undefined` when the adapter cannot identify the
-   * bot, leaving the SDK's text-based detection as the fallback.
+   * Returns `true` for an invocation, `false` when the inspected content holds
+   * no invocation of the bot, and `undefined` when the adapter cannot identify
+   * the bot. Without the id, an explicit `app_mention` event is trusted exactly
+   * as it was before content-based detection, and other messages stay
+   * undetermined for the SDK's text-based fallback.
    */
   protected detectSelfMention(
     event: SlackEvent,
-    rawText: string,
-    attachments: SlackAttachmentContent[]
+    rawText: string
   ): boolean | undefined {
     const botUserId = this.botUserId;
     if (!botUserId) {
-      // Without the bot's id the content cannot be classified. Trust an
-      // explicit mention event, as the adapter did before content-based
-      // detection; other messages stay undetermined for the SDK fallback.
       return event.type === "app_mention" ? true : undefined;
     }
 
     const mention = mentionTokenPattern(botUserId);
-    const body = scanStructuredContent(event.blocks, botUserId);
-    if (body.mentioned) {
+    const blocks = event.blocks ?? [];
+    if (blocks.length > 0) {
+      // Blocks model the message body. The flattened `text` field loses the
+      // code/literal distinction, so it is not consulted alongside them.
+      if (structuredBlocksMentionUser(blocks, botUserId)) {
+        return true;
+      }
+    } else if (mention.test(maskSlackCode(rawText))) {
       return true;
     }
 
     for (const attachment of authorAttachments(event)) {
-      if (scanStructuredContent(attachment.blocks, botUserId).mentioned) {
-        return true;
+      const attachmentBlocks = attachment.blocks ?? [];
+      if (attachmentBlocks.length > 0) {
+        // Structured attachment content is authoritative for that attachment,
+        // so its legacy fallback cannot add mention evidence.
+        if (structuredBlocksMentionUser(attachmentBlocks, botUserId)) {
+          return true;
+        }
+        continue;
       }
-    }
-    for (const attachment of attachments) {
-      for (const part of attachment.parts) {
+
+      for (const part of attachmentContent(attachment).parts) {
         // Literal attachment parts render only Slack control sequences, so a
         // `<@U…>` token there is a mention; mrkdwn parts carry code as backticks.
         const value =
@@ -4517,16 +4518,9 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
       }
     }
 
-    // A structured block is the composer's (or app's) own model of the body.
-    // The flattened `text` field loses the code/literal distinction, so it
-    // cannot add evidence once such a block models the body.
-    if (!body.hasStructuredBody && mention.test(maskSlackCode(rawText))) {
-      return true;
-    }
-
-    // Slack mentions are user-id tokens. With the content fully inspected, the
-    // absence of one is a definitive non-mention, so `@Name` appearing as plain
-    // or code-styled text cannot fall through to name matching.
+    // Slack mentions are user-id tokens. With the content inspected, the
+    // absence of one is a definitive non-mention, so a display name in plain or
+    // code-styled text cannot fall through to the SDK's name matching.
     return false;
   }
 
@@ -4574,14 +4568,13 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
       }
     }
 
-    // Resolve inline @mentions to display names. The bot's own mention is
-    // decoded like any other, so classify it from the raw event before
-    // resolution strips the id markup.
+    // Classify the bot's own mention from the raw event before resolution
+    // replaces the id markup with display names.
+    const isMention = this.detectSelfMention(event, rawText);
+
+    // Resolve inline @mentions to display names.
     const text = await this.resolveInlineMentions(rawText);
     const formatted = await this.resolvedContent(event, text);
-    const attachments = authorAttachments(event).map(attachmentContent);
-
-    const isMention = this.detectSelfMention(event, rawText, attachments);
 
     return new Message({
       id: event.ts || "",

@@ -138,7 +138,7 @@ describe("Slack Integration", () => {
       // Initial mention to subscribe
       const mentionEvent = createSlackEvent({
         type: "app_mention",
-        text: `@${SLACK_BOT_USERNAME} subscribe me`,
+        text: `<@${SLACK_BOT_USER_ID}> subscribe me`,
         userId: "U_USER_123",
         messageTs: "1234567890.111111",
         threadTs: TEST_THREAD_TS,
@@ -244,7 +244,7 @@ describe("Slack Integration", () => {
 
       const event = createSlackEvent({
         type: "app_mention",
-        text: `@${SLACK_BOT_USERNAME} edit test`,
+        text: `<@${SLACK_BOT_USER_ID}> edit test`,
         userId: "U_USER_123",
         messageTs: "1234567890.111111",
         threadTs: TEST_THREAD_TS,
@@ -269,7 +269,7 @@ describe("Slack Integration", () => {
 
       const event = createSlackEvent({
         type: "app_mention",
-        text: `@${SLACK_BOT_USERNAME} react`,
+        text: `<@${SLACK_BOT_USER_ID}> react`,
         userId: "U_USER_123",
         messageTs: "1234567890.111111",
         threadTs: TEST_THREAD_TS,
@@ -349,7 +349,7 @@ describe("Slack Integration", () => {
 
       const event = createSlackEvent({
         type: "app_mention",
-        text: `@${SLACK_BOT_USERNAME} markdown test`,
+        text: `<@${SLACK_BOT_USER_ID}> markdown test`,
         userId: "U_USER_123",
         messageTs: "1234567890.111111",
         threadTs: TEST_THREAD_TS,
@@ -376,7 +376,7 @@ describe("Slack Integration", () => {
 
       const event = createSlackEvent({
         type: "app_mention",
-        text: `@${SLACK_BOT_USERNAME} mention test`,
+        text: `<@${SLACK_BOT_USER_ID}> mention test`,
         userId: "U_USER_123",
         messageTs: "1234567890.111111",
         threadTs: TEST_THREAD_TS,
@@ -406,7 +406,7 @@ describe("Slack Integration", () => {
 
       const event = createSlackEvent({
         type: "app_mention",
-        text: `@${SLACK_BOT_USERNAME} test`,
+        text: `<@${SLACK_BOT_USER_ID}> test`,
         userId: "U_USER_123",
         messageTs: "1234567890.111111",
         threadTs: TEST_THREAD_TS,
@@ -437,7 +437,7 @@ describe("Slack Integration", () => {
 
       const event = createSlackEvent({
         type: "app_mention",
-        text: `@${SLACK_BOT_USERNAME} typing test`,
+        text: `<@${SLACK_BOT_USER_ID}> typing test`,
         userId: "U_USER_123",
         messageTs: "1234567890.111111",
         threadTs: TEST_THREAD_TS,
@@ -468,7 +468,7 @@ describe("Slack Integration", () => {
 
       const event = createSlackEvent({
         type: "app_mention",
-        text: `@${SLACK_BOT_USERNAME} plan test`,
+        text: `<@${SLACK_BOT_USER_ID}> plan test`,
         userId: "U_USER_123",
         messageTs: "1234567890.111111",
         threadTs: TEST_THREAD_TS,
@@ -747,7 +747,7 @@ describe("Slack Integration", () => {
 
       const event = createSlackEvent({
         type: "app_mention",
-        text: `@${SLACK_BOT_USERNAME} send file`,
+        text: `<@${SLACK_BOT_USER_ID}> send file`,
         userId: "U_USER_123",
         messageTs: "1234567890.111111",
         threadTs: TEST_THREAD_TS,
@@ -785,7 +785,7 @@ describe("Slack Integration", () => {
 
       const event = createSlackEvent({
         type: "app_mention",
-        text: `@${SLACK_BOT_USERNAME} send files`,
+        text: `<@${SLACK_BOT_USER_ID}> send files`,
         userId: "U_USER_123",
         messageTs: "1234567890.111111",
         threadTs: TEST_THREAD_TS,
@@ -819,7 +819,7 @@ describe("Slack Integration", () => {
 
       const event = createSlackEvent({
         type: "app_mention",
-        text: `@${SLACK_BOT_USERNAME} file only`,
+        text: `<@${SLACK_BOT_USER_ID}> file only`,
         userId: "U_USER_123",
         messageTs: "1234567890.111111",
         threadTs: TEST_THREAD_TS,

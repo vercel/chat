@@ -7714,12 +7714,13 @@ describe("resolveInlineMentions", () => {
     expect(message.isMention).toBe(false);
   });
 
-  it("does not flag a bot id inside a code-styled table cell", async () => {
+  it("does not flag a bot id inside a raw_text table cell", async () => {
     const message = await parseIncoming({
       type: "message",
       user: "U_SENDER",
       channel: "C456",
-      // The flattened fallback repeats the cell without its code styling.
+      // Slack's flattened fallback repeats the cell text, which is not a
+      // mention because a `raw_text` cell renders literally.
       text: "Import <@U_BOT>/passport",
       ts: "1234567890.191919",
       blocks: [
@@ -7727,13 +7728,130 @@ describe("resolveInlineMentions", () => {
           type: "table",
           rows: [
             [
-              { type: "text", text: "Import" },
-              {
-                type: "text",
-                text: "<@U_BOT>/passport",
-                style: { code: true },
-              },
+              { type: "raw_text", text: "Import" },
+              { type: "raw_text", text: "<@U_BOT>/passport" },
             ],
+          ],
+        },
+      ],
+    });
+
+    expect(message.isMention).toBe(false);
+  });
+
+  it("does not flag a mention token in a rich-text text element", async () => {
+    const message = await parseIncoming({
+      type: "message",
+      user: "U_SENDER",
+      channel: "C456",
+      text: "the app imports <@U_BOT>/passport",
+      ts: "1234567890.202021",
+      blocks: [
+        {
+          type: "rich_text",
+          elements: [
+            {
+              type: "rich_text_section",
+              elements: [
+                { type: "text", text: "the app imports " },
+                { type: "text", text: "<@U_BOT>/passport" },
+              ],
+            },
+          ],
+        },
+      ],
+    });
+
+    expect(message.isMention).toBe(false);
+  });
+
+  it("does not flag a mention token in a link label", async () => {
+    const message = await parseIncoming({
+      type: "message",
+      user: "U_SENDER",
+      channel: "C456",
+      text: "<https://example.com|<@U_BOT>>",
+      ts: "1234567890.202022",
+      blocks: [
+        {
+          type: "rich_text",
+          elements: [
+            {
+              type: "rich_text_section",
+              elements: [
+                {
+                  type: "link",
+                  url: "https://example.com",
+                  text: "<@U_BOT>",
+                },
+              ],
+            },
+          ],
+        },
+      ],
+    });
+
+    expect(message.isMention).toBe(false);
+  });
+
+  it("flags a bot mention in a mrkdwn section block", async () => {
+    const message = await parseIncoming({
+      type: "message",
+      user: "U_SENDER",
+      channel: "C456",
+      // Only the section block carries the mention, so the fallback text
+      // cannot be what satisfies this test.
+      text: "",
+      ts: "1234567890.202023",
+      blocks: [
+        {
+          type: "section",
+          text: { type: "mrkdwn", text: "hey <@U_BOT> take a look" },
+        },
+      ],
+    });
+
+    expect(message.isMention).toBe(true);
+  });
+
+  it("does not flag a bot id in a plain_text section block", async () => {
+    const message = await parseIncoming({
+      type: "message",
+      user: "U_SENDER",
+      channel: "C456",
+      text: "hey <@U_BOT> take a look",
+      ts: "1234567890.202024",
+      blocks: [
+        {
+          type: "section",
+          text: { type: "plain_text", text: "hey <@U_BOT> take a look" },
+        },
+      ],
+    });
+
+    expect(message.isMention).toBe(false);
+  });
+
+  it("does not read attachment fallback when the attachment has blocks", async () => {
+    const message = await parseIncoming({
+      type: "message",
+      user: "U_SENDER",
+      channel: "C456",
+      text: "",
+      ts: "1234567890.202025",
+      attachments: [
+        {
+          fallback: "<@U_BOT> is the bot",
+          blocks: [
+            {
+              type: "rich_text",
+              elements: [
+                {
+                  type: "rich_text_preformatted",
+                  elements: [{ type: "text", text: "<@U_BOT>" }],
+                },
+              ],
+            },
           ],
         },
       ],
@@ -8097,6 +8215,7 @@ describe("mention routing", () => {
       botToken: "xoxb-test-token",
       signingSecret: secret,
       logger: mockLogger,
+      userName: "Example Bot",
       ...(botUserId ? { botUserId } : {}),
     });
     mockClientMethod(
@@ -8250,7 +8369,7 @@ describe("mention routing", () => {
     expect(messageHandler).toHaveBeenCalled();
   });
 
-  it("routes a code-styled table cell to message handlers", async () => {
+  it("routes a raw_text table cell reference to message handlers", async () => {
     const { adapter, bot } = await createRoutedBot();
     const mentionHandler = vi.fn();
     const messageHandler = vi.fn();
@@ -8268,12 +8387,8 @@ describe("mention routing", () => {
           type: "table",
           rows: [
             [
-              { type: "text", text: "Import" },
-              {
-                type: "text",
-                text: "<@U_BOT>/passport",
-                style: { code: true },
-              },
+              { type: "raw_text", text: "Import" },
+              { type: "raw_text", text: "<@U_BOT>/passport" },
             ],
           ],
         },
