@@ -22,6 +22,7 @@ import type {
   Message,
   StateAdapter,
 } from "chat";
+import { Chat } from "chat";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type {
   SlackAdapterConfig,
@@ -37,6 +38,7 @@ import {
 import { incomingMessage } from "./test-fixtures";
 
 const FILE_ID_PATTERN = /^file-/;
+const ANY_TEXT_PATTERN = /./;
 
 // Captures guarded file downloads at the transport seam; the resolved
 // per-hop headers show which token (if any) each hop would send.
@@ -7614,6 +7616,70 @@ describe("resolveInlineMentions", () => {
     expect(message.isMention).toBe(false);
   });
 
+  it("does not flag a literal bot name inside structured code", async () => {
+    const message = await parseIncoming({
+      type: "message",
+      user: "U_SENDER",
+      channel: "C456",
+      text: "the docs say `@Example Bot`",
+      ts: "1234567890.141414",
+      blocks: [
+        {
+          type: "rich_text",
+          elements: [
+            {
+              type: "rich_text_section",
+              elements: [
+                { type: "text", text: "the docs say " },
+                { type: "text", text: "@Example Bot", style: { code: true } },
+              ],
+            },
+          ],
+        },
+      ],
+    });
+
+    expect(message.isMention).toBe(false);
+  });
+
+  it("does not flag an escaped bot id", async () => {
+    const message = await parseIncoming({
+      type: "message",
+      user: "U_SENDER",
+      channel: "C456",
+      text: "the raw markup is &lt;@U_BOT&gt;",
+      ts: "1234567890.151515",
+    });
+
+    expect(message.isMention).toBe(false);
+  });
+
+  it("does not flag a bot id inside a code span in an attachment", async () => {
+    const message = await parseIncoming({
+      type: "message",
+      user: "U_SENDER",
+      channel: "C456",
+      text: "",
+      ts: "1234567890.161616",
+      attachments: [{ mrkdwn_in: ["text"], text: "example: `<@U_BOT>`" }],
+    });
+
+    expect(message.isMention).toBe(false);
+  });
+
+  it("flags a bot mention in attachment mrkdwn", async () => {
+    const message = await parseIncoming({
+      type: "message",
+      user: "U_SENDER",
+      channel: "C456",
+      text: "",
+      ts: "1234567890.171717",
+      attachments: [{ mrkdwn_in: ["text"], text: "hey <@U_BOT> take a look" }],
+    });
+
+    expect(message.isMention).toBe(true);
+  });
+
   it("falls back to the bot's user ID when users.info fails for its own mention", async () => {
     const state = createMockState();
     const chatInstance = createMockChatInstance({ state });
@@ -7893,6 +7959,128 @@ describe("resolveInlineMentions", () => {
 
     // Should fall back to the channel ID
     expect(message.text).toContain("#CUNKNOWN");
+  });
+});
+
+// ============================================================================
+// Mention routing Tests
+// ============================================================================
+
+describe("mention routing", () => {
+  const secret = "test-signing-secret";
+
+  async function createRoutedBot() {
+    const state = createMockState();
+    const adapter = createSlackAdapter({
+      botToken: "xoxb-test-token",
+      signingSecret: secret,
+      logger: mockLogger,
+      botUserId: "U_BOT",
+    });
+    mockClientMethod(
+      adapter,
+      "auth.test",
+      vi.fn().mockResolvedValue({ ok: true, user_id: "U_BOT", bot_id: "B_BOT" })
+    );
+    mockClientMethod(
+      adapter,
+      "users.info",
+      vi.fn().mockResolvedValue({
+        ok: true,
+        user: { name: "bot", profile: { display_name: "Example Bot" } },
+      })
+    );
+
+    const bot = new Chat({
+      userName: "Example Bot",
+      adapters: { slack: adapter },
+      state,
+      logger: mockLogger,
+    });
+    await bot.initialize();
+    return { adapter, bot };
+  }
+
+  /** Deliver a webhook and wait for the Chat routing task to finish. */
+  async function deliverWebhook(
+    adapter: SlackAdapter,
+    event: Record<string, unknown>
+  ) {
+    const pending: Promise<unknown>[] = [];
+    await adapter.handleWebhook(
+      createWebhookRequest(
+        JSON.stringify({ type: "event_callback", team_id: "T123", event }),
+        secret
+      ),
+      { waitUntil: (task) => pending.push(task) }
+    );
+    await Promise.all(pending);
+  }
+
+  it("routes a code-only reference to message handlers, not mention handlers", async () => {
+    const { adapter, bot } = await createRoutedBot();
+    const mentionHandler = vi.fn();
+    const messageHandler = vi.fn();
+    bot.onNewMention(mentionHandler);
+    bot.onNewMessage(ANY_TEXT_PATTERN, messageHandler);
+
+    // The bot's display name is in the flattened text, so the SDK's text
+    // detection would otherwise route this message to the mention handler.
+    await deliverWebhook(adapter, {
+      type: "app_mention",
+      user: "U_SENDER",
+      channel: "C456",
+      text: "the app imports `<@U_BOT>/passport`",
+      ts: "1234567890.202020",
+      blocks: [
+        {
+          type: "rich_text",
+          elements: [
+            {
+              type: "rich_text_section",
+              elements: [
+                { type: "text", text: "the app imports " },
+                {
+                  type: "text",
+                  text: "<@U_BOT>/passport",
+                  style: { code: true },
+                },
+              ],
+            },
+          ],
+        },
+      ],
+    });
+
+    expect(mentionHandler).not.toHaveBeenCalled();
+    expect(messageHandler).toHaveBeenCalled();
+  });
+
+  it("routes a real mention to mention handlers", async () => {
+    const { adapter, bot } = await createRoutedBot();
+    const mentionHandler = vi.fn();
+    bot.onNewMention(mentionHandler);
+
+    await deliverWebhook(adapter, {
+      type: "app_mention",
+      user: "U_SENDER",
+      channel: "C456",
+      text: "<@U_BOT> help me",
+      ts: "1234567890.212121",
+      blocks: [
+        {
+          type: "rich_text",
+          elements: [
+            {
+              type: "rich_text_section",
+              elements: [{ type: "user", user_id: "U_BOT" }],
+            },
+          ],
+        },
+      ],
+    });
+
+    expect(mentionHandler).toHaveBeenCalled();
   });
 });
 
