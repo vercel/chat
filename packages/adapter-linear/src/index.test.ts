@@ -678,6 +678,37 @@ describe("parseMessage", () => {
     expect(message.author.userId).toBe("user-456");
     expect(message.raw.kind).toBe("agent_session_comment");
   });
+
+  it("should mark an agent session comment as a mention", () => {
+    const adapter = createTestAdapter("agent-sessions");
+    const raw = {
+      kind: "agent_session_comment" as const,
+      organizationId: "org-123",
+      agentSessionId: "session-123",
+      comment: {
+        ...createRawCommentMessage({ body: "Hello" }).comment,
+      },
+    };
+
+    const message = adapter.parseMessage(raw);
+
+    expect(message.isMention).toBe(true);
+  });
+
+  it("should leave isMention undetermined for an ordinary comment", () => {
+    const adapter = createTestAdapter();
+    const raw = createRawCommentMessage({
+      id: "comment-mention",
+      body: "Hey @testbot could you take a look?",
+      issueId: "issue-1",
+      user: { id: "user-1" },
+    });
+
+    const message = adapter.parseMessage(raw);
+
+    // Undetermined so the SDK still detects the @mention in the comment body.
+    expect(message.isMention).toBeUndefined();
+  });
 });
 
 // =============================================================================
