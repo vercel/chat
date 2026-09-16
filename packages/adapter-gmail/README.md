@@ -62,6 +62,8 @@ Continuation data contains native Gmail IDs, mailbox, recipients, subject, and R
 
 For reply-all, use `extractGmailContinuation(email, mailbox, { replyAll: true })`. It includes the original To and Cc recipients, excludes the configured mailbox and duplicates, and never copies Bcc. It does not discover mailbox aliases or expand mailing lists. Review the resulting recipients before sending sensitive content. Outgoing messages can also specify explicit `to` and `cc` arrays.
 
+For a private reply in the same conversation, pass the continuation with `to: [{ address: recipient }]` and `cc: []` to `sendGmailMessage` or `createGmailDraft`. This preserves the subject and reply headers without copying the continuation's recipients. Add a visible private notice to the body. Keep the original continuation separately if you intend to return to the original group later.
+
 `createGmailDraft` saves a draft. `sendGmailMessage` sends immediately. The caller owns approvals, routing, persistence and retry policy. The API does not automatically retry sending email.
 
 Both methods also accept a provider-native `{ raw, threadId? }` object when the caller already has a base64url-encoded MIME message. When constructing raw replies, the caller must include matching Subject, In-Reply-To and References headers as required by [Google's threading contract](https://developers.google.com/workspace/gmail/api/guides/threads).
@@ -133,7 +135,7 @@ The selected label controls dispatch, not OAuth access to the mailbox. `thread.p
 
 Replies target Reply-To, otherwise From. Set `createGmailAdapter({ replyAll: true })` to include the original To and Cc recipients in `thread.post()` and `thread.reply()`. Sender-only replies remain the default. Email can include external recipients, so the adapter reports channel visibility as `unknown`, not as an authorization or privacy guarantee.
 
-Gmail has no native ephemeral messages. Use the existing DM fallback to send a separate email to one explicit address:
+Gmail has no native ephemeral messages. Opt into private email delivery to one explicit address while preserving the conversation's subject and reply headers:
 
 ```typescript
 bot.onNewMention(async (thread, message) => {
@@ -143,7 +145,11 @@ bot.onNewMention(async (thread, message) => {
 });
 ```
 
-This sends a permanent email only to the supplied address, with no copied recipients, original subject, or reply headers. `fallbackToDM: false` returns `null` without sending. An email's From header is not proof of the sender's identity; the application must choose a trusted recipient for approvals or credentials.
+This sends a permanent email in the same Gmail thread only to the supplied address, with no Cc or Bcc, and prefixes the body with `(private only)`. The result has `usedFallback: true` and Gmail's actual thread ID. `fallbackToDM: false` returns `null` without sending, including direct adapter calls with no fallback option. From a channel or a recipient route without a native Gmail thread, it starts a new email with the subject `Private message`.
+
+During a handler, the incoming message supplies the reply context. Outside a handler, the latest incoming message in the thread supplies it. With `replyAll: true`, use `thread.reply(originalMessageId, message)` to return to the original group after a private exchange; replying to the latest private email does not restore earlier recipients. The adapter never automatically quotes earlier bodies or copies attachments. Thread history can still contain both private and group messages: applications must prevent private content from entering later group replies or shared model context. A private notice does not prevent forwarding.
+
+An email's From header is not proof of the sender's identity; the application must choose a trusted recipient for approvals or credentials, including permission to see the original subject. Other email clients may group conversations differently.
 
 For direct delivery, use `await gmail.postMessage(await gmail.openDM(address), message)`, or `bot.thread(await gmail.openDM(address)).post(message)`. `bot.openDM(address)` cannot infer an adapter from an email address. Opening a recipient route sends nothing; each post starts a new email and returns Gmail's actual thread ID. The route itself has no message history. Replies are received through their native Gmail threads and still require the intake label.
 
