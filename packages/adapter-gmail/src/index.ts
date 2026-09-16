@@ -14,10 +14,12 @@ import {
   type Attachment,
   type ChatInstance,
   ConsoleLogger,
+  type EphemeralMessage,
   type FetchOptions,
   type FetchResult,
   type FormattedContent,
   Message,
+  type PostEphemeralOptions,
   type RawMessage,
   type StreamChunk,
   type StreamOptions,
@@ -35,6 +37,7 @@ import {
 import {
   composeGmailMessage,
   extractGmailContinuation,
+  type GmailContinuation,
   type GmailEmail,
   type GmailOutgoing,
   parseGmailMessage,
@@ -420,6 +423,37 @@ export class GmailAdapter implements Adapter<GmailThreadId, GmailRawMessage> {
     return this.formatter.fromAst(content);
   }
 
+  async postEphemeral(
+    threadId: string,
+    userId: string,
+    message: AdapterPostableMessage,
+    options?: PostEphemeralOptions
+  ): Promise<EphemeralMessage<GmailRawMessage> | null> {
+    if (!options?.fallbackToDM) {
+      return null;
+    }
+    const recipient = this.decodeThreadId(await this.openDM(userId));
+    const thread =
+      threadId === gmailChannel(this.userName)
+        ? recipient
+        : this.decodeThreadId(threadId);
+    const continuation =
+      thread.threadId === undefined
+        ? undefined
+        : await this.continuation(thread.threadId);
+    const result = await this.send(
+      {
+        continuation,
+        to: [{ address: userId }],
+        cc: [],
+        subject: "Private message",
+        private: true,
+      },
+      message
+    );
+    return { ...result, usedFallback: true };
+  }
+
   async postMessage(
     threadId: string,
     message: AdapterPostableMessage,
@@ -435,20 +469,25 @@ export class GmailAdapter implements Adapter<GmailThreadId, GmailRawMessage> {
         signal
       );
     }
+    return this.send(
+      { continuation: await this.continuation(thread.threadId, signal) },
+      message,
+      signal
+    );
+  }
+
+  private async continuation(
+    threadId: string,
+    signal?: AbortSignal
+  ): Promise<GmailContinuation> {
     const current = this.context.getStore();
-    if (current?.message.threadId === thread.threadId) {
-      return this.send(
-        {
-          continuation: extractGmailContinuation(current, this.userName, {
-            replyAll: this.replyAll,
-          }),
-        },
-        message,
-        signal
-      );
+    if (current?.message.threadId === threadId) {
+      return extractGmailContinuation(current, this.userName, {
+        replyAll: this.replyAll,
+      });
     }
     const result = await this.call(() =>
-      getGmailThread(thread.threadId, { ...this.api, signal })
+      getGmailThread(threadId, { ...this.api, signal })
     );
     for (const reference of result.messages.slice().reverse()) {
       const email = await this.load(reference.id, signal);
@@ -458,15 +497,9 @@ export class GmailAdapter implements Adapter<GmailThreadId, GmailRawMessage> {
           email.message.labelIds.includes("DRAFT")
         )
       ) {
-        return this.send(
-          {
-            continuation: extractGmailContinuation(email, this.userName, {
-              replyAll: this.replyAll,
-            }),
-          },
-          message,
-          signal
-        );
+        return extractGmailContinuation(email, this.userName, {
+          replyAll: this.replyAll,
+        });
       }
     }
     throw new ValidationError(
@@ -517,7 +550,9 @@ export class GmailAdapter implements Adapter<GmailThreadId, GmailRawMessage> {
   }
 
   private async send(
-    target: Pick<GmailOutgoing, "continuation" | "to" | "subject">,
+    target: Pick<GmailOutgoing, "continuation" | "to" | "cc" | "subject"> & {
+      private?: boolean;
+    },
     message: AdapterPostableMessage,
     signal?: AbortSignal
   ): Promise<RawMessage<GmailRawMessage>> {
@@ -545,7 +580,7 @@ export class GmailAdapter implements Adapter<GmailThreadId, GmailRawMessage> {
     const content = composeGmailMessage({
       from: this.userName,
       ...target,
-      text: this.formatter.renderPostable(message),
+      text: `${target.private ? "(private only)\n\n" : ""}${this.formatter.renderPostable(message)}`,
       attachments,
     });
     const raw = await parseGmailMessage({

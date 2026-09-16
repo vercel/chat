@@ -155,14 +155,18 @@ describe("Gmail authenticated delivery through Chat", () => {
         ...source,
         raw: privateBody.raw,
       });
-      expect(privateBody.threadId).toBeUndefined();
+      expect(privateBody.threadId).toBe("thread");
       expect(privateReply.email.to?.map((value) => value.address)).toEqual([
         "owner@example.com",
       ]);
       expect(privateReply.email.cc).toBeUndefined();
       expect(privateReply.email.bcc).toBeUndefined();
-      expect(privateReply.email.inReplyTo).toBeUndefined();
-      expect(privateReply.email.references).toBeUndefined();
+      expect(privateReply.email.inReplyTo).toBe("<original@example.com>");
+      expect(privateReply.email.references).toBe("<original@example.com>");
+      expect(privateReply.email.subject).toBe("review");
+      expect(privateReply.text.trim()).toBe(
+        "(private only)\n\nprivate approval"
+      );
       expect(
         await state.get(`${gmailChannel(mailbox)}:sync:${label}:cursor`)
       ).toBe("200");

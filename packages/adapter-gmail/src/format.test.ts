@@ -52,6 +52,26 @@ describe("Gmail email primitives", () => {
     ]);
     expect(output.email.bcc).toBeUndefined();
     expect(output.email.inReplyTo).toBe("<original@example.com>");
+    const privateReply = await parseGmailMessage({
+      ...raw(""),
+      raw: composeGmailMessage({
+        from: "agent@example.com",
+        continuation,
+        to: [{ address: "selected@example.com" }],
+        cc: [],
+        text: "(private only) Please sign in",
+      }),
+    });
+    expect(privateReply.email.to?.map((value) => value.address)).toEqual([
+      "selected@example.com",
+    ]);
+    expect(privateReply.email.cc).toBeUndefined();
+    expect(privateReply.email.bcc).toBeUndefined();
+    expect(privateReply.email.subject).toBe("review");
+    expect(privateReply.email.inReplyTo).toBe("<original@example.com>");
+    expect(continuation.cc?.map((value) => value.address)).toEqual([
+      "colleague@example.com",
+    ]);
   });
   it("preserves case-sensitive external recipient addresses", async () => {
     const output = await parseGmailMessage({
