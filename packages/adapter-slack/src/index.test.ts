@@ -7292,6 +7292,45 @@ describe("resolveInlineMentions", () => {
     resolveInlineMentions(text: string): Promise<string>;
   }
 
+  /** Round-trip an event through the webhook and return the parsed message. */
+  async function parseIncoming(event: Record<string, unknown>) {
+    const state = createMockState();
+    const chatInstance = createMockChatInstance({ state });
+    chatInstance.processMessage = vi.fn();
+
+    const adapter = createSlackAdapter({
+      botToken: "xoxb-test-token",
+      signingSecret: secret,
+      logger: mockLogger,
+      botUserId: "U_BOT",
+    });
+
+    mockClientMethod(
+      adapter,
+      "users.info",
+      vi.fn().mockImplementation(async ({ user }: { user: string }) => ({
+        ok: true,
+        user: {
+          name: user === "U_BOT" ? "bot" : "user",
+          profile: { display_name: user === "U_BOT" ? "Test Bot" : "User" },
+        },
+      }))
+    );
+
+    await adapter.initialize(chatInstance);
+
+    const body = JSON.stringify({
+      type: "event_callback",
+      team_id: "T123",
+      event,
+    });
+    await adapter.handleWebhook(createWebhookRequest(body, secret));
+
+    const factory = (chatInstance.processMessage as ReturnType<typeof vi.fn>)
+      .mock.calls[0][2];
+    return factory();
+  }
+
   it("resolves user mentions in incoming messages via webhook", async () => {
     const state = createMockState();
     const chatInstance = createMockChatInstance({ state });
@@ -7465,6 +7504,114 @@ describe("resolveInlineMentions", () => {
 
     expect(message.text).toBe("@Test Bot");
     expect(message.isMention).toBe(true);
+  });
+
+  it("does not flag a bot id that only appears in inline code", async () => {
+    const message = await parseIncoming({
+      type: "app_mention",
+      user: "U_SENDER",
+      channel: "C456",
+      text: "the app imports `<@U_BOT>/passport`",
+      ts: "1234567890.888888",
+      blocks: [
+        {
+          type: "rich_text",
+          elements: [
+            {
+              type: "rich_text_section",
+              elements: [
+                { type: "text", text: "the app imports " },
+                {
+                  type: "text",
+                  text: "<@U_BOT>/passport",
+                  style: { code: true },
+                },
+              ],
+            },
+          ],
+        },
+      ],
+    });
+
+    expect(message.isMention).toBe(false);
+  });
+
+  it("does not flag a bot id inside a preformatted block", async () => {
+    const message = await parseIncoming({
+      type: "app_mention",
+      user: "U_SENDER",
+      channel: "C456",
+      text: "```\n<@U_BOT> is the bot\n```",
+      ts: "1234567890.999999",
+      blocks: [
+        {
+          type: "rich_text",
+          elements: [
+            {
+              type: "rich_text_preformatted",
+              elements: [{ type: "text", text: "<@U_BOT> is the bot" }],
+            },
+          ],
+        },
+      ],
+    });
+
+    expect(message.isMention).toBe(false);
+  });
+
+  it("flags a real mention when the same message also shows code", async () => {
+    const message = await parseIncoming({
+      type: "app_mention",
+      user: "U_SENDER",
+      channel: "C456",
+      text: "<@U_BOT> run `<@U_BOT>/passport`",
+      ts: "1234567890.101010",
+      blocks: [
+        {
+          type: "rich_text",
+          elements: [
+            {
+              type: "rich_text_section",
+              elements: [
+                { type: "user", user_id: "U_BOT" },
+                { type: "text", text: " run " },
+                {
+                  type: "text",
+                  text: "<@U_BOT>/passport",
+                  style: { code: true },
+                },
+              ],
+            },
+          ],
+        },
+      ],
+    });
+
+    expect(message.isMention).toBe(true);
+  });
+
+  it("does not flag a bot id inside a code span when no blocks are present", async () => {
+    const message = await parseIncoming({
+      type: "message",
+      user: "U_SENDER",
+      channel: "C456",
+      text: "run `<@U_BOT>` to invoke the bot",
+      ts: "1234567890.121212",
+    });
+
+    expect(message.isMention).toBe(false);
+  });
+
+  it("does not flag a bot id inside a fenced block when no blocks are present", async () => {
+    const message = await parseIncoming({
+      type: "message",
+      user: "U_SENDER",
+      channel: "C456",
+      text: "```\n<@U_BOT>\n```",
+      ts: "1234567890.131313",
+    });
+
+    expect(message.isMention).toBe(false);
   });
 
   it("falls back to the bot's user ID when users.info fails for its own mention", async () => {

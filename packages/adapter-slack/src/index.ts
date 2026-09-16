@@ -547,8 +547,80 @@ export interface SlackThreadId {
 export interface SlackMessageBlock extends SlackBlock {
   elements?: SlackMessageBlock[];
   rows?: unknown;
+  /** `{ code: true }` marks an inline-code text element. */
+  style?: { code?: boolean };
   text?: string;
   url?: string;
+  user_id?: string;
+}
+
+/**
+ * A Slack mention token for `userId`: the `<@U…>` / `<@U…|name>` form and a
+ * bare `@U…`. Applied to mrkdwn `text`; rich-text blocks are scanned
+ * structurally instead.
+ */
+function mentionTokenPattern(userId: string): RegExp {
+  return new RegExp(
+    `<@!?${escapeRegExp(userId)}(?:\\|[^>]*)?>|(?<!\\w)@${escapeRegExp(userId)}(?![\\w-])`,
+    "i"
+  );
+}
+
+const SLACK_CODE_FENCE_PATTERN = /```[\s\S]*?(?:```|$)/g;
+const SLACK_INLINE_CODE_PATTERN = /`[^`\n]*`/g;
+
+/**
+ * Blank out fenced and inline code so a mention token inside them is not read
+ * as an invocation. The mrkdwn `text` field carries code as backticks;
+ * rich-text blocks carry it as `style.code` or `rich_text_preformatted`.
+ */
+function maskSlackCode(text: string): string {
+  return text
+    .replace(SLACK_CODE_FENCE_PATTERN, " ")
+    .replace(SLACK_INLINE_CODE_PATTERN, " ");
+}
+
+/**
+ * Whether the message's rich-text blocks invoke `userId`.
+ *
+ * Returns `undefined` when the event carries no rich-text block, so the caller
+ * can fall back to the mrkdwn `text` field. Inline code (`style.code`) and
+ * preformatted blocks render literally, so a `user` element nested in either is
+ * not an invocation.
+ */
+function richTextMentionsUser(
+  blocks: SlackMessageBlock[] | undefined,
+  userId: string
+): boolean | undefined {
+  let hasRichText = false;
+  let mentioned = false;
+
+  const visit = (
+    elements: SlackMessageBlock[] | undefined,
+    inCode: boolean
+  ): void => {
+    for (const element of elements ?? []) {
+      const isCode =
+        inCode ||
+        element.type === "rich_text_preformatted" ||
+        element.style?.code === true;
+      if (!isCode && element.type === "user" && element.user_id === userId) {
+        mentioned = true;
+      }
+      if (element.elements) {
+        visit(element.elements, isCode);
+      }
+    }
+  };
+
+  for (const block of blocks ?? []) {
+    if (block.type === "rich_text") {
+      hasRichText = true;
+      visit(block.elements, false);
+    }
+  }
+
+  return hasRichText ? mentioned : undefined;
 }
 
 type SlackContentNode = FormattedContent["children"][number];
@@ -3338,14 +3410,10 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
     // Node.js AsyncLocalStorage propagates context to async continuations as long as
     // the Promise is created within the run() callback. We call processMessage inside
     // run() so the async task and all its awaits inherit the context.
-    const isMention = event.type === "app_mention";
-    const makeFactory = (id: string) => async (): Promise<Message<unknown>> => {
-      const msg = await this.parseSlackMessage(event, id);
-      if (isMention) {
-        msg.isMention = true;
-      }
-      return msg;
-    };
+    // `app_mention` is not trusted on its own: Slack fires it for a bot id that
+    // only appears inside code, so parseSlackMessage decides from the content.
+    const makeFactory = (id: string) => async (): Promise<Message<unknown>> =>
+      this.parseSlackMessage(event, id);
 
     // Under agent_view each top-level DM message is its own thread root, which
     // would silently bypass subscriptions created on the conversation-scoped
@@ -4390,6 +4458,50 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
     };
   }
 
+  /**
+   * Whether the message invokes the bot.
+   *
+   * Slack fires `app_mention` for a bot id that only appears inside code, so the
+   * invocation is read from the message content instead. A rich-text `user`
+   * element is a real mention; inline (`style.code`) and preformatted content
+   * renders literally, so a bot id in there is not.
+   *
+   * Returns `true` for an invocation, `false` when the message references the
+   * bot only inside code, and `undefined` when there is no bot reference to
+   * judge, leaving the SDK's text-based detection as the fallback.
+   */
+  protected detectSelfMention(
+    event: SlackEvent,
+    rawText: string,
+    tabularUserIds: Set<string>
+  ): boolean | undefined {
+    const botUserId = this.botUserId;
+    if (!botUserId) {
+      return undefined;
+    }
+
+    // Table and attachment content is mrkdwn, rendered as body text.
+    if (tabularUserIds.has(botUserId)) {
+      return true;
+    }
+
+    const pattern = mentionTokenPattern(botUserId);
+    const structured = richTextMentionsUser(event.blocks, botUserId);
+    if (structured === true) {
+      return true;
+    }
+    if (structured === false) {
+      // Rich-text blocks model the message body, so a plain-text rendering of
+      // the same content cannot promote a code sample to an invocation.
+      return pattern.test(rawText) ? false : undefined;
+    }
+
+    if (!pattern.test(rawText)) {
+      return undefined;
+    }
+    return pattern.test(maskSlackCode(rawText));
+  }
+
   protected async parseSlackMessage(
     event: SlackEvent,
     threadId: string
@@ -4445,16 +4557,7 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
       authorAttachments(event).map(attachmentContent)
     );
 
-    const botUserId = this.botUserId;
-    const selfMentionPattern = botUserId
-      ? new RegExp(
-          `<@!?${escapeRegExp(botUserId)}(?:\\|[^>]*)?>|(?<!\\w)@${escapeRegExp(botUserId)}(?![\\w-])`,
-          "i"
-        )
-      : undefined;
-    const isSelfMentioned = Boolean(
-      selfMentionPattern?.test(rawText) || (botUserId && userIds.has(botUserId))
-    );
+    const isMention = this.detectSelfMention(event, rawText, userIds);
 
     return new Message({
       id: event.ts || "",
@@ -4462,7 +4565,7 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
       text: toPlainText(formatted),
       formatted,
       raw: event,
-      isMention: isSelfMentioned || undefined,
+      isMention,
       author: {
         userId:
           event.user || event.bot_profile?.user_id || event.bot_id || "unknown",
