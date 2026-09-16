@@ -3980,7 +3980,9 @@ describe("Chat", () => {
       );
 
       const mentionHandler = vi.fn().mockResolvedValue(undefined);
+      const messageHandler = vi.fn().mockResolvedValue(undefined);
       queueChat.onNewMention(mentionHandler);
+      queueChat.onNewMessage(ANY_REGEX, messageHandler);
 
       await state.acquireLock("slack:C123:1234.5678", 30000);
 
@@ -3993,15 +3995,34 @@ describe("Chat", () => {
           isMention: false,
         })
       );
+      await queueChat.handleIncomingMessage(
+        adapter,
+        "slack:C123:1234.5678",
+        createTestMessage("msg-q-skip-coded-2", "please review this")
+      );
 
       await state.forceReleaseLock("slack:C123:1234.5678");
       await queueChat.handleIncomingMessage(
         adapter,
         "slack:C123:1234.5678",
-        createTestMessage("msg-q-skip-coded-2", "trigger")
+        createTestMessage("msg-q-skip-coded-3", "trigger")
       );
 
       expect(mentionHandler).not.toHaveBeenCalled();
+
+      // The earlier queued message must reach the batch as a skipped message
+      // and stay a non-mention there.
+      const batched = messageHandler.mock.calls.find(
+        (call) => (call[2]?.skipped?.length ?? 0) > 0
+      );
+      expect(batched).toBeDefined();
+      expect(batched?.[1].isMention).toBe(false);
+      expect(
+        batched?.[2]?.skipped.map((skipped) => ({
+          text: skipped.text,
+          isMention: skipped.isMention,
+        }))
+      ).toEqual([{ text: "docs mention `@slack-bot`", isMention: false }]);
     });
 
     it("should continue to message patterns when skipped queued mention has no handler", async () => {
