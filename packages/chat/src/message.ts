@@ -148,9 +148,14 @@ export class Message<TRawMessage = unknown> {
   /**
    * Whether the bot is @-mentioned in this message.
    *
-   * This is set by the Chat SDK before passing the message to handlers.
-   * It checks for `@username` in the message text using the adapter's
-   * configured `userName` and optional `botUserId`.
+   * Populated by the Chat SDK before handlers run. An adapter that reads the
+   * platform's own mention metadata reports `true` or `false`; the SDK falls
+   * back to matching `@username` in the message text (using the adapter's
+   * configured `userName` and optional `botUserId`) only when this is
+   * `undefined`.
+   *
+   * A definitive `false` wins over text that merely looks like a mention, such
+   * as `@username` inside a code sample or quoted text.
    *
    * @example
    * ```typescript

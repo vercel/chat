@@ -2384,7 +2384,9 @@ export class LinearAdapter
 
     return new Message<LinearRawMessage>({
       id: raw.comment.id,
-      isMention: raw.kind === "agent_session_comment", // Agent session comments are treated as mentions as they directly target the bot
+      // Agent session comments directly target the bot. Ordinary comments are
+      // left undetermined so the SDK can still detect an @mention in the body.
+      isMention: raw.kind === "agent_session_comment" || undefined,
       threadId:
         raw.kind === "agent_session_comment"
           ? this.encodeThreadId({

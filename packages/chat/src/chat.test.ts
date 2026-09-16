@@ -788,6 +788,45 @@ describe("Chat", () => {
       const [, receivedMessage] = handler.mock.calls[0];
       expect(receivedMessage.isMention).toBe(true);
     });
+
+    it("should keep a definitive non-mention reported by the adapter", async () => {
+      const mentionHandler = vi.fn().mockResolvedValue(undefined);
+      const messageHandler = vi.fn().mockResolvedValue(undefined);
+      chat.onNewMention(mentionHandler);
+      chat.onNewMessage(ANY_REGEX, messageHandler);
+
+      // The adapter inspected structured content and found no mention, even
+      // though the flattened text contains @username (e.g. a code sample).
+      await chat.handleIncomingMessage(
+        mockAdapter,
+        "slack:C123:1234.5678",
+        createTestMessage("msg-1", "docs mention `@slack-bot` in a snippet", {
+          isMention: false,
+        })
+      );
+
+      expect(mentionHandler).not.toHaveBeenCalled();
+      expect(messageHandler).toHaveBeenCalled();
+      const [, receivedMessage] = messageHandler.mock.calls[0];
+      expect(receivedMessage.isMention).toBe(false);
+    });
+
+    it("should keep a definitive mention reported by the adapter", async () => {
+      const mentionHandler = vi.fn().mockResolvedValue(undefined);
+      chat.onNewMention(mentionHandler);
+
+      await chat.handleIncomingMessage(
+        mockAdapter,
+        "slack:C123:1234.5678",
+        createTestMessage("msg-1", "no resolvable mention text here", {
+          isMention: true,
+        })
+      );
+
+      expect(mentionHandler).toHaveBeenCalled();
+      const [, receivedMessage] = mentionHandler.mock.calls[0];
+      expect(receivedMessage.isMention).toBe(true);
+    });
   });
 
   describe("onNewMention behavior in subscribed threads", () => {
@@ -3922,6 +3961,47 @@ describe("Chat", () => {
           isMention: skipped.isMention,
         }))
       ).toEqual([{ text: "Hey @slack-bot", isMention: true }]);
+    });
+
+    it("should keep a definitive non-mention on skipped queued messages", async () => {
+      const state = createMockState();
+      const adapter = createMockAdapter("slack");
+
+      const queueChat = new Chat({
+        userName: "testbot",
+        adapters: { slack: adapter },
+        state,
+        logger: mockLogger,
+        concurrency: "queue",
+      });
+
+      await queueChat.webhooks.slack(
+        new Request("http://test.com", { method: "POST" })
+      );
+
+      const mentionHandler = vi.fn().mockResolvedValue(undefined);
+      queueChat.onNewMention(mentionHandler);
+
+      await state.acquireLock("slack:C123:1234.5678", 30000);
+
+      // The adapter inspected structured content and reported no mention, so
+      // the text-looking mention must not be promoted while draining the queue.
+      await queueChat.handleIncomingMessage(
+        adapter,
+        "slack:C123:1234.5678",
+        createTestMessage("msg-q-skip-coded-1", "docs mention `@slack-bot`", {
+          isMention: false,
+        })
+      );
+
+      await state.forceReleaseLock("slack:C123:1234.5678");
+      await queueChat.handleIncomingMessage(
+        adapter,
+        "slack:C123:1234.5678",
+        createTestMessage("msg-q-skip-coded-2", "trigger")
+      );
+
+      expect(mentionHandler).not.toHaveBeenCalled();
     });
 
     it("should continue to message patterns when skipped queued mention has no handler", async () => {
