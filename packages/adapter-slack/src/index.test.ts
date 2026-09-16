@@ -4092,7 +4092,7 @@ describe("DM message handling", () => {
     );
   });
 
-  it("DM messages do NOT have isMention set (routed via onDirectMessage)", async () => {
+  it("DM messages without a bot mention report isMention false", async () => {
     const state = createMockState();
     const chatInstance = createMockChatInstance({ state });
     // Capture the factory function to invoke it
@@ -4133,7 +4133,9 @@ describe("DM message handling", () => {
     const factory = (chatInstance.processMessage as ReturnType<typeof vi.fn>)
       .mock.calls[0][2];
     const message = await factory();
-    expect(message.isMention).toBeUndefined();
+    // The adapter inspected the content and found no bot mention, so the flag
+    // is a definitive false rather than undetermined.
+    expect(message.isMention).toBe(false);
   });
 
   it("USLACK system notifications in DMs are dispatched with isSystem set", async () => {
@@ -4183,7 +4185,7 @@ describe("DM message handling", () => {
     });
   });
 
-  it("channel messages do NOT have isMention auto-set", async () => {
+  it("channel messages without a bot mention report isMention false", async () => {
     const state = createMockState();
     const chatInstance = createMockChatInstance({ state });
     chatInstance.processMessage = vi.fn();
@@ -4221,7 +4223,7 @@ describe("DM message handling", () => {
     const factory = (chatInstance.processMessage as ReturnType<typeof vi.fn>)
       .mock.calls[0][2];
     const message = await factory();
-    expect(message.isMention).toBeUndefined();
+    expect(message.isMention).toBe(false);
   });
 });
 
@@ -7680,6 +7682,124 @@ describe("resolveInlineMentions", () => {
     expect(message.isMention).toBe(true);
   });
 
+  it("does not let unmarked fallback text override structured code", async () => {
+    const message = await parseIncoming({
+      type: "app_mention",
+      user: "U_SENDER",
+      channel: "C456",
+      // Slack's flattened fallback drops the code formatting, so the token
+      // looks like a mention even though the blocks say it is code.
+      text: "the app imports <@U_BOT>/passport",
+      ts: "1234567890.181818",
+      blocks: [
+        {
+          type: "rich_text",
+          elements: [
+            {
+              type: "rich_text_section",
+              elements: [
+                { type: "text", text: "the app imports " },
+                {
+                  type: "text",
+                  text: "<@U_BOT>/passport",
+                  style: { code: true },
+                },
+              ],
+            },
+          ],
+        },
+      ],
+    });
+
+    expect(message.isMention).toBe(false);
+  });
+
+  it("does not flag a bot id inside a code-styled table cell", async () => {
+    const message = await parseIncoming({
+      type: "message",
+      user: "U_SENDER",
+      channel: "C456",
+      // The flattened fallback repeats the cell without its code styling.
+      text: "Import <@U_BOT>/passport",
+      ts: "1234567890.191919",
+      blocks: [
+        {
+          type: "table",
+          rows: [
+            [
+              { type: "text", text: "Import" },
+              {
+                type: "text",
+                text: "<@U_BOT>/passport",
+                style: { code: true },
+              },
+            ],
+          ],
+        },
+      ],
+    });
+
+    expect(message.isMention).toBe(false);
+  });
+
+  it("does not flag the bot's display name inside a text-only code span", async () => {
+    const message = await parseIncoming({
+      type: "message",
+      user: "U_SENDER",
+      channel: "C456",
+      text: "the docs say `@Test Bot`",
+      ts: "1234567890.202020",
+    });
+
+    expect(message.isMention).toBe(false);
+  });
+
+  it("trusts app_mention when the bot id is unknown", async () => {
+    const state = createMockState();
+    const chatInstance = createMockChatInstance({ state });
+    chatInstance.processMessage = vi.fn();
+
+    const adapter = createSlackAdapter({
+      botToken: "xoxb-test-token",
+      signingSecret: secret,
+      logger: mockLogger,
+    });
+    mockClientMethod(
+      adapter,
+      "auth.test",
+      vi.fn().mockResolvedValue({ ok: true })
+    );
+    mockClientMethod(
+      adapter,
+      "users.info",
+      vi.fn().mockResolvedValue({
+        ok: true,
+        user: { name: "bot", profile: { display_name: "Test Bot" } },
+      })
+    );
+    await adapter.initialize(chatInstance);
+
+    const body = JSON.stringify({
+      type: "event_callback",
+      team_id: "T123",
+      event: {
+        type: "app_mention",
+        user: "U_SENDER",
+        channel: "C456",
+        text: "<@U_BOT> help me",
+        ts: "1234567890.222222",
+      },
+    });
+    await adapter.handleWebhook(createWebhookRequest(body, secret));
+
+    const factory = (chatInstance.processMessage as ReturnType<typeof vi.fn>)
+      .mock.calls[0][2];
+    const message = await factory();
+
+    expect(adapter.botUserId).toBeUndefined();
+    expect(message.isMention).toBe(true);
+  });
+
   it("falls back to the bot's user ID when users.info fails for its own mention", async () => {
     const state = createMockState();
     const chatInstance = createMockChatInstance({ state });
@@ -7969,18 +8089,26 @@ describe("resolveInlineMentions", () => {
 describe("mention routing", () => {
   const secret = "test-signing-secret";
 
-  async function createRoutedBot() {
+  async function createRoutedBot(options: { botUserId?: string | null } = {}) {
+    const botUserId =
+      options.botUserId === undefined ? "U_BOT" : options.botUserId;
     const state = createMockState();
     const adapter = createSlackAdapter({
       botToken: "xoxb-test-token",
       signingSecret: secret,
       logger: mockLogger,
-      botUserId: "U_BOT",
+      ...(botUserId ? { botUserId } : {}),
     });
     mockClientMethod(
       adapter,
       "auth.test",
-      vi.fn().mockResolvedValue({ ok: true, user_id: "U_BOT", bot_id: "B_BOT" })
+      vi
+        .fn()
+        .mockResolvedValue(
+          botUserId
+            ? { ok: true, user_id: botUserId, bot_id: "B_BOT" }
+            : { ok: true }
+        )
     );
     mockClientMethod(
       adapter,
@@ -8080,6 +8208,116 @@ describe("mention routing", () => {
       ],
     });
 
+    expect(mentionHandler).toHaveBeenCalled();
+  });
+
+  it("routes a code-only reference with misleading fallback text to message handlers", async () => {
+    const { adapter, bot } = await createRoutedBot();
+    const mentionHandler = vi.fn();
+    const messageHandler = vi.fn();
+    bot.onNewMention(mentionHandler);
+    bot.onNewMessage(ANY_TEXT_PATTERN, messageHandler);
+
+    // The fallback `text` has no backticks, so it looks like a real mention;
+    // only the code-styled block element reveals it is literal.
+    await deliverWebhook(adapter, {
+      type: "app_mention",
+      user: "U_SENDER",
+      channel: "C456",
+      text: "the app imports <@U_BOT>/passport",
+      ts: "1234567890.222222",
+      blocks: [
+        {
+          type: "rich_text",
+          elements: [
+            {
+              type: "rich_text_section",
+              elements: [
+                { type: "text", text: "the app imports " },
+                {
+                  type: "text",
+                  text: "<@U_BOT>/passport",
+                  style: { code: true },
+                },
+              ],
+            },
+          ],
+        },
+      ],
+    });
+
+    expect(mentionHandler).not.toHaveBeenCalled();
+    expect(messageHandler).toHaveBeenCalled();
+  });
+
+  it("routes a code-styled table cell to message handlers", async () => {
+    const { adapter, bot } = await createRoutedBot();
+    const mentionHandler = vi.fn();
+    const messageHandler = vi.fn();
+    bot.onNewMention(mentionHandler);
+    bot.onNewMessage(ANY_TEXT_PATTERN, messageHandler);
+
+    await deliverWebhook(adapter, {
+      type: "message",
+      user: "U_SENDER",
+      channel: "C456",
+      text: "Import <@U_BOT>/passport",
+      ts: "1234567890.232323",
+      blocks: [
+        {
+          type: "table",
+          rows: [
+            [
+              { type: "text", text: "Import" },
+              {
+                type: "text",
+                text: "<@U_BOT>/passport",
+                style: { code: true },
+              },
+            ],
+          ],
+        },
+      ],
+    });
+
+    expect(mentionHandler).not.toHaveBeenCalled();
+    expect(messageHandler).toHaveBeenCalled();
+  });
+
+  it("routes a text-only code reference to message handlers", async () => {
+    const { adapter, bot } = await createRoutedBot();
+    const mentionHandler = vi.fn();
+    const messageHandler = vi.fn();
+    bot.onNewMention(mentionHandler);
+    bot.onNewMessage(ANY_TEXT_PATTERN, messageHandler);
+
+    // No id markup at all: the configured name appears only inside a code span.
+    await deliverWebhook(adapter, {
+      type: "message",
+      user: "U_SENDER",
+      channel: "C456",
+      text: "the docs say `@Example Bot`",
+      ts: "1234567890.242424",
+    });
+
+    expect(mentionHandler).not.toHaveBeenCalled();
+    expect(messageHandler).toHaveBeenCalled();
+  });
+
+  it("trusts app_mention when the bot id is unresolved", async () => {
+    const { adapter, bot } = await createRoutedBot({ botUserId: null });
+    const mentionHandler = vi.fn();
+    bot.onNewMention(mentionHandler);
+
+    await deliverWebhook(adapter, {
+      type: "app_mention",
+      user: "U_SENDER",
+      channel: "C456",
+      text: "<@U_BOT> help me",
+      ts: "1234567890.252525",
+    });
+
+    expect(adapter.botUserId).toBeUndefined();
     expect(mentionHandler).toHaveBeenCalled();
   });
 });

@@ -556,22 +556,10 @@ export interface SlackMessageBlock extends SlackBlock {
 
 /**
  * Slack's user-mention syntax for `userId`: `<@U…>` or `<@U…|name>`. Applied to
- * mrkdwn `text`; rich-text blocks are scanned structurally instead.
+ * mrkdwn text; rich-text blocks carry mentions as `user` elements instead.
  */
 function mentionTokenPattern(userId: string): RegExp {
   return new RegExp(`<@!?${escapeRegExp(userId)}(?:\\|[^>]*)?>`, "i");
-}
-
-/**
- * Any textual reference to `userId` that Slack does not parse as a mention: a
- * bare `@U…`, an HTML-escaped `&lt;@U…&gt;`, or a mention inside a code span.
- * Separates "renders as text" from "nothing to judge".
- */
-function mentionReferencePattern(userId: string): RegExp {
-  return new RegExp(
-    `@${escapeRegExp(userId)}(?![\\w-])|&lt;@!?${escapeRegExp(userId)}`,
-    "i"
-  );
 }
 
 const SLACK_CODE_FENCE_PATTERN = /```[\s\S]*?(?:```|$)/g;
@@ -588,106 +576,62 @@ function maskSlackCode(text: string): string {
     .replace(SLACK_INLINE_CODE_PATTERN, " ");
 }
 
-interface SlackMrkdwnScan {
-  /** A real `<@U…>` token outside code. */
-  mentioned: boolean;
-  /** A token anywhere, including one inside code that renders literally. */
-  referenced: boolean;
-}
-
 /**
- * Scan table cells and mrkdwn attachment text for `userId`. Table cells and
- * mrkdwn attachments render as body content, so a mention inside a code span in
- * either is still literal. Plain-text attachment parts cannot reference a user.
- */
-function scanMrkdwnContentMentions(
-  tables: SlackEventTables,
-  attachments: SlackAttachmentContent[],
-  userId: string
-): SlackMrkdwnScan {
-  const mention = mentionTokenPattern(userId);
-  const reference = mentionReferencePattern(userId);
-  let mentioned = false;
-  let referenced = false;
-
-  const scanText = (text: string): void => {
-    if (mention.test(maskSlackCode(text))) {
-      mentioned = true;
-      referenced = true;
-      return;
-    }
-    if (reference.test(text)) {
-      referenced = true;
-    }
-  };
-  const scanTable = (data: SlackTableData): void => {
-    for (const row of data.rows) {
-      for (const cell of row) {
-        if (cell) {
-          scanText(cell);
-        }
-      }
-    }
-  };
-
-  for (const data of [...tables.leading, ...tables.trailing]) {
-    scanTable(data);
-  }
-  for (const attachment of attachments) {
-    for (const data of attachment.tables) {
-      scanTable(data);
-    }
-    for (const part of attachment.parts) {
-      if ("mrkdwn" in part) {
-        scanText(part.mrkdwn);
-      }
-    }
-  }
-
-  return { mentioned, referenced };
-}
-
-/**
- * Whether the message's rich-text blocks invoke `userId`.
+ * Whether rich-text and table blocks reference `userId` outside code.
  *
- * Returns `undefined` when the event carries no rich-text block, so the caller
- * can fall back to the mrkdwn `text` field. Inline code (`style.code`) and
- * preformatted blocks render literally, so a `user` element nested in either is
- * not an invocation.
+ * `hasStructuredBody` reports whether a block models the message body
+ * structurally (`rich_text`, `table`, `data_table`). When one does, the
+ * flattened `text` field must not add mention evidence: it loses the
+ * code/literal distinction that the blocks preserve.
  */
-function richTextMentionsUser(
+function scanStructuredContent(
   blocks: SlackMessageBlock[] | undefined,
   userId: string
-): boolean | undefined {
-  let hasRichText = false;
+): { mentioned: boolean; hasStructuredBody: boolean } {
+  const mention = mentionTokenPattern(userId);
   let mentioned = false;
+  let hasStructuredBody = false;
 
-  const visit = (
-    elements: SlackMessageBlock[] | undefined,
-    inCode: boolean
-  ): void => {
-    for (const element of elements ?? []) {
-      const isCode =
-        inCode ||
-        element.type === "rich_text_preformatted" ||
-        element.style?.code === true;
-      if (!isCode && element.type === "user" && element.user_id === userId) {
-        mentioned = true;
+  const visit = (value: unknown, inCode: boolean): void => {
+    if (Array.isArray(value)) {
+      for (const item of value) {
+        visit(item, inCode);
       }
-      if (element.elements) {
-        visit(element.elements, isCode);
-      }
+      return;
     }
+    if (!isRecord(value)) {
+      return;
+    }
+
+    const isCode =
+      inCode ||
+      value.type === "rich_text_preformatted" ||
+      (isRecord(value.style) && value.style.code === true);
+
+    // A `user` element is a mention; app-built rich text can also inline a
+    // `<@U…>` token in a text element.
+    if (
+      !isCode &&
+      ((value.type === "user" && value.user_id === userId) ||
+        (typeof value.text === "string" &&
+          mention.test(maskSlackCode(value.text))))
+    ) {
+      mentioned = true;
+    }
+
+    visit(value.elements, isCode);
+    // Table rows nest their cells, and a cell can itself hold rich text.
+    visit(value.rows, isCode);
   };
 
   for (const block of blocks ?? []) {
-    if (block.type === "rich_text") {
-      hasRichText = true;
-      visit(block.elements, false);
+    if (block.type === "rich_text" || TABLE_BLOCK_TYPES.has(block.type)) {
+      hasStructuredBody = true;
     }
+    visit(block, false);
   }
 
-  return hasRichText ? mentioned : undefined;
+  return { mentioned, hasStructuredBody };
 }
 
 type SlackContentNode = FormattedContent["children"][number];
@@ -4529,54 +4473,61 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
    * Whether the message invokes the bot.
    *
    * Slack fires `app_mention` for a bot id that only appears inside code, so the
-   * invocation is read from the message content instead. A rich-text `user`
-   * element is a real mention; inline (`style.code`) and preformatted content
-   * renders literally, so a bot id in there is not.
+   * invocation is classified from the message content: a `user` element outside
+   * code, or a `<@U…>` token outside code, is a mention. Inline (`style.code`)
+   * and preformatted content renders literally, so a bot id there is not.
    *
-   * Returns `true` for an invocation, `false` when the message references the
-   * bot only as literal text, and `undefined` when there is no reference to
-   * judge, leaving the SDK's text-based detection as the fallback.
+   * Returns `true` for an invocation, `false` when the content holds no
+   * invocation of the bot, and `undefined` when the adapter cannot identify the
+   * bot, leaving the SDK's text-based detection as the fallback.
    */
   protected detectSelfMention(
     event: SlackEvent,
     rawText: string,
-    tables: SlackEventTables,
     attachments: SlackAttachmentContent[]
   ): boolean | undefined {
     const botUserId = this.botUserId;
     if (!botUserId) {
-      return undefined;
+      // Without the bot's id the content cannot be classified. Trust an
+      // explicit mention event, as the adapter did before content-based
+      // detection; other messages stay undetermined for the SDK fallback.
+      return event.type === "app_mention" ? true : undefined;
     }
 
-    const content = scanMrkdwnContentMentions(tables, attachments, botUserId);
-
-    // A rich-text block is the composer's own model of the message body.
-    const structured = richTextMentionsUser(event.blocks, botUserId);
-    if (structured === true) {
-      return true;
-    }
-    if (content.mentioned) {
-      return true;
-    }
-    if (mentionTokenPattern(botUserId).test(maskSlackCode(rawText))) {
+    const mention = mentionTokenPattern(botUserId);
+    const body = scanStructuredContent(event.blocks, botUserId);
+    if (body.mentioned) {
       return true;
     }
 
-    if (structured === false) {
-      // The blocks cover the body and hold no user element, so a plain-text
-      // rendering of the same content cannot promote it to an invocation.
-      return false;
+    for (const attachment of authorAttachments(event)) {
+      if (scanStructuredContent(attachment.blocks, botUserId).mentioned) {
+        return true;
+      }
+    }
+    for (const attachment of attachments) {
+      for (const part of attachment.parts) {
+        // Literal attachment parts render only Slack control sequences, so a
+        // `<@U…>` token there is a mention; mrkdwn parts carry code as backticks.
+        const value =
+          "mrkdwn" in part ? maskSlackCode(part.mrkdwn) : part.literal;
+        if (mention.test(value)) {
+          return true;
+        }
+      }
     }
 
-    // No rich-text block models the body. A reference Slack renders literally
-    // (code span, escaped entities, or a bare id) is still not an invocation.
-    if (
-      content.referenced ||
-      mentionReferencePattern(botUserId).test(rawText)
-    ) {
-      return false;
+    // A structured block is the composer's (or app's) own model of the body.
+    // The flattened `text` field loses the code/literal distinction, so it
+    // cannot add evidence once such a block models the body.
+    if (!body.hasStructuredBody && mention.test(maskSlackCode(rawText))) {
+      return true;
     }
-    return undefined;
+
+    // Slack mentions are user-id tokens. With the content fully inspected, the
+    // absence of one is a definitive non-mention, so `@Name` appearing as plain
+    // or code-styled text cannot fall through to name matching.
+    return false;
   }
 
   protected async parseSlackMessage(
@@ -4624,20 +4575,13 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
     }
 
     // Resolve inline @mentions to display names. The bot's own mention is
-    // decoded like any other, so detect it here from the raw event text —
-    // after resolution the ID markup is gone, and detectMention's username
-    // pattern cannot reliably match the bot's resolved display name.
+    // decoded like any other, so classify it from the raw event before
+    // resolution strips the id markup.
     const text = await this.resolveInlineMentions(rawText);
     const formatted = await this.resolvedContent(event, text);
-    const tables = eventTables(event);
     const attachments = authorAttachments(event).map(attachmentContent);
 
-    const isMention = this.detectSelfMention(
-      event,
-      rawText,
-      tables,
-      attachments
-    );
+    const isMention = this.detectSelfMention(event, rawText, attachments);
 
     return new Message({
       id: event.ts || "",
