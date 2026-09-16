@@ -203,7 +203,7 @@ Incoming messages are normalized across platforms into a consistent format:
 | `metadata` | `MessageMetadata` | Timestamps and edit status |
 | `attachments` | `Attachment[]` (optional) | File attachments |
 | `replyTo` | `Message` (optional) | Normalized message this message replies to, when provided by the adapter |
-| `isMention` | `boolean` (optional) | Whether the bot was @-mentioned |
+| `isMention` | `boolean` (optional) | The adapter's mention decision. `true` and `false` are final; `undefined` makes Chat SDK match `@username` in `text` |
 
 ### Author
 
