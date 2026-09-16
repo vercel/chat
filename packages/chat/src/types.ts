@@ -497,7 +497,7 @@ export interface Adapter<TThreadId = unknown, TRawMessage = unknown> {
   ): Promise<RawMessage<TRawMessage>>;
 
   /**
-   * Post an ephemeral message visible only to a specific user.
+   * Post a message visible only to a specific user, natively or via an explicit fallback.
    *
    * This is optional - if not implemented, Thread.postEphemeral will
    * fall back to openDM + postMessage when fallbackToDM is true.
@@ -505,13 +505,14 @@ export interface Adapter<TThreadId = unknown, TRawMessage = unknown> {
    * @param threadId - The thread to post in
    * @param userId - The user who should see the message
    * @param message - The message content
-   * @returns EphemeralMessage with usedFallback: false
+   * @returns EphemeralMessage with usedFallback indicating private delivery, or null if unsupported
    */
   postEphemeral?(
     threadId: string,
     userId: string,
-    message: AdapterPostableMessage
-  ): Promise<EphemeralMessage<TRawMessage>>;
+    message: AdapterPostableMessage,
+    options?: PostEphemeralOptions
+  ): Promise<EphemeralMessage<TRawMessage> | null>;
 
   /** Post a message to a thread */
   postMessage(

@@ -1508,7 +1508,8 @@ describe("ThreadImpl", () => {
       expect(mockPostEphemeral).toHaveBeenCalledWith(
         "slack:C123:1234.5678",
         "U456",
-        "Secret message"
+        "Secret message",
+        { fallbackToDM: true }
       );
       expect(result).toEqual({
         id: "ephemeral-1",
@@ -1542,7 +1543,8 @@ describe("ThreadImpl", () => {
       expect(mockPostEphemeral).toHaveBeenCalledWith(
         "slack:C123:1234.5678",
         "U789",
-        "Secret message"
+        "Secret message",
+        { fallbackToDM: true }
       );
     });
 

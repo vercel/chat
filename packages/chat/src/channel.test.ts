@@ -701,7 +701,8 @@ describe("ChannelImpl.postEphemeral", () => {
     expect(mockPostEphemeral).toHaveBeenCalledWith(
       "slack:C123",
       "U456",
-      "Secret!"
+      "Secret!",
+      { fallbackToDM: true }
     );
     expect(result).toEqual({
       id: "eph-1",
@@ -733,7 +734,8 @@ describe("ChannelImpl.postEphemeral", () => {
     expect(mockPostEphemeral).toHaveBeenCalledWith(
       "slack:C123",
       "U789",
-      "Hello!"
+      "Hello!",
+      { fallbackToDM: false }
     );
   });
 

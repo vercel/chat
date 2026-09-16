@@ -361,7 +361,7 @@ export class ChannelImpl<TState = Record<string, unknown>>
 
     if (this.adapter.postEphemeral) {
       postable = await this.processCallbackUrls(postable);
-      return this.adapter.postEphemeral(this.id, userId, postable);
+      return this.adapter.postEphemeral(this.id, userId, postable, options);
     }
 
     if (!fallbackToDM) {

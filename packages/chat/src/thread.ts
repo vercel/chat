@@ -564,10 +564,10 @@ export class ThreadImpl<TState = Record<string, unknown>>
       postable = message as AdapterPostableMessage;
     }
 
-    // Try native ephemeral if adapter supports it
+    // Let the adapter handle native ephemeral or a context-aware fallback
     if (this.adapter.postEphemeral) {
       postable = await this.processCallbackUrls(postable);
-      return this.adapter.postEphemeral(this.id, userId, postable);
+      return this.adapter.postEphemeral(this.id, userId, postable, options);
     }
 
     // No native support - either fallback to DM or return null
