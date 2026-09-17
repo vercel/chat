@@ -273,6 +273,11 @@ Select({
       description: 'Select options.',
       type: 'SelectOptionElement[]',
     },
+    dispatchAction: {
+      description: 'Dispatch onAction events when the selection changes in a Slack modal. Ignored by other adapters.',
+      type: 'boolean',
+      default: 'false',
+    },
   }}
 />
 

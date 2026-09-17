@@ -127,6 +127,7 @@ A dropdown for selecting a single option.
 | `placeholder` | `string` (optional) | Placeholder text |
 | `initialOption` | `string` (optional) | Pre-selected value |
 | `optional` | `boolean` (optional) | Allow empty submission |
+| `dispatchAction` | `boolean` (optional) | Send selection changes to `onAction` in Slack modals (default: `false`) |
 
 ### ExternalSelect
 
@@ -209,6 +210,7 @@ A radio button group for mutually exclusive options.
 | `label` | `string` | Field label |
 | `initialOption` | `string` (optional) | Pre-selected value |
 | `optional` | `boolean` (optional) | Allow empty submission |
+| `dispatchAction` | `boolean` (optional) | Send selection changes to `onAction` in Slack modals (default: `false`) |
 
 ### SelectOption
 
@@ -219,6 +221,23 @@ An option for `Select` or `RadioSelect`.
 | `label` | `string` | Display text |
 | `value` | `string` | Value passed to handler |
 | `description` | `string` (optional) | Help text below the label |
+
+## Handle selection changes
+
+In Slack modals, set `dispatchAction` on `Select` or `RadioSelect` to receive changes before submission:
+
+```tsx
+<RadioSelect id="scope" label="Scope" dispatchAction>
+  <SelectOption label="Personal" value="personal" />
+  <SelectOption label="Team" value="team" />
+</RadioSelect>
+```
+
+Register `bot.onAction("scope", handler)` to handle the selection. `event.actionId` is the input ID and `event.value` is the selected option's value. Clearing an optional select produces an undefined `event.value`. Modal actions have no `event.thread`; the Slack view ID and form state are available in `event.raw`.
+
+This maps to Slack's [input block `dispatch_action`](https://docs.slack.dev/reference/block-kit/blocks/input-block/). It defaults to `false`, is ignored by other adapters, and does not change the values received by `onModalSubmit`. Text input change events are not supported by this option.
+
+To change dependent fields, update the view using Slack's [views.update](https://docs.slack.dev/reference/methods/views.update/) API. Preserve the view's `private_metadata` and use its `hash` to protect against out-of-order updates. Keep the same input IDs for fields whose existing values should be preserved.
 
 ## Handle submissions
 
