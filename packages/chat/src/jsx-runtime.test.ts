@@ -682,6 +682,33 @@ describe("toModalElement", () => {
     expect(modal?.notifyOnClose).toBe(true);
   });
 
+  describe.each([
+    Select,
+    RadioSelect,
+  ])("%s modal action dispatch", (component) => {
+    it.each([
+      true,
+      false,
+      undefined,
+    ])("preserves dispatchAction=%s", (dispatchAction) => {
+      const properties = {
+        id: "scope",
+        label: "Scope",
+        dispatchAction,
+        children: jsx(SelectOption, { label: "Team", value: "team" }),
+      };
+      const modal = toModalElement(
+        jsx(Modal, {
+          callbackId: "permissions",
+          title: "Permissions",
+          children: jsx(component, properties),
+        })
+      );
+
+      expect(modal?.children[0]).toMatchObject({ dispatchAction });
+    });
+  });
+
   it("preserves privateMetadata from JSX props", () => {
     const metadata = JSON.stringify({ chatId: "abc", scope: "team" });
     const jsxElement = jsx(Modal, {

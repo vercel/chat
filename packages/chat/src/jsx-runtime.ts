@@ -216,6 +216,7 @@ export interface NumberInputProps {
 /** Props for Select component in JSX */
 export interface SelectProps {
   children?: unknown;
+  dispatchAction?: boolean;
   id: string;
   initialOption?: string;
   label: string;
@@ -849,6 +850,7 @@ function resolveJSXElement(element: JSXElement): AnyCardElement {
       throw new Error("Select requires 'id' and 'label' props");
     }
     return Select({
+      dispatchAction: props.dispatchAction,
       id: props.id,
       label: props.label,
       placeholder: props.placeholder,
@@ -877,6 +879,7 @@ function resolveJSXElement(element: JSXElement): AnyCardElement {
       throw new Error("RadioSelect requires 'id' and 'label' props");
     }
     return RadioSelect({
+      dispatchAction: props.dispatchAction,
       id: props.id,
       label: props.label,
       initialOption: props.initialOption,

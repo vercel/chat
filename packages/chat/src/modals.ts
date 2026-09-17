@@ -78,6 +78,7 @@ export interface NumberInputElement {
 }
 
 export interface SelectElement {
+  dispatchAction?: boolean;
   id: string;
   initialOption?: string;
   label: string;
@@ -104,6 +105,7 @@ export interface SelectOptionElement {
 }
 
 export interface RadioSelectElement {
+  dispatchAction?: boolean;
   id: string;
   initialOption?: string;
   label: string;
@@ -240,6 +242,7 @@ export function NumberInput(options: NumberInputOptions): NumberInputElement {
 }
 
 export interface SelectOptions {
+  dispatchAction?: boolean;
   id: string;
   initialOption?: string;
   label: string;
@@ -254,6 +257,7 @@ export function Select(options: SelectOptions): SelectElement {
   }
   return {
     type: "select",
+    dispatchAction: options.dispatchAction,
     id: options.id,
     label: options.label,
     placeholder: options.placeholder,
@@ -299,6 +303,7 @@ export function SelectOption(options: {
 }
 
 export interface RadioSelectOptions {
+  dispatchAction?: boolean;
   id: string;
   initialOption?: string;
   label: string;
@@ -312,6 +317,7 @@ export function RadioSelect(options: RadioSelectOptions): RadioSelectElement {
   }
   return {
     type: "radio_select",
+    dispatchAction: options.dispatchAction,
     id: options.id,
     label: options.label,
     options: options.options,
@@ -431,6 +437,7 @@ export function fromReactModalElement(
 
     case "Select":
       return Select({
+        dispatchAction: props.dispatchAction as boolean | undefined,
         id: props.id as string,
         label: props.label as string,
         placeholder: props.placeholder as string | undefined,
@@ -454,6 +461,7 @@ export function fromReactModalElement(
 
     case "RadioSelect":
       return RadioSelect({
+        dispatchAction: props.dispatchAction as boolean | undefined,
         id: props.id as string,
         label: props.label as string,
         options: convertedChildren.filter(

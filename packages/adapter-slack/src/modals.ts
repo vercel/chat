@@ -285,6 +285,9 @@ function selectToBlock(select: SelectElement): SlackBlock {
   return {
     type: "input",
     block_id: select.id,
+    ...(select.dispatchAction !== undefined && {
+      dispatch_action: select.dispatchAction,
+    }),
     optional: select.optional ?? false,
     label: { type: "plain_text", text: select.label },
     element,
@@ -347,6 +350,9 @@ function radioSelectToBlock(radioSelect: RadioSelectElement): SlackBlock {
   return {
     type: "input",
     block_id: radioSelect.id,
+    ...(radioSelect.dispatchAction !== undefined && {
+      dispatch_action: radioSelect.dispatchAction,
+    }),
     optional: radioSelect.optional ?? false,
     label: { type: "plain_text", text: radioSelect.label },
     element,

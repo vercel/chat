@@ -3,7 +3,15 @@
  * view_submission interactivity against the emulator store.
  */
 
-import { Modal, type ModalSubmitEvent, TextInput } from "chat";
+import {
+  type ActionEvent,
+  Modal,
+  type ModalSubmitEvent,
+  RadioSelect,
+  Select,
+  SelectOption,
+  TextInput,
+} from "chat";
 import {
   afterAll,
   afterEach,
@@ -14,7 +22,10 @@ import {
   it,
   vi,
 } from "vitest";
-import { createSlackViewSubmissionRequest } from "../../slack-utils";
+import {
+  createSlackInteractiveRequest,
+  createSlackViewSubmissionRequest,
+} from "../../slack-utils";
 import {
   createEmulatorChatHarness,
   createSlackEmulator,
@@ -41,6 +52,151 @@ describe("Slack emulator: modal views round-trip", () => {
 
   afterEach(async () => {
     await harness.teardown();
+  });
+
+  it.each([
+    { component: Select, type: "static_select" },
+    { component: RadioSelect, type: "radio_buttons" },
+  ])("dispatches $type changes, updates the view, and preserves submission", async ({
+    component,
+    type,
+  }) => {
+    const create = (value = "personal") =>
+      Modal({
+        title: "Permissions",
+        callbackId: "permissions",
+        children: [
+          component({
+            id: "scope",
+            label: "Scope",
+            dispatchAction: true,
+            initialOption: value,
+            options: [
+              SelectOption({ label: "Personal", value: "personal" }),
+              SelectOption({ label: "Team", value: "team" }),
+            ],
+          }),
+          TextInput({ id: "permission", label: `${value} permission` }),
+        ],
+      });
+    const trigger = await generateViewTriggerId(emulator);
+    const { viewId } = await harness.adapter.openModal(trigger, create());
+    const stored = emulator.slackStore.views.findOneBy("view_id", viewId);
+    expect(stored?.blocks[0]).toMatchObject({ dispatch_action: true });
+
+    const action = vi.fn<(event: ActionEvent) => void>();
+    const submit = vi.fn<(event: ModalSubmitEvent) => void>();
+    harness.chat.onAction("scope", async (event) => {
+      action(event);
+      await harness.adapter.updateModal(viewId, create(event.value));
+    });
+    harness.chat.onModalSubmit("permissions", submit);
+    const values = {
+      scope: {
+        scope: {
+          type,
+          selected_option: {
+            text: { type: "plain_text", text: "Team" },
+            value: "team",
+          },
+        },
+      },
+      permission: { permission: { type: "plain_text_input", value: "read" } },
+    };
+    const view = {
+      id: viewId,
+      type: "modal",
+      callback_id: "permissions",
+      private_metadata: "",
+      state: { values },
+    };
+    const payload = {
+      type: "block_actions",
+      api_app_id: "A_TEST",
+      team: { id: emulator.teamId },
+      user: { id: emulator.humanUserId, username: "human" },
+      container: { type: "view", view_id: viewId },
+      trigger_id: "change-trigger",
+      view,
+      actions: [
+        { action_id: "scope", block_id: "scope", ...values.scope.scope },
+      ],
+    };
+    const response = await harness.chat.webhooks.slack(
+      createSlackInteractiveRequest(payload, emulator.signingSecret),
+      { waitUntil: harness.tracker.waitUntil }
+    );
+    await harness.tracker.waitForAll();
+    expect(response.status).toBe(200);
+    expect(action).toHaveBeenCalledOnce();
+    expect(action.mock.calls[0]?.[0]).toMatchObject({
+      actionId: "scope",
+      value: "team",
+      thread: null,
+      raw: payload,
+    });
+    const updated = emulator.slackStore.views.findOneBy("view_id", viewId);
+    expect(updated?.blocks[0]).toMatchObject({
+      dispatch_action: true,
+      element: { initial_option: { value: "team" } },
+    });
+    expect(updated?.blocks[1]).toMatchObject({
+      label: { text: "team permission" },
+    });
+
+    const submission = await harness.chat.webhooks.slack(
+      createSlackInteractiveRequest(
+        {
+          ...payload,
+          type: "view_submission",
+          actions: undefined,
+          container: undefined,
+        },
+        emulator.signingSecret
+      ),
+      { waitUntil: harness.tracker.waitUntil }
+    );
+    await harness.tracker.waitForAll();
+    expect(submission.status).toBe(200);
+    expect(submit).toHaveBeenCalledOnce();
+    expect(submit.mock.calls[0]?.[0]).toMatchObject({
+      callbackId: "permissions",
+      values: { scope: "team", permission: "read" },
+    });
+  });
+
+  it("delivers a cleared optional select without a selected value", async () => {
+    const handler = vi.fn<(event: ActionEvent) => void>();
+    harness.chat.onAction("scope", handler);
+    const selection = { type: "static_select", selected_option: null };
+    const response = await harness.chat.webhooks.slack(
+      createSlackInteractiveRequest(
+        {
+          type: "block_actions",
+          api_app_id: "A_TEST",
+          team: { id: emulator.teamId },
+          user: { id: emulator.humanUserId, username: "human" },
+          container: { type: "view", view_id: "V_CLEAR" },
+          trigger_id: "clear-trigger",
+          view: {
+            id: "V_CLEAR",
+            type: "modal",
+            state: { values: { scope: { scope: selection } } },
+          },
+          actions: [{ action_id: "scope", block_id: "scope", ...selection }],
+        },
+        emulator.signingSecret
+      ),
+      { waitUntil: harness.tracker.waitUntil }
+    );
+    await harness.tracker.waitForAll();
+    expect(response.status).toBe(200);
+    expect(handler).toHaveBeenCalledOnce();
+    expect(handler.mock.calls[0]?.[0]).toMatchObject({
+      actionId: "scope",
+      value: undefined,
+      thread: null,
+    });
   });
 
   it("opens and updates a modal via views.open and views.update", async () => {

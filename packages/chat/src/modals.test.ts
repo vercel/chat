@@ -14,6 +14,23 @@ import {
 } from "./modals";
 
 describe("Builder Functions", () => {
+  describe.each([Select, RadioSelect])("%s action dispatch", (component) => {
+    it.each([
+      true,
+      false,
+      undefined,
+    ])("preserves dispatchAction=%s", (dispatchAction) => {
+      const options = {
+        id: "scope",
+        label: "Scope",
+        dispatchAction,
+        options: [SelectOption({ label: "Team", value: "team" })],
+      };
+
+      expect(component(options)).toMatchObject({ dispatchAction });
+    });
+  });
+
   describe("Modal", () => {
     it("should create a modal with required fields", () => {
       const modal = Modal({ callbackId: "cb-1", title: "My Modal" });
@@ -288,6 +305,28 @@ describe("JSX Support", () => {
   }
 
   describe("fromReactModalElement", () => {
+    describe.each([Select, RadioSelect])("%s action dispatch", (component) => {
+      it.each([
+        true,
+        false,
+        undefined,
+      ])("preserves dispatchAction=%s", (dispatchAction) => {
+        const element = makeReactElement(component, {
+          id: "scope",
+          label: "Scope",
+          dispatchAction,
+          children: makeReactElement(SelectOption, {
+            label: "Team",
+            value: "team",
+          }),
+        });
+
+        expect(fromReactModalElement(element)).toMatchObject({
+          dispatchAction,
+        });
+      });
+    });
+
     it("should convert a Modal react element", () => {
       const el = makeReactElement(Modal, {
         callbackId: "cb-1",

@@ -16,6 +16,42 @@ import {
 } from "./modals";
 
 describe("modalToSlackView", () => {
+  describe.each([Select, RadioSelect])("%s action dispatch", (component) => {
+    it.each([
+      true,
+      false,
+      undefined,
+    ])("renders dispatchAction=%s on the input block", (dispatchAction) => {
+      const options = {
+        id: "scope",
+        label: "Scope",
+        dispatchAction,
+        initialOption: "team",
+        options: [SelectOption({ label: "Team", value: "team" })],
+      };
+      const view = modalToSlackView(
+        Modal({
+          callbackId: "permissions",
+          title: "Permissions",
+          children: [component(options)],
+        })
+      );
+      const block = view.blocks[0];
+
+      if (dispatchAction === undefined) {
+        expect(block).not.toHaveProperty("dispatch_action");
+      } else {
+        expect(block).toHaveProperty("dispatch_action", dispatchAction);
+      }
+      expect(block).toMatchObject({
+        type: "input",
+        block_id: "scope",
+        element: { action_id: "scope", initial_option: { value: "team" } },
+      });
+      expect(block?.element).not.toHaveProperty("dispatch_action");
+    });
+  });
+
   it("converts a simple modal with text input", () => {
     const modal = Modal({
       callbackId: "feedback_form",
