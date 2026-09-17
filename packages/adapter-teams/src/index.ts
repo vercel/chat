@@ -100,6 +100,9 @@ const MESSAGEID_STRIP_PATTERN = /;messageid=\d+/;
 const CACHE_TTL_MS = 30 * 24 * 60 * 60 * 1000; // 30 days
 const USER_INFO_CACHE_TTL_MS = 60 * 60 * 1000; // 1 hour
 const USER_INFO_NEGATIVE_CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
+// Teams deletes a targeted message 24 hours after it is sent, so a record of
+// one is worthless past that point.
+const TARGETED_ACTIVITY_TTL_MS = 24 * 60 * 60 * 1000; // 24 hours
 // Sentinel cached when a Graph lookup fails, so tenants without Graph
 // consent don't pay a failing network call on every message.
 const USER_INFO_NEGATIVE_SENTINEL = "unresolvable";
@@ -1385,6 +1388,7 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
 
       try {
         const sent = await this.app.sendTo(target, activity);
+        await this.rememberTargetedActivity(conversationId, sent.id || "");
 
         return {
           id: sent.id || "",
@@ -1422,6 +1426,7 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
 
     try {
       const sent = await this.app.sendTo(target, activity);
+      await this.rememberTargetedActivity(conversationId, sent.id || "");
 
       this.logger.debug("Teams API: targeted send response", {
         messageId: sent.id,
@@ -1440,6 +1445,74 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
         error,
       });
       handleTeamsError(error, "postEphemeral");
+    }
+  }
+
+  /**
+   * Teams accepts an update or a delete for a targeted activity only through
+   * the `?isTargetedActivity=true` variant of the endpoint; the plain one
+   * answers `400`. Nothing on the wire tells us afterwards which activities
+   * were targeted, and `editMessage`/`deleteMessage` receive only a message id,
+   * so the ids we send targeted are recorded here and read back on mutation.
+   *
+   * Kept in the Chat state adapter rather than in process memory so a host that
+   * runs several instances, or restarts one, still edits the right endpoint.
+   */
+  private targetedActivityKey(conversationId: string, messageId: string) {
+    return `teams:targetedActivity:${conversationId}:${messageId}`;
+  }
+
+  /** Best effort: losing the record costs the 400, never the message. */
+  private async rememberTargetedActivity(
+    conversationId: string,
+    messageId: string
+  ): Promise<void> {
+    if (!(this.chat && messageId)) {
+      return;
+    }
+    try {
+      await this.chat
+        .getState()
+        .set(
+          this.targetedActivityKey(conversationId, messageId),
+          "1",
+          TARGETED_ACTIVITY_TTL_MS
+        );
+    } catch {
+      // A state adapter that cannot write must not fail the send.
+    }
+  }
+
+  private async isTargetedActivity(
+    conversationId: string,
+    messageId: string
+  ): Promise<boolean> {
+    if (!(this.chat && messageId)) {
+      return false;
+    }
+    try {
+      const recorded = await this.chat
+        .getState()
+        .get<string>(this.targetedActivityKey(conversationId, messageId));
+      return recorded === "1";
+    } catch {
+      return false;
+    }
+  }
+
+  private async forgetTargetedActivity(
+    conversationId: string,
+    messageId: string
+  ): Promise<void> {
+    if (!(this.chat && messageId)) {
+      return;
+    }
+    try {
+      await this.chat
+        .getState()
+        .delete(this.targetedActivityKey(conversationId, messageId));
+    } catch {
+      // The TTL clears it anyway.
     }
   }
 
@@ -1502,16 +1575,21 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
         },
       ];
 
+      const targeted = await this.isTargetedActivity(conversationId, messageId);
+
       this.logger.debug("Teams API: updateActivity (adaptive card)", {
         conversationId,
         messageId,
+        targeted,
       });
 
       try {
-        await this.app
+        const activities = this.app
           .apiFor(serviceUrl)
-          .conversations.activities(conversationId)
-          .update(messageId, activity);
+          .conversations.activities(conversationId);
+        await (targeted
+          ? activities.updateTargeted(messageId, activity)
+          : activities.update(messageId, activity));
       } catch (error) {
         this.logger.error("Teams API: updateActivity failed", {
           conversationId,
@@ -1532,17 +1610,22 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
     const activity = new MessageActivity(text);
     activity.textFormat = "markdown";
 
+    const targeted = await this.isTargetedActivity(conversationId, messageId);
+
     this.logger.debug("Teams API: updateActivity", {
       conversationId,
       messageId,
       textLength: text.length,
+      targeted,
     });
 
     try {
-      await this.app
+      const activities = this.app
         .apiFor(serviceUrl)
-        .conversations.activities(conversationId)
-        .update(messageId, activity);
+        .conversations.activities(conversationId);
+      await (targeted
+        ? activities.updateTargeted(messageId, activity)
+        : activities.update(messageId, activity));
     } catch (error) {
       this.logger.error("Teams API: updateActivity failed", {
         conversationId,
@@ -1561,16 +1644,21 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
     const target = this.decodeThreadId(threadId);
     const { conversationId, serviceUrl } = target;
 
+    const targeted = await this.isTargetedActivity(conversationId, messageId);
+
     this.logger.debug("Teams API: deleteActivity", {
       conversationId,
       messageId,
+      targeted,
     });
 
     try {
-      await this.app
+      const activities = this.app
         .apiFor(serviceUrl)
-        .conversations.activities(conversationId)
-        .delete(messageId);
+        .conversations.activities(conversationId);
+      await (targeted
+        ? activities.deleteTargeted(messageId)
+        : activities.delete(messageId));
     } catch (error) {
       this.logger.error("Teams API: deleteActivity failed", {
         conversationId,
@@ -1579,6 +1667,8 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
       });
       handleTeamsError(error, "deleteMessage");
     }
+
+    await this.forgetTargetedActivity(conversationId, messageId);
 
     this.logger.debug("Teams API: deleteActivity response", { ok: true });
   }
