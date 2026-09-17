@@ -1155,6 +1155,68 @@ describe("parseMessage", () => {
     botUserId: "U_BOT",
   });
 
+  it("classifies the bot's mention without a user lookup", () => {
+    const section = (element: Record<string, unknown>) => [
+      {
+        type: "rich_text",
+        elements: [{ type: "rich_text_section", elements: [element] }],
+      },
+    ];
+    const base = {
+      type: "app_mention",
+      user: "U123",
+      channel: "C456",
+      text: "<@U_BOT> hi",
+      ts: "1234567890.123456",
+    };
+
+    const mention = adapter.parseMessage({
+      ...base,
+      blocks: section({ type: "user", user_id: "U_BOT" }),
+    });
+    const code = adapter.parseMessage({
+      ...base,
+      blocks: section({
+        type: "text",
+        text: "<@U_BOT> hi",
+        style: { code: true },
+      }),
+    });
+
+    expect(mention.isMention).toBe(true);
+    expect(code.isMention).toBe(false);
+  });
+
+  it("matches a structured user element regardless of bot id case", () => {
+    const lowercase = createSlackAdapter({
+      botToken: "xoxb-test-token",
+      signingSecret: "test-secret",
+      logger: mockLogger,
+      botUserId: "u_bot",
+    });
+
+    const message = lowercase.parseMessage({
+      type: "message",
+      user: "U123",
+      channel: "C456",
+      text: "<@U_BOT> hi",
+      ts: "1234567890.123456",
+      blocks: [
+        {
+          type: "rich_text",
+          elements: [
+            {
+              type: "rich_text_section",
+              elements: [{ type: "user", user_id: "U_BOT" }],
+            },
+          ],
+        },
+      ],
+    });
+
+    expect(message.isMention).toBe(true);
+  });
+
   it("parses a basic message event", () => {
     const event = {
       type: "message",
@@ -7540,6 +7602,36 @@ describe("resolveInlineMentions", () => {
     expect(message.isMention).toBe(false);
   });
 
+  it("does not flag a code-styled user element", async () => {
+    // Slack stores a bot reference composed inside inline code as a `user`
+    // element carrying `style.code` (see sample-messages.md).
+    const message = await parseIncoming({
+      type: "app_mention",
+      user: "U_SENDER",
+      channel: "C456",
+      text: "the app imports `<@U_BOT>/passport` and A &amp; B",
+      ts: "1234567890.888889",
+      blocks: [
+        {
+          type: "rich_text",
+          elements: [
+            {
+              type: "rich_text_section",
+              elements: [
+                { type: "text", text: "the app imports " },
+                { type: "user", user_id: "U_BOT", style: { code: true } },
+                { type: "text", text: "/passport", style: { code: true } },
+                { type: "text", text: " and A & B" },
+              ],
+            },
+          ],
+        },
+      ],
+    });
+
+    expect(message.isMention).toBe(false);
+  });
+
   it("does not flag a bot id inside a preformatted block", async () => {
     const message = await parseIncoming({
       type: "app_mention",
@@ -7737,6 +7829,8 @@ describe("resolveInlineMentions", () => {
     });
 
     expect(message.isMention).toBe(false);
+    // The cell renders the way it is classified: as literal text.
+    expect(message.text).toContain("Import\t<@U_BOT>/passport");
   });
 
   it("does not flag a mention token in a rich-text text element", async () => {
@@ -7870,6 +7964,47 @@ describe("resolveInlineMentions", () => {
     });
 
     expect(message.isMention).toBe(false);
+  });
+
+  it("reports false for an ordinary message that never refers to the bot", async () => {
+    const message = await parseIncoming({
+      type: "message",
+      user: "U_SENDER",
+      channel: "C456",
+      text: "hey <@U_OTHER> can you look?",
+      ts: "1234567890.202022",
+    });
+
+    expect(message.isMention).toBe(false);
+  });
+
+  it("trusts app_mention when the content never shows the known bot id", async () => {
+    // Enterprise Grid emits the bot's W… id in user elements while auth.test
+    // reported the U… id. Slack saw a mention, and no literal token explains
+    // the event, so the event stands.
+    const message = await parseIncoming({
+      type: "app_mention",
+      user: "U_SENDER",
+      channel: "C456",
+      text: "<@W_BOT_GRID> help me",
+      ts: "1234567890.202023",
+      blocks: [
+        {
+          type: "rich_text",
+          elements: [
+            {
+              type: "rich_text_section",
+              elements: [
+                { type: "user", user_id: "W_BOT_GRID" },
+                { type: "text", text: " help me" },
+              ],
+            },
+          ],
+        },
+      ],
+    });
+
+    expect(message.isMention).toBe(true);
   });
 
   it("trusts app_mention when the bot id is unknown", async () => {
@@ -8417,6 +8552,36 @@ describe("mention routing", () => {
 
     expect(mentionHandler).not.toHaveBeenCalled();
     expect(messageHandler).toHaveBeenCalled();
+  });
+
+  it("trusts app_mention when Slack reports an id the adapter does not know", async () => {
+    const { adapter, bot } = await createRoutedBot();
+    const mentionHandler = vi.fn();
+    bot.onNewMention(mentionHandler);
+
+    await deliverWebhook(adapter, {
+      type: "app_mention",
+      user: "U_SENDER",
+      channel: "C456",
+      text: "<@W_BOT_GRID> help me",
+      ts: "1234567890.252524",
+      blocks: [
+        {
+          type: "rich_text",
+          elements: [
+            {
+              type: "rich_text_section",
+              elements: [
+                { type: "user", user_id: "W_BOT_GRID" },
+                { type: "text", text: " help me" },
+              ],
+            },
+          ],
+        },
+      ],
+    });
+
+    expect(mentionHandler).toHaveBeenCalled();
   });
 
   it("trusts app_mention when the bot id is unresolved", async () => {

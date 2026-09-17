@@ -15,6 +15,10 @@
  * Only an `@` at a word boundary that is followed by a word character is
  * handed to the `replacer`, which decides how to render it for the target
  * platform.
+ *
+ * `maskCodeSpans` exposes the same code-span scanner on its own, for
+ * adapters that classify an existing mention token and need to ignore the
+ * ones inside code.
  */
 
 export type MentionReplacer = (mention: string, name: string) => string;
@@ -210,4 +214,30 @@ export function replaceBareMentions(
   replacer: MentionReplacer
 ): string {
   return replaceRange(text, 0, text.length, replacer, true);
+}
+
+/**
+ * Replace every inline code span and fenced code block with `replacement`,
+ * so a scan of the result cannot read a token inside code as a mention.
+ *
+ * Uses the same span rules as `replaceBareMentions`: an unterminated fence
+ * and an inline span that crosses a line break are plain text, not code.
+ */
+export function maskCodeSpans(text: string, replacement = " "): string {
+  let result = "";
+  let index = 0;
+  const end = text.length;
+
+  while (index < end) {
+    const codeEnd = findCodeEnd(text, index, end);
+    if (codeEnd > index) {
+      result += replacement;
+      index = codeEnd;
+      continue;
+    }
+    result += text[index];
+    index += 1;
+  }
+
+  return result;
 }

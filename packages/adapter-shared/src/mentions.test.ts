@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { replaceBareMentions } from "./mentions";
+import { maskCodeSpans, replaceBareMentions } from "./mentions";
 
 // Render a bare @name as a generic <@name> token (the Discord/Slack shape).
 const toToken = (text: string): string =>
@@ -103,5 +103,33 @@ describe("replaceBareMentions", () => {
       );
       expect(result).toBe("hey <at>alice</at>");
     });
+  });
+});
+
+describe("maskCodeSpans", () => {
+  it("masks an inline code span", () => {
+    expect(maskCodeSpans("run `<@U1> help` now")).toBe("run   now");
+  });
+
+  it("masks a fenced code block", () => {
+    expect(maskCodeSpans("see\n```\n<@U1> help\n```\nthanks")).toBe(
+      "see\n \nthanks"
+    );
+  });
+
+  it("keeps text outside code", () => {
+    expect(maskCodeSpans("<@U1> see `<@U2>`")).toBe("<@U1> see  ");
+  });
+
+  it("keeps a token after an unterminated fence", () => {
+    expect(maskCodeSpans("``` <@U1> help")).toContain("<@U1>");
+  });
+
+  it("treats an inline span that crosses a line break as plain text", () => {
+    expect(maskCodeSpans("`<@U1>\nhelp`")).toBe("`<@U1>\nhelp`");
+  });
+
+  it("uses the given replacement", () => {
+    expect(maskCodeSpans("a `b` c", "")).toBe("a  c");
   });
 });
