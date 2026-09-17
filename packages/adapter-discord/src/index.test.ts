@@ -4435,7 +4435,7 @@ describe("legacy gateway interactions", () => {
     expect(chat.handleIncomingMessage).toHaveBeenCalledWith(
       adapter,
       "discord:guild1:thread000",
-      expect.objectContaining({ isMention: false })
+      expect.objectContaining({ isMention: undefined })
     );
   });
 
@@ -4988,7 +4988,7 @@ describe("handleForwardedMessage - thread handling", () => {
       3,
       adapter,
       "discord:guild1:channel456:thread789",
-      expect.objectContaining({ isMention: false })
+      expect.objectContaining({ isMention: undefined })
     );
   });
 });
@@ -5611,7 +5611,7 @@ describe("respondToGlobalMentions handling", () => {
     expect(chat.handleIncomingMessage).toHaveBeenCalledWith(
       adapter,
       expect.any(String),
-      expect.objectContaining({ isMention: false })
+      expect.objectContaining({ isMention: undefined })
     );
 
     fetchSpy.mockRestore();
@@ -5700,7 +5700,7 @@ describe("respondToGlobalMentions handling", () => {
     expect(chat.handleIncomingMessage).toHaveBeenCalledWith(
       adapter,
       expect.any(String),
-      expect.objectContaining({ isMention: false })
+      expect.objectContaining({ isMention: undefined })
     );
 
     fetchSpy.mockRestore();

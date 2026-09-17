@@ -722,6 +722,35 @@ describe("mentionMode", () => {
     expect(message.isMention).toBe(true);
   });
 
+  it("keyword mode leaves comments without a keyword undetermined", async () => {
+    const adapter = createTestAdapter({
+      mentionMode: "keyword",
+      keywords: ["deploy"],
+    });
+    const message = await dispatchWith(
+      adapter,
+      fixtureComment({
+        rich_text: [
+          {
+            type: "text",
+            plain_text: "hey @docs-bot can you look",
+            annotations: {
+              bold: false,
+              italic: false,
+              strikethrough: false,
+              underline: false,
+              code: false,
+              color: "default",
+            },
+            text: { content: "hey @docs-bot can you look" },
+          },
+        ],
+      })
+    );
+    // Not false: the SDK still gets to match @userName in the text.
+    expect(message.isMention).toBeUndefined();
+  });
+
   it("all-comments mode treats every non-bot comment as mention", async () => {
     const adapter = createTestAdapter({ mentionMode: "all-comments" });
     const message = await dispatchWith(adapter, fixtureComment());

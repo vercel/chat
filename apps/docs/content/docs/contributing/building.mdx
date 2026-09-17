@@ -341,7 +341,7 @@ Convert the raw platform message into a normalized `Message` instance. The `auth
 
 Set `author.isMe` only when the message was sent by this adapter runtime and should be ignored by Chat SDK's handler dispatch. Do not map a platform "sent from my account" flag directly to `isMe` unless that account is the bot identity. For user-owned account adapters, keep user-authored messages as `isMe: false` and track message IDs returned by `postMessage`; if the platform echoes one of those IDs through the webhook, mark that echo as `isMe: true` and `isBot: true`.
 
-Set `isMention` only when the adapter can decide it from the platform's own metadata. Chat SDK uses the value as the mention decision: `true` and `false` are final, and only `undefined` makes it fall back to matching `@username` in `text`. Leave the field unset when the adapter has no mention information instead of reporting `false`.
+Set `isMention` only when the adapter can decide it from the platform's own metadata. Chat SDK uses the value as the mention decision: `true` and `false` are final, and only `undefined` makes it fall back to matching `@username` in `text`. Leave the field unset when the adapter has no mention information instead of reporting `false`. The one exception is direct messages: when no `onDirectMessage` handler is registered, Chat SDK marks every DM as a mention regardless of what the adapter reported.
 
 ```typescript title="src/adapter.ts" lineNumbers
 parseMessage(raw: unknown): Message<unknown> {

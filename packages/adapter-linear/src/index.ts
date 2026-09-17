@@ -2386,7 +2386,7 @@ export class LinearAdapter
       id: raw.comment.id,
       // Agent session comments directly target the bot. Ordinary comments are
       // left undetermined so the SDK can still detect an @mention in the body.
-      isMention: raw.kind === "agent_session_comment" || undefined,
+      isMention: raw.kind === "agent_session_comment" ? true : undefined,
       threadId:
         raw.kind === "agent_session_comment"
           ? this.encodeThreadId({

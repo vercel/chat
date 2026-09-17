@@ -157,6 +157,10 @@ export class Message<TRawMessage = unknown> {
    * A definitive `false` wins over text that merely looks like a mention, such
    * as `@username` inside a code sample or quoted text.
    *
+   * One exception: a direct message received while no `onDirectMessage`
+   * handler is registered is always marked `true`, whatever the adapter
+   * reported, so it routes to `onNewMention`.
+   *
    * @example
    * ```typescript
    * chat.onSubscribedMessage(async (thread, message) => {

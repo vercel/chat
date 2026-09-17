@@ -3168,7 +3168,9 @@ export class Chat<
       return;
     }
 
-    // Backward compat: treat DMs as mentions when no DM handlers registered
+    // Backward compat: treat DMs as mentions when no DM handlers registered.
+    // This is a routing rule, not a detection result, so it deliberately
+    // overrides an adapter's `false`: every DM is addressed to the bot.
     if (isDM) {
       message.isMention = true;
     }

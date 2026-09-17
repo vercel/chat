@@ -1073,7 +1073,10 @@ export class DiscordAdapter implements Adapter<DiscordThreadId, unknown> {
         })
       ),
       raw: data,
-      isMention: isMentioned,
+      // A real ping, role mention, @everyone, or allowlisted channel is a
+      // definitive mention. Otherwise leave it undetermined so the SDK can
+      // still match a literal @botname typed in the text.
+      isMention: isMentioned || undefined,
     });
 
     try {
@@ -2683,8 +2686,8 @@ export class DiscordAdapter implements Adapter<DiscordThreadId, unknown> {
         },
         timestamp: message.createdAt.toISOString(),
       },
-      // Add isMention flag for the chat handlers
-      isMention: isMentioned,
+      // Same three-state contract as the webhook path above.
+      isMention: isMentioned || undefined,
     });
 
     try {

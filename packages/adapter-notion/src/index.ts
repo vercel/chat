@@ -677,7 +677,7 @@ export class NotionAdapter
     _comment: NotionComment,
     plainText: string,
     isMe: boolean
-  ): boolean {
+  ): boolean | undefined {
     if (isMe) {
       return false;
     }
@@ -685,13 +685,16 @@ export class NotionAdapter
       case "all-comments":
         return true;
       case "keyword": {
+        // A keyword match is a definitive mention. Without one the comment is
+        // left undetermined so the SDK still matches @userName in the text.
         if (this.keywords.length === 0) {
-          return false;
+          return undefined;
         }
-        return this.keywords.some((keyword) => {
+        const matched = this.keywords.some((keyword) => {
           const pattern = new RegExp(`\\b${escapeRegExp(keyword)}\\b`, "i");
           return pattern.test(plainText);
         });
+        return matched ? true : undefined;
       }
       default: {
         // "mention" — Notion connection bots are not @-mentionable in the

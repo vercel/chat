@@ -78,7 +78,9 @@ page-content event triggers, selected-text discussion creation.
 `mentionMode`: `"mention"` | `"all-comments"` | `"keyword"`.
 Default `"mention"` matches plain-text `@userName` / `@botUserId`
 (Notion connection bots are not @-mentionable in the composer).
-`NOTION_KEYWORDS` is comma-separated when mode is `"keyword"`.
+`NOTION_KEYWORDS` is comma-separated when mode is `"keyword"`. A keyword
+match reports `true`; no match leaves `isMention` undefined so the SDK text
+fallback still applies. Only `isMe` comments report a definitive `false`.
 
 ## Where to look next
 

@@ -987,7 +987,10 @@ export class XAdapter implements Adapter<XThreadId, XRawMessage> {
       author: this.buildAuthor(post.author_id, author, isMe),
       formatted: this.formatConverter.toAst(post.text),
       id: post.id,
-      isMention: flags.isMention ?? false,
+      // Only post.mention.create events carry a mention decision. Posts
+      // rebuilt from raw or fetched by id stay undetermined so the SDK can
+      // still match @handle in the text.
+      isMention: flags.isMention,
       metadata: {
         dateSent: post.created_at ? new Date(post.created_at) : new Date(),
         edited: false,
@@ -1014,7 +1017,6 @@ export class XAdapter implements Adapter<XThreadId, XRawMessage> {
       author: this.buildAuthor(dmEvent.sender_id, sender, isMe),
       formatted: this.formatConverter.toAst(text),
       id: dmEvent.id,
-      isMention: false,
       metadata: {
         dateSent: dmTimestamp(dmEvent),
         edited: false,

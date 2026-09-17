@@ -1177,6 +1177,9 @@ describe("XAdapter", () => {
       });
       expect(message.threadId).toBe("x:post:500");
       expect(message.text).toBe("hello");
+      // No mention decision without a post.mention.create event, so the SDK
+      // text fallback still applies.
+      expect(message.isMention).toBeUndefined();
     });
 
     it("rebuilds a dm message from raw, threaded by participant", () => {

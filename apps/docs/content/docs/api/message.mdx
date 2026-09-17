@@ -59,7 +59,7 @@ import { Message } from "chat";
       type: 'LinkPreview[]',
     },
     isMention: {
-      description: 'Whether the bot was @-mentioned in this message.',
+      description: "The adapter's mention decision. `true` and `false` are final; `undefined` makes Chat SDK match `@username` in `text`. A direct message with no `onDirectMessage` handler registered is always `true`.",
       type: 'boolean | undefined',
     },
     subject: {

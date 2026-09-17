@@ -156,7 +156,7 @@ export async function POST(request: Request): Promise<Response> {
 |------|----------|
 | `"mention"` (default) | `isMention` when the comment plain text contains `@userName` or `@botUserId`. Notion connection bots are not @-mentionable in the composer, so users type the `@` token manually. |
 | `"all-comments"` | Every non-bot comment on connected pages is treated as a mention (useful for dedicated Q&A pages). |
-| `"keyword"` | `isMention` when the comment matches any configured `keywords` (case-insensitive, word-boundary). |
+| `"keyword"` | `isMention` when the comment matches any configured `keywords` (case-insensitive, word-boundary). Comments without a keyword are left undetermined, so Chat SDK still matches `@userName` in the text. |
 
 ```typescript
 createNotionAdapter({
