@@ -7,21 +7,16 @@
 
 import type { Logger } from "chat";
 import {
-  type APIChatInputApplicationCommandInteraction,
+  type APIApplicationCommandInteraction,
   type APIUser,
   type ChannelType,
-  type ComponentType,
+  ComponentType,
   type GatewayMessageCreateDispatchData,
   type GatewayMessageReactionAddDispatchData,
   type GatewayMessageReactionRemoveDispatchData,
   MessageFlags,
   type RESTPatchAPIChannelMessageJSONBody,
   type RESTPostAPIChannelMessageJSONBody,
-} from "discord-api-types/v10";
-
-export {
-  ComponentType as DiscordComponentType,
-  MessageFlags as DiscordMessageFlag,
 } from "discord-api-types/v10";
 
 /**
@@ -82,7 +77,7 @@ export interface DiscordInteractionFlagsContext {
   /** Parsed slash command name, including subcommands (e.g. "/project issue create"). */
   command: string;
   /** Raw Discord interaction payload. */
-  interaction: APIChatInputApplicationCommandInteraction;
+  interaction: APIApplicationCommandInteraction;
   /** Flattened slash command option text. */
   text: string;
   /** User who invoked the command. */
@@ -129,11 +124,52 @@ export type DiscordMessagePayload = Omit<
 > &
   Pick<RESTPatchAPIChannelMessageJSONBody, "content">;
 
-export type DiscordComponentTypeValue = ComponentType;
+/**
+ * Component types the adapter emits. Values come from `discord-api-types`;
+ * the object stays a plain `as const` map (no enum reverse mapping) so
+ * `Object.values()` only yields numbers.
+ */
+export const DiscordComponentType = {
+  ActionRow: ComponentType.ActionRow,
+  Button: ComponentType.Button,
+  StringSelect: ComponentType.StringSelect,
+  Section: ComponentType.Section,
+  TextDisplay: ComponentType.TextDisplay,
+  Thumbnail: ComponentType.Thumbnail,
+  MediaGallery: ComponentType.MediaGallery,
+  File: ComponentType.File,
+  Separator: ComponentType.Separator,
+  Container: ComponentType.Container,
+} as const;
 
-export type DiscordMessageFlagValue = MessageFlags;
+export type DiscordComponentTypeValue =
+  (typeof DiscordComponentType)[keyof typeof DiscordComponentType];
 
-export type DiscordMessageFlags = MessageFlags;
+/**
+ * Message flags the adapter reads or sets. Same shape note as
+ * `DiscordComponentType`.
+ */
+export const DiscordMessageFlag = {
+  Crossposted: MessageFlags.Crossposted,
+  IsCrosspost: MessageFlags.IsCrosspost,
+  SuppressEmbeds: MessageFlags.SuppressEmbeds,
+  SourceMessageDeleted: MessageFlags.SourceMessageDeleted,
+  Urgent: MessageFlags.Urgent,
+  HasThread: MessageFlags.HasThread,
+  Ephemeral: MessageFlags.Ephemeral,
+  Loading: MessageFlags.Loading,
+  FailedToMentionSomeRolesInThread:
+    MessageFlags.FailedToMentionSomeRolesInThread,
+  SuppressNotifications: MessageFlags.SuppressNotifications,
+  IsVoiceMessage: MessageFlags.IsVoiceMessage,
+  HasSnapshot: MessageFlags.HasSnapshot,
+  IsComponentsV2: MessageFlags.IsComponentsV2,
+} as const;
+
+export type DiscordMessageFlagValue =
+  (typeof DiscordMessageFlag)[keyof typeof DiscordMessageFlag];
+
+export type DiscordMessageFlags = DiscordMessageFlagValue;
 
 /**
  * Flags accepted on the initial deferred interaction response.
@@ -174,14 +210,20 @@ export interface DiscordForwardedEvent {
 }
 
 /**
+ * Thread the forwarder resolved for an event, so the webhook side does not
+ * have to fetch the channel again to learn its parent.
+ */
+export interface DiscordForwardedThread {
+  id: string;
+  parent_id: string;
+}
+
+/**
  * MESSAGE_CREATE dispatch data as forwarded by the Gateway listener.
  */
 export type DiscordGatewayMessageData = GatewayMessageCreateDispatchData & {
   /** Set by the forwarder when it resolved the thread the message was posted in. */
-  thread?: {
-    id: string;
-    parent_id: string;
-  };
+  thread?: DiscordForwardedThread;
 };
 
 /**
@@ -194,6 +236,8 @@ export type DiscordGatewayReactionData = (
 ) & {
   /** Set by the forwarder from its channel cache. Discord does not send it. */
   channel_type?: ChannelType;
+  /** Set by the forwarder when the reaction landed in a thread. */
+  thread?: DiscordForwardedThread;
   /** Set by the forwarder for DM reactions, where Discord sends no `member`. */
   user?: APIUser;
 };
