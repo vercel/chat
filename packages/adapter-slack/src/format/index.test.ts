@@ -208,4 +208,57 @@ describe("Slack format primitives", () => {
     expect(linkBareSlackMentions("@george")).toBe("@george");
     expect(linkBareSlackMentions("user@example.com")).toBe("user@example.com");
   });
+
+  it("leaves literal asterisks used as multiplication unchanged", () => {
+    expect(
+      slackMrkdwnToMarkdown("cost is 2 * 3 seats and 4 * 5 licenses")
+    ).toBe("cost is 2 * 3 seats and 4 * 5 licenses");
+  });
+
+  it("does not rewrite asterisks inside inline code or across its boundary", () => {
+    expect(slackMrkdwnToMarkdown("run `rm -rf *` then 5 * 3")).toBe(
+      "run `rm -rf *` then 5 * 3"
+    );
+    expect(slackMrkdwnToMarkdown("keep `*star*` literal")).toBe(
+      "keep `*star*` literal"
+    );
+  });
+
+  it("still converts Slack bold and strikethrough that Slack would render", () => {
+    expect(slackMrkdwnToMarkdown("*bold*")).toBe("**bold**");
+    expect(slackMrkdwnToMarkdown("*a* and *b c*")).toBe("**a** and **b c**");
+    expect(slackMrkdwnToMarkdown("*x*")).toBe("**x**");
+    expect(slackMrkdwnToMarkdown("~done~ and ~a b~")).toBe(
+      "~~done~~ and ~~a b~~"
+    );
+    expect(slackMrkdwnToMarkdown("space ~ not ~ strike")).toBe(
+      "space ~ not ~ strike"
+    );
+  });
+
+  it("converts mailto and tel Slack link tokens to Markdown links", () => {
+    expect(slackMrkdwnToMarkdown("mail <mailto:a@b.com|a@b.com> please")).toBe(
+      "mail [a@b.com](mailto:a@b.com) please"
+    );
+    expect(
+      slackMrkdwnToMarkdown("call <tel:+15551234567|555-123-4567> now")
+    ).toBe("call [555-123-4567](tel:+15551234567) now");
+    expect(slackMrkdwnToMarkdown("mail <mailto:a@b.com> please")).toBe(
+      "mail [a@b.com](mailto:a@b.com) please"
+    );
+    expect(slackMrkdwnToMarkdown("call <tel:+15551234567> now")).toBe(
+      "call [+15551234567](tel:+15551234567) now"
+    );
+  });
+
+  it("still converts https Slack links and ignores non-link angle tokens", () => {
+    expect(
+      slackMrkdwnToMarkdown(
+        "See <https://example.com|docs> and <https://example.com>"
+      )
+    ).toBe("See [docs](https://example.com) and https://example.com");
+    expect(slackMrkdwnToMarkdown("nope <javascript:alert(1)|x>")).toBe(
+      "nope <javascript:alert(1)|x>"
+    );
+  });
 });

@@ -134,14 +134,64 @@ function convertSlackTokens(mrkdwn: string): string {
   );
   markdown = markdown.replace(/<(https?:\/\/[^|<>]+)\|([^<>]+)>/g, "[$2]($1)");
   markdown = markdown.replace(/<(https?:\/\/[^<>]+)>/g, "$1");
+  // Slack auto-links emails and phone numbers with the same <target|label>
+  // token shape as http(s); convert them before CommonMark sees the raw
+  // <mailto:...|...> / <tel:...|...> form as a poisoned autolink URL.
+  markdown = markdown.replace(
+    /<((?:mailto|tel):[^|<>]+)\|([^<>]+)>/g,
+    "[$2]($1)"
+  );
+  markdown = markdown.replace(/<((?:mailto|tel):([^|<>]+))>/g, "[$2]($1)");
   return markdown;
 }
 
 function convertMrkdwnText(mrkdwn: string): string {
-  let markdown = convertSlackTokens(mrkdwn);
-  markdown = markdown.replace(/(?<![_*\\])\*([^*\n]+)\*(?![_*])/g, "**$1**");
-  markdown = markdown.replace(/(?<!~)~([^~\n]+)~(?!~)/g, "~~$1~~");
+  return applyEmphasisOutsideInlineCode(convertSlackTokens(mrkdwn));
+}
+
+/**
+ * Slack bold/strikethrough only wraps when a non-space character sits
+ * directly inside each marker. The previous `[^*\n]+` form also matched
+ * multiplication (`2 * 3`) and crossed into inline code spans.
+ */
+function applyEmphasis(text: string): string {
+  let markdown = text.replace(
+    /(?<![_*\\])\*(\S(?:[^*\n]*\S)?)\*(?![_*])/g,
+    "**$1**"
+  );
+  markdown = markdown.replace(/(?<!~)~(\S(?:[^~\n]*\S)?)~(?!~)/g, "~~$1~~");
   return markdown;
+}
+
+function applyEmphasisOutsideInlineCode(text: string): string {
+  let result = "";
+  let cursor = 0;
+  let segmentStart = 0;
+
+  while (cursor < text.length) {
+    if (text[cursor] !== "`") {
+      cursor += 1;
+      continue;
+    }
+    if (text.startsWith(CODE_FENCE, cursor)) {
+      // Unpaired fences stay in the emphasis segment; paired fences are
+      // peeled off upstream by convertMrkdwnWithCodeFences.
+      cursor += CODE_FENCE.length;
+      continue;
+    }
+    const spanEnd = findInlineCodeEnd(text, cursor);
+    if (spanEnd === -1) {
+      cursor += 1;
+      continue;
+    }
+    result += applyEmphasis(text.slice(segmentStart, cursor));
+    result += text.slice(cursor, spanEnd);
+    segmentStart = spanEnd;
+    cursor = spanEnd;
+  }
+
+  result += applyEmphasis(text.slice(segmentStart));
+  return result;
 }
 
 /**
