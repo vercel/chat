@@ -173,6 +173,9 @@ export const CLI_SCAFFOLD_SPEC = {
   gchat: {
     invocation: { kind: "zero-arg" },
   },
+  gmail: {
+    invocation: { kind: "zero-arg" },
+  },
   github: {
     connect: {
       connectorEnvVar: "GITHUB_CONNECTOR",

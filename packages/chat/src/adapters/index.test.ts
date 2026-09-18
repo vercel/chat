@@ -21,6 +21,7 @@ const OFFICIAL_ENV_PACKAGE_DIRS = [
   "adapter-discord",
   "adapter-gchat",
   "adapter-github",
+  "adapter-gmail",
   "adapter-instagram",
   "adapter-linear",
   "adapter-messenger",

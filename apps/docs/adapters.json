@@ -30,6 +30,16 @@
     "readme": "https://github.com/vercel/chat/tree/main/packages/adapter-gchat"
   },
   {
+    "name": "Gmail",
+    "slug": "gmail",
+    "type": "platform",
+    "description": "Receive labelled emails and send threaded replies, or use standalone Gmail APIs without the Chat runtime.",
+    "packageName": "@chat-adapter/gmail",
+    "icon": "gmail",
+    "beta": true,
+    "readme": "https://github.com/vercel/chat/tree/main/packages/adapter-gmail"
+  },
+  {
     "name": "Discord",
     "slug": "discord",
     "type": "platform",

@@ -323,6 +323,58 @@ export const ADAPTERS = {
     slug: "github",
     type: "platform",
   },
+  gmail: {
+    description:
+      "Receive labelled emails and send threaded replies, or use standalone Gmail APIs without the Chat runtime.",
+    env: {
+      config: ["fetch", "logger", "webhookVerifier"],
+      credentialModes: [
+        {
+          label: "OAuth refresh credentials",
+          vars: [
+            env("GMAIL_CLIENT_ID", "Google OAuth client ID."),
+            secretEnv("GMAIL_CLIENT_SECRET", "Google OAuth client secret."),
+            secretEnv("GMAIL_REFRESH_TOKEN", "Mailbox user's refresh token."),
+          ],
+        },
+        {
+          label: "Access token",
+          vars: [
+            secretEnv("GMAIL_ACCESS_TOKEN", "Mailbox user's access token."),
+          ],
+        },
+      ],
+      required: [
+        env("GMAIL_MAILBOX", "Mailbox email address, not me."),
+        env("GMAIL_LABEL_ID", "Intake label ID, not its display name."),
+        env("GMAIL_SUBSCRIPTION", "Expected full Pub/Sub subscription name."),
+        urlEnv("GMAIL_PUBSUB_AUDIENCE", "Expected push JWT audience."),
+        env(
+          "GMAIL_PUBSUB_SERVICE_ACCOUNT_EMAIL",
+          "Push authentication service account email."
+        ),
+      ],
+      optional: [
+        env(
+          "GMAIL_TOPIC_NAME",
+          "Full Pub/Sub topic name for watch registration."
+        ),
+        env(
+          "GMAIL_REPLY_ALL",
+          "Set to true to include original To and Cc recipients."
+        ),
+      ],
+      notes:
+        "A custom webhookVerifier replaces Pub/Sub JWT verification; audience and service account email are then optional. Deploy the webhook before calling watch(), renew daily and schedule periodic sync() with shared persistent state. The intake label is not an OAuth access boundary.",
+    },
+    factoryExport: "createGmailAdapter",
+    group: "official",
+    name: "Gmail",
+    packageName: "@chat-adapter/gmail",
+    peerDeps: ["html-to-text", "jose", "mimetext", "postal-mime", "zod"],
+    slug: "gmail",
+    type: "platform",
+  },
   gchat: {
     description:
       "Integrate with Google Chat spaces for team collaboration and automated workflows.",
