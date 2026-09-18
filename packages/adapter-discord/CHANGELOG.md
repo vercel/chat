@@ -1,5 +1,44 @@
 # @chat-adapter/discord
 
+## 4.41.0
+
+### Minor Changes
+
+- 61b98fc: Update `discord-api-types` from 0.37 to 0.38 and use its types for every Discord payload instead of hand-written copies. `DiscordComponentType` and `DiscordMessageFlag` keep their plain `as const` shape and member set; their values now come from `ComponentType` and `MessageFlags`.
+  
+  Type changes for TypeScript consumers of `DiscordInteractionFlagsContext`: `interaction` is now `APIApplicationCommandInteraction` and `user` is `APIUser`, so `user.avatar` and `user.global_name` are `string | null` instead of optional strings. Context menu commands continue to reach `onSlashCommand` under their command name.
+  
+  Gateway forwarding fixes for reactions: the forwarder now sets `channel_type`, the resolved `thread` for reactions posted in threads, and the reacting `user` for DM reactions, so the webhook side resolves threads and DM reactors without a second channel lookup. Events for the same channel are forwarded in the order the Gateway delivered them, so a quick add-then-remove no longer races. Failed channel or user lookups during forwarding are logged at warn instead of being dropped silently.
+  
+  Legacy Gateway mode no longer fails slash commands and button clicks in channels discord.js has not cached (for example a first DM); the handlers fall back to `channel_id` as before.
+
+### Patch Changes
+
+- fcdc1c9: Honor an adapter's definitive `isMention: false` instead of re-detecting mentions from the message text.
+  
+  An adapter that reads structured platform content reports `true` or `false`, and the SDK falls back to matching `@username` in the text only when the adapter reports nothing. A definitive `false` now wins, so an adapter can suppress a mention that exists only in text its platform renders literally, such as a code sample. Adapters that previously returned `false` to mean "not detected" should return `undefined` instead. Direct messages are unchanged: with no `onDirectMessage` handler registered they still route to `onNewMention`.
+  
+  Adapter changes that follow from the new contract:
+  
+  - Linear: ordinary comments are left undetermined, so SDK text detection still applies to them.
+  - Notion: `keyword` mode leaves comments without a keyword match undetermined instead of reporting `false`, so `@userName` in the text still counts.
+  - X: posts rebuilt from raw or fetched by id are left undetermined instead of reporting `false`. Only `post.mention.create` events report `true`.
+  - Discord: a real ping, role mention, `@everyone`, or allowlisted channel reports `true`; anything else is left undetermined instead of `false`, so a literal `@botname` typed in the text still counts as before.
+- Updated dependencies [f233ffe]
+- Updated dependencies [6adca36]
+- Updated dependencies [ad90432]
+- Updated dependencies [683eadc]
+- Updated dependencies [dc2a777]
+- Updated dependencies [139d337]
+- Updated dependencies [2e2426d]
+- Updated dependencies [8421953]
+- Updated dependencies [91683e5]
+- Updated dependencies [056d883]
+- Updated dependencies [c21ccbc]
+- Updated dependencies [fcdc1c9]
+  - chat@4.41.0
+  - @chat-adapter/shared@4.41.0
+
 ## 4.40.0
 
 ### Patch Changes

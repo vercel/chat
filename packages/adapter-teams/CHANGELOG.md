@@ -1,5 +1,43 @@
 # @chat-adapter/teams
 
+## 4.41.0
+
+### Minor Changes
+
+- 139d337: Support Vercel Connect in the Teams adapter with lazy app identity resolution and custom webhook verification. Ensure custom Bot Framework and Graph token factories take precedence over client-secret environment variables.
+  
+  Add Teams to `create-chat-sdk --connect` and interactive Connect scaffolding, including the helper, connector environment variable, and setup documentation.
+- 2e2426d: Add `onInstalled` and `onUninstalled` handlers for installation lifecycle events. The Teams adapter emits them for `installationUpdate` activities, including the `add-upgrade` and `remove-upgrade` actions, with a persistable `channelId` for later proactive messages.
+  
+  The Teams adapter now sends, edits, deletes, reacts, and types against the service URL encoded in the thread ID instead of the app-wide default, so conversations hosted on regional or sovereign Bot Framework endpoints are reached correctly. An explicit `apiUrl` still pins every call to that endpoint.
+- 8421953: feat(teams): render tables as the Adaptive Card 1.5 Table element
+  
+  The Teams adapter now renders `Table` as the native Adaptive Cards `Table` element instead of a `Container` of `ColumnSet`s. Teams draws grid lines between cells, sizes columns by relative weight and marks the header row for accessibility. The `@chat-adapter/teams/cards` subpath emits the same element.
+  
+  `Table` gains optional rendering options that only Teams reads: `widths` (positive integer column weights), `verticalAlign` (vertical alignment of cell content), `gridLines` (default `true`) and `gridStyle`. Other adapters ignore them. Pass `gridLines: false` to keep a borderless table.
+  
+  The chat JSX runtime now forwards `align` on `<Table>`, matching `fromReactElement`.
+
+### Patch Changes
+
+- 8508903: Edit and delete Microsoft Teams targeted messages through the `?isTargetedActivity=true` endpoint, so a message sent with `postEphemeral` can be updated or removed instead of failing with `400 Bad argument`. The ids sent targeted are recorded in the Chat state adapter with a 24-hour TTL, matching how long Teams keeps a targeted message.
+- 91683e5: Wait for Telegram polling handlers to settle before advancing update offsets.
+- c21ccbc: Add an opt-in webhook option to propagate message, action, and slash command handler errors through `waitUntil` while preserving default behavior.
+- Updated dependencies [f233ffe]
+- Updated dependencies [6adca36]
+- Updated dependencies [ad90432]
+- Updated dependencies [683eadc]
+- Updated dependencies [dc2a777]
+- Updated dependencies [139d337]
+- Updated dependencies [2e2426d]
+- Updated dependencies [8421953]
+- Updated dependencies [91683e5]
+- Updated dependencies [056d883]
+- Updated dependencies [c21ccbc]
+- Updated dependencies [fcdc1c9]
+  - chat@4.41.0
+  - @chat-adapter/shared@4.41.0
+
 ## 4.40.0
 
 ### Minor Changes

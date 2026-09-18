@@ -1,5 +1,25 @@
 # @chat-adapter/gchat
 
+## 4.41.0
+
+### Patch Changes
+
+- d634346: `editMessage`, `deleteMessage`, `addReaction`, and `removeReaction` now require the message id to be a well-formed `spaces/{space}/messages/{message}` resource name in the thread's space before calling the Google Chat API. Message ids identify a message on their own, so a permitted thread id could previously be paired with a message from another space, including names that only resolved there after path normalization. The adapter also gains `fetchMessage()`, which returns a message with the thread Google reports for it.
+- Updated dependencies [f233ffe]
+- Updated dependencies [6adca36]
+- Updated dependencies [ad90432]
+- Updated dependencies [683eadc]
+- Updated dependencies [dc2a777]
+- Updated dependencies [139d337]
+- Updated dependencies [2e2426d]
+- Updated dependencies [8421953]
+- Updated dependencies [91683e5]
+- Updated dependencies [056d883]
+- Updated dependencies [c21ccbc]
+- Updated dependencies [fcdc1c9]
+  - chat@4.41.0
+  - @chat-adapter/shared@4.41.0
+
 ## 4.40.0
 
 ### Minor Changes

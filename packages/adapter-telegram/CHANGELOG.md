@@ -1,5 +1,26 @@
 # @chat-adapter/telegram
 
+## 4.41.0
+
+### Patch Changes
+
+- f893470: Stop cutting Telegram MarkdownV2 messages and captions at a backtick inside a link destination. Messages that fit the length limit now ship exactly as rendered, and a length cut that lands inside a link, code span, or underline now removes the incomplete entity before the ellipsis.
+- 91683e5: Wait for Telegram polling handlers to settle before advancing update offsets.
+- Updated dependencies [f233ffe]
+- Updated dependencies [6adca36]
+- Updated dependencies [ad90432]
+- Updated dependencies [683eadc]
+- Updated dependencies [dc2a777]
+- Updated dependencies [139d337]
+- Updated dependencies [2e2426d]
+- Updated dependencies [8421953]
+- Updated dependencies [91683e5]
+- Updated dependencies [056d883]
+- Updated dependencies [c21ccbc]
+- Updated dependencies [fcdc1c9]
+  - chat@4.41.0
+  - @chat-adapter/shared@4.41.0
+
 ## 4.40.0
 
 ### Minor Changes

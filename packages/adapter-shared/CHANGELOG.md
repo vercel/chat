@@ -1,5 +1,23 @@
 # @chat-adapter/shared
 
+## 4.41.0
+
+### Patch Changes
+
+- 6adca36: Enforce the guarded download deadline inside `downloadAttachment` itself, for both the wait for response headers and the body read. A late response is destroyed, so the timeout holds even when a custom transport ignores the supplied signal.
+- 683eadc: Add `maskCodeSpans`, which blanks inline code spans and fenced code blocks using the same scanner as `replaceBareMentions`, so adapters can classify a mention token while ignoring the ones inside code.
+- Updated dependencies [f233ffe]
+- Updated dependencies [ad90432]
+- Updated dependencies [dc2a777]
+- Updated dependencies [139d337]
+- Updated dependencies [2e2426d]
+- Updated dependencies [8421953]
+- Updated dependencies [91683e5]
+- Updated dependencies [056d883]
+- Updated dependencies [c21ccbc]
+- Updated dependencies [fcdc1c9]
+  - chat@4.41.0
+
 ## 4.40.0
 
 ### Patch Changes
