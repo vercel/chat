@@ -40,7 +40,9 @@ features:
   mentions: no
   addReactions: no
   removeReactions: no
-  typingIndicator: no
+  typingIndicator:
+    status: partial
+    label: WhatsApp + RCS
   messageUpdatedEvents: no
   messageDeletedEvents: no
   directMessages: yes
@@ -226,6 +228,20 @@ await thread.post({
 
 Over RCS, this renders as a rich card with tappable buttons. Over SMS, it falls back to plain text.
 
+## Typing indicators
+
+WhatsApp and RCS support typing indicators through `thread.startTyping()` or `adapter.startTyping(threadId)`. Twilio uses one endpoint with different JSON per channel: WhatsApp needs `{ channel: "WHATSAPP", messageId }` (the latest inbound Message SID), and RCS needs `{ channel: "RCS", from, to, event: "START" }` with `rcs:` addresses.
+
+```typescript title="typing.ts" lineNumbers
+await thread.startTyping();
+
+await thread.post({
+  markdown: "Thanks, I am checking that now.",
+});
+```
+
+Custom status text is ignored. WhatsApp shows the indicator for up to 25 seconds or until the reply is delivered; RCS up to 20 seconds. SMS has no typing API, so `startTyping()` is a no-op — including SMS threads keyed by a Messaging Service SID. For RCS threads keyed by `MG…`, set `rcsSenderId`.
+
 ## Media
 
 Inbound MMS media is exposed as message attachments. Twilio media URLs are not treated as public files, so each attachment includes `fetchData()` and `fetchMetadata` for authenticated downloads and queue rehydration.
@@ -304,7 +320,7 @@ For live calls, `updateTwilioCall()` in `@chat-adapter/twilio/api` can post repl
 
 ### Notes
 
-- Twilio does not support message edits, reactions, modals, or typing indicators for SMS.
+- Twilio does not support message edits, reactions, or modals. Typing indicators work on WhatsApp and RCS; SMS/MMS has no typing API.
 - Cards render as rich RCS content when the sender is a Messaging Service (`MG…`) or RCS address; otherwise they fall back to plain text.
 - RCS read receipts (`EventType=READ`) are parsed and logged but not surfaced to Chat SDK handlers (no delivery API exists today).
 - `fetchMessages` uses the Messages API and is best for phone-number based threads. Messaging Service history can be less precise because inbound webhooks identify the receiving phone number, not only the Messaging Service SID.
