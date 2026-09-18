@@ -8,9 +8,23 @@ Gmail primitives and an optional Chat SDK adapter for authenticated mailbox noti
 
 Documentation: [Gmail adapter](https://chat-sdk.dev/adapters/official/gmail) | Guides: [Chat SDK](https://vercel.com/kb/chat-sdk)
 
-## setup
+## Installation
 
-Install `@chat-adapter/gmail` and follow the [Gmail guide](https://chat-sdk.dev/adapters/official/gmail) for OAuth, authenticated Pub/Sub delivery and watch renewal. The standalone APIs do not require a Chat instance; the root adapter also needs persistent state and an intake label.
+```bash
+pnpm add @chat-adapter/gmail
+```
+
+## Scaffold with the CLI
+
+To scaffold a new Gmail bot with this adapter and Redis state preselected:
+
+```bash
+npx create-chat-sdk@latest my-bot --adapter gmail redis
+```
+
+Visit the [adapters directory](https://chat-sdk.dev/adapters) to see other available official and vendor-official adapters.
+
+Follow the [Gmail guide](https://chat-sdk.dev/adapters/official/gmail) for OAuth, authenticated Pub/Sub delivery and watch renewal. The standalone APIs do not require a Chat instance; the root adapter also needs persistent state and an intake label.
 
 ## import boundaries
 
