@@ -221,6 +221,22 @@ Radio button group for mutually exclusive choices.
 </Actions>
 ```
 
+### TextInput
+
+A text box on the card itself, so a reply can be typed without opening a [modal](/docs/modals). Rendered by Teams only. Slack, Google Chat, Discord, GitHub and Linear show the label as text; WhatsApp, Messenger, Twilio and X omit the input entirely, so do not make it the only thing a card says.
+
+```tsx title="lib/bot.tsx" lineNumbers
+<Card title="Deploy to production?">
+  <TextInput id="notes" label="Notes" multiline optional placeholder="Anything to flag?" />
+  <Actions>
+    <Button id="approve" style="primary">Approve</Button>
+    <Button id="decline" style="danger">Decline</Button>
+  </Actions>
+</Card>
+```
+
+What was typed arrives on the action as [`event.values`](/docs/actions), keyed by input id. Teams validates every input on the card before it lets any button through, so mark an input `optional` unless the buttons beside it should be blocked until it is filled. That validation is enforced by the Teams client, so treat `event.values` as user input and validate it in the handler too. Pair the input with a `Button` — the box has nothing to submit on its own.
+
 ### Table
 
 Structured data display with column headers and rows. Renders as a native table on platforms that support it (Slack, Teams, GitHub, Linear), as GFM markdown in Discord card payloads, and as padded ASCII text elsewhere.

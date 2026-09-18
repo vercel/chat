@@ -18,6 +18,7 @@ import {
   Text,
 } from "./cards";
 import { isJSX, toCardElement } from "./jsx-runtime";
+import { TextInput } from "./modals";
 
 describe("chat-sdk JSX runtime with actual JSX syntax", () => {
   describe("simple elements", () => {
@@ -361,6 +362,43 @@ describe("chat-sdk JSX runtime with actual JSX syntax", () => {
         verticalAlign: "top",
         gridLines: false,
         gridStyle: "accent",
+      });
+    });
+  });
+
+  describe("TextInput on a card", () => {
+    it("resolves as a card child", () => {
+      const element = (
+        <Card title="Feedback">
+          <Text>What should change?</Text>
+          <TextInput id="notes" label="Notes" multiline placeholder="Type..." />
+        </Card>
+      );
+      const result = toCardElement(element);
+
+      expect(result?.children).toHaveLength(2);
+      expect(result?.children[1]).toMatchObject({
+        type: "text_input",
+        id: "notes",
+        label: "Notes",
+        multiline: true,
+        placeholder: "Type...",
+      });
+    });
+
+    it("resolves inside a section", () => {
+      const element = (
+        <Card>
+          <Section>
+            <TextInput id="notes" label="Notes" />
+          </Section>
+        </Card>
+      );
+      const result = toCardElement(element);
+
+      expect(result?.children[0]).toMatchObject({
+        type: "section",
+        children: [{ type: "text_input", id: "notes", label: "Notes" }],
       });
     });
   });
