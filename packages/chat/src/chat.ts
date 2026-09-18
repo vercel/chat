@@ -2605,12 +2605,43 @@ export class Chat<
       this._concurrencyConfig;
 
     // Try to acquire lock
-    const lock = await this._stateAdapter.acquireLock(
+    let lock = await this._stateAdapter.acquireLock(
       lockKey,
       DEFAULT_LOCK_TTL_MS
     );
 
-    if (!lock) {
+    if (lock) {
+      this.logger.debug("Lock acquired", {
+        threadId,
+        lockKey,
+        token: lock.token,
+      });
+
+      await this.withHeldLock(lock, threadId, lockKey, async (heartbeat) => {
+        if (strategy === "queue") {
+          await this.dispatchToHandlers(adapter, threadId, message);
+          await this.drainQueue(heartbeat, adapter, lockKey);
+          return;
+        }
+
+        await this._stateAdapter.enqueue(
+          lockKey,
+          {
+            message,
+            enqueuedAt: Date.now(),
+            expiresAt: Date.now() + queueEntryTtlMs,
+          },
+          maxQueueSize
+        );
+        this.logger.info("message-debouncing", {
+          threadId,
+          lockKey,
+          messageId: message.id,
+          debounceMs,
+        });
+        await this.processQueuedStrategy(heartbeat, adapter, lockKey, strategy);
+      });
+    } else {
       // Lock is busy — enqueue this message for later processing
       const effectiveMaxSize = maxQueueSize;
       const depth = await this._stateAdapter.queueDepth(lockKey);
@@ -2648,59 +2679,87 @@ export class Chat<
           queueDepth: Math.min(depth + 1, effectiveMaxSize),
         }
       );
-      return;
+
+      // The holder may have released after its last empty dequeue but before
+      // our enqueue landed. If it still holds the lock, its post-release
+      // check drains our entry instead.
+      lock = await this._stateAdapter.acquireLock(lockKey, DEFAULT_LOCK_TTL_MS);
+      if (!lock) {
+        return;
+      }
+
+      this.logger.debug("Lock acquired after enqueue", {
+        threadId,
+        lockKey,
+        messageId: message.id,
+        token: lock.token,
+      });
+
+      await this.withHeldLock(lock, threadId, lockKey, (heartbeat) =>
+        this.processQueuedStrategy(heartbeat, adapter, lockKey, strategy)
+      );
     }
 
-    // We hold the lock
-    this.logger.debug("Lock acquired", {
+    await this.drainEntriesQueuedDuringRelease(
+      adapter,
       threadId,
       lockKey,
-      token: lock.token,
-    });
+      strategy
+    );
+  }
 
-    await this.withHeldLock(lock, threadId, lockKey, async (heartbeat) => {
-      if (strategy === "debounce") {
-        // Debounce: enqueue our own message and enter the debounce loop
-        await this._stateAdapter.enqueue(
-          lockKey,
-          {
-            message,
-            enqueuedAt: Date.now(),
-            expiresAt: Date.now() + queueEntryTtlMs,
-          },
-          maxQueueSize
-        );
-        this.logger.info("message-debouncing", {
-          threadId,
-          lockKey,
-          messageId: message.id,
-          debounceMs,
-        });
-        await this.debounceLoop(heartbeat, adapter, lockKey);
-      } else if (strategy === "burst") {
-        await this._stateAdapter.enqueue(
-          lockKey,
-          {
-            message,
-            enqueuedAt: Date.now(),
-            expiresAt: Date.now() + queueEntryTtlMs,
-          },
-          maxQueueSize
-        );
-        this.logger.info("message-debouncing", {
-          threadId,
-          lockKey,
-          messageId: message.id,
-          debounceMs,
-        });
-        await sleep(debounceMs);
-        await this.drainQueue(heartbeat, adapter, lockKey);
-      } else {
-        // Queue: process our message immediately, then drain any queued messages
-        await this.dispatchToHandlers(adapter, threadId, message);
-        await this.drainQueue(heartbeat, adapter, lockKey);
+  /** Expects the triggering message to be enqueued already. */
+  private async processQueuedStrategy(
+    heartbeat: LockHeartbeat,
+    adapter: Adapter,
+    lockKey: string,
+    strategy: "queue" | "debounce" | "burst"
+  ): Promise<void> {
+    if (strategy === "debounce") {
+      await this.debounceLoop(heartbeat, adapter, lockKey);
+      return;
+    }
+    if (strategy === "burst") {
+      await sleep(this._concurrencyConfig.debounceMs);
+    }
+    await this.drainQueue(heartbeat, adapter, lockKey);
+  }
+
+  /**
+   * An entry enqueued between our last empty dequeue and the lock release
+   * has no one to drain it. Stop once another instance holds the lock,
+   * because it runs this same check after releasing.
+   */
+  private async drainEntriesQueuedDuringRelease(
+    adapter: Adapter,
+    threadId: string,
+    lockKey: string,
+    strategy: "queue" | "debounce" | "burst"
+  ): Promise<void> {
+    while (true) {
+      const depth = await this._stateAdapter.queueDepth(lockKey);
+      if (depth === 0) {
+        return;
       }
-    });
+      const lock = await this._stateAdapter.acquireLock(
+        lockKey,
+        DEFAULT_LOCK_TTL_MS
+      );
+      if (!lock) {
+        return;
+      }
+
+      this.logger.debug("Re-draining queue after lock release", {
+        threadId,
+        lockKey,
+        queueDepth: depth,
+        token: lock.token,
+      });
+
+      await this.withHeldLock(lock, threadId, lockKey, (heartbeat) =>
+        this.processQueuedStrategy(heartbeat, adapter, lockKey, strategy)
+      );
+    }
   }
 
   /**
