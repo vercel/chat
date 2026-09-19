@@ -2062,6 +2062,47 @@ describe("TeamsAdapter", () => {
       expect(user?.userName).toBe("bob@contoso.com");
     });
 
+    it("should look up the user in the tenant cached for them", async () => {
+      const adapter = new TeamsAdapter({
+        appId: "test",
+        appPassword: "test",
+        logger,
+      });
+
+      const state = createMockState();
+      state.cache.set("teams:aadObjectId:29:user-123", "aad-object-id-456");
+      state.cache.set("teams:tenantId:29:user-123", "tenant-b");
+      const mockChat = createMockChatInstance({ state });
+
+      const mockApp = (
+        adapter as unknown as {
+          app: {
+            initialize: ReturnType<typeof vi.fn>;
+            graph: { call: ReturnType<typeof vi.fn> };
+            graphFor: ReturnType<typeof vi.fn>;
+          };
+        }
+      ).app;
+      mockApp.initialize = vi.fn(async () => undefined);
+      mockApp.graph = { call: vi.fn() };
+      const tenantGraph = {
+        call: vi.fn(async () => ({
+          displayName: "Carol Tenant",
+          mail: "carol@fabrikam.com",
+          userPrincipalName: "carol@fabrikam.com",
+          id: "aad-object-id-456",
+        })),
+      };
+      mockApp.graphFor = vi.fn(() => tenantGraph);
+
+      await adapter.initialize(mockChat);
+
+      const user = await adapter.getUser("29:user-123");
+      expect(mockApp.graphFor).toHaveBeenCalledWith("tenant-b");
+      expect(mockApp.graph.call).not.toHaveBeenCalled();
+      expect(user?.email).toBe("carol@fabrikam.com");
+    });
+
     it("should return null when adapter is not initialized", async () => {
       const adapter = new TeamsAdapter({
         appId: "test",
