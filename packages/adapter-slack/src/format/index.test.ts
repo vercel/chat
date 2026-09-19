@@ -95,6 +95,14 @@ describe("Slack format primitives", () => {
     );
   });
 
+  it("normalizes special mentions and user groups", () => {
+    expect(
+      slackMrkdwnToMarkdown(
+        "<!here> <!channel> <!everyone|everyone> <!subteam^S123|@devs> <!subteam^S456>"
+      )
+    ).toBe("@here @channel @everyone @devs @S456");
+  });
+
   it("normalizes Slack code fences for CommonMark parsing", () => {
     expect(slackMrkdwnToMarkdown("```first line\nsecond line\n```")).toBe(
       "```\nfirst line\nsecond line\n```"

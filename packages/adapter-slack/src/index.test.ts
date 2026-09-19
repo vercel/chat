@@ -1235,6 +1235,21 @@ describe("parseMessage", () => {
     expect(message.author.isMe).toBe(false);
   });
 
+  it("converts special mentions to readable text", () => {
+    const message = adapter.parseMessage({
+      type: "message",
+      user: "U123",
+      channel: "C456",
+      text: "<!here> and <!subteam^S0123456789|@devs>",
+      ts: "1234567890.123456",
+    });
+
+    expect(message.text).toBe("@here and @devs");
+    expect(message.formatted.children.map((node) => node.type)).toEqual([
+      "paragraph",
+    ]);
+  });
+
   it("parses a bot message", () => {
     const event = {
       type: "message",
@@ -1626,7 +1641,7 @@ describe("parseMessage", () => {
     });
 
     // Cell tokens are rendered by the same mrkdwn converter as body text
-    expect(message.text).toBe("#C789 <!subteam^S789> July 11 #ff0000");
+    expect(message.text).toBe("#C789 @S789 July 11 #ff0000");
   });
 
   it("formats date cells from the timestamp when no fallback is present", () => {
