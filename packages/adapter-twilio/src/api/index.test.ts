@@ -7,6 +7,7 @@ import {
   fetchTwilioMessage,
   listTwilioMessages,
   sendTwilioMessage,
+  sendTwilioTypingIndicator,
   TwilioApiError,
   updateTwilioCall,
 } from "./index";
@@ -211,6 +212,91 @@ describe("Twilio api helpers", () => {
     expect(accountSid).not.toHaveBeenCalled();
     expect(authToken).not.toHaveBeenCalled();
     expect(request).not.toHaveBeenCalled();
+  });
+
+  it("sends typing indicators as JSON to the messaging API", async () => {
+    const request = mockFetch({ success: true });
+
+    const result = await sendTwilioTypingIndicator({
+      channel: "WHATSAPP",
+      credentials: credentials(),
+      fetch: request,
+      messageId: "SM123",
+    });
+
+    expect(result).toEqual({ success: true });
+    expect(String(request.mock.calls[0]?.[0])).toBe(
+      "https://messaging.twilio.com/v3/Indicators/Typing.json"
+    );
+    expect(request.mock.calls[0]?.[1]).toEqual(
+      expect.objectContaining({
+        body: JSON.stringify({
+          channel: "WHATSAPP",
+          messageId: "SM123",
+        }),
+        headers: {
+          authorization: "Basic QUMxMjM6dG9rZW4=",
+          "content-type": "application/json",
+        },
+        method: "POST",
+      })
+    );
+  });
+
+  it("sends an RCS typing body without messageId", async () => {
+    const request = mockFetch({ success: true });
+
+    await sendTwilioTypingIndicator({
+      channel: "RCS",
+      credentials: credentials(),
+      event: "START",
+      fetch: request,
+      from: "rcs:brand_agent",
+      to: "rcs:+15550000002",
+    });
+
+    expect(String(request.mock.calls[0]?.[0])).toBe(
+      "https://messaging.twilio.com/v3/Indicators/Typing.json"
+    );
+    expect(JSON.parse(String(request.mock.calls[0]?.[1]?.body))).toEqual({
+      channel: "RCS",
+      event: "START",
+      from: "rcs:brand_agent",
+      to: "rcs:+15550000002",
+    });
+  });
+
+  it("includes Twilio error details on typing indicator HTTP failures", async () => {
+    const request = mockFetch(
+      {
+        code: 20422,
+        message:
+          "the specified message cannot be used to send a typing indicator",
+      },
+      400
+    );
+
+    await expect(
+      sendTwilioTypingIndicator({
+        credentials: credentials(),
+        fetch: request,
+        messageId: "SMoutbound",
+      })
+    ).rejects.toThrow(
+      "Twilio API returned HTTP 400: 20422 the specified message cannot be used to send a typing indicator"
+    );
+  });
+
+  it("throws TwilioApiError when typing indicator success is false", async () => {
+    const request = mockFetch({ success: false });
+
+    await expect(
+      sendTwilioTypingIndicator({
+        credentials: credentials(),
+        fetch: request,
+        messageId: "SM123",
+      })
+    ).rejects.toBeInstanceOf(TwilioApiError);
   });
 
   it("throws TwilioApiError for non-ok responses", async () => {

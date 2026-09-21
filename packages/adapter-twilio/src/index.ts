@@ -18,13 +18,19 @@ import type {
   UserInfo,
   WebhookOptions,
 } from "chat";
-import { ConsoleLogger, Message, NotImplementedError } from "chat";
+import {
+  ConsoleLogger,
+  Message,
+  NotImplementedError,
+  ThreadHistoryCache,
+} from "chat";
 import {
   deleteTwilioMessage,
   fetchTwilioMedia,
   fetchTwilioMessage,
   listTwilioMessages,
   sendTwilioMessage,
+  sendTwilioTypingIndicator,
   type TwilioApiOptions,
   type TwilioMessageResource,
 } from "./api";
@@ -36,7 +42,9 @@ import {
   TWILIO_EMPTY_CARD_FALLBACK,
 } from "./cards";
 import {
+  isRcsAddress,
   isRcsCapableSender,
+  isWhatsAppAddress,
   normalizeRcsSenderId,
   resolveInboundThreadSender,
 } from "./channel";
@@ -300,7 +308,47 @@ export class TwilioAdapter
     );
   }
 
-  async startTyping(): Promise<void> {}
+  async startTyping(threadId: string, _status?: string): Promise<void> {
+    const thread = this.decodeThreadId(threadId);
+    if (
+      isWhatsAppAddress(thread.sender) ||
+      isWhatsAppAddress(thread.recipient)
+    ) {
+      const messageId = await this.latestInboundMessageId(threadId);
+      if (!messageId) {
+        return;
+      }
+      await sendTwilioTypingIndicator({
+        ...this.apiOptions(),
+        channel: "WHATSAPP",
+        messageId,
+      });
+      return;
+    }
+    let from = thread.sender;
+    if (!isRcsAddress(from) && this.rcsSenderId) {
+      from = normalizeRcsSenderId(this.rcsSenderId);
+    }
+    // MG senders can be SMS or RCS. Only POST when `from` is a real RCS
+    // agent id so SMS threads keyed by a Messaging Service stay a no-op.
+    if (!isRcsAddress(from)) {
+      return;
+    }
+    let to = thread.recipient;
+    if (!isRcsAddress(to) && to.startsWith("+")) {
+      to = `rcs:${to}`;
+    }
+    if (!isRcsAddress(to)) {
+      return;
+    }
+    await sendTwilioTypingIndicator({
+      ...this.apiOptions(),
+      channel: "RCS",
+      event: "START",
+      from,
+      to,
+    });
+  }
 
   parseMessage(raw: TwilioRawMessage): Message<TwilioRawMessage> {
     if (isTwilioWebhookPayload(raw)) {
@@ -566,6 +614,24 @@ export class TwilioAdapter
     };
   }
 
+  protected async latestInboundMessageId(
+    threadId: string
+  ): Promise<string | null> {
+    if (!this.chat) {
+      return null;
+    }
+    const history = await new ThreadHistoryCache(
+      this.chat.getState()
+    ).getMessages(threadId);
+    for (let index = history.length - 1; index >= 0; index--) {
+      const message = history[index];
+      if (message && !message.author.isMe) {
+        return message.id;
+      }
+    }
+    return null;
+  }
+
   protected defaultSender(): string {
     // phoneNumber-first matches the adapter's pre-RCS behavior so openDM()
     // keeps producing the same thread ids for existing deployments that
@@ -646,6 +712,7 @@ export {
   inferTwilioChannel,
   isRcsAddress,
   isRcsCapableSender,
+  isWhatsAppAddress,
   normalizeRcsSenderId,
   resolveInboundThreadSender,
 } from "./channel";
