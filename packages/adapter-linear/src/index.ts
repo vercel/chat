@@ -2208,32 +2208,37 @@ export class LinearAdapter
   ): Promise<FetchResult<LinearRawMessage>> {
     const linear = this.getClient();
 
-    const [rootComment, childrenConnection] = await Promise.all([
-      linear.comment({ id: commentId }),
-      // Get the children (replies) of the root comment
-      linear.comments({
-        filter: {
-          parent: { id: { eq: commentId } },
-        },
-        ...(options?.direction === "forward"
-          ? {
-              first: options?.limit ?? 50,
-            }
-          : {
-              last: options?.limit ?? 50,
-            }),
-      }),
-    ]);
+    const rootComment = await linear.comment({ id: commentId });
+    if (!rootComment.issueId || rootComment.issueId !== issueId) {
+      throw new ValidationError(
+        "linear",
+        "Comment does not belong to this issue"
+      );
+    }
+
+    // Get the children (replies) of the root comment
+    const childrenConnection = await linear.comments({
+      filter: {
+        parent: { id: { eq: commentId } },
+      },
+      ...(options?.direction === "forward"
+        ? {
+            first: options?.limit ?? 50,
+          }
+        : {
+            last: options?.limit ?? 50,
+          }),
+    });
 
     // Include the root comment as the first message, then its children
     const rootMessages = await this.commentsToMessages(
       [rootComment],
-      issueId,
+      rootComment.issueId,
       undefined
     );
     const childMessages = await this.commentsToMessages(
       childrenConnection.nodes,
-      issueId,
+      rootComment.issueId,
       undefined
     );
 
