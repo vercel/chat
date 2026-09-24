@@ -129,7 +129,7 @@ function convertSlackTokens(mrkdwn: string): string {
   markdown = markdown.replace(/<#([A-Z0-9_]+)\|([^<>]+)>/g, "#$2 ($1)");
   markdown = markdown.replace(/<#([A-Z0-9_]+)>/g, "#$1");
   markdown = markdown.replace(
-    /<(?!https?:\/\/)([^<>|]+)\|(https?:\/\/[^|<>]+)>/g,
+    /<(?!https?:\/\/|mailto:|tel:)([^<>|]+)\|(https?:\/\/[^|<>]+)>/g,
     "<$2|$1>"
   );
   markdown = markdown.replace(/<(https?:\/\/[^|<>]+)\|([^<>]+)>/g, "[$2]($1)");
@@ -139,14 +139,21 @@ function convertSlackTokens(mrkdwn: string): string {
   // <mailto:...|...> / <tel:...|...> form as a poisoned autolink URL.
   markdown = markdown.replace(
     /<((?:mailto|tel):[^|<>]+)\|([^<>]+)>/g,
-    "[$2]($1)"
+    (_match, url: string, label: string) => formatMarkdownLink(url, label)
   );
-  markdown = markdown.replace(/<((?:mailto|tel):([^|<>]+))>/g, "[$2]($1)");
+  markdown = markdown.replace(
+    /<((?:mailto|tel):([^|<>]+))>/g,
+    (_match, url: string, label: string) => formatMarkdownLink(url, label)
+  );
   return markdown;
 }
 
+function formatMarkdownLink(url: string, label: string): string {
+  return `[${label.replace(/[\\[\]*_~`]/g, "\\$&")}](${url.replace(/[\\()]/g, "\\$&")})`;
+}
+
 function convertMrkdwnText(mrkdwn: string): string {
-  return applyEmphasisOutsideInlineCode(convertSlackTokens(mrkdwn));
+  return convertSlackTokens(applyEmphasis(mrkdwn));
 }
 
 /**
@@ -155,21 +162,12 @@ function convertMrkdwnText(mrkdwn: string): string {
  * multiplication (`2 * 3`) and crossed into inline code spans.
  */
 function applyEmphasis(text: string): string {
-  let markdown = text.replace(
-    /(?<![_*\\])\*(\S(?:[^*\n]*\S)?)\*(?![_*])/g,
-    "**$1**"
-  );
-  markdown = markdown.replace(/(?<!~)~(\S(?:[^~\n]*\S)?)~(?!~)/g, "~~$1~~");
-  return markdown;
-}
-
-function applyEmphasisOutsideInlineCode(text: string): string {
-  let result = "";
+  let masked = "";
   let cursor = 0;
-  let segmentStart = 0;
+  let start = 0;
 
   while (cursor < text.length) {
-    if (text[cursor] !== "`") {
+    if (text[cursor] !== "`" && text[cursor] !== "<") {
       cursor += 1;
       continue;
     }
@@ -179,19 +177,33 @@ function applyEmphasisOutsideInlineCode(text: string): string {
       cursor += CODE_FENCE.length;
       continue;
     }
-    const spanEnd = findInlineCodeEnd(text, cursor);
-    if (spanEnd === -1) {
+    const end =
+      text[cursor] === "<"
+        ? findAngleTokenEnd(text, cursor)
+        : findInlineCodeEnd(text, cursor);
+    if (end === -1) {
       cursor += 1;
       continue;
     }
-    result += applyEmphasis(text.slice(segmentStart, cursor));
-    result += text.slice(cursor, spanEnd);
-    segmentStart = spanEnd;
-    cursor = spanEnd;
+    masked += text.slice(start, cursor) + "x".repeat(end - cursor);
+    start = end;
+    cursor = end;
   }
 
-  result += applyEmphasis(text.slice(segmentStart));
-  return result;
+  masked += text.slice(start);
+  const markers = new Set<number>();
+  for (const pattern of [
+    /(?<![_*\\])\*([^\s*](?:[^*\n]*[^\s*])?)\*(?![_*])/g,
+    /(?<!~)~([^\s~](?:[^~\n]*[^\s~])?)~(?!~)/g,
+  ]) {
+    for (const match of masked.matchAll(pattern)) {
+      markers.add(match.index);
+      markers.add(match.index + match[0].length - 1);
+    }
+  }
+  return text.replace(/[*~]/g, (marker, index: number) =>
+    markers.has(index) ? marker.repeat(2) : marker
+  );
 }
 
 /**
@@ -282,6 +294,7 @@ function findAngleTokenEnd(mrkdwn: string, index: number): number {
   let cursor = index + 1;
   while (
     cursor < mrkdwn.length &&
+    mrkdwn[cursor] !== "<" &&
     mrkdwn[cursor] !== ">" &&
     mrkdwn[cursor] !== "\n" &&
     mrkdwn[cursor] !== "\r"
@@ -293,15 +306,16 @@ function findAngleTokenEnd(mrkdwn: string, index: number): number {
 
 // Slack inline code spans never cross line breaks.
 function findInlineCodeEnd(mrkdwn: string, index: number): number {
-  const close = mrkdwn.indexOf("`", index + 1);
-  if (close === -1) {
-    return -1;
+  let cursor = index + 1;
+  while (
+    cursor < mrkdwn.length &&
+    mrkdwn[cursor] !== "`" &&
+    mrkdwn[cursor] !== "\n" &&
+    mrkdwn[cursor] !== "\r"
+  ) {
+    cursor += 1;
   }
-  const newline = mrkdwn.indexOf("\n", index + 1);
-  if (newline !== -1 && newline < close) {
-    return -1;
-  }
-  return close + 1;
+  return mrkdwn[cursor] === "`" ? cursor + 1 : -1;
 }
 
 function isOnBlockquoteLine(mrkdwn: string, index: number): boolean {

@@ -1155,6 +1155,54 @@ describe("parseMessage", () => {
     botUserId: "U_BOT",
   });
 
+  it.each([
+    [
+      "cost is 2 * 3 seats and 4 * 5 licenses",
+      "cost is 2 * 3 seats and 4 * 5 licenses",
+    ],
+    ["run `rm -rf *` then 5 * 3", "run rm -rf * then 5 * 3"],
+    ["mail <mailto:a*b*c@example.com|email>", "mail email"],
+    ["call <tel:+15551234567|555-123-4567>", "call 555-123-4567"],
+    ["mail <mailto:user@example.com>", "mail user@example.com"],
+  ])("preserves incoming mrkdwn through both parsing paths: %s", async (text, expected) => {
+    const event: SlackEvent = {
+      type: "message",
+      user: "U123",
+      username: "alice",
+      channel: "C456",
+      text,
+      ts: "1234567890.123456",
+    };
+    const internals = adapter as unknown as {
+      parseSlackMessage(
+        value: SlackEvent,
+        threadId: string
+      ): Promise<Message<unknown>>;
+    };
+    for (const message of [
+      adapter.parseMessage(event),
+      await internals.parseSlackMessage(event, "slack:C456:1234567890.123456"),
+    ]) {
+      expect(message.text).toBe(expected);
+      expect(message.threadId).toBe("slack:C456:1234567890.123456");
+      expect(message.isMention).toBe(false);
+      if (text.startsWith("mail ")) {
+        expect(message.formatted.children[0]).toMatchObject({
+          type: "paragraph",
+          children: [
+            { type: "text", value: "mail " },
+            {
+              type: "link",
+              url: text.includes("a*b*c")
+                ? "mailto:a*b*c@example.com"
+                : "mailto:user@example.com",
+            },
+          ],
+        });
+      }
+    }
+  });
+
   it("classifies the bot's mention without a user lookup", () => {
     const section = (element: Record<string, unknown>) => [
       {

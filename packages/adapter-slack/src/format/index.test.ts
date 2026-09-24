@@ -251,6 +251,62 @@ describe("Slack format primitives", () => {
     );
   });
 
+  it.each([
+    "**bold**",
+    "~~done~~",
+    "***",
+    "~~~",
+    "****",
+    "~~~~",
+  ])("does not add emphasis markers to %s", (text) => {
+    expect(slackMrkdwnToMarkdown(text)).toBe(text);
+  });
+
+  it("preserves emphasis surrounding inline code", () => {
+    expect(slackMrkdwnToMarkdown("*before `*code*` after*")).toBe(
+      "**before `*code*` after**"
+    );
+    expect(slackMrkdwnToMarkdown("~before `~code~` after~")).toBe(
+      "~~before `~code~` after~~"
+    );
+  });
+
+  it("handles long messages containing incomplete tokens and code spans", () => {
+    for (const text of ["<".repeat(40_000), "`*x*` ".repeat(6000)]) {
+      expect(slackMrkdwnToMarkdown(text)).toBe(text);
+    }
+  });
+
+  it("does not treat code spans across line breaks as inline code", () => {
+    expect(slackMrkdwnToMarkdown("`first\n*bold*` and *next*")).toBe(
+      "`first\n**bold**` and **next**"
+    );
+    expect(slackMrkdwnToMarkdown("`first\r*bold*` and *next*")).toBe(
+      "`first\r**bold**` and **next**"
+    );
+  });
+
+  it("does not invert address links with URL labels", () => {
+    expect(slackMrkdwnToMarkdown("<mailto:a@b.com|https://example.com>")).toBe(
+      "[https://example.com](mailto:a@b.com)"
+    );
+    expect(
+      slackMrkdwnToMarkdown("<tel:+15551234567|https://example.com>")
+    ).toBe("[https://example.com](tel:+15551234567)");
+  });
+
+  it("preserves emphasis characters inside link destinations", () => {
+    expect(slackMrkdwnToMarkdown("*<mailto:a*b*c@example.com|email>*")).toBe(
+      "**[email](mailto:a*b*c@example.com)**"
+    );
+    expect(slackMrkdwnToMarkdown("<mailto:a~b~c@example.com|email>")).toBe(
+      "[email](mailto:a~b~c@example.com)"
+    );
+    expect(slackMrkdwnToMarkdown("<https://example.com/*path*|docs>")).toBe(
+      "[docs](https://example.com/*path*)"
+    );
+  });
+
   it("still converts https Slack links and ignores non-link angle tokens", () => {
     expect(
       slackMrkdwnToMarkdown(
