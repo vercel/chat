@@ -1,4 +1,4 @@
-import type { ITable, ITextBlock } from "@microsoft/teams.cards";
+import type { ITable, ITextBlock, ITextInput } from "@microsoft/teams.cards";
 import {
   Actions,
   Button,
@@ -10,16 +10,20 @@ import {
   Fields,
   Image,
   LinkButton,
+  Modal,
   RadioSelect,
   Section,
   Select,
   SelectOption,
   Table,
   type TableOptions,
+  TextInput,
+  type TextInputOptions,
 } from "chat";
 import { describe, expect, it } from "vitest";
 import { cardToAdaptiveCard, cardToFallbackText } from "./cards";
 import { cardToAdaptiveCard as primitivesCardToAdaptiveCard } from "./cards-primitives";
+import { modalToAdaptiveCard } from "./modals";
 
 describe("cardToAdaptiveCard", () => {
   it("creates a valid adaptive card structure", () => {
@@ -728,5 +732,121 @@ describe("cardToAdaptiveCard with Table", () => {
     expect(JSON.parse(JSON.stringify(renderTable(options)))).toMatchObject(
       primitives
     );
+  });
+});
+
+describe("cardToAdaptiveCard with TextInput", () => {
+  const renderInput = (options: TextInputOptions): ITextInput =>
+    cardToAdaptiveCard(Card({ children: [TextInput(options)] }))
+      .body[0] as ITextInput;
+
+  it("renders a required single-line Input.Text by default", () => {
+    expect(renderInput({ id: "notes", label: "Notes" })).toMatchObject({
+      type: "Input.Text",
+      id: "notes",
+      label: "Notes",
+      isMultiline: false,
+      isRequired: true,
+    });
+  });
+
+  it("carries multiline, placeholder, maxLength and the initial value", () => {
+    expect(
+      renderInput({
+        id: "notes",
+        label: "Notes",
+        multiline: true,
+        optional: true,
+        placeholder: "Type...",
+        maxLength: 500,
+        initialValue: "draft",
+      })
+    ).toMatchObject({
+      type: "Input.Text",
+      isMultiline: true,
+      isRequired: false,
+      placeholder: "Type...",
+      maxLength: 500,
+      value: "draft",
+    });
+  });
+
+  it("converts emoji placeholders in the label", () => {
+    expect(
+      renderInput({ id: "notes", label: "Notes {{emoji:check}}" }).label
+    ).toBe("Notes ✅");
+  });
+
+  it("maps the same fields as the dialog converter", () => {
+    const options: TextInputOptions = {
+      id: "notes",
+      label: "Notes",
+      multiline: true,
+      optional: true,
+      placeholder: "Type...",
+      maxLength: 500,
+      initialValue: "draft",
+    };
+    const inDialog = modalToAdaptiveCard(
+      Modal({
+        callbackId: "cb",
+        title: "Feedback",
+        children: [TextInput(options)],
+      }),
+      "ctx",
+      "cb"
+    ).body?.[0] as ITextInput;
+
+    expect(renderInput(options)).toEqual(inDialog);
+  });
+
+  it("falls back to the input label", () => {
+    const text = cardToFallbackText(
+      Card({
+        title: "Feedback",
+        children: [TextInput({ id: "notes", label: "Notes" })],
+      })
+    );
+
+    expect(text).toContain("Notes");
+  });
+
+  it("emits the same Input.Text as the dependency-free cards subpath", () => {
+    const options: TextInputOptions = {
+      id: "notes",
+      label: "Notes",
+      multiline: true,
+      optional: true,
+      placeholder: "Type...",
+      maxLength: 500,
+      initialValue: "draft",
+    };
+    const primitives = primitivesCardToAdaptiveCard({
+      children: [{ ...options, type: "text_input" }],
+      type: "card",
+    }).body[0] as Record<string, unknown>;
+    const sdk = JSON.parse(JSON.stringify(renderInput(options))) as Record<
+      string,
+      unknown
+    >;
+
+    // The library builder stamps its own defaults (height, isVisible, …) that
+    // the plain-object subpath does not, so pin the key set this subpath owns
+    // rather than comparing whole objects — a `toMatchObject(primitives)` would
+    // pass even if the subpath silently dropped one of them.
+    expect(Object.keys(primitives).sort()).toEqual([
+      "id",
+      "isMultiline",
+      "isRequired",
+      "label",
+      "maxLength",
+      "placeholder",
+      "type",
+      "value",
+    ]);
+    const shared = Object.fromEntries(
+      Object.keys(primitives).map((key) => [key, sdk[key]])
+    );
+    expect(shared).toEqual(primitives);
   });
 });

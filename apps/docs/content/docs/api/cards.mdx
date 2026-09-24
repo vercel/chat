@@ -362,3 +362,6 @@ The `children` array in `Card` and `Section` accepts these element types:
 | `FieldsElement` | `Fields()` |
 | `TableElement` | `Table()` |
 | `ChartElement` | `Chart()` |
+| `TextInputElement` | `TextInput()` |
+
+`TextInput` is the same element [modals](/docs/api/modals) use. On a card it is rendered by Teams only. Slack, Google Chat, Discord, GitHub and Linear fall back to its label as text; WhatsApp, Messenger, Twilio and X omit it entirely.

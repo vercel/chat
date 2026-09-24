@@ -19,6 +19,7 @@ import type {
   OpenUrlActionOptions,
   SubmitActionOptions,
   TextBlockOptions,
+  TextInputOptions,
   VerticalAlignment,
 } from "@microsoft/teams.cards";
 import {
@@ -36,6 +37,7 @@ import {
   TableCell,
   TableRow,
   TextBlock,
+  TextInput,
 } from "@microsoft/teams.cards";
 import type {
   ActionsElement,
@@ -53,6 +55,7 @@ import type {
   TableElement,
   TableVerticalAlignment,
   TextElement,
+  TextInputElement,
 } from "chat";
 import { cardChildToFallbackText } from "chat";
 
@@ -157,6 +160,8 @@ function convertChildToAdaptive(child: CardChild): ConvertResult {
       };
     case "table":
       return { elements: convertTableToElements(child), actions: [] };
+    case "text_input":
+      return { elements: [textInputToAdaptive(child)], actions: [] };
     default: {
       const text = cardChildToFallbackText(child);
       if (text) {
@@ -182,6 +187,31 @@ function convertTextToElement(element: TextElement): TextBlock {
   }
 
   return new TextBlock(convertEmoji(element.content), options);
+}
+
+/**
+ * Map a Chat SDK `TextInput` onto an Adaptive Card `Input.Text`.
+ *
+ * Exported because `modals.ts` renders the same element into a Task Module and
+ * both surfaces have to map it the same way — a card that asks for a comment
+ * should look like the dialog that asks for one.
+ *
+ * An input is required unless `optional` is set. Teams validates every input on
+ * the surface before it lets any `Action.Submit` through, so on a card a
+ * required input also gates the buttons beside it.
+ */
+export function textInputToAdaptive(element: TextInputElement): TextInput {
+  const options: TextInputOptions = {
+    id: element.id,
+    label: convertEmoji(element.label),
+    isMultiline: element.multiline ?? false,
+    isRequired: !(element.optional ?? false),
+    placeholder: element.placeholder,
+    value: element.initialValue,
+    maxLength: element.maxLength,
+  };
+
+  return new TextInput(options);
 }
 
 function convertImageToElement(element: ImageElement): AdaptiveImage {
