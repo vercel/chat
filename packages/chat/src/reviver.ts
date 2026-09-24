@@ -13,17 +13,28 @@
  */
 
 import { ChannelImpl, type SerializedChannel } from "./channel";
+import type { ChatSingleton } from "./chat-singleton";
 import { Message, type SerializedMessage } from "./message";
 import { type SerializedThread, ThreadImpl } from "./thread";
 
 export function reviver(_key: string, value: unknown): unknown {
+  return revive(value);
+}
+
+export function createReviver(
+  chat: ChatSingleton
+): (key: string, value: unknown) => unknown {
+  return (_key, value) => revive(value, chat);
+}
+
+function revive(value: unknown, chat?: ChatSingleton): unknown {
   if (value && typeof value === "object" && "_type" in value) {
     const typed = value as { _type: string };
     if (typed._type === "chat:Thread") {
-      return ThreadImpl.fromJSON(value as SerializedThread);
+      return ThreadImpl.fromJSON(value as SerializedThread, undefined, chat);
     }
     if (typed._type === "chat:Channel") {
-      return ChannelImpl.fromJSON(value as SerializedChannel);
+      return ChannelImpl.fromJSON(value as SerializedChannel, undefined, chat);
     }
     if (typed._type === "chat:Message") {
       return Message.fromJSON(value as SerializedMessage);

@@ -15,7 +15,7 @@ import { HistoryApiImpl } from "./history";
 import { isJSX, toModalElement } from "./jsx-runtime";
 import { Message, type SerializedMessage, setMessageAdapter } from "./message";
 import type { ModalElement } from "./modals";
-import { reviver as standaloneReviver } from "./reviver";
+import { createReviver } from "./reviver";
 import { type SerializedThread, ThreadImpl } from "./thread";
 import { ThreadHistoryCache } from "./thread-history";
 import type {
@@ -1043,7 +1043,7 @@ export class Chat<
   reviver(): (key: string, value: unknown) => unknown {
     // Ensure this chat instance is registered as singleton for thread deserialization
     this.registerSingleton();
-    return standaloneReviver;
+    return createReviver(this);
   }
 
   // ChatInstance interface implementations
@@ -1755,7 +1755,11 @@ export class Chat<
     // Reconstruct thread with adapter directly (if present)
     let relatedThread: Thread | undefined;
     if (stored.thread) {
-      relatedThread = ThreadImpl.fromJSON(stored.thread, adapter) as Thread;
+      relatedThread = ThreadImpl.fromJSON(
+        stored.thread,
+        adapter,
+        this
+      ) as Thread;
     }
 
     // Reconstruct message if present
@@ -1770,7 +1774,11 @@ export class Chat<
     // Reconstruct channel if present
     let relatedChannel: Channel | undefined;
     if (stored.channel) {
-      relatedChannel = ChannelImpl.fromJSON(stored.channel, adapter) as Channel;
+      relatedChannel = ChannelImpl.fromJSON(
+        stored.channel,
+        adapter,
+        this
+      ) as Channel;
     }
 
     return {
@@ -2068,6 +2076,13 @@ export class Chat<
 
   getState(): StateAdapter {
     return this._stateAdapter;
+  }
+
+  getStreamingOptions() {
+    return {
+      updateIntervalMs: this._streamingUpdateIntervalMs,
+      fallbackStreamingPlaceholderText: this._fallbackStreamingPlaceholderText,
+    };
   }
 
   getUserName(): string {

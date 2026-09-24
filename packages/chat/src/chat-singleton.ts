@@ -2,7 +2,7 @@
  * Singleton holder for Chat instance.
  * Separate module to avoid circular dependency between chat.ts and thread.ts.
  */
-import type { Adapter, StateAdapter } from "./types";
+import type { Adapter, StateAdapter, StreamOptions } from "./types";
 
 /**
  * Interface for the Chat singleton to avoid importing the full Chat class.
@@ -10,6 +10,10 @@ import type { Adapter, StateAdapter } from "./types";
 export interface ChatSingleton {
   getAdapter(name: string): Adapter | undefined;
   getState(): StateAdapter;
+  getStreamingOptions(): Pick<
+    StreamOptions,
+    "updateIntervalMs" | "fallbackStreamingPlaceholderText"
+  >;
 }
 
 let _singleton: ChatSingleton | null = null;
