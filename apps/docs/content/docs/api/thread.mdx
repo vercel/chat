@@ -313,6 +313,10 @@ await data.thread.post("Hello from workflow!");
 
 Under the hood, the reviver calls `ThreadImpl.fromJSON()` and `Message.fromJSON()` for any serialized objects it encounters.
 
+When a restored thread starts streaming, it uses its Chat instance's `fallbackStreamingPlaceholderText` and `streamingUpdateIntervalMs` defaults. `bot.reviver()` binds restored threads to that bot; standalone and Workflow deserialization bind to the registered singleton on first runtime access. These settings are not stored in the serialized payload, so resumed work uses the receiving bot's configuration. An explicit `StreamingPlan` update interval still takes precedence.
+
+If you pass an adapter directly to `ThreadImpl.fromJSON(data, adapter)`, streaming can work without a registered Chat instance, using the default settings. Runtime settings and state are only resolved from a Chat instance that owns that exact adapter. State access throws if the registered instance owns a different adapter, rather than reading or writing another bot's state. Prefer `bot.reviver()` to bind ownership explicitly.
+
 ## ScheduledMessage
 
 Returned by `thread.schedule()` and `channel.schedule()`.

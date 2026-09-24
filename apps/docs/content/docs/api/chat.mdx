@@ -790,6 +790,10 @@ const data = JSON.parse(payload, bot.reviver());
 await data.thread.post("Hello from workflow!");
 ```
 
+Threads and channels restored by `bot.reviver()` stay bound to that bot's adapters and state, and restored threads use that bot's streaming defaults, even if another Chat instance is registered later. When using multiple bots, parse each payload with the receiving bot's reviver. This does not isolate state keys if the bots share the same state store.
+
+The binding is not serialized. If a restored object crosses a Workflow step boundary, automatic deserialization uses the registered singleton again. For multiple bots, pass the serialized data and explicitly restore it with the receiving bot's reviver inside the step.
+
 There is also a workflow-safe serialization entrypoint that works without importing the `Chat` runtime. Use it in Vercel Workflow files so serializer registration does not load Node-only runtime dependencies:
 
 ```typescript
@@ -803,7 +807,7 @@ const data = JSON.parse(payload, reviver) as {
 
 `Message`, `ThreadImpl`, and `ChannelImpl` retain their automatic Workflow serialization when imported from either `chat` or `chat/serialization`. The dedicated entrypoint guarantees their serializer module graph does not load the Node-only `Chat` conversation context.
 
-The standalone reviver uses lazy adapter resolution - the adapter is looked up from the Chat singleton when first accessed. Call `chat.registerSingleton()` before using thread methods like `post()` (typically inside a `"use step"` function).
+The standalone reviver uses lazy adapter resolution - the adapter is looked up from the Chat singleton when first accessed. Call `chat.registerSingleton()` before using thread methods like `post()` (typically inside a `"use step"` function). Once a restored thread or channel resolves its runtime, it retains that Chat instance for its adapter, state, and streaming defaults, even if the singleton changes. Registering the correct bot before first use remains the caller's responsibility; use `bot.reviver()` when the owner must be explicit.
 
 ### history
 
