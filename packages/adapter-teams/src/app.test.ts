@@ -36,6 +36,32 @@ describe("TeamsApp.apiFor", () => {
   });
 });
 
+describe("TeamsApp.graphFor", () => {
+  it("reuses the app graph client without a tenant", () => {
+    const app = createApp();
+    expect(app.graphFor(undefined)).toBe(app.graph);
+  });
+
+  it("requests the Graph token from the given tenant", async () => {
+    const app = createApp();
+    const { tokenManager } = app as unknown as {
+      tokenManager: { getGraphToken: (tenantId?: string) => Promise<unknown> };
+    };
+    const getGraphToken = vi
+      .spyOn(tokenManager, "getGraphToken")
+      .mockResolvedValue(null);
+    const clone = vi.spyOn(app.client, "clone");
+
+    expect(app.graphFor("tenant-b")).not.toBe(app.graph);
+    const [options] = clone.mock.calls[0] as [
+      { token: () => Promise<unknown> },
+    ];
+    await options.token();
+
+    expect(getGraphToken).toHaveBeenCalledWith("tenant-b");
+  });
+});
+
 describe("TeamsApp with an explicit apiUrl", () => {
   const gateway = "https://gateway.example/teams";
 
