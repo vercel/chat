@@ -25,6 +25,9 @@ const CONTROL_PATTERN = /[<>|]/;
 const DATE_CONTROL_PATTERN = /[\^|>]/;
 const SLACK_ID_PATTERN = /^[A-Z0-9_]+$/;
 const SLACK_USER_TOKEN_PATTERN = /(?<![<\w])@([A-Z][A-Z0-9_]+)/g;
+const SPECIAL_MENTION_PATTERN = /^<!(here|channel|everyone)(?:\|[^<>]*)?>$/;
+const LABELED_GROUP_PATTERN = /^<!subteam\^([A-Z0-9_]+)\|@?([^<>]+)>$/;
+const GROUP_PATTERN = /^<!subteam\^([A-Z0-9_]+)>$/;
 const TEXT_OBJECT_MAX_LENGTH = 3000;
 const CODE_FENCE = "```";
 const LEADING_WHITESPACE_PATTERN = /^[ \t]+/;
@@ -153,7 +156,7 @@ function formatMarkdownLink(url: string, label: string): string {
 }
 
 function convertMrkdwnText(mrkdwn: string): string {
-  return convertSlackTokens(applyEmphasis(mrkdwn));
+  return convertSlackTokens(convertSpecialMentions(applyEmphasis(mrkdwn)));
 }
 
 /**
@@ -204,6 +207,43 @@ function applyEmphasis(text: string): string {
   return text.replace(/[*~]/g, (marker, index: number) =>
     markers.has(index) ? marker.repeat(2) : marker
   );
+}
+
+function convertSpecialMentions(mrkdwn: string): string {
+  let result = "";
+  let start = 0;
+  let cursor = 0;
+
+  while (cursor < mrkdwn.length) {
+    if (mrkdwn.startsWith(CODE_FENCE, cursor)) {
+      cursor += CODE_FENCE.length;
+      continue;
+    }
+    if (mrkdwn[cursor] === "`") {
+      const end = findInlineCodeEnd(mrkdwn, cursor);
+      cursor = end === -1 ? cursor + 1 : end;
+      continue;
+    }
+    if (mrkdwn[cursor] !== "<") {
+      cursor += 1;
+      continue;
+    }
+    const end = findAngleTokenEnd(mrkdwn, cursor);
+    if (end === -1) {
+      cursor += 1;
+      continue;
+    }
+    const token = mrkdwn
+      .slice(cursor, end)
+      .replace(SPECIAL_MENTION_PATTERN, "@$1")
+      .replace(LABELED_GROUP_PATTERN, "@$2")
+      .replace(GROUP_PATTERN, "@$1");
+    result += mrkdwn.slice(start, cursor) + token;
+    start = end;
+    cursor = end;
+  }
+
+  return result + mrkdwn.slice(start);
 }
 
 /**

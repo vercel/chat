@@ -152,6 +152,10 @@ export const VALID_PACKAGE_README_IMPORTS = [
 
 export const VALID_DOC_PACKAGES = [
   "chat",
+  "@chat-adapter/gmail",
+  "@chat-adapter/gmail/api",
+  "@chat-adapter/gmail/format",
+  "@chat-adapter/gmail/webhook",
   "chat/ai",
   "chat/ai/tanstack",
   "chat/adapters",

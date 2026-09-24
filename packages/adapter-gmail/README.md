@@ -4,15 +4,27 @@
 
 > npm package: [`@chat-adapter/gmail`](https://www.npmjs.com/package/@chat-adapter/gmail)
 
-Gmail primitives and an optional Chat SDK adapter. This package is in development and is not released yet.
+Gmail primitives and an optional Chat SDK adapter for authenticated mailbox notifications and threaded email replies.
 
 Documentation: [Gmail adapter](https://chat-sdk.dev/adapters/official/gmail) | Guides: [Chat SDK](https://vercel.com/kb/chat-sdk)
 
-The Gmail package, documentation and banner links are release targets. They are not published by this local implementation.
+## Installation
 
-## scaffolding
+```bash
+pnpm add @chat-adapter/gmail
+```
 
-Gmail is not yet registered with the CLI. For currently supported adapters, use `npx create-chat-sdk@latest` and see the [adapters directory](https://chat-sdk.dev/adapters). This local Gmail implementation requires the explicit setup below.
+## Scaffold with the CLI
+
+To scaffold a new Gmail bot with this adapter and Redis state preselected:
+
+```bash
+npx create-chat-sdk@latest my-bot --adapter gmail redis
+```
+
+Visit the [adapters directory](https://chat-sdk.dev/adapters) to see other available official and vendor-official adapters.
+
+Follow the [Gmail guide](https://chat-sdk.dev/adapters/official/gmail) for OAuth, authenticated Pub/Sub delivery and watch renewal. The standalone APIs do not require a Chat instance; the root adapter also needs persistent state and an intake label.
 
 ## import boundaries
 
@@ -249,7 +261,7 @@ Mailbox-read access is a restricted scope. Production deployments must assess Go
 
 Local tests exercise MIME, native API contracts, JWT verification, synchronization, Chat dispatch and import boundaries. A subprocess blocks Chat runtime imports while using the built primitive exports. Source and generated declaration graphs are checked separately. The authenticated integration test uses locally generated keys and mocked Gmail responses, not real Google credentials.
 
-Catalog registration and release setup remain outstanding. This README describes the development API, not a released integration. Mocked tests do not replace live verification of Google delivery and account configuration.
+Verify delivery with your own mailbox and authenticated Pub/Sub subscription after configuration. A successful API request alone does not verify end-to-end delivery.
 
 ## Google references
 

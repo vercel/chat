@@ -22,6 +22,7 @@ import {
   Image,
   LinkButton,
   Section,
+  Table,
   Text,
 } from "./cards";
 
@@ -317,6 +318,36 @@ describe("fromReactElement - React JSX mode", () => {
       const reactDivider = createReactElement(Divider, {});
       const result = fromReactElement(reactDivider);
       expect(result?.type).toBe("divider");
+    });
+  });
+
+  describe("Table conversion", () => {
+    it("converts Table with alignment and Teams rendering options", () => {
+      const reactTable = createReactElement(Table, {
+        headers: ["Name", "Score"],
+        rows: [["Alice", "98"]],
+        align: ["left", "right"],
+        caption: "Scores",
+        pageSize: 10,
+        widths: [3, 1],
+        verticalAlign: "bottom",
+        gridLines: false,
+        gridStyle: "good",
+      });
+
+      const result = fromReactElement(reactTable);
+      expect(result).toEqual({
+        type: "table",
+        headers: ["Name", "Score"],
+        rows: [["Alice", "98"]],
+        align: ["left", "right"],
+        caption: "Scores",
+        pageSize: 10,
+        widths: [3, 1],
+        verticalAlign: "bottom",
+        gridLines: false,
+        gridStyle: "good",
+      });
     });
   });
 

@@ -337,6 +337,32 @@ describe("chat-sdk JSX runtime with actual JSX syntax", () => {
       expect(result?.children[0].type).toBe("text");
       expect(result?.children[1].type).toBe("table");
     });
+
+    it("passes alignment and Teams rendering options through", () => {
+      const element = (
+        <Card title="Scores">
+          <Table
+            align={["left", "right"]}
+            gridLines={false}
+            gridStyle="accent"
+            headers={["Name", "Score"]}
+            rows={[["Alice", "98"]]}
+            verticalAlign="top"
+            widths={[3, 1]}
+          />
+        </Card>
+      );
+      const result = toCardElement(element);
+
+      expect(result?.children[0]).toMatchObject({
+        type: "table",
+        align: ["left", "right"],
+        widths: [3, 1],
+        verticalAlign: "top",
+        gridLines: false,
+        gridStyle: "accent",
+      });
+    });
   });
 
   describe("isJSX detection", () => {

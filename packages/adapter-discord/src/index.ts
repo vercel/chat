@@ -45,24 +45,45 @@ import {
 import {
   type ChatInputCommandInteraction,
   Client,
+  type CommandInteractionOption,
   type Interaction as DiscordJsInteraction,
   type Message as DiscordJsMessage,
   type User as DiscordJsUser,
+  type Entitlement,
   Events,
   GatewayIntentBits,
   type MessageComponentInteraction,
   Partials,
 } from "discord.js";
-import { MessageType } from "discord-api-types/v9";
 import {
+  type APIApplicationCommandInteraction,
+  type APIApplicationCommandInteractionDataOption,
+  type APIChatInputApplicationCommandInteraction,
+  type APIComponentInContainer,
+  type APIContainerComponent,
+  type APIEntitlement,
+  type APIFileComponent,
+  type APIInteraction,
+  type APIInteractionResponse,
+  type APIMediaGalleryComponent,
   type APIMessage,
+  type APIMessageComponentInteraction,
+  type APIMessageComponentInteractionData,
+  type APIMessageSelectMenuInteractionData,
+  type APIThreadChannel,
+  type APIUser,
   ChannelType,
+  ComponentType,
+  InteractionResponseType,
   InteractionType,
+  MessageType,
+  type RESTGetAPIChannelResult,
+  type RESTGetAPIChannelThreadsArchivedPublicResult,
+  type RESTGetAPIGuildThreadsResult,
+  type RESTGetAPIUserResult,
+  type RESTPostAPICurrentUserCreateDMChannelResult,
 } from "discord-api-types/v10";
-import {
-  InteractionResponseType as DiscordInteractionResponseType,
-  verifyKey,
-} from "discord-interactions";
+import { verifyKey } from "discord-interactions";
 import {
   cardToDiscordPayload,
   decodeDiscordCustomId,
@@ -71,29 +92,19 @@ import {
 import { DiscordFormatConverter } from "./markdown";
 import {
   type DiscordAdapterConfig,
-  type DiscordCommandOption,
-  DiscordComponentType,
-  type DiscordContainer,
-  type DiscordContainerChild,
   DiscordContentFormat,
-  type DiscordFileComponent,
   type DiscordForwardedEvent,
   type DiscordGatewayEventType,
   type DiscordGatewayMessageData,
   type DiscordGatewayReactionData,
-  type DiscordInteraction,
   type DiscordInteractionFlagsContext,
-  type DiscordInteractionResponse,
   type DiscordInteractionResponseFlags,
-  type DiscordMediaGallery,
   DiscordMessageFlag,
   type DiscordMessagePayload,
   type DiscordRequestContext,
   type DiscordSlashCommandContext,
   type DiscordThreadId,
-  type DiscordUser,
   type DiscordWebhookVerifier,
-  InteractionResponseType,
 } from "./types";
 
 const DISCORD_API_BASE = "https://discord.com/api/v10";
@@ -132,11 +143,51 @@ function parseDiscordErrorCode(body: string): number | undefined {
   return undefined;
 }
 
-interface GatewayCommandOption {
-  name: string;
-  options?: readonly GatewayCommandOption[];
-  type: number;
-  value?: boolean | number | string;
+type DiscordInteractionChannel = NonNullable<APIInteraction["channel"]>;
+
+/**
+ * Interaction fields rebuilt from a discord.js object. Unlike the webhook
+ * payload types, `channel` is optional because discord.js only resolves it
+ * from its cache.
+ */
+type DiscordGatewayInteractionBase = Omit<
+  APIMessageComponentInteraction,
+  "channel" | "data" | "message" | "type"
+> & { channel?: DiscordInteractionChannel };
+
+function isThreadChannelType(type: ChannelType | undefined): boolean {
+  return (
+    type === ChannelType.PublicThread || type === ChannelType.PrivateThread
+  );
+}
+
+function getInteractionThreadParentId(
+  channel: DiscordInteractionChannel | undefined
+): string | undefined {
+  if (!(channel && isThreadChannelType(channel.type))) {
+    return undefined;
+  }
+  return "parent_id" in channel && channel.parent_id
+    ? channel.parent_id
+    : undefined;
+}
+
+/** Raw dispatch packet as emitted by discord.js's `raw` event. */
+interface DiscordRawGatewayPacket {
+  d: unknown;
+  t: string | null;
+}
+
+function getPacketChannelId(
+  packet: DiscordRawGatewayPacket
+): string | undefined {
+  const data = packet.d;
+  return typeof data === "object" &&
+    data !== null &&
+    "channel_id" in data &&
+    typeof data.channel_id === "string"
+    ? data.channel_id
+    : undefined;
 }
 
 interface DiscordFileUpload {
@@ -195,6 +246,9 @@ export class DiscordAdapter implements Adapter<DiscordThreadId, unknown> {
   protected readonly formatConverter = new DiscordFormatConverter();
   protected readonly requestContext =
     new AsyncLocalStorage<DiscordRequestContext>();
+  /** Per-channel forwarding chains, see `enqueueOrderedForward`. */
+  private readonly forwardQueues = new Map<string, Promise<void>>();
+
   private readonly threadParentCache = new Map<
     string,
     { parentId: string; expiresAt: number }
@@ -331,7 +385,7 @@ export class DiscordAdapter implements Adapter<DiscordThreadId, unknown> {
   async getUser(userId: string): Promise<UserInfo | null> {
     try {
       const response = await this.discordFetch(`/users/${userId}`, "GET");
-      const user = (await response.json()) as DiscordUser;
+      const user = (await response.json()) as RESTGetAPIUserResult;
       return {
         avatarUrl: user.avatar
           ? `https://cdn.discordapp.com/avatars/${user.id}/${user.avatar}.png`
@@ -418,7 +472,7 @@ export class DiscordAdapter implements Adapter<DiscordThreadId, unknown> {
       this.logger.info("Discord signature verification passed");
     }
 
-    let interaction: DiscordInteraction;
+    let interaction: APIInteraction;
     try {
       interaction = JSON.parse(body);
     } catch {
@@ -434,13 +488,12 @@ export class DiscordAdapter implements Adapter<DiscordThreadId, unknown> {
 
     // Handle PING (Discord verification)
     if (interaction.type === InteractionType.Ping) {
-      // Use official discord-interactions response type
       const responseBody = JSON.stringify({
-        type: DiscordInteractionResponseType.PONG,
+        type: InteractionResponseType.Pong,
       });
       this.logger.info("Discord PING received, responding with PONG", {
         responseBody,
-        responseType: DiscordInteractionResponseType.PONG,
+        responseType: InteractionResponseType.Pong,
       });
       return new Response(responseBody, {
         status: 200,
@@ -453,11 +506,11 @@ export class DiscordAdapter implements Adapter<DiscordThreadId, unknown> {
       this.handleComponentInteraction(interaction, options);
       // ACK the interaction immediately
       return this.respondToInteraction({
-        type: InteractionResponseType.DeferredUpdateMessage,
+        type: InteractionResponseType.DeferredMessageUpdate,
       });
     }
 
-    // Handle APPLICATION_COMMAND (slash commands)
+    // Handle APPLICATION_COMMAND (slash and context menu commands)
     if (interaction.type === InteractionType.ApplicationCommand) {
       const context = this.getApplicationCommandContext(interaction);
       const flags = this.getInteractionFlags(context);
@@ -541,9 +594,7 @@ export class DiscordAdapter implements Adapter<DiscordThreadId, unknown> {
   /**
    * Create a JSON response for Discord interactions.
    */
-  protected respondToInteraction(
-    response: DiscordInteractionResponse
-  ): Response {
+  protected respondToInteraction(response: APIInteractionResponse): Response {
     return Response.json(response);
   }
 
@@ -551,7 +602,7 @@ export class DiscordAdapter implements Adapter<DiscordThreadId, unknown> {
    * Handle MESSAGE_COMPONENT interactions (button clicks).
    */
   protected handleComponentInteraction(
-    interaction: DiscordInteraction,
+    interaction: APIMessageComponentInteraction,
     options?: WebhookOptions
   ): void {
     if (!this.chat) {
@@ -559,7 +610,7 @@ export class DiscordAdapter implements Adapter<DiscordThreadId, unknown> {
       return;
     }
 
-    const customId = interaction.data?.custom_id;
+    const customId = interaction.data.custom_id;
     if (!customId) {
       this.logger.warn("No custom_id in component interaction");
       return;
@@ -572,37 +623,21 @@ export class DiscordAdapter implements Adapter<DiscordThreadId, unknown> {
     }
 
     const interactionChannelId = interaction.channel_id;
-    const guildId = interaction.guild_id || "@me";
-    const messageId = interaction.message?.id;
+    const messageId = interaction.message.id;
 
     if (!(interactionChannelId && messageId)) {
       this.logger.warn("Missing channel_id or message_id in interaction");
       return;
     }
 
-    // Detect if the interaction is inside a thread channel
-    // Discord channel types: 11 = public thread, 12 = private thread
-    const channel = interaction.channel;
-    const isThread = channel?.type === 11 || channel?.type === 12;
-    const parentChannelId =
-      isThread && channel?.parent_id ? channel.parent_id : interactionChannelId;
-    if (isThread && channel?.parent_id) {
-      this.rememberThreadParent(interactionChannelId, channel.parent_id);
-    }
-
-    const threadId = isThread
-      ? this.encodeThreadId({
-          guildId,
-          channelId: parentChannelId,
-          threadId: interactionChannelId,
-        })
-      : this.encodeThreadId({
-          guildId,
-          channelId: interactionChannelId,
-        });
+    const threadId = this.encodeInteractionThreadId(
+      interaction,
+      interactionChannelId
+    );
 
     const decoded = decodeDiscordCustomId(customId);
-    const selectedValue = interaction.data?.values?.[0];
+    const selectedValue =
+      "values" in interaction.data ? interaction.data.values[0] : undefined;
     const actionEvent: Omit<ActionEvent, "thread" | "openModal"> & {
       adapter: DiscordAdapter;
     } = {
@@ -631,12 +666,13 @@ export class DiscordAdapter implements Adapter<DiscordThreadId, unknown> {
   }
 
   /**
-   * Handle APPLICATION_COMMAND interactions (slash commands).
+   * Handle APPLICATION_COMMAND interactions. Context menu (user/message)
+   * commands carry no options and reach `onSlashCommand` under their name.
    */
   protected getApplicationCommandContext(
-    interaction: DiscordInteraction
+    interaction: APIApplicationCommandInteraction
   ): DiscordInteractionFlagsContext | null {
-    const commandName = interaction.data?.name;
+    const commandName = interaction.data.name;
     if (!commandName) {
       this.logger.warn("No command name in application command interaction");
       return null;
@@ -654,29 +690,14 @@ export class DiscordAdapter implements Adapter<DiscordThreadId, unknown> {
       return null;
     }
 
-    const guildId = interaction.guild_id || "@me";
-    const channel = interaction.channel;
-    const isThread = channel?.type === 11 || channel?.type === 12;
-    const parentChannelId =
-      isThread && channel?.parent_id ? channel.parent_id : interactionChannelId;
-    if (isThread && channel?.parent_id) {
-      this.rememberThreadParent(interactionChannelId, channel.parent_id);
-    }
-
-    const channelId = isThread
-      ? this.encodeThreadId({
-          guildId,
-          channelId: parentChannelId,
-          threadId: interactionChannelId,
-        })
-      : this.encodeThreadId({
-          guildId,
-          channelId: interactionChannelId,
-        });
+    const channelId = this.encodeInteractionThreadId(
+      interaction,
+      interactionChannelId
+    );
 
     const { command, text } = this.parseSlashCommand(
       commandName,
-      interaction.data?.options
+      "options" in interaction.data ? interaction.data.options : undefined
     );
 
     return {
@@ -686,6 +707,29 @@ export class DiscordAdapter implements Adapter<DiscordThreadId, unknown> {
       text,
       user,
     };
+  }
+
+  /**
+   * Chat SDK thread id for the channel an interaction arrived in. Thread
+   * channels encode as `guild:parent:thread` and their parent is cached so
+   * later reactions in the same thread skip the channel lookup.
+   */
+  private encodeInteractionThreadId(
+    interaction: Pick<APIInteraction, "channel" | "guild_id">,
+    interactionChannelId: string
+  ): string {
+    const guildId = interaction.guild_id || "@me";
+    const threadParentId = getInteractionThreadParentId(interaction.channel);
+    if (!threadParentId) {
+      return this.encodeThreadId({ guildId, channelId: interactionChannelId });
+    }
+
+    this.rememberThreadParent(interactionChannelId, threadParentId);
+    return this.encodeThreadId({
+      guildId,
+      channelId: threadParentId,
+      threadId: interactionChannelId,
+    });
   }
 
   protected getInteractionFlags(
@@ -766,19 +810,25 @@ export class DiscordAdapter implements Adapter<DiscordThreadId, unknown> {
    */
   protected parseSlashCommand(
     name: string,
-    options?: DiscordCommandOption[]
+    options?: APIApplicationCommandInteractionDataOption[]
   ): { command: string; text: string } {
     const commandParts: string[] = [name.startsWith("/") ? name : `/${name}`];
     const valueParts: string[] = [];
 
-    const collect = (items: DiscordCommandOption[]): void => {
+    const collect = (
+      items: APIApplicationCommandInteractionDataOption[]
+    ): void => {
       for (const option of items) {
-        if (option.value !== undefined) {
+        if ("value" in option && option.value !== undefined) {
           valueParts.push(String(option.value));
           continue;
         }
         // Subcommand or subcommand-group — append name to command path
-        if (option.options && option.options.length > 0) {
+        if (
+          "options" in option &&
+          option.options &&
+          option.options.length > 0
+        ) {
           commandParts.push(option.name);
           collect(option.options);
         }
@@ -818,91 +868,132 @@ export class DiscordAdapter implements Adapter<DiscordThreadId, unknown> {
 
   protected normalizeGatewaySlashCommandInteraction(
     interaction: ChatInputCommandInteraction
-  ): DiscordInteraction {
+  ): APIChatInputApplicationCommandInteraction {
+    // `channel` may be absent for uncached channels, see normalizeGatewayInteractionBase.
     return {
-      application_id: interaction.applicationId,
-      channel: this.normalizeGatewayChannel(interaction),
-      channel_id: interaction.channelId ?? undefined,
+      ...this.normalizeGatewayInteractionBase(interaction),
       data: {
+        guild_id: interaction.commandGuildId ?? undefined,
+        id: interaction.commandId,
         name: interaction.commandName,
         options: this.normalizeGatewayCommandOptions(interaction.options.data),
         type: interaction.commandType,
       },
-      guild_id: interaction.guildId ?? undefined,
-      id: interaction.id,
-      token: interaction.token,
       type: interaction.type,
-      user: this.normalizeGatewayUser(interaction.user),
-      version: interaction.version,
-    };
+    } as APIChatInputApplicationCommandInteraction;
   }
 
   protected normalizeGatewayComponentInteraction(
     interaction: MessageComponentInteraction
-  ): DiscordInteraction {
-    const values =
-      "values" in interaction && Array.isArray(interaction.values)
-        ? interaction.values
-        : undefined;
+  ): APIMessageComponentInteraction {
+    const data: APIMessageComponentInteractionData =
+      interaction.isAnySelectMenu()
+        ? ({
+            component_type: interaction.componentType,
+            custom_id: interaction.customId,
+            values: interaction.values,
+          } as APIMessageSelectMenuInteractionData)
+        : {
+            component_type: ComponentType.Button,
+            custom_id: interaction.customId,
+          };
 
+    // `channel` may be absent for uncached channels, see normalizeGatewayInteractionBase.
     return {
-      application_id: interaction.applicationId,
-      channel: this.normalizeGatewayChannel(interaction),
-      channel_id: interaction.channelId ?? undefined,
-      data: {
-        component_type: interaction.componentType,
-        custom_id: interaction.customId,
-        values,
-      },
-      guild_id: interaction.guildId ?? undefined,
-      id: interaction.id,
+      ...this.normalizeGatewayInteractionBase(interaction),
+      data,
       message: { id: interaction.message.id } as APIMessage,
-      token: interaction.token,
       type: interaction.type,
+    } as APIMessageComponentInteraction;
+  }
+
+  /**
+   * Fields shared by every interaction, rebuilt from the discord.js object so
+   * Gateway interactions can flow through the same handlers as webhook payloads.
+   */
+  protected normalizeGatewayInteractionBase(
+    interaction: ChatInputCommandInteraction | MessageComponentInteraction
+  ): DiscordGatewayInteractionBase {
+    // discord.js only resolves `channel` from its cache, so a slash command in
+    // a DM the bot has not seen yet arrives with `channel: null`. The handlers
+    // fall back to `channel_id` in that case.
+    return {
+      app_permissions: interaction.appPermissions.bitfield.toString(),
+      application_id: interaction.applicationId,
+      attachment_size_limit: interaction.attachmentSizeLimit,
+      authorizing_integration_owners: interaction.authorizingIntegrationOwners,
+      channel: interaction.channel
+        ? this.normalizeGatewayChannel(interaction.channel)
+        : undefined,
+      channel_id: interaction.channelId,
+      context: interaction.context ?? undefined,
+      entitlements: interaction.entitlements.map((entitlement) =>
+        this.normalizeGatewayEntitlement(entitlement)
+      ),
+      guild_id: interaction.guildId ?? undefined,
+      guild_locale: interaction.guildLocale ?? undefined,
+      id: interaction.id,
+      locale: interaction.locale,
+      token: interaction.token,
       user: this.normalizeGatewayUser(interaction.user),
-      version: interaction.version,
+      version: 1,
     };
   }
 
   protected normalizeGatewayChannel(
-    interaction: ChatInputCommandInteraction | MessageComponentInteraction
-  ): DiscordInteraction["channel"] {
-    if (!interaction.channel) {
-      return undefined;
-    }
-
+    channel: NonNullable<MessageComponentInteraction["channel"]>
+  ): DiscordInteractionChannel {
     const parentId =
-      "parentId" in interaction.channel &&
-      typeof interaction.channel.parentId === "string"
-        ? interaction.channel.parentId
+      "parentId" in channel && typeof channel.parentId === "string"
+        ? channel.parentId
         : undefined;
 
     return {
-      id: interaction.channel.id,
+      id: channel.id,
       parent_id: parentId,
-      type: interaction.channel.type,
-    };
+      type: channel.type,
+    } as DiscordInteractionChannel;
   }
 
   protected normalizeGatewayCommandOptions(
-    options: readonly GatewayCommandOption[]
-  ): DiscordCommandOption[] {
-    return options.map((option) => ({
-      name: option.name,
-      options: option.options
-        ? this.normalizeGatewayCommandOptions(option.options)
-        : undefined,
-      type: option.type,
-      value: option.value,
-    }));
+    options: readonly CommandInteractionOption[]
+  ): APIApplicationCommandInteractionDataOption[] {
+    return options.map(
+      (option) =>
+        ({
+          name: option.name,
+          options: option.options
+            ? this.normalizeGatewayCommandOptions(option.options)
+            : undefined,
+          type: option.type,
+          value: option.value,
+        }) as APIApplicationCommandInteractionDataOption
+    );
   }
 
-  protected normalizeGatewayUser(user: DiscordJsUser): DiscordUser {
+  protected normalizeGatewayEntitlement(
+    entitlement: Entitlement
+  ): APIEntitlement {
     return {
-      avatar: user.avatar ?? undefined,
+      application_id: entitlement.applicationId,
+      consumed: entitlement.consumed,
+      deleted: entitlement.deleted,
+      ends_at: entitlement.endsAt?.toISOString() ?? null,
+      guild_id: entitlement.guildId ?? undefined,
+      id: entitlement.id,
+      sku_id: entitlement.skuId,
+      starts_at: entitlement.startsAt?.toISOString() ?? null,
+      type: entitlement.type,
+      user_id: entitlement.userId,
+    };
+  }
+
+  protected normalizeGatewayUser(user: DiscordJsUser): APIUser {
+    return {
+      avatar: user.avatar,
       bot: user.bot,
       discriminator: user.discriminator,
-      global_name: user.globalName ?? undefined,
+      global_name: user.globalName,
       id: user.id,
       username: user.username,
     };
@@ -976,15 +1067,14 @@ export class DiscordAdapter implements Adapter<DiscordThreadId, unknown> {
       discordThreadId = data.thread.id;
       parentChannelId = data.thread.parent_id;
       this.rememberThreadParent(discordThreadId, parentChannelId);
-    } else if (data.channel_type === 11 || data.channel_type === 12) {
-      // Message is in a thread (11 = public, 12 = private) but we don't have parent info
-      // Fetch the channel to get parent_id
+    } else if (isThreadChannelType(data.channel_type)) {
+      // Message is in a thread but we don't have parent info; fetch the channel to get parent_id
       try {
         const response = await this.discordFetch(
           `/channels/${channelId}`,
           "GET"
         );
-        const channel = (await response.json()) as { parent_id?: string };
+        const channel = (await response.json()) as APIThreadChannel;
         if (channel.parent_id) {
           discordThreadId = channelId;
           parentChannelId = channel.parent_id;
@@ -1002,8 +1092,9 @@ export class DiscordAdapter implements Adapter<DiscordThreadId, unknown> {
     }
 
     // Check if bot is mentioned (by user ID or configured role IDs)
-    const isUserMentioned =
-      data.is_mention || data.mentions.some((m) => m.id === this.applicationId);
+    const isUserMentioned = data.mentions.some(
+      (m) => m.id === this.applicationId
+    );
     const isRoleMentioned =
       this.mentionRoleIds.length > 0 &&
       data.mention_roles?.some((roleId) =>
@@ -1104,14 +1195,16 @@ export class DiscordAdapter implements Adapter<DiscordThreadId, unknown> {
     const guildId = data.guild_id || "@me";
     const channelId = data.channel_id;
 
-    // Check if reaction is in a thread channel
+    // Use thread info if the forwarder resolved it, otherwise fall back to the
+    // cache and finally to a channel lookup.
     let discordThreadId: string | undefined;
     let parentChannelId = channelId;
 
-    if (
-      data.channel_type === ChannelType.GuildPublicThread ||
-      data.channel_type === ChannelType.GuildPrivateThread
-    ) {
+    if (data.thread) {
+      discordThreadId = data.thread.id;
+      parentChannelId = data.thread.parent_id;
+      this.rememberThreadParent(discordThreadId, parentChannelId);
+    } else if (isThreadChannelType(data.channel_type)) {
       const cached = this.threadParentCache.get(channelId);
       if (cached && cached.expiresAt > Date.now()) {
         discordThreadId = channelId;
@@ -1122,7 +1215,7 @@ export class DiscordAdapter implements Adapter<DiscordThreadId, unknown> {
             `/channels/${channelId}`,
             "GET"
           );
-          const channel = (await response.json()) as { parent_id?: string };
+          const channel = (await response.json()) as APIThreadChannel;
           if (channel.parent_id) {
             discordThreadId = channelId;
             parentChannelId = channel.parent_id;
@@ -1151,7 +1244,8 @@ export class DiscordAdapter implements Adapter<DiscordThreadId, unknown> {
     const normalizedEmoji = this.normalizeDiscordEmoji(emojiName);
 
     // Get user info from either data.user (DMs) or data.member.user (guilds)
-    const userInfo = data.user ?? data.member?.user;
+    const userInfo =
+      data.user ?? ("member" in data ? data.member?.user : undefined);
     if (!userInfo) {
       this.logger.warn("Reaction event missing user info", { data });
       return;
@@ -1256,8 +1350,8 @@ export class DiscordAdapter implements Adapter<DiscordThreadId, unknown> {
     );
 
     const container = payload.components?.find(
-      (component): component is DiscordContainer =>
-        component.type === DiscordComponentType.Container
+      (component): component is APIContainerComponent =>
+        component.type === ComponentType.Container
     );
 
     if (container) {
@@ -1271,25 +1365,25 @@ export class DiscordAdapter implements Adapter<DiscordThreadId, unknown> {
 
   protected fileUploadToComponentsV2Component(
     file: DiscordFileUpload
-  ): DiscordContainerChild {
+  ): APIComponentInContainer {
     const url = `attachment://${file.filename}`;
 
     if (this.isMediaGalleryUpload(file)) {
       return {
-        type: DiscordComponentType.MediaGallery,
+        type: ComponentType.MediaGallery,
         items: [
           {
             media: { url },
             description: file.filename,
           },
         ],
-      } satisfies DiscordMediaGallery;
+      } satisfies APIMediaGalleryComponent;
     }
 
     return {
-      type: DiscordComponentType.File,
+      type: ComponentType.File,
       file: { url },
-    } satisfies DiscordFileComponent;
+    } satisfies APIFileComponent;
   }
 
   protected isMediaGalleryUpload(file: DiscordFileUpload): boolean {
@@ -1439,7 +1533,7 @@ export class DiscordAdapter implements Adapter<DiscordThreadId, unknown> {
   protected async createDiscordThread(
     channelId: string,
     messageId: string
-  ): Promise<{ id: string; name: string }> {
+  ): Promise<Pick<APIThreadChannel, "id" | "name">> {
     const threadName = `Thread ${new Date().toLocaleString()}`;
 
     this.logger.debug("Discord API: POST thread", {
@@ -1458,7 +1552,7 @@ export class DiscordAdapter implements Adapter<DiscordThreadId, unknown> {
         }
       );
 
-      const result = (await response.json()) as { id: string; name: string };
+      const result = (await response.json()) as APIThreadChannel;
 
       this.logger.debug("Discord API: POST thread response", {
         threadId: result.id,
@@ -1717,7 +1811,7 @@ export class DiscordAdapter implements Adapter<DiscordThreadId, unknown> {
       `/channels/${discordThreadId}`,
       "GET"
     );
-    const channel = (await response.json()) as { parent_id?: string };
+    const channel = (await response.json()) as APIThreadChannel;
     if (channel.parent_id !== parentChannelId) {
       throw new ValidationError(
         "discord",
@@ -1725,7 +1819,7 @@ export class DiscordAdapter implements Adapter<DiscordThreadId, unknown> {
       );
     }
 
-    this.rememberThreadParent(discordThreadId, channel.parent_id);
+    this.rememberThreadParent(discordThreadId, parentChannelId);
     return discordThreadId;
   }
 
@@ -1935,16 +2029,12 @@ export class DiscordAdapter implements Adapter<DiscordThreadId, unknown> {
     this.logger.debug("Discord API: GET channel", { channelId });
 
     const response = await this.discordFetch(`/channels/${channelId}`, "GET");
-    const channel = (await response.json()) as {
-      id: string;
-      name?: string;
-      type: ChannelType;
-    };
+    const channel = (await response.json()) as RESTGetAPIChannelResult;
 
     return {
       id: threadId,
       channelId,
-      channelName: channel.name,
+      channelName: channel.name ?? undefined,
       isDM:
         channel.type === ChannelType.DM || channel.type === ChannelType.GroupDM,
       metadata: {
@@ -1981,10 +2071,8 @@ export class DiscordAdapter implements Adapter<DiscordThreadId, unknown> {
       recipient_id: userId,
     });
 
-    const dmChannel = (await response.json()) as {
-      id: string;
-      type: ChannelType;
-    };
+    const dmChannel =
+      (await response.json()) as RESTPostAPICurrentUserCreateDMChannelResult;
 
     this.logger.debug("Discord API: POST DM channel response", {
       channelId: dmChannel.id,
@@ -2276,11 +2364,8 @@ export class DiscordAdapter implements Adapter<DiscordThreadId, unknown> {
     // When webhookUrl is provided, use raw forwarding for ALL events
     // This keeps the Gateway simple - all processing happens in the webhook
     if (webhookUrl) {
-      client.on("raw", async (packet: { t: string | null; d: unknown }) => {
-        if (isShuttingDown) {
-          return;
-        }
-        if (!packet.t) {
+      client.on("raw", async (packet: DiscordRawGatewayPacket) => {
+        if (isShuttingDown || !packet.t) {
           return; // Skip heartbeats and other non-dispatch events
         }
 
@@ -2288,49 +2373,11 @@ export class DiscordAdapter implements Adapter<DiscordThreadId, unknown> {
           type: packet.t,
         });
 
-        let data = packet.d;
-        if (
-          packet.t === "MESSAGE_CREATE" &&
-          this.respondToChannelIds.length > 0
-        ) {
-          const message = packet.d as DiscordGatewayMessageData;
-          if (
-            !(
-              message.author.bot ||
-              this.respondToChannelIds.includes(message.channel_id)
-            )
-          ) {
-            const channel = await client.channels
-              .fetch(message.channel_id)
-              .catch((error) => {
-                this.logger.warn(
-                  "Failed to resolve forwarded message channel",
-                  {
-                    channelId: message.channel_id,
-                    error: String(error),
-                  }
-                );
-                return null;
-              });
-            if (
-              channel?.isThread() &&
-              channel.parentId &&
-              this.respondToChannelIds.includes(channel.parentId)
-            ) {
-              data = {
-                ...message,
-                thread: { id: channel.id, parent_id: channel.parentId },
-              };
-            }
-          }
-        }
-
-        // Forward to webhook
-        await this.forwardGatewayEvent(webhookUrl, {
-          type: `GATEWAY_${packet.t}` as DiscordGatewayEventType,
-          timestamp: Date.now(),
-          data,
-        });
+        // Enrichment awaits REST calls, so serialize per channel to keep
+        // e.g. REACTION_ADD ahead of the REACTION_REMOVE that followed it.
+        await this.enqueueOrderedForward(getPacketChannelId(packet), () =>
+          this.forwardRawGatewayPacket(client, webhookUrl, packet)
+        );
       });
     } else {
       // Legacy mode: handle events directly without webhook forwarding
@@ -2542,6 +2589,134 @@ export class DiscordAdapter implements Adapter<DiscordThreadId, unknown> {
         );
       }
     });
+  }
+
+  /**
+   * Run `task` after every earlier task queued under the same key so events
+   * for one channel reach the webhook in the order the Gateway delivered
+   * them. Tasks without a key run immediately.
+   */
+  protected enqueueOrderedForward(
+    key: string | undefined,
+    task: () => Promise<void>
+  ): Promise<void> {
+    const run = () =>
+      task().catch((error) => {
+        this.logger.error("Failed to forward Gateway event", {
+          channelId: key,
+          error: String(error),
+        });
+      });
+    if (key === undefined) {
+      return run();
+    }
+
+    const previous = this.forwardQueues.get(key) ?? Promise.resolve();
+    const next = previous.then(run, run);
+    this.forwardQueues.set(key, next);
+    return next.finally(() => {
+      if (this.forwardQueues.get(key) === next) {
+        this.forwardQueues.delete(key);
+      }
+    });
+  }
+
+  /**
+   * Enrich one raw Gateway packet and forward it to the webhook endpoint.
+   */
+  protected async forwardRawGatewayPacket(
+    client: Client,
+    webhookUrl: string,
+    packet: DiscordRawGatewayPacket
+  ): Promise<void> {
+    let data = packet.d;
+    if (packet.t === "MESSAGE_CREATE" && this.respondToChannelIds.length > 0) {
+      const message = packet.d as DiscordGatewayMessageData;
+      if (
+        !(
+          message.author.bot ||
+          this.respondToChannelIds.includes(message.channel_id)
+        )
+      ) {
+        const channel = await client.channels
+          .fetch(message.channel_id)
+          .catch((error) => {
+            this.logger.warn("Failed to resolve forwarded message channel", {
+              channelId: message.channel_id,
+              error: String(error),
+            });
+            return null;
+          });
+        if (
+          channel?.isThread() &&
+          channel.parentId &&
+          this.respondToChannelIds.includes(channel.parentId)
+        ) {
+          data = {
+            ...message,
+            thread: { id: channel.id, parent_id: channel.parentId },
+          };
+        }
+      }
+    }
+
+    if (
+      packet.t === "MESSAGE_REACTION_ADD" ||
+      packet.t === "MESSAGE_REACTION_REMOVE"
+    ) {
+      data = await this.enrichForwardedReaction(
+        client,
+        packet.d as DiscordGatewayReactionData
+      );
+    }
+
+    await this.forwardGatewayEvent(webhookUrl, {
+      type: `GATEWAY_${packet.t}` as DiscordGatewayEventType,
+      timestamp: Date.now(),
+      data,
+    });
+  }
+
+  /**
+   * Discord omits the channel type and, outside guilds, the user from reaction
+   * events. Fill both from the Gateway client, plus the thread parent when the
+   * reaction landed in a thread, so the webhook side can resolve threads and
+   * DM reactors without extra API calls.
+   */
+  protected async enrichForwardedReaction(
+    client: Client,
+    reaction: DiscordGatewayReactionData
+  ): Promise<DiscordGatewayReactionData> {
+    const [channel, user] = await Promise.all([
+      client.channels.fetch(reaction.channel_id).catch((error) => {
+        this.logger.warn("Failed to resolve forwarded reaction channel", {
+          channelId: reaction.channel_id,
+          error: String(error),
+        });
+        return null;
+      }),
+      "member" in reaction && reaction.member
+        ? null
+        : client.users.fetch(reaction.user_id).catch((error) => {
+            this.logger.warn("Failed to resolve forwarded reaction user", {
+              error: String(error),
+              userId: reaction.user_id,
+            });
+            return null;
+          }),
+    ]);
+
+    const thread =
+      channel?.isThread() && channel.parentId
+        ? { id: channel.id, parent_id: channel.parentId }
+        : undefined;
+
+    return {
+      ...reaction,
+      ...(channel ? { channel_type: channel.type } : {}),
+      ...(thread ? { thread } : {}),
+      ...(user ? { user: this.normalizeGatewayUser(user) } : {}),
+    };
   }
 
   /**
@@ -2882,33 +3057,24 @@ export class DiscordAdapter implements Adapter<DiscordThreadId, unknown> {
       `/guilds/${guildId}/threads/active`,
       "GET"
     );
-    const activeData = (await activeResponse.json()) as {
-      threads: Array<{
-        id: string;
-        name: string;
-        parent_id: string;
-        message_count?: number;
-        total_message_sent?: number;
-        thread_metadata?: { archive_timestamp?: string };
-      }>;
-    };
+    const activeData =
+      (await activeResponse.json()) as RESTGetAPIGuildThreadsResult;
 
     // Filter threads that belong to our channel
-    const channelThreads = (activeData.threads || []).filter(
-      (t) => t.parent_id === discordChannelId
-    );
+    const channelThreads = (
+      (activeData.threads || []) as APIThreadChannel[]
+    ).filter((t) => t.parent_id === discordChannelId);
 
     // Also fetch archived public threads
-    let archivedThreads: typeof channelThreads = [];
+    let archivedThreads: APIThreadChannel[] = [];
     try {
       const archivedResponse = await this.discordFetch(
         `/channels/${discordChannelId}/threads/archived/public?limit=${options.limit || 50}`,
         "GET"
       );
-      const archivedData = (await archivedResponse.json()) as {
-        threads: typeof channelThreads;
-      };
-      archivedThreads = archivedData.threads || [];
+      const archivedData =
+        (await archivedResponse.json()) as RESTGetAPIChannelThreadsArchivedPublicResult;
+      archivedThreads = (archivedData.threads || []) as APIThreadChannel[];
     } catch {
       // Archived threads may not be available (permissions)
       this.logger.debug(
@@ -2966,8 +3132,8 @@ export class DiscordAdapter implements Adapter<DiscordThreadId, unknown> {
           rootMessage: new Message({
             id: thread.id,
             threadId,
-            text: thread.name,
-            formatted: this.formatConverter.toAst(thread.name),
+            text: thread.name ?? "",
+            formatted: this.formatConverter.toAst(thread.name ?? ""),
             raw: thread,
             author: {
               userId: "unknown",
@@ -3015,19 +3181,14 @@ export class DiscordAdapter implements Adapter<DiscordThreadId, unknown> {
       `/channels/${discordChannelId}`,
       "GET"
     );
-    const channel = (await response.json()) as {
-      id: string;
-      name?: string;
-      type: ChannelType;
-      member_count?: number;
-    };
+    const channel = (await response.json()) as RESTGetAPIChannelResult;
 
     return {
       id: channelId,
-      name: channel.name,
+      name: channel.name ?? undefined,
       isDM:
         channel.type === ChannelType.DM || channel.type === ChannelType.GroupDM,
-      memberCount: channel.member_count,
+      memberCount: "member_count" in channel ? channel.member_count : undefined,
       metadata: {
         channelType: channel.type,
         raw: channel,
@@ -3147,6 +3308,7 @@ export {
 export type {
   DiscordAdapterConfig,
   DiscordComponentTypeValue,
+  DiscordForwardedThread,
   DiscordInteractionFlagsContext,
   DiscordInteractionResponseFlags,
   DiscordMessageFlags,

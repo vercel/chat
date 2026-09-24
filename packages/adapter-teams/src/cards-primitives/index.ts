@@ -12,7 +12,9 @@ import type {
   TeamsRadioSelectElement,
   TeamsSectionElement,
   TeamsSelectElement,
+  TeamsTableAlignment,
   TeamsTableElement,
+  TeamsTableVerticalAlignment,
   TeamsTextElement,
 } from "./types";
 
@@ -84,7 +86,7 @@ function convertChild(child: TeamsCardChild): ConvertedChild {
     case "link":
       return { actions: [], body: [convertLink(child)] };
     case "table":
-      return { actions: [], body: [convertTable(child)] };
+      return { actions: [], body: convertTable(child) };
     default:
       return { actions: [], body: [] };
   }
@@ -210,28 +212,99 @@ function convertLink(link: TeamsLinkElement): unknown {
   return textBlock(`[${link.label}](${link.url})`);
 }
 
-function convertTable(table: TeamsTableElement): unknown {
-  return {
-    items: [
-      {
-        columns: table.headers.map((header) => ({
-          items: [textBlock(header, { weight: "Bolder" })],
-          type: "Column",
-          width: "stretch",
-        })),
-        type: "ColumnSet",
-      },
-      ...table.rows.map((row) => ({
-        columns: row.map((cell) => ({
-          items: [textBlock(cell)],
-          type: "Column",
-          width: "stretch",
-        })),
-        type: "ColumnSet",
-      })),
-    ],
-    type: "Container",
-  };
+const TABLE_HORIZONTAL_ALIGNMENT: Record<
+  TeamsTableAlignment,
+  "Center" | "Left" | "Right"
+> = {
+  center: "Center",
+  left: "Left",
+  right: "Right",
+};
+
+const TABLE_VERTICAL_ALIGNMENT: Record<
+  TeamsTableVerticalAlignment,
+  "Bottom" | "Center" | "Top"
+> = {
+  bottom: "Bottom",
+  center: "Center",
+  top: "Top",
+};
+
+// Adaptive Cards treats a column width as a relative weight only when it is a
+// positive integer; Teams desktop and mobile disagree on anything else, so an
+// invalid weight falls back to the default instead of reaching the wire.
+function columnWeight(width: number | undefined): number {
+  return width !== undefined && Number.isInteger(width) && width > 0
+    ? width
+    : 1;
+}
+
+// The widest row sets the column count, so a short row is padded with empty
+// cells instead of shifting the grid. Accumulated in a loop rather than
+// `Math.max(...rows.map(...))`, which spreads one argument per row and blows
+// the call-argument limit on a large table.
+function tableColumnCount(headers: string[], rows: string[][]): number {
+  let count = headers.length;
+  for (const row of rows) {
+    if (row.length > count) {
+      count = row.length;
+    }
+  }
+  return count;
+}
+
+// Returns an array so "no columns means nothing to draw" needs no null check at
+// the call site, matching what the empty ASCII fallback says.
+function convertTable(table: TeamsTableElement): unknown[] {
+  const columnCount = tableColumnCount(table.headers, table.rows);
+  if (columnCount === 0) {
+    return [];
+  }
+  const toRow = (cells: string[], options: Record<string, unknown> = {}) => ({
+    cells: Array.from({ length: columnCount }, (_, index) => ({
+      items: [textBlock(cells[index] ?? "", options)],
+      type: "TableCell",
+    })),
+    type: "TableRow",
+  });
+  const hasHeader = table.headers.length > 0;
+  const rows = table.rows.map((row) => toRow(row));
+  if (hasHeader) {
+    rows.unshift(toRow(table.headers, { weight: "Bolder" }));
+  }
+
+  return [
+    {
+      columns: Array.from({ length: columnCount }, (_, index) => {
+        const align = table.align?.[index];
+        return {
+          ...(align
+            ? {
+                horizontalCellContentAlignment:
+                  TABLE_HORIZONTAL_ALIGNMENT[align],
+              }
+            : {}),
+          width: columnWeight(table.widths?.[index]),
+        };
+      }),
+      // Plural on purpose — see the matching note in `cards.ts`. The prose
+      // property table on Microsoft's Table reference page says
+      // `firstRowAsHeader`, but the plural is what renderers read, and the
+      // property defaults to `true` when absent, so emitting the singular
+      // would give a headerless table a header row.
+      firstRowAsHeaders: hasHeader,
+      ...(table.gridStyle ? { gridStyle: table.gridStyle } : {}),
+      rows,
+      showGridLines: table.gridLines ?? true,
+      type: "Table",
+      ...(table.verticalAlign
+        ? {
+            verticalCellContentAlignment:
+              TABLE_VERTICAL_ALIGNMENT[table.verticalAlign],
+          }
+        : {}),
+    },
+  ];
 }
 
 function textBlock(

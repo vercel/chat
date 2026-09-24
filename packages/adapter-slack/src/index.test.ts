@@ -1283,6 +1283,89 @@ describe("parseMessage", () => {
     expect(message.author.isMe).toBe(false);
   });
 
+  it("converts special mentions to readable text", () => {
+    const message = adapter.parseMessage({
+      type: "message",
+      user: "U123",
+      channel: "C456",
+      text: "<!here> and <!subteam^S0123456789|@devs>",
+      ts: "1234567890.123456",
+    });
+
+    expect(message.text).toBe("@here and @devs");
+    expect(message.formatted.children.map((node) => node.type)).toEqual([
+      "paragraph",
+    ]);
+  });
+
+  it("preserves special mention tokens in an inbound inline code span", () => {
+    const text = "<!here> <!channel> <!everyone> <!subteam^S123>";
+    const message = adapter.parseMessage({
+      type: "message",
+      user: "U123",
+      channel: "D456",
+      channel_type: "im",
+      text: `review code \`${text}\``,
+      ts: "1234567890.123456",
+      blocks: [
+        {
+          type: "rich_text",
+          elements: [
+            {
+              type: "rich_text_section",
+              elements: [
+                { type: "text", text: "review code " },
+                { type: "text", text, style: { code: true } },
+              ],
+            },
+          ],
+        },
+      ],
+    });
+
+    expect(message.text).toBe(`review code ${text}`);
+    expect(message.formatted.children).toEqual([
+      expect.objectContaining({
+        type: "paragraph",
+        children: [
+          expect.objectContaining({ type: "text", value: "review code " }),
+          expect.objectContaining({ type: "inlineCode", value: text }),
+        ],
+      }),
+    ]);
+    expect(message.isMention).toBe(false);
+  });
+
+  it("preserves special mention tokens in an inbound code block", () => {
+    const text = "review fence <!here> <!channel> <!everyone>";
+    const message = adapter.parseMessage({
+      type: "message",
+      user: "U123",
+      channel: "D456",
+      channel_type: "im",
+      text: `\`\`\`${text}\`\`\``,
+      ts: "1234567890.123456",
+      blocks: [
+        {
+          type: "rich_text",
+          elements: [
+            {
+              type: "rich_text_preformatted",
+              elements: [{ type: "text", text }],
+              border: 0,
+            },
+          ],
+        },
+      ],
+    });
+
+    expect(message.text).toBe(text);
+    expect(message.formatted.children).toEqual([
+      expect.objectContaining({ type: "code", value: text }),
+    ]);
+    expect(message.isMention).toBe(false);
+  });
+
   it("parses a bot message", () => {
     const event = {
       type: "message",
@@ -1674,7 +1757,7 @@ describe("parseMessage", () => {
     });
 
     // Cell tokens are rendered by the same mrkdwn converter as body text
-    expect(message.text).toBe("#C789 <!subteam^S789> July 11 #ff0000");
+    expect(message.text).toBe("#C789 @S789 July 11 #ff0000");
   });
 
   it("formats date cells from the timestamp when no fallback is present", () => {

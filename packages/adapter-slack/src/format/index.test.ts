@@ -95,6 +95,64 @@ describe("Slack format primitives", () => {
     );
   });
 
+  it("normalizes special mentions and user groups", () => {
+    expect(
+      slackMrkdwnToMarkdown(
+        "<!here> <!channel> <!everyone|everyone> <!subteam^S123|@devs> <!subteam^S456>"
+      )
+    ).toBe("@here @channel @everyone @devs @S456");
+  });
+
+  it.each([
+    "<!here>",
+    "<!channel>",
+    "<!everyone|everyone>",
+    "<!subteam^S123|@devs>",
+    "<!subteam^S456>",
+  ])("preserves %s inside code while converting surrounding mentions", (token) => {
+    expect(slackMrkdwnToMarkdown(`<!here> \`${token}\` <!channel>`)).toBe(
+      `@here \`${token}\` @channel`
+    );
+    expect(
+      slackMrkdwnToMarkdown(`<!here> \`\`\`${token}\`\`\` <!channel>`)
+    ).toBe(`@here \n\`\`\`\n${token}\n\`\`\`\n @channel`);
+  });
+
+  it("converts special mentions around multiple inline code spans", () => {
+    expect(
+      slackMrkdwnToMarkdown(
+        "`<!here>` <!channel> `<!everyone>` <!subteam^S123|@devs>"
+      )
+    ).toBe("`<!here>` @channel `<!everyone>` @devs");
+  });
+
+  it("does not treat an unmatched backtick as a code span", () => {
+    expect(slackMrkdwnToMarkdown("use ` then <!here>")).toBe(
+      "use ` then @here"
+    );
+    expect(slackMrkdwnToMarkdown("`first\n<!here> `last")).toBe(
+      "`first\n@here `last"
+    );
+  });
+
+  it("preserves escaped special mentions", () => {
+    expect(slackMrkdwnToMarkdown("&lt;!here&gt; <!channel>")).toBe(
+      "<!here> @channel"
+    );
+  });
+
+  it("keeps link-label backticks from hiding special mentions", () => {
+    expect(
+      slackMrkdwnToMarkdown("<https://example.com|`label> <!here> `open")
+    ).toBe("[`label](https://example.com) @here `open");
+  });
+
+  it("preserves emphasis across inline code", () => {
+    expect(slackMrkdwnToMarkdown("*before `<!here>` after* <!channel>")).toBe(
+      "**before `<!here>` after** @channel"
+    );
+  });
+
   it("normalizes Slack code fences for CommonMark parsing", () => {
     expect(slackMrkdwnToMarkdown("```first line\nsecond line\n```")).toBe(
       "```\nfirst line\nsecond line\n```"

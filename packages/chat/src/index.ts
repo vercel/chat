@@ -200,7 +200,9 @@ export type {
   SeriesChartDefinition,
   TableAlignment,
   TableElement,
+  TableGridStyle,
   TableOptions,
+  TableVerticalAlignment,
   TextElement,
   TextStyle,
 } from "./cards";

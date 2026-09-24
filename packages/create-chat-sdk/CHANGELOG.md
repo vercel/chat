@@ -1,5 +1,18 @@
 # create-chat-sdk
 
+## 0.5.0
+
+### Minor Changes
+
+- 961cf45: Generate Linear Connect bots with explicit agent-session mode and setup guidance. Recommend agent sessions once during initialization when a token resolver and webhook verifier are configured without a mode, while preserving the adapter's comments default.
+- 139d337: Support Vercel Connect in the Teams adapter with lazy app identity resolution and custom webhook verification. Ensure custom Bot Framework and Graph token factories take precedence over client-secret environment variables.
+  
+  Add Teams to `create-chat-sdk --connect` and interactive Connect scaffolding, including the helper, connector environment variable, and setup documentation.
+
+### Patch Changes
+
+- 1136c96: Tailor generated README setup instructions to Connect-forwarded and native webhooks, including projects that use both.
+
 ## 0.4.0
 
 ### Minor Changes

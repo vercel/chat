@@ -1,5 +1,42 @@
 # chat
 
+## 4.41.0
+
+### Minor Changes
+
+- ad90432: Add opt-in selection change events for Select and RadioSelect inputs in Slack modals
+- dc2a777: Add TanStack AI support. `thread.post()`, `thread.reply()`, and `channel.post()` accept the stream returned by TanStack's `chat()`, and the new `chat/ai/tanstack` subpath provides `toTanStackMessages` for thread history and `createTanStackTools` for the Chat SDK toolset. Neither adds a runtime dependency on `@tanstack/ai`; the tools require zod 4.2 or newer.
+- 139d337: Support Vercel Connect in the Teams adapter with lazy app identity resolution and custom webhook verification. Ensure custom Bot Framework and Graph token factories take precedence over client-secret environment variables.
+  
+  Add Teams to `create-chat-sdk --connect` and interactive Connect scaffolding, including the helper, connector environment variable, and setup documentation.
+- 2e2426d: Add `onInstalled` and `onUninstalled` handlers for installation lifecycle events. The Teams adapter emits them for `installationUpdate` activities, including the `add-upgrade` and `remove-upgrade` actions, with a persistable `channelId` for later proactive messages.
+  
+  The Teams adapter now sends, edits, deletes, reacts, and types against the service URL encoded in the thread ID instead of the app-wide default, so conversations hosted on regional or sovereign Bot Framework endpoints are reached correctly. An explicit `apiUrl` still pins every call to that endpoint.
+- 8421953: feat(teams): render tables as the Adaptive Card 1.5 Table element
+  
+  The Teams adapter now renders `Table` as the native Adaptive Cards `Table` element instead of a `Container` of `ColumnSet`s. Teams draws grid lines between cells, sizes columns by relative weight and marks the header row for accessibility. The `@chat-adapter/teams/cards` subpath emits the same element.
+  
+  `Table` gains optional rendering options that only Teams reads: `widths` (positive integer column weights), `verticalAlign` (vertical alignment of cell content), `gridLines` (default `true`) and `gridStyle`. Other adapters ignore them. Pass `gridLines: false` to keep a borderless table.
+  
+  The chat JSX runtime now forwards `align` on `<Table>`, matching `fromReactElement`.
+- 056d883: Allow `history.user.maxPerUser` and legacy `transcripts.maxPerUser` to be `false` to disable count-based history eviction. The default remains 200 entries per user.
+- fcdc1c9: Honor an adapter's definitive `isMention: false` instead of re-detecting mentions from the message text.
+  
+  An adapter that reads structured platform content reports `true` or `false`, and the SDK falls back to matching `@username` in the text only when the adapter reports nothing. A definitive `false` now wins, so an adapter can suppress a mention that exists only in text its platform renders literally, such as a code sample. Adapters that previously returned `false` to mean "not detected" should return `undefined` instead. Direct messages are unchanged: with no `onDirectMessage` handler registered they still route to `onNewMention`.
+  
+  Adapter changes that follow from the new contract:
+  
+  - Linear: ordinary comments are left undetermined, so SDK text detection still applies to them.
+  - Notion: `keyword` mode leaves comments without a keyword match undetermined instead of reporting `false`, so `@userName` in the text still counts.
+  - X: posts rebuilt from raw or fetched by id are left undetermined instead of reporting `false`. Only `post.mention.create` events report `true`.
+  - Discord: a real ping, role mention, `@everyone`, or allowlisted channel reports `true`; anything else is left undetermined instead of `false`, so a literal `@botname` typed in the text still counts as before.
+
+### Patch Changes
+
+- f233ffe: Retry initialization after a failed state connection. Once the state adapter (for example Redis) recovers, the next `initialize()` call or webhook tries again instead of rejecting with the original connection error. Concurrent callers still share one attempt. Adapter initialization failures remain cached until `shutdown()` so retries cannot restart adapters that are already running or still starting.
+- 91683e5: Wait for Telegram polling handlers to settle before advancing update offsets.
+- c21ccbc: Add an opt-in webhook option to propagate message, action, and slash command handler errors through `waitUntil` while preserving default behavior.
+
 ## 4.40.0
 
 ### Minor Changes

@@ -237,8 +237,9 @@ When you add a new interaction type, capture a fresh fixture in
 ## Coding conventions
 
 - Use named exports throughout. No default exports.
-- The Discord API typings live in `types.ts` — extend them rather
-  than reaching for `discord-api-types` for new fields.
+- Discord payload types come from `discord-api-types/v10`. `types.ts`
+  only declares adapter configuration and the Gateway forwarding
+  envelope; do not hand-write Discord API shapes.
 - Errors map to `@chat-adapter/shared` (`AuthenticationError`,
   `AdapterRateLimitError`, `NetworkError`, `ValidationError`).
 - Top-level regex literals only.
