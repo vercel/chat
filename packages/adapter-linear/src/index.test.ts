@@ -2528,6 +2528,103 @@ describe("fetchMessages", () => {
     expect(fetch.mock.calls[0][1]?.body).toContain("issueId");
   });
 
+  describe.each([
+    "linear:issue-public:s:private-session",
+    "linear:issue-public:c:source-comment:s:private-session",
+  ])("agent session ownership for %s", (thread) => {
+    it.each([
+      "issue-private",
+      undefined,
+      null,
+      "",
+    ])("rejects an unverified issueId before loading content: %s", async (issueId) => {
+      const adapter = createWebhookAdapter();
+      const comment = vi.fn().mockResolvedValue(undefined);
+      const activities = vi.fn().mockResolvedValue({
+        nodes: [],
+        pageInfo: {},
+      });
+      const client = {
+        agentSession: vi.fn().mockResolvedValue({
+          id: "private-session",
+          issueId,
+          get comment() {
+            return comment();
+          },
+          activities,
+        }),
+        comments: vi.fn(),
+      };
+      setDefaultClient(adapter, client);
+
+      await expect(adapter.fetchMessages(thread)).rejects.toThrowError(
+        new ValidationError(
+          "linear",
+          "Agent session does not belong to this issue"
+        )
+      );
+      expect(client.agentSession).toHaveBeenCalledWith("private-session");
+      expect(comment).not.toHaveBeenCalled();
+      expect(client.comments).not.toHaveBeenCalled();
+      expect(activities).not.toHaveBeenCalled();
+    });
+  });
+
+  it.each([
+    "issue-private",
+    null,
+    "issue-public",
+  ])("validates agent session ownership through the Linear SDK: %s", async (issueId) => {
+    const adapter = createWebhookAdapter();
+    const fetch = vi
+      .fn<typeof globalThis.fetch>()
+      .mockResolvedValueOnce(
+        Response.json({
+          data: {
+            agentSession: {
+              id: "session-1",
+              issue: issueId ? { id: issueId } : null,
+              comment: null,
+              externalLinks: [],
+              externalUrls: [],
+              createdAt: "2025-06-01T10:00:00.000Z",
+              updatedAt: "2025-06-01T10:00:00.000Z",
+            },
+          },
+        })
+      )
+      .mockResolvedValueOnce(
+        Response.json({
+          data: {
+            agentSession: {
+              activities: {
+                nodes: [],
+                pageInfo: { hasPreviousPage: false, startCursor: null },
+              },
+            },
+          },
+        })
+      );
+    vi.stubGlobal("fetch", fetch);
+
+    const result = adapter.fetchMessages("linear:issue-public:s:session-1");
+    if (issueId === "issue-public") {
+      await expect(result).resolves.toEqual({
+        messages: [],
+        nextCursor: undefined,
+      });
+      expect(fetch).toHaveBeenCalledTimes(2);
+    } else {
+      await expect(result).rejects.toThrowError(
+        new ValidationError(
+          "linear",
+          "Agent session does not belong to this issue"
+        )
+      );
+      expect(fetch).toHaveBeenCalledTimes(1);
+    }
+  });
+
   it("should fetch agent session threads as visible comments only", async () => {
     const adapter = createWebhookAdapter(undefined, "agent-sessions");
     setDefaultOrganizationId(adapter, "org-xyz");

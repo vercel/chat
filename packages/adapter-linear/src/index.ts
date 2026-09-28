@@ -2062,11 +2062,11 @@ export class LinearAdapter
   ): Promise<FetchResult<LinearRawMessage>> {
     const linear = this.getClient();
     const agentSession = await linear.agentSession(thread.agentSessionId);
-    const issueId = agentSession.issueId ?? thread.issueId;
-    if (!issueId) {
-      throw new AdapterError(
-        `Linear agent session ${thread.agentSessionId} is missing issueId`,
-        "linear"
+    const issueId = agentSession.issueId;
+    if (!issueId || issueId !== thread.issueId) {
+      throw new ValidationError(
+        "linear",
+        "Agent session does not belong to this issue"
       );
     }
 
