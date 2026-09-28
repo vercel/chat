@@ -17,6 +17,10 @@ Your adapter's README is the first thing developers see on npm and GitHub. Clear
 
 All Vercel-maintained adapters follow a consistent structure. Community adapters should aim for the same bar.
 
+<Callout type="info">
+  The examples below describe a fictional Matrix adapter. `YOUR_PUBLISHED_ADAPTER_PACKAGE` is a placeholder, not a package to install. Replace it everywhere, including badges and imports, with the exact npm name of the adapter you own and have published. Verify the installation command and npm links before publishing your README.
+</Callout>
+
 ## README structure
 
 Your `README.md` should include these sections in order:
@@ -26,10 +30,10 @@ Your `README.md` should include these sections in order:
 Start with the package name as an H1, followed by npm badges and a one-line description.
 
 ````markdown title="README.md"
-# chat-adapter-matrix
+# YOUR_PUBLISHED_ADAPTER_PACKAGE
 
-[![npm version](https://img.shields.io/npm/v/chat-adapter-matrix)](https://www.npmjs.com/package/chat-adapter-matrix)
-[![npm downloads](https://img.shields.io/npm/dm/chat-adapter-matrix)](https://www.npmjs.com/package/chat-adapter-matrix)
+[![npm version](https://img.shields.io/npm/v/YOUR_PUBLISHED_ADAPTER_PACKAGE)](https://www.npmjs.com/package/YOUR_PUBLISHED_ADAPTER_PACKAGE)
+[![npm downloads](https://img.shields.io/npm/dm/YOUR_PUBLISHED_ADAPTER_PACKAGE)](https://www.npmjs.com/package/YOUR_PUBLISHED_ADAPTER_PACKAGE)
 
 Matrix adapter for [Chat SDK](https://chat-sdk.dev/docs).
 ````
@@ -42,7 +46,7 @@ Show the install command with `chat` as a co-dependency.
 ## Installation
 
 ```bash
-npm install chat chat-adapter-matrix
+npm install chat YOUR_PUBLISHED_ADAPTER_PACKAGE
 ```
 ````
 
@@ -55,7 +59,7 @@ A minimal working example that developers can copy-paste. Include the factory fu
 
 ```typescript
 import { Chat } from "chat";
-import { createMatrixAdapter } from "chat-adapter-matrix";
+import { createMatrixAdapter } from "YOUR_PUBLISHED_ADAPTER_PACKAGE";
 
 const bot = new Chat({
   userName: "mybot",

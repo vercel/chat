@@ -15,9 +15,11 @@ related:
 
 Before publishing, verify your `package.json` meets these requirements:
 
+`YOUR_PUBLISHED_ADAPTER_PACKAGE` is a placeholder for your adapter's npm package name. Replace it with a valid name you own before publishing, and use that exact name in the post-publish verification commands. Do not install the placeholder or an unrelated package with a similar name.
+
 ```json title="package.json" lineNumbers
 {
-  "name": "chat-adapter-matrix",
+  "name": "YOUR_PUBLISHED_ADAPTER_PACKAGE",
   "version": "1.0.0",
   "type": "module",
   "main": "./dist/index.js",
@@ -52,10 +54,12 @@ Before publishing, verify your `package.json` meets these requirements:
 
 ## Naming conventions
 
-| Convention | Example | When to use |
+| Convention | Pattern | When to use |
 |------------|---------|-------------|
-| Unscoped | `chat-adapter-matrix` | Most community adapters |
-| Scoped | `@your-org/chat-adapter-matrix` | Optional — if you prefer publishing under your org's scope |
+| Unscoped | `chat-adapter-PLATFORM` | A unique, available name for your adapter |
+| Scoped | `@YOUR_SCOPE/chat-adapter-PLATFORM` | An adapter published under a scope you control |
+
+Replace `PLATFORM` and `YOUR_SCOPE` with your own values. These are naming patterns, not packages to install. New npm package names must be lowercase; see [npm's package name rules](https://docs.npmjs.com/cli/v11/configuring-npm/package-json#name).
 
 <Callout type="warn">
   The `@chat-adapter/` npm scope is reserved for Vercel-maintained adapters. Do not publish under this scope.
@@ -147,10 +151,10 @@ mkdir /tmp/test-adapter && cd /tmp/test-adapter
 npm init -y
 
 # Install your adapter
-npm install chat chat-adapter-matrix
+npm install chat YOUR_PUBLISHED_ADAPTER_PACKAGE
 
 # Verify the import works
-node -e "import('chat-adapter-matrix').then(m => console.log(Object.keys(m)))"
+node -e "import('YOUR_PUBLISHED_ADAPTER_PACKAGE').then(m => console.log(Object.keys(m)))"
 ```
 
 You should see your exported symbols (`createMatrixAdapter`, `MatrixAdapter`, etc.).
@@ -183,7 +187,7 @@ The docs site re-renders on every deploy, so an unpinned `readme` would serve wh
   "slug": "my-adapter",
   "type": "platform",
   "community": true,
-  "packageName": "chat-adapter-my-thing",
+  "packageName": "YOUR_PUBLISHED_ADAPTER_PACKAGE",
   "readme": "https://github.com/your-org/chat-adapter-my-thing/tree/v1.2.0"
 }
 ```

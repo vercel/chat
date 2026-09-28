@@ -1,7 +1,7 @@
 ---
 title: Foo
 description: One-to-two sentence summary of what the Foo adapter connects to and its headline capabilities. Shown in search and listings.
-packageName: "@foo/chat-sdk-adapter"
+packageName: "YOUR_PUBLISHED_ADAPTER_PACKAGE"
 slug: foo
 type: platform
 tagline: One-line pitch shown on the adapter card — what it does and for whom.
@@ -50,16 +50,18 @@ features:
 
 ## Install
 
+Replace `YOUR_PUBLISHED_ADAPTER_PACKAGE` throughout this template with the exact npm name of the adapter you own and have published. This template describes a fictional Foo adapter, not a package to install.
+
 {/* Only the adapter package + chat (+ optional state adapter). Extra imports
     used below go in code blocks, NOT here — see the peerDeps invariant. */}
-<PackageInstall package="@foo/chat-sdk-adapter chat @chat-adapter/state-memory" />
+<PackageInstall package="YOUR_PUBLISHED_ADAPTER_PACKAGE chat @chat-adapter/state-memory" />
 
 ## Quick start
 
 ```typescript title="lib/bot.ts" lineNumbers
 import { Chat } from "chat";
 import { createMemoryState } from "@chat-adapter/state-memory";
-import { createFooAdapter } from "@foo/chat-sdk-adapter";
+import { createFooAdapter } from "YOUR_PUBLISHED_ADAPTER_PACKAGE";
 
 export const bot = new Chat({
   userName: "mybot",
