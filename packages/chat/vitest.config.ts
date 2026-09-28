@@ -18,18 +18,22 @@ export default defineConfig({
   test: {
     globals: true,
     environment: "node",
-    // The TanStack tests carry compile-time compatibility assertions against
-    // `@tanstack/ai` types; tsconfig.json excludes tests, so check them here.
+    // Check public JSX and TanStack compatibility assertions excluded by tsc.
     typecheck: {
       enabled: true,
-      include: ["src/ai/tanstack/*.test.ts"],
-      tsconfig: "./tsconfig.json",
+      include: ["src/**/*.test-d.ts", "src/ai/tanstack/*.test.ts"],
+      tsconfig: "./tsconfig.typecheck.json",
     },
     coverage: {
       provider: "v8",
       reporter: ["text", "json-summary"],
       include: ["src/**/*.ts", "src/**/*.tsx"],
-      exclude: ["src/**/*.test.ts", "src/**/*.test.tsx", "src/mock-adapter.ts"],
+      exclude: [
+        "src/**/*.test.ts",
+        "src/**/*.test.tsx",
+        "src/**/*.test-d.ts",
+        "src/mock-adapter.ts",
+      ],
     },
   },
 });

@@ -1,7 +1,11 @@
+import { createMockChatInstance, createMockState } from "@chat-adapter/tests";
 import { Client as GraphClient } from "@microsoft/teams.graph";
+import { chats } from "@microsoft/teams.graph-endpoints";
 import { ConsoleLogger } from "chat";
 import { describe, expect, it, vi } from "vitest";
+import type { TeamsApp } from "./app";
 import { TeamsGraphReader } from "./graph-api";
+import { createTeamsAdapter } from "./index";
 import { TeamsFormatConverter } from "./markdown";
 import { decodeThreadId, encodeThreadId, isDM } from "./thread-id";
 
@@ -73,8 +77,8 @@ describe("extractTextFromGraphMessage", () => {
           content: JSON.stringify({
             type: "AdaptiveCard",
             body: [
-              { type: "TextBlock", text: "My Card Title", weight: "bolder" },
               { type: "TextBlock", text: "Some description" },
+              { type: "TextBlock", text: "My Card Title", weight: "bolder" },
             ],
           }),
         },
@@ -119,17 +123,6 @@ describe("extractCardTitle", () => {
     expect(reader.extractCardTitle({ body: [] })).toBeNull();
   });
 
-  it("should find title with weight: bolder", () => {
-    const reader = createTestReader();
-    const card = {
-      body: [
-        { type: "TextBlock", text: "Title", weight: "bolder" },
-        { type: "TextBlock", text: "Description" },
-      ],
-    };
-    expect(reader.extractCardTitle(card)).toBe("Title");
-  });
-
   it("should find title with size: large", () => {
     const reader = createTestReader();
     const card = {
@@ -153,35 +146,65 @@ describe("extractCardTitle", () => {
   });
 });
 
-describe("chatIdFromContext", () => {
-  it("should use graphChatId from DM context", () => {
-    const reader = createTestReader();
-    // biome-ignore lint/complexity/useLiteralKeys: testing private method
-    const result = (reader as never)["chatIdFromContext"](
-      { type: "dm", graphChatId: "19:user-aad-id_bot-id@unq.gbl.spaces" },
-      "a:opaque-conversation-id"
-    );
-    expect(result).toBe("19:user-aad-id_bot-id@unq.gbl.spaces");
-  });
+describe("TeamsAdapter.fetchMessages Graph routing", () => {
+  it.each([
+    {
+      name: "resolves an opaque DM conversation through stored Graph context",
+      conversationId: "a:opaque-conversation-id",
+      conversationType: "personal" as const,
+      context: {
+        type: "dm",
+        graphChatId: "19:user-aad-id_bot-id@unq.gbl.spaces",
+      },
+      expectedChatId: "19:user-aad-id_bot-id@unq.gbl.spaces",
+    },
+    {
+      name: "uses a group conversation ID without stored context",
+      conversationId: "19:group-chat@thread.v2",
+      conversationType: "groupChat" as const,
+      context: undefined,
+      expectedChatId: "19:group-chat@thread.v2",
+    },
+  ])("$name", async ({
+    conversationId,
+    conversationType,
+    context,
+    expectedChatId,
+  }) => {
+    const state = createMockState();
+    if (context) {
+      await state.set(
+        `teams:channelContext:${conversationId}`,
+        JSON.stringify(context)
+      );
+    }
+    const adapter = createTeamsAdapter({
+      appId: "bot-id",
+      appPassword: "test",
+      logger: new ConsoleLogger("error"),
+    });
+    const app = (adapter as unknown as { app: TeamsApp }).app;
+    vi.spyOn(app, "initialize").mockResolvedValue(undefined);
+    const call = vi.spyOn(app.graph, "call").mockResolvedValue({
+      value: [
+        { id: "message-1", body: { content: "Hello", contentType: "text" } },
+      ],
+    });
+    await adapter.initialize(createMockChatInstance({ state }));
 
-  it("should use raw conversation ID when no context", () => {
-    const reader = createTestReader();
-    // biome-ignore lint/complexity/useLiteralKeys: testing private method
-    const result = (reader as never)["chatIdFromContext"](
-      null,
-      "19:group-chat@thread.v2"
+    const result = await adapter.fetchMessages(
+      adapter.encodeThreadId({
+        conversationId,
+        conversationType,
+        serviceUrl: "https://smba.trafficmanager.net/teams/",
+      })
     );
-    expect(result).toBe("19:group-chat@thread.v2");
-  });
 
-  it("should use raw conversation ID for channel context", () => {
-    const reader = createTestReader();
-    // biome-ignore lint/complexity/useLiteralKeys: testing private method
-    const result = (reader as never)["chatIdFromContext"](
-      { teamId: "team-id", channelId: "channel-id" },
-      "19:channel@thread.tacv2"
+    expect(call).toHaveBeenCalledExactlyOnceWith(
+      chats.messages.list,
+      expect.objectContaining({ "chat-id": expectedChatId })
     );
-    expect(result).toBe("19:channel@thread.tacv2");
+    expect(result.messages).toMatchObject([{ id: "message-1", text: "Hello" }]);
   });
 });
 

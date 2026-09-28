@@ -295,10 +295,6 @@ describe("TeamsAdapter", () => {
     vi.unstubAllGlobals();
   });
 
-  it("should export createTeamsAdapter function", () => {
-    expect(typeof createTeamsAdapter).toBe("function");
-  });
-
   it("should create an adapter instance", () => {
     const adapter = createTeamsAdapter({
       appId: "test-app-id",

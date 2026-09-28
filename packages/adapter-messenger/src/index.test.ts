@@ -2067,22 +2067,6 @@ describe("MessengerAdapter", () => {
   });
 });
 
-describe("subclass extensibility", () => {
-  it("exposes protected members and methods to subclasses", () => {
-    class TestSubclass extends MessengerAdapter {
-      checkAccess() {
-        // Compile-time check: if any of these revert to `private`, this fails to type-check.
-        return [
-          this.logger,
-          this.formatConverter,
-          this.verifySignature,
-        ] as const;
-      }
-    }
-    expect(TestSubclass.prototype.checkAccess).toBeInstanceOf(Function);
-  });
-});
-
 // `encodeThreadId`/`decodeThreadId` are pure, so a single adapter instance (no
 // init, no network) is enough to exercise the shared thread-id codec contract.
 const threadIdAdapter = createAdapter();

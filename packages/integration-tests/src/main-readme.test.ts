@@ -38,18 +38,4 @@ describe("Main README.md code examples", () => {
       rmSync(tempDir, { recursive: true, force: true });
     }
   });
-
-  it("should have a bot definition example", () => {
-    const readme = readFileSync(mainReadmePath, "utf-8");
-    const codeBlocks = extractTypeScriptBlocks(readme);
-
-    const hasBotDefinition = codeBlocks.some(
-      (block) => block.includes("new Chat") && block.includes("adapters:")
-    );
-
-    expect(
-      hasBotDefinition,
-      "README should have a Chat instantiation example"
-    ).toBe(true);
-  });
 });

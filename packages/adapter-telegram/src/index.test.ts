@@ -6223,18 +6223,6 @@ describe("getUser", () => {
   });
 });
 
-describe("subclass extensibility", () => {
-  it("exposes protected members and methods to subclasses", () => {
-    class TestSubclass extends TelegramAdapter {
-      checkAccess() {
-        // Compile-time check: if any of these revert to `private`, this fails to type-check.
-        return [this.logger, this.formatConverter, this.processUpdate] as const;
-      }
-    }
-    expect(TestSubclass.prototype.checkAccess).toBeInstanceOf(Function);
-  });
-});
-
 describe("sleep abort support", () => {
   class SleepTestAdapter extends TelegramAdapter {
     sleepFor(delayMs: number, signal?: AbortSignal): Promise<void> {

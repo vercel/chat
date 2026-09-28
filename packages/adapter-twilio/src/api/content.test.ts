@@ -3,8 +3,6 @@ import {
   createTwilioContent,
   getOrCreateTwilioContent,
   resetTwilioContentCacheForTests,
-  twilioContentCacheKey,
-  twilioContentFriendlyName,
 } from "./content";
 
 const sampleContentBody = {
@@ -18,7 +16,9 @@ const sampleContentBody = {
   },
 } as const;
 
-const STABLE_FRIENDLY_NAME_PATTERN = /^chat_sdk_quick-reply_[a-f0-9]{16}$/;
+// Identity used by previously created remote templates; changing it would
+// create duplicates after a deploy instead of reusing the existing ContentSid.
+const EXISTING_TEMPLATE_NAME = "chat_sdk_quick-reply_fde60981109a4c7b";
 
 describe("createTwilioContent", () => {
   it("posts JSON to the Content API", async () => {
@@ -127,10 +127,7 @@ describe("getOrCreateTwilioContent", () => {
       ([, init]) => init?.method === "POST"
     );
     const body = JSON.parse(createCall?.[1]?.body as string);
-    expect(body.friendly_name).toBe(
-      twilioContentFriendlyName(sampleContentBody)
-    );
-    expect(body.friendly_name).toMatch(STABLE_FRIENDLY_NAME_PATTERN);
+    expect(body.friendly_name).toBe(EXISTING_TEMPLATE_NAME);
   });
 
   it("reuses cached ContentSid for identical content bodies", async () => {
@@ -149,7 +146,6 @@ describe("getOrCreateTwilioContent", () => {
     expect(second.sid).toBe("HX123");
     // One lookup plus one create; the second call is served from cache.
     expect(request).toHaveBeenCalledTimes(2);
-    expect(twilioContentCacheKey(sampleContentBody)).toHaveLength(64);
   });
 
   it("does not share cached ContentSids across accounts", async () => {
@@ -179,7 +175,7 @@ describe("getOrCreateTwilioContent", () => {
           return Response.json({
             contents: [
               {
-                friendly_name: twilioContentFriendlyName(sampleContentBody),
+                friendly_name: EXISTING_TEMPLATE_NAME,
                 sid: "HX999",
               },
             ],
@@ -211,7 +207,7 @@ describe("getOrCreateTwilioContent", () => {
             : Response.json({
                 contents: [
                   {
-                    friendly_name: twilioContentFriendlyName(sampleContentBody),
+                    friendly_name: EXISTING_TEMPLATE_NAME,
                     sid: "HX999",
                   },
                 ],

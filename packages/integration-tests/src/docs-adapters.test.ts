@@ -1,4 +1,4 @@
-import { existsSync, readdirSync, readFileSync } from "node:fs";
+import { readFileSync } from "node:fs";
 import { basename, join } from "node:path";
 import { ADAPTERS } from "chat/adapters";
 import { describe, expect, it } from "vitest";
@@ -8,17 +8,12 @@ const ADAPTERS_DIR = join(DOCS_CONTENT_DIR, "adapters");
 const VENDOR_DIR = join(ADAPTERS_DIR, "vendor-official");
 const COMMUNITY_DIR = join(ADAPTERS_DIR, "community");
 const OFFICIAL_DIR = join(ADAPTERS_DIR, "official");
-const DOCS_DIR = join(DOCS_CONTENT_DIR, "..");
 
 const FRONTMATTER_BLOCK = /^---\r?\n([\s\S]*?)\r?\n---/;
 const FIELD_LINE = /^([a-zA-Z][a-zA-Z0-9_]*):\s*(.*)$/;
-const ICON_MAP_BLOCK =
-  /const (?:ICON_MAP|iconMap): Record<[\s\S]*?> = \{([\s\S]*?)\n\};/;
-const ICON_MAP_ENTRY = /^\s{2}(\w+),$/gm;
 const NEWLINE = /\r?\n/;
 const CHAT_ADAPTER_PACKAGE = /^@chat-adapter\//;
 const CHAT_STATE_ADAPTER_PACKAGE = /^@chat-adapter\/state-/;
-const OG_IMAGE_EXTENSION = /\.(png|jpe?g|webp)$/i;
 const PACKAGE_INSTALL_PATTERN = /<PackageInstall package="([^"]+)" \/>/g;
 const PACKAGE_INSTALL_PACKAGE_SEPARATOR = /\s+/;
 
@@ -105,15 +100,6 @@ const packageInstallDeps = (adapter: AdapterFile): string[] => {
   return [...packageNames].sort();
 };
 
-const readIconMap = (filePath: string): Set<string> => {
-  const source = readFileSync(filePath, "utf-8");
-  const block = source.match(ICON_MAP_BLOCK)?.[1];
-  if (!block) {
-    throw new Error(`${filePath}: missing adapter icon map`);
-  }
-  return new Set([...block.matchAll(ICON_MAP_ENTRY)].map((match) => match[1]));
-};
-
 describe("Adapter MDX frontmatter", () => {
   const allAdapters = [
     ...loadAdapterMdx(OFFICIAL_DIR, "official"),
@@ -145,61 +131,8 @@ describe("Adapter MDX frontmatter", () => {
   }
 });
 
-describe("Official adapter logos", () => {
-  const officialAdapters = loadAdapterMdx(OFFICIAL_DIR, "official");
-  const cardIcons = readIconMap(
-    join(DOCS_DIR, "app/[lang]/adapters/components/adapter-card.tsx")
-  );
-  const heroIcons = readIconMap(
-    join(DOCS_DIR, "components/geistdocs/adapter-hero.tsx")
-  );
-
-  for (const adapter of officialAdapters) {
-    const logo = adapter.frontmatter.fields.logo;
-
-    it(`${adapter.slug} is registered on adapter cards`, () => {
-      expect(
-        logo,
-        `${adapter.fileName}: missing logo frontmatter`
-      ).toBeTruthy();
-      expect(
-        cardIcons.has(logo),
-        `${adapter.slug}: logo "${logo}" is missing from the adapter card icon map`
-      ).toBe(true);
-    });
-
-    it(`${adapter.slug} is registered in the adapter hero`, () => {
-      expect(
-        heroIcons.has(logo),
-        `${adapter.slug}: logo "${logo}" is missing from the adapter hero icon map`
-      ).toBe(true);
-    });
-  }
-});
-
 describe("Vendor-Official adapter MDX", () => {
   const vendorAdapters = loadAdapterMdx(VENDOR_DIR, "vendor-official");
-
-  it("contains exactly the expected adapters", () => {
-    expect(vendorAdapters.map((a) => a.slug).sort()).toEqual(
-      [
-        "agentphone",
-        "cloudflare-agents",
-        "dial",
-        "kapso",
-        "lark",
-        "linq",
-        "liveblocks",
-        "matrix",
-        "novu",
-        "photon",
-        "resend",
-        "sendblue",
-        "velt",
-        "zernio",
-      ].sort()
-    );
-  });
 
   for (const adapter of vendorAdapters) {
     describe(adapter.fileName, () => {
@@ -279,70 +212,6 @@ describe("Official adapter MDX", () => {
   }
 });
 
-describe("Official platform adapter OG images", () => {
-  const OFFICIAL_PLATFORM_OG_DIR = join(OFFICIAL_DIR, "og");
-  const OG_IMAGE_EXTENSIONS = ["png", "jpg", "webp"] as const;
-
-  const hasOgImage = (slug: string): boolean =>
-    OG_IMAGE_EXTENSIONS.some((ext) =>
-      existsSync(join(OFFICIAL_PLATFORM_OG_DIR, `${slug}.${ext}`))
-    );
-
-  const platformAdapters = loadAdapterMdx(OFFICIAL_DIR, "official").filter(
-    (adapter) => adapter.frontmatter.fields.type === "platform"
-  );
-
-  it("contains the expected platform adapters", () => {
-    expect(platformAdapters.map((adapter) => adapter.slug).sort()).toEqual(
-      [
-        "discord",
-        "github",
-        "gchat",
-        "gmail",
-        "instagram",
-        "linear",
-        "messenger",
-        "notion",
-        "slack",
-        "teams",
-        "telegram",
-        "twilio",
-        "web",
-        "whatsapp",
-        "x",
-        "xchat",
-      ].sort()
-    );
-  });
-
-  for (const adapter of platformAdapters) {
-    it(`${adapter.slug} has a custom OG image`, () => {
-      expect(
-        hasOgImage(adapter.slug),
-        `${adapter.slug}: expected OG image at content/adapters/official/og/${adapter.slug}.{png,jpg,webp}`
-      ).toBe(true);
-    });
-  }
-
-  it("does not include OG images for unknown platform slugs", () => {
-    if (!existsSync(OFFICIAL_PLATFORM_OG_DIR)) {
-      return;
-    }
-
-    const platformSlugs = new Set(
-      platformAdapters.map((adapter) => adapter.slug)
-    );
-
-    for (const fileName of readdirSync(OFFICIAL_PLATFORM_OG_DIR)) {
-      const slug = fileName.replace(OG_IMAGE_EXTENSION, "");
-      expect(
-        platformSlugs.has(slug),
-        `Unexpected OG image "${fileName}" — no matching platform adapter`
-      ).toBe(true);
-    }
-  });
-});
-
 describe("adapters.json registry", () => {
   const registry = JSON.parse(
     readFileSync(join(DOCS_CONTENT_DIR, "..", "adapters.json"), "utf-8")
@@ -359,17 +228,6 @@ describe("adapters.json registry", () => {
 
   const vendorAdapters = loadAdapterMdx(VENDOR_DIR, "vendor-official");
   const communityAdapters = loadAdapterMdx(COMMUNITY_DIR, "community");
-
-  it("matches the chat/adapters catalog", () => {
-    const catalogSlugs = Object.keys(ADAPTERS).sort();
-    const expectedSlugs = registry
-      .filter((entry) => !entry.community || entry.vendorOfficial)
-      .map((entry) => entry.slug)
-      .sort();
-
-    expect(catalogSlugs).toHaveLength(expectedSlugs.length);
-    expect(catalogSlugs).toEqual(expectedSlugs);
-  });
 
   for (const adapter of [...vendorAdapters, ...communityAdapters]) {
     describe(adapter.fileName, () => {

@@ -1,7 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { decodeCallbackValue } from "./callback-url";
-import { Actions, Button, Card } from "./cards";
+import { Actions, Button, Card, Text } from "./cards";
 import { ChannelImpl, deriveChannelId } from "./channel";
+import { jsx, jsxs } from "./jsx-runtime";
 import {
   createMockAdapter,
   createMockState,
@@ -1176,7 +1177,7 @@ describe("thread.messages (newest first)", () => {
       expect(result).toBe(expected);
     });
 
-    it("should convert JSX Card elements to CardElement", async () => {
+    it("should resolve a JSX Card and its children before scheduling", async () => {
       const mockAdapter = createMockAdapter();
       const mockState = createMockState();
       mockAdapter.scheduleMessage = vi
@@ -1189,14 +1190,21 @@ describe("thread.messages (newest first)", () => {
         stateAdapter: mockState,
       });
 
-      const jsxCard = Card({ title: "Scheduled Card" });
+      const jsxCard = jsxs(Card, {
+        title: "Scheduled Card",
+        children: [jsx(Text, { children: "Channel reminder" })],
+      });
       await channel.schedule(jsxCard, { postAt: futureDate });
 
-      const passedMessage = (
-        mockAdapter.scheduleMessage as ReturnType<typeof vi.fn>
-      ).mock.calls[0][1];
-      expect(passedMessage).toHaveProperty("type", "card");
-      expect(passedMessage).toHaveProperty("title", "Scheduled Card");
+      expect(mockAdapter.scheduleMessage).toHaveBeenCalledWith(
+        "slack:C123",
+        {
+          type: "card",
+          title: "Scheduled Card",
+          children: [{ type: "text", content: "Channel reminder" }],
+        },
+        { postAt: futureDate }
+      );
     });
 
     it("should propagate errors from adapter.scheduleMessage", async () => {

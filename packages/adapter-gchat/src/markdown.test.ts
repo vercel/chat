@@ -167,30 +167,39 @@ describe("GoogleChatFormatConverter", () => {
   });
 
   describe("toAst (Google Chat format -> AST)", () => {
-    it("should parse Google Chat bold (*text*) to AST", () => {
-      const ast = converter.toAst("*bold*");
-      expect(ast).toBeDefined();
-      expect(ast.type).toBe("root");
+    it("parses native bold, italic, and strikethrough as formatting nodes", () => {
+      expect(converter.toAst("*bold* _italic_ ~struck~")).toMatchObject({
+        type: "root",
+        children: [
+          {
+            type: "paragraph",
+            children: [
+              { type: "strong", children: [{ type: "text", value: "bold" }] },
+              { type: "text", value: " " },
+              {
+                type: "emphasis",
+                children: [{ type: "text", value: "italic" }],
+              },
+              { type: "text", value: " " },
+              { type: "delete", children: [{ type: "text", value: "struck" }] },
+            ],
+          },
+        ],
+      });
     });
 
-    it("should parse Google Chat strikethrough (~text~) to AST", () => {
-      const ast = converter.toAst("~struck~");
-      expect(ast).toBeDefined();
-      expect(ast.type).toBe("root");
-    });
-
-    it("should parse code blocks", () => {
-      const ast = converter.toAst("```\ncode\n```");
-      expect(ast.type).toBe("root");
+    it("parses code blocks with their literal content", () => {
+      expect(converter.toAst("```\ncode\n```")).toMatchObject({
+        type: "root",
+        children: [{ type: "code", value: "code" }],
+      });
     });
   });
 
   describe("extractPlainText", () => {
     it("should remove formatting markers", () => {
       const result = converter.extractPlainText("*bold* _italic_ ~struck~");
-      expect(result).toContain("bold");
-      expect(result).toContain("italic");
-      expect(result).toContain("struck");
+      expect(result).toBe("bold italic struck");
     });
 
     it("should handle empty string", () => {

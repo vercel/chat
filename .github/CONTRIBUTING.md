@@ -89,7 +89,7 @@ Run all unit tests across every package in a single Vitest Workspace run:
 pnpm test:workspace
 ```
 
-This produces one combined report covering all 11 unit-test packages. Integration tests (`@chat-adapter/integration-tests`) are excluded since they require platform credentials.
+This produces one combined report covering the unit-test packages and example tests. The integration-test package and PostgreSQL's real-database suite are excluded; run those through their package test commands.
 
 You can also run tests per-package via Turborepo:
 

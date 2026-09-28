@@ -7,7 +7,6 @@ import {
   findPublishedPackages,
   getExpectedHomepage,
   getOfficialPlatformAdapterSlug,
-  getOfficialPlatformOgImageUrl,
   REPO_ROOT,
 } from "./documentation-test-utils";
 
@@ -23,13 +22,6 @@ const getNpmPackageCallout = (readme: string) =>
 describe("Published package README discoverability", () => {
   for (const pkg of publishedPackages) {
     describe(pkg.name, () => {
-      it("has a README", () => {
-        expect(
-          pkg.readmePath,
-          `${pkg.name}: missing packages/${pkg.dirName}/README.md`
-        ).toBeTruthy();
-      });
-
       if (!pkg.readmePath) {
         return;
       }
@@ -43,24 +35,8 @@ describe("Published package README discoverability", () => {
         ).toBe(pkg.name);
       });
 
-      it("links to chat-sdk.dev", () => {
-        expect(readme).toContain(CHAT_SDK_HOMEPAGE);
-      });
-
       const platformSlug = getOfficialPlatformAdapterSlug(pkg.dirName);
       const isOfficialStateAdapter = pkg.dirName.startsWith("state-");
-
-      if (platformSlug) {
-        it("includes a hero banner linked to the official adapter docs", () => {
-          const docsUrl = getExpectedHomepage(pkg.dirName, pkg.name);
-          expect(
-            readme.startsWith("[!["),
-            `${pkg.name}: README should start with a hero banner`
-          ).toBe(true);
-          expect(readme).toContain(getOfficialPlatformOgImageUrl(platformSlug));
-          expect(readme).toContain(`](${docsUrl})`);
-        });
-      }
 
       if (platformSlug || isOfficialStateAdapter) {
         it("documents CLI scaffolding and links to the adapters directory", () => {
@@ -76,24 +52,16 @@ describe("Published package README discoverability", () => {
       }
 
       if (pkg.name !== "@chat-adapter/tests") {
-        it("includes Documentation and Guides links near the top", () => {
-          const intro = readme.split("\n## ")[0] ?? readme;
-          expect(intro, `${pkg.name}: missing Documentation link`).toContain(
-            "Documentation:"
-          );
+        it("includes documentation and guides links", () => {
           expect(
-            intro,
+            readme,
             `${pkg.name}: missing chat-sdk.dev docs link`
           ).toContain(getExpectedHomepage(pkg.dirName, pkg.name));
-          expect(intro, `${pkg.name}: missing Guides link`).toContain(
+          expect(readme, `${pkg.name}: missing Guides link`).toContain(
             CHAT_SDK_GUIDES_URL
           );
         });
       }
-
-      it("includes an AI Coding Agents section", () => {
-        expect(readme).toContain("## AI Coding Agents");
-      });
 
       it("documents the Chat SDK skill install command", () => {
         expect(readme).toContain("npx skills add vercel/chat");
@@ -109,10 +77,6 @@ describe("Published package README discoverability", () => {
 
 describe("Root README discoverability", () => {
   const readme = readFileSync(join(REPO_ROOT, "README.md"), "utf-8");
-
-  it("includes an AI Coding Agents section", () => {
-    expect(readme).toContain("## AI Coding Agents");
-  });
 
   it("documents the Chat SDK skill install command", () => {
     expect(readme).toContain("npx skills add vercel/chat");

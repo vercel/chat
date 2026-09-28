@@ -4,7 +4,6 @@ import {
   type AdapterSlug,
   type CatalogAdapter,
   isAdapterSlug,
-  listStateAdapters,
 } from "chat/adapters";
 import { AdapterSelectionError } from "../errors.js";
 import type { AdapterSelection } from "../types.js";
@@ -86,11 +85,3 @@ export function resolveAdapterSelection(
     stateAdapter: stateAdapter ?? defaultStateAdapter(),
   };
 }
-
-/**
- * Return state adapters sorted by catalog slug.
- *
- * @returns State adapter entries.
- */
-export const stateAdapterOptions = (): readonly CatalogAdapter[] =>
-  listStateAdapters();

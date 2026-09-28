@@ -1,0 +1,5 @@
+{
+  "extends": "./tsconfig.json",
+  "include": ["src/**/*.test-d.ts", "src/ai/tanstack/*.test.ts"],
+  "exclude": ["node_modules", "dist"]
+}

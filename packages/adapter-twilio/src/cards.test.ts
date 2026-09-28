@@ -218,10 +218,12 @@ describe("cardToTwilioRcs", () => {
     };
 
     const result = cardToTwilioRcs(card);
-    if (result.type === "content") {
-      const sms = result.contentBody.types["twilio/text"] as { body: string };
-      expect(sms.body).toBeTruthy();
-    }
+    expect(result).toMatchObject({
+      type: "content",
+      contentBody: {
+        types: { "twilio/text": { body: "Prompt\nClick OK to proceed" } },
+      },
+    });
   });
 
   it("handles card with image and buttons as card content", () => {
@@ -247,7 +249,10 @@ describe("cardToTwilioRcs", () => {
     }
   });
 
-  it("limits quick-reply buttons to 11", () => {
+  it.each([
+    { title: "Many buttons", contentType: "twilio/card" },
+    { title: undefined, contentType: "twilio/quick-reply" },
+  ])("keeps the first 11 buttons in $contentType", ({ title, contentType }) => {
     const buttons = Array.from({ length: 15 }, (_, i) => ({
       id: `btn${i}`,
       label: `Button ${i}`,
@@ -256,16 +261,24 @@ describe("cardToTwilioRcs", () => {
 
     const card = {
       children: [{ children: buttons, type: "actions" as const }],
-      title: "Many buttons",
+      title,
       type: "card" as const,
     };
 
     const result = cardToTwilioRcs(card);
-    if (result.type === "content") {
-      const cardType = result.contentBody.types["twilio/card"] as {
-        actions: unknown[];
-      };
-      expect(cardType.actions.length).toBeLessThanOrEqual(11);
-    }
+    expect(result).toMatchObject({
+      type: "content",
+      contentBody: {
+        types: {
+          [contentType]: {
+            actions: Array.from({ length: 11 }, (_, i) => ({
+              id: `chat:{"a":"btn${i}"}`,
+              title: `Button ${i}`,
+              type: "quick_reply",
+            })),
+          },
+        },
+      },
+    });
   });
 });

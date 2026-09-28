@@ -736,6 +736,7 @@ describe("handleWebhook - interactive payloads", () => {
   const secret = "test-signing-secret";
   const adapter = createSlackAdapter({
     botToken: "xoxb-test-token",
+    botUserId: "U_BOT",
     signingSecret: secret,
     logger: mockLogger,
   });
@@ -841,6 +842,7 @@ describe("handleWebhook - interactive payloads", () => {
 
     const adapter = createSlackAdapter({
       botToken: "xoxb-test-token",
+      botUserId: "U_BOT",
       signingSecret: secret,
       logger: mockLogger,
     });
@@ -1042,6 +1044,7 @@ describe("handleWebhook - interactive payloads", () => {
       const chatInstance = createMockChatInstance({ state });
       const timeoutAdapter = createSlackAdapter({
         botToken: "xoxb-test-token",
+        botUserId: "U_BOT",
         logger: mockLogger,
         webhookVerifier: () => true,
       });
@@ -4294,6 +4297,14 @@ describe("DM message handling", () => {
       botUserId: "U_BOT",
     });
     await adapter.initialize(chatInstance);
+
+    mockClientMethod(
+      adapter,
+      "conversations.info",
+      vi
+        .fn()
+        .mockResolvedValue({ ok: true, channel: { name: "archived-channel" } })
+    );
 
     mockClientMethod(
       adapter,
@@ -10513,6 +10524,15 @@ describe("reverse user lookup", () => {
     it("marks messages from USLACK as isSystem", async () => {
       const { adapter } = createAdapterWithState();
 
+      mockClientMethod(
+        adapter,
+        "conversations.info",
+        vi.fn().mockResolvedValue({
+          ok: true,
+          channel: { name: "archived-channel" },
+        })
+      );
+
       const mockClient = (
         adapter as unknown as { _client: { users: { info: unknown } } }
       )._client;
@@ -10899,6 +10919,7 @@ describe("socket mode - initialize", () => {
 
     const state = createMockState();
     const adapter = createSlackAdapter({
+      botUserId: "U_BOT",
       mode: "socket",
       appToken: "xapp-test-token",
       botToken: "xoxb-test-token",
@@ -10930,6 +10951,7 @@ describe("socket mode - routeSocketEvent", () => {
     const state = createMockState();
     const chatInstance = createMockChatInstance({ state });
     const adapter = createSlackAdapter({
+      botUserId: "U_BOT",
       mode: "socket",
       appToken: "xapp-test-token",
       botToken: "xoxb-test-token",
@@ -10972,7 +10994,13 @@ describe("socket mode - routeSocketEvent", () => {
   });
 
   it("dispatches slash_commands to processSlashCommand", async () => {
-    const { chatInstance, slackEventHandler } = await createSocketAdapter();
+    const { adapter, chatInstance, slackEventHandler } =
+      await createSocketAdapter();
+    mockClientMethod(
+      adapter,
+      "users.info",
+      vi.fn().mockResolvedValue({ ok: true, user: { name: "testuser" } })
+    );
 
     await slackEventHandler({
       ack: vi.fn().mockResolvedValue(undefined),
@@ -11114,6 +11142,7 @@ describe("socket mode - disconnect", () => {
 
     const state = createMockState();
     const adapter = createSlackAdapter({
+      botUserId: "U_BOT",
       mode: "socket",
       appToken: "xapp-test-token",
       botToken: "xoxb-test-token",
@@ -11150,6 +11179,7 @@ describe("socket mode forwarding - handleWebhook", () => {
     const state = createMockState();
     const chatInstance = createMockChatInstance({ state });
     const adapter = createSlackAdapter({
+      botUserId: "U_BOT",
       botToken: "xoxb-test-token",
       signingSecret: secret,
       appToken,
@@ -11246,6 +11276,7 @@ describe("socket mode forwarding - handleWebhook", () => {
     const state = createMockState();
     const chatInstance = createMockChatInstance({ state });
     const adapter = createSlackAdapter({
+      botUserId: "U_BOT",
       botToken: "xoxb-test-token",
       signingSecret: secret,
       appToken,
@@ -11377,6 +11408,7 @@ describe("socket mode forwarding - handleWebhook", () => {
     const state = createMockState();
     const chatInstance = createMockChatInstance({ state });
     const adapter = createSlackAdapter({
+      botUserId: "U_BOT",
       botToken: "xoxb-test-token",
       signingSecret: secret,
       appToken,
@@ -11416,6 +11448,7 @@ describe("socket mode forwarding - handleWebhook", () => {
     const state = createMockState();
     const chatInstance = createMockChatInstance({ state });
     const adapter = createSlackAdapter({
+      botUserId: "U_BOT",
       botToken: "xoxb-test-token",
       signingSecret: secret,
       appToken,
@@ -11520,6 +11553,7 @@ describe("routeSocketEvent with options", () => {
     const state = createMockState();
     const chatInstance = createMockChatInstance({ state });
     const adapter = createSlackAdapter({
+      botUserId: "U_BOT",
       mode: "socket",
       appToken: "xapp-test-token",
       botToken: "xoxb-test-token",
@@ -11542,8 +11576,13 @@ describe("routeSocketEvent with options", () => {
   }
 
   it("dispatches slash_commands with waitUntil wrapping", async () => {
-    const { chatInstance, slackEventHandler } =
+    const { adapter, chatInstance, slackEventHandler } =
       await createSocketAdapterWithOptions();
+    mockClientMethod(
+      adapter,
+      "users.info",
+      vi.fn().mockResolvedValue({ ok: true, user: { name: "testuser" } })
+    );
 
     await slackEventHandler({
       ack: vi.fn().mockResolvedValue(undefined),
@@ -11565,12 +11604,18 @@ describe("routeSocketEvent with options", () => {
     const state = createMockState();
     const chatInstance = createMockChatInstance({ state });
     const adapter = createSlackAdapter({
+      botUserId: "U_BOT",
       botToken: "xoxb-test-token",
       signingSecret: "test-secret",
       appToken: "xapp-test-token",
       logger: mockLogger,
     });
     await adapter.initialize(chatInstance);
+    mockClientMethod(
+      adapter,
+      "users.info",
+      vi.fn().mockResolvedValue({ ok: true, user: { name: "testuser" } })
+    );
 
     const body = JSON.stringify({
       type: "socket_event",
@@ -11605,6 +11650,7 @@ describe("routeSocketEvent with options", () => {
     const state = createMockState();
     const chatInstance = createMockChatInstance({ state });
     const adapter = createSlackAdapter({
+      botUserId: "U_BOT",
       botToken: "xoxb-test-token",
       signingSecret: "test-secret",
       appToken: "xapp-test-token",
@@ -12751,6 +12797,7 @@ describe("feedbackButtons", () => {
 
   it("routes feedback button clicks through onAction", async () => {
     const adapter = createSlackAdapter({
+      botUserId: "U_BOT",
       botToken: "xoxb-test-token",
       signingSecret: "test-signing-secret",
       logger: mockLogger,
@@ -12854,6 +12901,7 @@ describe("getUser", () => {
     const state = createMockState();
     const chatInstance = createMockChatInstance({ state });
     const adapter = createSlackAdapter({
+      botUserId: "U_BOT",
       botToken: "xoxb-test-token",
       signingSecret: "test-secret",
       logger: mockLogger,
@@ -12893,6 +12941,7 @@ describe("getUser", () => {
     const state = createMockState();
     const chatInstance = createMockChatInstance({ state });
     const adapter = createSlackAdapter({
+      botUserId: "U_BOT",
       botToken: "xoxb-test-token",
       signingSecret: "test-secret",
       logger: mockLogger,
@@ -12913,6 +12962,7 @@ describe("getUser", () => {
     const state = createMockState();
     const chatInstance = createMockChatInstance({ state });
     const adapter = createSlackAdapter({
+      botUserId: "U_BOT",
       botToken: "xoxb-test-token",
       signingSecret: "test-secret",
       logger: mockLogger,
@@ -12933,6 +12983,7 @@ describe("getUser", () => {
     const state = createMockState();
     const chatInstance = createMockChatInstance({ state });
     const adapter = createSlackAdapter({
+      botUserId: "U_BOT",
       botToken: "xoxb-test-token",
       signingSecret: "test-secret",
       logger: mockLogger,
@@ -12966,6 +13017,7 @@ describe("getUser", () => {
     const state = createMockState();
     const chatInstance = createMockChatInstance({ state });
     const adapter = createSlackAdapter({
+      botUserId: "U_BOT",
       botToken: "xoxb-test-token",
       signingSecret: "test-secret",
       logger: mockLogger,
@@ -13001,6 +13053,7 @@ describe("getUser", () => {
     const state = createMockState();
     const chatInstance = createMockChatInstance({ state });
     const adapter = createSlackAdapter({
+      botUserId: "U_BOT",
       botToken: "xoxb-test-token",
       signingSecret: "test-secret",
       logger: mockLogger,
@@ -13031,6 +13084,7 @@ describe("getUser", () => {
     const state = createMockState();
     const chatInstance = createMockChatInstance({ state });
     const adapter = createSlackAdapter({
+      botUserId: "U_BOT",
       botToken: "xoxb-test-token",
       signingSecret: "test-secret",
       logger: mockLogger,
@@ -13063,11 +13117,17 @@ describe("link unfurl enrichment", () => {
     const state = createMockState();
     const chatInstance = createMockChatInstance({ state });
     const adapter = createSlackAdapter({
+      botUserId: "U_BOT",
       botToken: "xoxb-test-token",
       signingSecret: secret,
       logger: mockLogger,
     });
     await adapter.initialize(chatInstance);
+    mockClientMethod(
+      adapter,
+      "users.info",
+      vi.fn().mockResolvedValue({ ok: true, user: { name: "testuser" } })
+    );
 
     const body = JSON.stringify({
       type: "event_callback",
@@ -13133,11 +13193,17 @@ describe("link unfurl enrichment", () => {
     const state = createMockState();
     const chatInstance = createMockChatInstance({ state });
     const adapter = createSlackAdapter({
+      botUserId: "U_BOT",
       botToken: "xoxb-test-token",
       signingSecret: secret,
       logger: mockLogger,
     });
     await adapter.initialize(chatInstance);
+    mockClientMethod(
+      adapter,
+      "users.info",
+      vi.fn().mockResolvedValue({ ok: true, user: { name: "testuser" } })
+    );
 
     const body = JSON.stringify({
       type: "event_callback",
@@ -13177,11 +13243,17 @@ describe("link unfurl enrichment", () => {
     const state = createMockState();
     const chatInstance = createMockChatInstance({ state });
     const adapter = createSlackAdapter({
+      botUserId: "U_BOT",
       botToken: "xoxb-test-token",
       signingSecret: secret,
       logger: mockLogger,
     });
     await adapter.initialize(chatInstance);
+    mockClientMethod(
+      adapter,
+      "users.info",
+      vi.fn().mockResolvedValue({ ok: true, user: { name: "testuser" } })
+    );
 
     const body = JSON.stringify({
       type: "event_callback",
@@ -13223,11 +13295,17 @@ describe("link unfurl enrichment", () => {
     const state = createMockState();
     const chatInstance = createMockChatInstance({ state });
     const adapter = createSlackAdapter({
+      botUserId: "U_BOT",
       botToken: "xoxb-test-token",
       signingSecret: secret,
       logger: mockLogger,
     });
     await adapter.initialize(chatInstance);
+    mockClientMethod(
+      adapter,
+      "users.info",
+      vi.fn().mockResolvedValue({ ok: true, user: { name: "testuser" } })
+    );
 
     const overLong = `https://example.com/${"a".repeat(4000)}`;
     const body = JSON.stringify({
@@ -13259,11 +13337,17 @@ describe("link unfurl enrichment", () => {
     const state = createMockState();
     const chatInstance = createMockChatInstance({ state });
     const adapter = createSlackAdapter({
+      botUserId: "U_BOT",
       botToken: "xoxb-test-token",
       signingSecret: secret,
       logger: mockLogger,
     });
     await adapter.initialize(chatInstance);
+    mockClientMethod(
+      adapter,
+      "users.info",
+      vi.fn().mockResolvedValue({ ok: true, user: { name: "testuser" } })
+    );
 
     const body = JSON.stringify({
       type: "event_callback",
@@ -13693,6 +13777,7 @@ describe("installation-scoped caches", () => {
   it("uses unscoped keys without a request context (single-workspace)", async () => {
     const state = createMockState();
     const adapter = createSlackAdapter({
+      botUserId: "U_BOT",
       botToken: "xoxb-single-token",
       signingSecret: "test-signing-secret",
       logger: mockLogger,
@@ -14049,6 +14134,7 @@ describe("event delivery deduplication", () => {
     const state = createMockState();
     const chatInstance = createMockChatInstance({ state });
     const adapter = createSlackAdapter({
+      botUserId: "U_BOT",
       botToken: "xoxb-test-token",
       signingSecret: secret,
       logger: mockLogger,
@@ -14159,6 +14245,7 @@ describe("W-prefixed enterprise user IDs", () => {
   async function createWAdapter() {
     const state = createMockState();
     const adapter = createSlackAdapter({
+      botUserId: "U_BOT",
       botToken: "xoxb-test-token",
       signingSecret: "test-signing-secret",
       logger: mockLogger,

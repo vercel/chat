@@ -70,7 +70,7 @@ function contentBaseUrl(options: CreateTwilioContentOptions): string {
   );
 }
 
-export function twilioContentCacheKey(contentBody: TwilioContentBody): string {
+function twilioContentCacheKey(contentBody: TwilioContentBody): string {
   const { language, types, variables } = contentBody;
   return createHash("sha256")
     .update(
@@ -83,9 +83,7 @@ export function twilioContentCacheKey(contentBody: TwilioContentBody): string {
     .digest("hex");
 }
 
-export function twilioContentFriendlyName(
-  contentBody: TwilioContentBody
-): string {
+function twilioContentFriendlyName(contentBody: TwilioContentBody): string {
   const primaryType =
     Object.keys(contentBody.types)
       .find((key) => key.startsWith("twilio/"))

@@ -5,35 +5,53 @@ describe("LinearFormatConverter", () => {
   const converter = new LinearFormatConverter();
 
   describe("toAst", () => {
-    it("should parse plain text", () => {
-      const ast = converter.toAst("Hello world");
-      expect(ast.type).toBe("root");
-      expect(ast.children.length).toBeGreaterThan(0);
-    });
-
-    it("should parse markdown with bold", () => {
-      const ast = converter.toAst("**bold text**");
-      expect(ast.type).toBe("root");
-    });
-
-    it("should parse markdown with italic", () => {
-      const ast = converter.toAst("_italic text_");
-      expect(ast.type).toBe("root");
-    });
-
-    it("should parse markdown with links", () => {
-      const ast = converter.toAst("[Link](https://example.com)");
-      expect(ast.type).toBe("root");
-    });
-
-    it("should parse markdown with code blocks", () => {
-      const ast = converter.toAst("```\ncode\n```");
-      expect(ast.type).toBe("root");
-    });
-
-    it("should parse markdown with lists", () => {
-      const ast = converter.toAst("- item 1\n- item 2\n- item 3");
-      expect(ast.type).toBe("root");
+    it("preserves formatting, links, code, and lists in inbound markdown", () => {
+      const ast = converter.toAst(
+        "**bold** _italic_ [link](https://example.com)\n\n```ts\ncode\n```\n\n- ~~removed~~"
+      );
+      expect(ast).toMatchObject({
+        type: "root",
+        children: [
+          {
+            type: "paragraph",
+            children: [
+              { type: "strong", children: [{ type: "text", value: "bold" }] },
+              { type: "text", value: " " },
+              {
+                type: "emphasis",
+                children: [{ type: "text", value: "italic" }],
+              },
+              { type: "text", value: " " },
+              {
+                type: "link",
+                url: "https://example.com",
+                children: [{ type: "text", value: "link" }],
+              },
+            ],
+          },
+          { type: "code", lang: "ts", value: "code" },
+          {
+            type: "list",
+            ordered: false,
+            children: [
+              {
+                type: "listItem",
+                children: [
+                  {
+                    type: "paragraph",
+                    children: [
+                      {
+                        type: "delete",
+                        children: [{ type: "text", value: "removed" }],
+                      },
+                    ],
+                  },
+                ],
+              },
+            ],
+          },
+        ],
+      });
     });
   });
 

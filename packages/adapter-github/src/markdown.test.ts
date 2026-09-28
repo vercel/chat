@@ -7,39 +7,58 @@ describe("GitHubFormatConverter", () => {
   const converter = new GitHubFormatConverter();
 
   describe("toAst", () => {
-    it("should parse plain text", () => {
-      const ast = converter.toAst("Hello world");
-      expect(ast.type).toBe("root");
-      expect(ast.children).toHaveLength(1);
-    });
-
-    it("should parse bold text", () => {
-      const ast = converter.toAst("**bold text**");
-      expect(ast.type).toBe("root");
-      // The AST should contain a strong node
-      const paragraph = ast.children[0];
-      expect(paragraph.type).toBe("paragraph");
+    it("preserves formatting, links, code, and lists in inbound markdown", () => {
+      const ast = converter.toAst(
+        "**bold** _italic_ [link](https://example.com)\n\n```ts\ncode\n```\n\n- ~~removed~~"
+      );
+      expect(ast).toMatchObject({
+        type: "root",
+        children: [
+          {
+            type: "paragraph",
+            children: [
+              { type: "strong", children: [{ type: "text", value: "bold" }] },
+              { type: "text", value: " " },
+              {
+                type: "emphasis",
+                children: [{ type: "text", value: "italic" }],
+              },
+              { type: "text", value: " " },
+              {
+                type: "link",
+                url: "https://example.com",
+                children: [{ type: "text", value: "link" }],
+              },
+            ],
+          },
+          { type: "code", lang: "ts", value: "code" },
+          {
+            type: "list",
+            ordered: false,
+            children: [
+              {
+                type: "listItem",
+                children: [
+                  {
+                    type: "paragraph",
+                    children: [
+                      {
+                        type: "delete",
+                        children: [{ type: "text", value: "removed" }],
+                      },
+                    ],
+                  },
+                ],
+              },
+            ],
+          },
+        ],
+      });
     });
 
     it("should parse @mentions", () => {
-      const _ast = converter.toAst("Hey @username, check this out");
       const text = converter.extractPlainText("Hey @username, check this out");
       expect(text).toContain("@username");
-    });
-
-    it("should parse code blocks", () => {
-      const ast = converter.toAst("```javascript\nconsole.log('hello');\n```");
-      expect(ast.type).toBe("root");
-    });
-
-    it("should parse links", () => {
-      const ast = converter.toAst("[link text](https://example.com)");
-      expect(ast.type).toBe("root");
-    });
-
-    it("should parse strikethrough", () => {
-      const ast = converter.toAst("~~deleted~~");
-      expect(ast.type).toBe("root");
     });
   });
 

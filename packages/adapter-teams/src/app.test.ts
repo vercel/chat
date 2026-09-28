@@ -1,6 +1,6 @@
 import { MessageActivity } from "@microsoft/teams.api";
 import { describe, expect, it, vi } from "vitest";
-import { normalizeServiceUrl, TeamsApp } from "./app";
+import { TeamsApp } from "./app";
 import { toAppOptions } from "./config";
 
 const appId = "11111111-2222-3333-4444-555555555555";
@@ -8,17 +8,6 @@ const appId = "11111111-2222-3333-4444-555555555555";
 function createApp() {
   return new TeamsApp(toAppOptions({ appId, appPassword: "secret" }));
 }
-
-describe("normalizeServiceUrl", () => {
-  it("strips trailing slashes only", () => {
-    expect(normalizeServiceUrl("https://smba.trafficmanager.net/amer/")).toBe(
-      "https://smba.trafficmanager.net/amer"
-    );
-    expect(normalizeServiceUrl("https://smba.trafficmanager.net/amer")).toBe(
-      "https://smba.trafficmanager.net/amer"
-    );
-  });
-});
 
 describe("TeamsApp.apiFor", () => {
   it("reuses the app client for the default service URL", () => {

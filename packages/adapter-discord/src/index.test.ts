@@ -2640,79 +2640,6 @@ describe("thread starter message routing", () => {
 });
 
 // ============================================================================
-// normalizeDiscordEmoji Tests
-// ============================================================================
-
-describe("normalizeDiscordEmoji", () => {
-  const adapter = createDiscordAdapter({
-    botToken: "test-token",
-    publicKey: testPublicKey,
-    applicationId: "test-app-id",
-    logger: mockLogger,
-  });
-
-  it("normalizes unicode thumbs up emoji", () => {
-    const result = (adapter as any).normalizeDiscordEmoji("\u{1F44D}");
-    expect(result).toBeDefined();
-  });
-
-  it("normalizes unicode heart emoji", () => {
-    const result = (adapter as any).normalizeDiscordEmoji("\u2764\uFE0F");
-    expect(result).toBeDefined();
-  });
-
-  it("normalizes heart without variation selector", () => {
-    const result = (adapter as any).normalizeDiscordEmoji("\u2764");
-    expect(result).toBeDefined();
-  });
-
-  it("normalizes unicode fire emoji", () => {
-    const result = (adapter as any).normalizeDiscordEmoji("\u{1F525}");
-    expect(result).toBeDefined();
-  });
-
-  it("passes through unknown emoji names", () => {
-    const result = (adapter as any).normalizeDiscordEmoji("custom_emoji");
-    expect(result).toBeDefined();
-  });
-
-  it("normalizes unicode rocket emoji", () => {
-    const result = (adapter as any).normalizeDiscordEmoji("\u{1F680}");
-    expect(result).toBeDefined();
-  });
-
-  it("normalizes eyes emoji", () => {
-    const result = (adapter as any).normalizeDiscordEmoji("\u{1F440}");
-    expect(result).toBeDefined();
-  });
-});
-
-// ============================================================================
-// encodeEmoji Tests
-// ============================================================================
-
-describe("encodeEmoji", () => {
-  const adapter = createDiscordAdapter({
-    botToken: "test-token",
-    publicKey: testPublicKey,
-    applicationId: "test-app-id",
-    logger: mockLogger,
-  });
-
-  it("URL-encodes emoji for API paths", () => {
-    const result = (adapter as any).encodeEmoji("thumbs_up");
-    // Should be URL-encoded
-    expect(typeof result).toBe("string");
-    expect(result.length).toBeGreaterThan(0);
-  });
-
-  it("handles string emoji input", () => {
-    const result = (adapter as any).encodeEmoji("fire");
-    expect(typeof result).toBe("string");
-  });
-});
-
-// ============================================================================
 // truncateContent Tests
 // ============================================================================
 
@@ -4778,7 +4705,15 @@ describe("handleWebhook - forwarded gateway events", () => {
     );
   });
 
-  it("handles GATEWAY_MESSAGE_REACTION_ADD event", async () => {
+  it.each([
+    ["👍", "thumbs_up"],
+    ["❤️", "heart"],
+    ["❤", "heart"],
+    ["🔥", "fire"],
+    ["🚀", "rocket"],
+    ["👀", "eyes"],
+    ["custom_emoji", "custom_emoji"],
+  ])("normalizes forwarded reaction %s to %s", async (rawEmoji, name) => {
     const chat = createMockChatInstance();
     await adapter.initialize(chat);
 
@@ -4790,7 +4725,7 @@ describe("handleWebhook - forwarded gateway events", () => {
         channel_id: "channel456",
         message_id: "msg123",
         guild_id: "guild1",
-        emoji: { name: "\u{1F44D}", id: null },
+        emoji: { name: rawEmoji, id: null },
         member: {
           user: {
             id: "user789",
@@ -4815,6 +4750,8 @@ describe("handleWebhook - forwarded gateway events", () => {
       expect.objectContaining({
         added: true,
         messageId: "msg123",
+        emoji: expect.objectContaining({ name }),
+        rawEmoji,
       })
     );
   });
@@ -4856,6 +4793,8 @@ describe("handleWebhook - forwarded gateway events", () => {
       expect.objectContaining({
         added: false,
         messageId: "msg123",
+        emoji: expect.objectContaining({ name: "heart" }),
+        rawEmoji: "❤️",
       })
     );
   });
@@ -6415,21 +6354,5 @@ describe("getUser", () => {
     expect(spy).toHaveBeenCalledWith("/users/777888", "GET");
 
     spy.mockRestore();
-  });
-});
-
-describe("subclass extensibility", () => {
-  it("exposes protected members and methods to subclasses", () => {
-    class TestSubclass extends DiscordAdapter {
-      checkAccess() {
-        // Compile-time check: if any of these revert to `private`, this fails to type-check.
-        return [
-          this.logger,
-          this.formatConverter,
-          this.verifySignature,
-        ] as const;
-      }
-    }
-    expect(TestSubclass.prototype.checkAccess).toBeInstanceOf(Function);
   });
 });

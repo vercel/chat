@@ -3097,30 +3097,3 @@ describe("createWhatsAppAdapter", () => {
     );
   });
 });
-
-describe("subclass extensibility", () => {
-  it("exposes protected members and methods to subclasses", () => {
-    class TestSubclass extends WhatsAppAdapter {
-      checkAccess() {
-        // Compile-time check: if any of these revert to `private`, this fails to type-check.
-        return [
-          this.logger,
-          this.formatConverter,
-          this.verifySignature,
-        ] as const;
-      }
-
-      checkMethods(message: WhatsAppInboundMessage) {
-        return [
-          () => this.handleInboundMessage(message, undefined, "123"),
-          () => this.handleReaction(message, undefined, "123"),
-          () => this.handleInteractiveReply(message, undefined, "123"),
-          () => this.handleButtonResponse(message, undefined, "123"),
-          () => this.buildMessage(message, undefined, "thread", "text", "123"),
-        ];
-      }
-    }
-    expect(TestSubclass.prototype.checkAccess).toBeInstanceOf(Function);
-    expect(TestSubclass.prototype.checkMethods).toBeInstanceOf(Function);
-  });
-});

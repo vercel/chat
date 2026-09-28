@@ -8,7 +8,6 @@ import {
 import { tmpdir } from "node:os";
 import { join, relative } from "node:path";
 
-export const IMPORT_PACKAGE_REGEX = /from ["']([^"']+)["']/;
 export const REPO_ROOT = join(import.meta.dirname, "../../..");
 const PACKAGES_DIR = join(REPO_ROOT, "packages");
 export const DOCS_CONTENT_DIR = join(REPO_ROOT, "apps/docs/content");
@@ -42,9 +41,6 @@ export const getOfficialPlatformAdapterSlug = (
 
   return dirName.slice("adapter-".length);
 };
-
-export const getOfficialPlatformOgImageUrl = (slug: string): string =>
-  `${CHAT_SDK_HOMEPAGE}/en/adapters/official/${slug}/og`;
 
 export const getExpectedHomepage = (dirName: string, name: string): string => {
   if (name === "chat") {
@@ -105,167 +101,6 @@ export const findPublishedPackages = (): PublishedPackage[] => {
   return packages.sort((a, b) => a.name.localeCompare(b.name));
 };
 
-export const VALID_PACKAGE_README_IMPORTS = [
-  "chat",
-  "@chat-adapter/gmail",
-  "@chat-adapter/gmail/api",
-  "@chat-adapter/gmail/format",
-  "@chat-adapter/gmail/webhook",
-  "@chat-adapter/slack",
-  "@chat-adapter/teams",
-  "@chat-adapter/gchat",
-  "@chat-adapter/discord",
-  "@chat-adapter/telegram",
-  "@chat-adapter/github",
-  "@chat-adapter/linear",
-  "@chat-adapter/instagram",
-  "@chat-adapter/notion",
-  "@chat-adapter/whatsapp",
-  "@chat-adapter/twilio",
-  "@chat-adapter/messenger",
-  "@chat-adapter/x",
-  "@chat-adapter/x/chat",
-  "@chat-adapter/web",
-  "@chat-adapter/web/react",
-  "@chat-adapter/state-redis",
-  "@chat-adapter/state-ioredis",
-  "@chat-adapter/state-pg",
-  "@chat-adapter/state-memory",
-  "@chat-adapter/tests",
-  "@chat-adapter/tests/matchers",
-  "@chat-adapter/tests/setup",
-  "@vercel/connect",
-  "@vercel/connect/chat",
-  "vitest/config",
-  "@ai-sdk/react",
-  "ai",
-  "react",
-  "next/server",
-  "redis",
-  "ioredis",
-  "pg",
-  "postgres",
-  // Application-installed dependencies used by the Slack proxy recipe.
-  "https-proxy-agent",
-  "undici",
-];
-
-export const VALID_DOC_PACKAGES = [
-  "chat",
-  "@chat-adapter/gmail",
-  "@chat-adapter/gmail/api",
-  "@chat-adapter/gmail/format",
-  "@chat-adapter/gmail/webhook",
-  "chat/ai",
-  "chat/ai/tanstack",
-  "chat/adapters",
-  "chat/serialization",
-  "chat/workflow",
-  "workflow",
-  "workflow/api",
-  "@chat-adapter/slack",
-  "@chat-adapter/slack/api",
-  "@chat-adapter/slack/blocks",
-  "@chat-adapter/slack/format",
-  "@chat-adapter/slack/webhook",
-  "@chat-adapter/teams",
-  "@chat-adapter/teams/api",
-  "@chat-adapter/teams/cards",
-  "@chat-adapter/teams/format",
-  "@chat-adapter/teams/graph",
-  "@chat-adapter/teams/modals",
-  "@chat-adapter/teams/webhook",
-  "@chat-adapter/gchat",
-  "@chat-adapter/discord",
-  "@chat-adapter/telegram",
-  "@chat-adapter/github",
-  "@chat-adapter/linear",
-  "@chat-adapter/instagram",
-  "@chat-adapter/notion",
-  "@chat-adapter/whatsapp",
-  "@chat-adapter/twilio",
-  "@chat-adapter/twilio/api",
-  "@chat-adapter/twilio/format",
-  "@chat-adapter/twilio/voice",
-  "@chat-adapter/twilio/webhook",
-  "@chat-adapter/messenger",
-  "@chat-adapter/x",
-  "@chat-adapter/x/chat",
-  "@chat-adapter/web",
-  "@chat-adapter/web/react",
-  "@chat-adapter/state-redis",
-  "@chat-adapter/state-ioredis",
-  "@chat-adapter/state-pg",
-  "@chat-adapter/state-memory",
-  "@chat-adapter/shared",
-  "@chat-adapter/tests",
-  "@chat-adapter/tests/matchers",
-  "@chat-adapter/tests/setup",
-  "vitest/config",
-  "next/server",
-  "next",
-  "hono",
-  "ai",
-  "@ai-sdk/anthropic",
-  "@ai-sdk/openai",
-  "@ai-sdk/gateway",
-  // TanStack AI, used by the TanStack examples in the streaming and chat/ai docs.
-  "@tanstack/ai",
-  "@tanstack/ai-vercel-gateway",
-  "@vercel/sandbox",
-  "@vercel/functions",
-  "@vercel/connect",
-  "@vercel/connect/chat",
-  "workflow",
-  "workflow/next",
-  "workflow/api",
-  "redis",
-  "ioredis",
-  "pg",
-  "postgres",
-  // Application-installed dependencies used by the Slack proxy recipe.
-  "https-proxy-agent",
-  "undici",
-  "tsup",
-  "vitest",
-  "vitest/config",
-  "bash-tool",
-  "@octokit/rest",
-  // Vendor-official + community adapters with hand-authored MDX
-  "chat-adapter-matrix",
-  "@beeper/chat-adapter-matrix",
-  "@liveblocks/chat-sdk-adapter",
-  "@resend/chat-sdk-adapter",
-  "@veltdev/chat-sdk-adapter",
-  "@zernio/chat-sdk-adapter",
-  "@agentphone/chat-sdk-adapter",
-  "@getdial/chat-sdk-adapter",
-  "@kapso/chat-adapter",
-  "@novu/chat-sdk-adapter",
-  "@linqapp/chat-sdk-adapter",
-  "agents",
-  "agents/chat-sdk",
-  "@photon-ai/chat-adapter-imessage",
-  "chat-adapter-baileys",
-  "chat-adapter-zaileys",
-  "zaileys",
-  "baileys",
-  "chat-adapter-blooio",
-  "chat-state-cloudflare-do",
-  "chat-adapter-mattermost",
-  "chat-state-mysql",
-  "mysql2/promise",
-  "chat-adapter-sendblue",
-  "@bitbasti/chat-adapter-webex",
-  "chat-adapter-zalo",
-  "chat-adapter-line",
-  "@larksuite/vercel-chat-adapter",
-  "chat-adapter-weixin",
-  "@agentor/chat-qq",
-  "@agentor/chat-wecom",
-  "qrcode-terminal",
-];
-
 export function extractTypeScriptBlocks(markdown: string): string[] {
   const blocks: string[] = [];
   const regex = /```(?:typescript|tsx?)(?:[^\S\n][^\n]*)?\n([\s\S]*?)```/g;
@@ -273,22 +108,6 @@ export function extractTypeScriptBlocks(markdown: string): string[] {
 
   while (match !== null) {
     blocks.push(match[1].trim());
-    match = regex.exec(markdown);
-  }
-
-  return blocks;
-}
-
-export function extractCodeBlocks(
-  markdown: string
-): Array<{ code: string; lang: "ts" | "tsx" }> {
-  const blocks: Array<{ code: string; lang: "ts" | "tsx" }> = [];
-  const regex = /```(typescript|ts|tsx)(?:[^\S\n][^\n]*)?\n([\s\S]*?)```/g;
-  let match = regex.exec(markdown);
-
-  while (match !== null) {
-    const lang = match[1] === "tsx" ? "tsx" : "ts";
-    blocks.push({ code: match[2].trim(), lang });
     match = regex.exec(markdown);
   }
 
@@ -410,22 +229,6 @@ export {};
   });
 
   return tempDir;
-}
-
-export function findPackageReadmes(): Array<{ path: string; name: string }> {
-  const readmes: Array<{ path: string; name: string }> = [];
-
-  for (const pkg of readdirSync(PACKAGES_DIR)) {
-    const readmePath = join(PACKAGES_DIR, pkg, "README.md");
-    if (existsSync(readmePath)) {
-      readmes.push({
-        path: readmePath,
-        name: `packages/${pkg}/README.md`,
-      });
-    }
-  }
-
-  return readmes;
 }
 
 export function findDocsMdxFiles(

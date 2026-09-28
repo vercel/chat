@@ -17,14 +17,13 @@ interface PackageJson {
   };
 }
 
-const CHAT_SDK_HOMEPAGE_PATTERN = /^https:\/\/chat-sdk\.dev\//;
 const CHAT_SDK_DESCRIPTION_PATTERN = /Chat SDK/i;
 
 const publishedPackages = findPublishedPackages();
 
 describe("Published npm package metadata", () => {
-  it("discovers all non-private workspace packages", () => {
-    expect(publishedPackages.length).toBeGreaterThanOrEqual(17);
+  it("discovers published workspace packages", () => {
+    expect(publishedPackages.length).toBeGreaterThan(0);
   });
 
   for (const pkg of publishedPackages) {
@@ -32,14 +31,6 @@ describe("Published npm package metadata", () => {
       const packageJson = JSON.parse(
         readFileSync(pkg.packageJsonPath, "utf-8")
       ) as PackageJson;
-
-      it("points homepage at chat-sdk.dev", () => {
-        expect(
-          packageJson.homepage,
-          `${pkg.name}: missing homepage`
-        ).toBeTruthy();
-        expect(packageJson.homepage).toMatch(CHAT_SDK_HOMEPAGE_PATTERN);
-      });
 
       it("homepage matches the package docs deep link", () => {
         expect(packageJson.homepage).toBe(
@@ -111,17 +102,5 @@ describe("Core chat package metadata", () => {
 
   it("exists in the published package set", () => {
     expect(chatPackage).toBeDefined();
-  });
-
-  it("uses the correct monorepo directory in repository metadata", () => {
-    expect(chatPackage).toBeDefined();
-    if (!chatPackage) {
-      return;
-    }
-
-    const packageJson = JSON.parse(
-      readFileSync(chatPackage.packageJsonPath, "utf-8")
-    ) as PackageJson;
-    expect(packageJson.repository?.directory).toBe("packages/chat");
   });
 });

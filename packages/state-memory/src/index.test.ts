@@ -195,8 +195,13 @@ describe("MemoryStateAdapter", () => {
         // Append again — refreshes TTL
         await adapter.appendToList("list1", { id: 2 }, { ttlMs: 50 });
 
+        // Past the original expiration, but before the refreshed expiration.
+        await vi.advanceTimersByTimeAsync(30);
         const result = await adapter.getList("list1");
         expect(result).toEqual([{ id: 1 }, { id: 2 }]);
+
+        await vi.advanceTimersByTimeAsync(21);
+        expect(await adapter.getList("list1")).toEqual([]);
       } finally {
         vi.useRealTimers();
       }

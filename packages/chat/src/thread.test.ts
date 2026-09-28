@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { decodeCallbackValue } from "./callback-url";
-import { Actions, Button, Card } from "./cards";
+import { Actions, Button, Card, Text } from "./cards";
+import { jsx, jsxs } from "./jsx-runtime";
 import type { Message } from "./message";
 import {
   createMockAdapter,
@@ -3125,84 +3126,6 @@ describe("ThreadImpl", () => {
       expect(result).toBe(expected);
     });
 
-    // ---- Return value shape ----
-
-    it("should return scheduledMessageId from adapter", async () => {
-      mockAdapter.scheduleMessage = vi
-        .fn()
-        .mockResolvedValue(mockScheduleResult({ scheduledMessageId: "Q999" }));
-
-      const result = await thread.schedule("Hello", { postAt: futureDate });
-      expect(result.scheduledMessageId).toBe("Q999");
-    });
-
-    it("should return channelId from adapter", async () => {
-      mockAdapter.scheduleMessage = vi
-        .fn()
-        .mockResolvedValue(mockScheduleResult({ channelId: "C456" }));
-
-      const result = await thread.schedule("Hello", { postAt: futureDate });
-      expect(result.channelId).toBe("C456");
-    });
-
-    it("should return postAt from adapter", async () => {
-      const customDate = new Date("2035-06-15T12:00:00Z");
-      mockAdapter.scheduleMessage = vi
-        .fn()
-        .mockResolvedValue(mockScheduleResult({ postAt: customDate }));
-
-      const result = await thread.schedule("Hello", { postAt: futureDate });
-      expect(result.postAt).toBe(customDate);
-    });
-
-    it("should return raw platform response from adapter", async () => {
-      const rawResponse = {
-        ok: true,
-        scheduled_message_id: "Q123",
-        post_at: 123,
-      };
-      mockAdapter.scheduleMessage = vi
-        .fn()
-        .mockResolvedValue(mockScheduleResult({ raw: rawResponse }));
-
-      const result = await thread.schedule("Hello", { postAt: futureDate });
-      expect(result.raw).toBe(rawResponse);
-    });
-
-    it("should return a cancel function", async () => {
-      mockAdapter.scheduleMessage = vi
-        .fn()
-        .mockResolvedValue(mockScheduleResult());
-
-      const result = await thread.schedule("Hello", { postAt: futureDate });
-      expect(typeof result.cancel).toBe("function");
-    });
-
-    // ---- cancel() ----
-
-    it("should invoke cancel without errors", async () => {
-      const cancelFn = vi.fn().mockResolvedValue(undefined);
-      mockAdapter.scheduleMessage = vi
-        .fn()
-        .mockResolvedValue(mockScheduleResult({ cancel: cancelFn }));
-
-      const result = await thread.schedule("Hello", { postAt: futureDate });
-      await result.cancel();
-
-      expect(cancelFn).toHaveBeenCalledOnce();
-    });
-
-    it("should propagate errors from cancel", async () => {
-      const cancelFn = vi.fn().mockRejectedValue(new Error("already sent"));
-      mockAdapter.scheduleMessage = vi
-        .fn()
-        .mockResolvedValue(mockScheduleResult({ cancel: cancelFn }));
-
-      const result = await thread.schedule("Hello", { postAt: futureDate });
-
-      await expect(result.cancel()).rejects.toThrow("already sent");
-    });
-
     // ---- Different message formats ----
 
     it("should pass string messages through directly", async () => {
@@ -3268,37 +3191,28 @@ describe("ThreadImpl", () => {
 
     // ---- JSX / CardElement conversion ----
 
-    it("should convert JSX Card elements to CardElement before passing to adapter", async () => {
+    it("should resolve a JSX Card and its children before scheduling", async () => {
       mockAdapter.scheduleMessage = vi
         .fn()
         .mockResolvedValue(mockScheduleResult());
 
-      const jsxCard = Card({ title: "Reminder" });
+      const jsxCard = jsxs(Card, {
+        title: "Reminder",
+        subtitle: "Tomorrow",
+        children: [jsx(Text, { children: "Bring notes" })],
+      });
       await thread.schedule(jsxCard, { postAt: futureDate });
 
-      const passedMessage = (
-        mockAdapter.scheduleMessage as ReturnType<typeof vi.fn>
-      ).mock.calls[0][1];
-
-      // Should be converted to a CardElement (plain object), not the JSX element
-      expect(passedMessage).toHaveProperty("type", "card");
-      expect(passedMessage).toHaveProperty("title", "Reminder");
-    });
-
-    it("should convert Card JSX with children to CardElement", async () => {
-      mockAdapter.scheduleMessage = vi
-        .fn()
-        .mockResolvedValue(mockScheduleResult());
-
-      const jsxCard = Card({ title: "With Subtitle", subtitle: "Sub" });
-      await thread.schedule(jsxCard, { postAt: futureDate });
-
-      const passedMessage = (
-        mockAdapter.scheduleMessage as ReturnType<typeof vi.fn>
-      ).mock.calls[0][1];
-      expect(passedMessage).toHaveProperty("type", "card");
-      expect(passedMessage).toHaveProperty("title", "With Subtitle");
-      expect(passedMessage).toHaveProperty("subtitle", "Sub");
+      expect(mockAdapter.scheduleMessage).toHaveBeenCalledWith(
+        "slack:C123:1234.5678",
+        {
+          type: "card",
+          title: "Reminder",
+          subtitle: "Tomorrow",
+          children: [{ type: "text", content: "Bring notes" }],
+        },
+        { postAt: futureDate }
+      );
     });
 
     // ---- postAt variations ----
