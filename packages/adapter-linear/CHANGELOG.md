@@ -1,5 +1,15 @@
 # @chat-adapter/linear
 
+## 4.41.1
+
+### Patch Changes
+
+- 2d2b933: `validate agent session issue ownership before fetching history to prevent cross-issue reads`
+- d7aa75b: validate comment ownership before fetching Linear thread replies to prevent cross-issue content exposure
+- Updated dependencies [6f17495]
+  - chat@4.41.1
+  - @chat-adapter/shared@4.41.1
+
 ## 4.41.0
 
 ### Patch Changes

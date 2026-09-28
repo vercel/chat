@@ -1,5 +1,14 @@
 # @chat-adapter/slack
 
+## 4.41.1
+
+### Patch Changes
+
+- 44423bd: Convert Slack special mentions (`<!here>`, `<!channel>`, `<!everyone>`) and user group mentions (`<!subteam^ID|@handle>`) to readable text in inbound messages.
+- Updated dependencies [6f17495]
+  - chat@4.41.1
+  - @chat-adapter/shared@4.41.1
+
 ## 4.41.0
 
 ### Minor Changes

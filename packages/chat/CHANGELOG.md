@@ -1,5 +1,11 @@
 # chat
 
+## 4.41.1
+
+### Patch Changes
+
+- 6f17495: preserve streaming settings and runtime ownership when restoring threads and channels
+
 ## 4.41.0
 
 ### Minor Changes
