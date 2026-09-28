@@ -1505,6 +1505,33 @@ describe("Chat", () => {
       expect(receivedEvent.thread).toBeDefined();
     });
 
+    it("should hand the card's input values to the handler", async () => {
+      const handler = vi.fn().mockResolvedValue(undefined);
+      chat.onAction("approve", handler);
+
+      const event: Omit<ActionEvent, "thread" | "openModal"> = {
+        actionId: "approve",
+        value: "order-123",
+        values: { notes: "ship it" },
+        user: {
+          userId: "U123",
+          userName: "user",
+          fullName: "Test User",
+          isBot: false,
+          isMe: false,
+        },
+        messageId: "msg-1",
+        threadId: "slack:C123:1234.5678",
+        adapter: mockAdapter,
+        raw: {},
+      };
+
+      await chat.processAction(event, undefined);
+
+      const receivedEvent = handler.mock.calls[0][0] as ActionEvent;
+      expect(receivedEvent.values).toEqual({ notes: "ship it" });
+    });
+
     it("should allow streaming from an action without message context", async () => {
       chat.onAction(async (event) => {
         await event.thread?.post(chunks());
@@ -1996,6 +2023,86 @@ describe("Chat", () => {
           value: "order-789",
           threadId: "slack:C123:1234.5678",
         });
+      } finally {
+        vi.unstubAllGlobals();
+      }
+    });
+
+    it("should forward the card's input values to the callbackUrl", async () => {
+      const mockFetch = vi.fn().mockResolvedValue(new Response("ok"));
+      vi.stubGlobal("fetch", mockFetch);
+
+      try {
+        (mockState as MockStateAdapter).cache.set("chat:callback:tokvals", {
+          actionId: "approve",
+          url: "https://example.com/webhook/hook3",
+          originalValue: "order-789",
+          scope: { id: "slack:C123", type: "channel" },
+        });
+
+        const event: Omit<ActionEvent, "thread" | "openModal"> = {
+          actionId: "approve",
+          value: "__cb:tokvals",
+          // A card carrying a TextInput reports what was typed here, and a
+          // callbackUrl flow has no handler to read it any other way.
+          values: { notes: "ship it" },
+          user: {
+            userId: "U123",
+            userName: "user",
+            fullName: "Test User",
+            isBot: false,
+            isMe: false,
+          },
+          messageId: "msg-1",
+          threadId: "slack:C123:1234.5678",
+          adapter: mockAdapter,
+          raw: {},
+        };
+
+        await chat.processAction(event, undefined);
+
+        const body = JSON.parse(mockFetch.mock.calls[0][1].body as string);
+        expect(body).toMatchObject({
+          type: "action",
+          actionId: "approve",
+          values: { notes: "ship it" },
+        });
+      } finally {
+        vi.unstubAllGlobals();
+      }
+    });
+
+    it("should omit values from the callbackUrl body when the card has none", async () => {
+      const mockFetch = vi.fn().mockResolvedValue(new Response("ok"));
+      vi.stubGlobal("fetch", mockFetch);
+
+      try {
+        (mockState as MockStateAdapter).cache.set("chat:callback:tokplain", {
+          actionId: "approve",
+          url: "https://example.com/webhook/hook4",
+          scope: { id: "slack:C123", type: "channel" },
+        });
+
+        const event: Omit<ActionEvent, "thread" | "openModal"> = {
+          actionId: "approve",
+          value: "__cb:tokplain",
+          user: {
+            userId: "U123",
+            userName: "user",
+            fullName: "Test User",
+            isBot: false,
+            isMe: false,
+          },
+          messageId: "msg-1",
+          threadId: "slack:C123:1234.5678",
+          adapter: mockAdapter,
+          raw: {},
+        };
+
+        await chat.processAction(event, undefined);
+
+        const body = JSON.parse(mockFetch.mock.calls[0][1].body as string);
+        expect(body).not.toHaveProperty("values");
       } finally {
         vi.unstubAllGlobals();
       }

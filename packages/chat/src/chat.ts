@@ -1831,6 +1831,9 @@ export class Chat<
           type: "action",
           actionId: resolved.actionId,
           value: resolved.originalValue,
+          // Card inputs travel with the click, the same way modal submits
+          // forward their values. Absent when the card has none.
+          values: event.values,
           user: { id: event.user.userId, name: event.user.userName },
           threadId: event.threadId,
           messageId: event.messageId,

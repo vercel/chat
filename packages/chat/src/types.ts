@@ -2357,6 +2357,12 @@ export interface ActionEvent<TRawMessage = unknown> {
   user: Author;
   /** Optional value/payload from the button */
   value?: string;
+  /**
+   * Values of the card's own inputs at the moment the action fired, keyed by
+   * input ID — the same shape as `ModalSubmitEvent.values`. Absent on
+   * platforms that cannot put an input on a card, and on cards that have none.
+   */
+  values?: Record<string, string>;
 }
 
 /**

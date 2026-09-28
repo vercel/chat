@@ -224,6 +224,10 @@ bot.onAction(async (event) => { /* ... */ });
       description: 'Optional payload value from the button.',
       type: 'string | undefined',
     },
+    'event.values': {
+      description: "The card's own input values, keyed by input ID. Absent where the platform has no card inputs.",
+      type: 'Record<string, string> | undefined',
+    },
     'event.user': {
       description: 'User who triggered the action.',
       type: 'Author',

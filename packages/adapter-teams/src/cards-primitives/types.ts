@@ -29,7 +29,8 @@ export type TeamsCardChild =
   | TeamsLinkElement
   | TeamsSectionElement
   | TeamsTableElement
-  | TeamsTextElement;
+  | TeamsTextElement
+  | TeamsTextInputElement;
 
 export interface TeamsTextElement {
   content: string;
@@ -41,6 +42,18 @@ export interface TeamsImageElement {
   alt?: string;
   type: "image";
   url: string;
+}
+
+export interface TeamsTextInputElement {
+  id: string;
+  initialValue?: string;
+  label: string;
+  maxLength?: number;
+  multiline?: boolean;
+  /** Required unless set; Teams blocks every submit on the card until it is filled */
+  optional?: boolean;
+  placeholder?: string;
+  type: "text_input";
 }
 
 export interface TeamsDividerElement {
