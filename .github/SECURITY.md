@@ -8,6 +8,8 @@ We will investigate all legitimate reports and do our best to quickly fix the pr
 
 ## Scope
 
+This policy defines which security reports we investigate for Chat SDK. Bounty eligibility is governed separately by the [Vercel Open Source HackerOne program policy](https://hackerone.com/vercel-open-source). A report being in scope here does not by itself establish eligibility for a bounty.
+
 This policy covers code maintained in this repository: the `chat` package, official platform and state adapters, shared utilities, and `create-chat-sdk` templates. Security issues in our documented setup instructions and examples are also in scope.
 
 Messaging platforms, provider SDKs, hosting services, and independently maintained adapters have their own security processes. Report defects isolated to those projects to their maintainers. Problems caused by how Chat SDK integrates with them remain in scope here. If ownership is unclear, send us the report and we can help triage it.
