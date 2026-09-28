@@ -371,6 +371,8 @@ LINEAR_API_URL=...
 
 ### Message history
 
+For agent-session threads, `fetchMessages()` throws a `ValidationError` if the session has no associated issue or its issue ID does not match the issue ID in the thread ID. The adapter checks this before fetching session comments or activities.
+
 | Feature | Supported |
 |---------|-----------|
 | Fetch messages | Yes |
