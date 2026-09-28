@@ -3,11 +3,7 @@ import type { Root } from "mdast";
 import { processCardCallbackUrls } from "./callback-url";
 import { cardToFallbackText } from "./cards";
 import { ChannelImpl, deriveChannelId } from "./channel";
-import {
-  type ChatSingleton,
-  getChatSingleton,
-  hasChatSingleton,
-} from "./chat-singleton";
+import { ChatBinding, type ChatSingleton } from "./chat-singleton";
 import { fromFullStream } from "./from-full-stream";
 import { type ChatElement, isJSX, toCardElement } from "./jsx-runtime";
 import type { Logger } from "./logger";
@@ -18,7 +14,7 @@ import {
   text as textNode,
   toPlainText,
 } from "./markdown";
-import { Message, type SerializedMessage } from "./message";
+import { Message, type SerializedMessage, setMessageAdapter } from "./message";
 import { isPostableObject, postPostableObject } from "./postable-object";
 import { StreamingMarkdownRenderer } from "./streaming-markdown";
 import type { ThreadHistoryCache } from "./thread-history";
@@ -167,7 +163,8 @@ export class ThreadImpl<TState = Record<string, unknown>>
 
   /** Direct adapter instance (if provided) */
   private _adapter?: Adapter;
-  private _chat?: ChatSingleton;
+  /** Chat ownership for restored threads */
+  private readonly _binding?: ChatBinding;
   /** Adapter name for lazy resolution */
   private readonly _adapterName?: string;
   /** Direct state adapter instance (if provided) */
@@ -203,7 +200,7 @@ export class ThreadImpl<TState = Record<string, unknown>>
     if (isLazyConfig(config)) {
       // Lazy resolution mode - store adapter name for later lookup
       this._adapterName = config.adapterName;
-      this._chat = config.chat;
+      this._binding = new ChatBinding(config.chat);
     } else {
       // Direct mode - store adapter and state instances
       this._adapter = config.adapter;
@@ -222,32 +219,17 @@ export class ThreadImpl<TState = Record<string, unknown>>
    */
   get adapter(): Adapter {
     if (this._adapter) {
-      if (!this._chat && this._adapterName && hasChatSingleton()) {
-        const chat = getChatSingleton();
-        if (chat.getAdapter(this._adapterName) === this._adapter) {
-          this._chat = chat;
-        }
-      }
+      this._binding?.resolveOwner(this._adapter);
       return this._adapter;
     }
 
-    if (!this._adapterName) {
+    if (!(this._adapterName && this._binding)) {
       throw new Error("Thread has no adapter configured");
     }
 
-    // Lazy resolution from singleton
-    const chat = this._chat ?? getChatSingleton();
-    const adapter = chat.getAdapter(this._adapterName);
-    if (!adapter) {
-      throw new Error(
-        `Adapter "${this._adapterName}" not found in Chat ${this._chat ? "instance" : "singleton"}`
-      );
-    }
-
-    // Cache for subsequent accesses
-    this._chat = chat;
-    this._adapter = adapter;
-    return adapter;
+    // Lazy resolution from singleton (cached for subsequent accesses)
+    this._adapter = this._binding.resolveAdapter(this._adapterName);
+    return this._adapter;
   }
 
   /**
@@ -259,17 +241,16 @@ export class ThreadImpl<TState = Record<string, unknown>>
       return this._stateAdapterInstance;
     }
 
-    // Lazy resolution from singleton
-    const adapter = this.adapter;
-    const chat = this._chat ?? getChatSingleton();
-    if (chat.getAdapter(this._adapterName ?? adapter.name) !== adapter) {
-      throw new Error(
-        `Adapter "${adapter.name}" does not belong to this Chat instance. Restore with bot.reviver().`
-      );
+    if (!this._binding) {
+      throw new Error("Thread has no state adapter configured");
     }
-    this._chat = chat;
-    this._stateAdapterInstance = chat.getState();
-    return this._stateAdapterInstance;
+
+    // Lazy resolution; only cache state from the Chat that owns the adapter
+    const { owned, state } = this._binding.resolveState(this.adapter);
+    if (owned) {
+      this._stateAdapterInstance = state;
+    }
+    return state;
   }
 
   get recentMessages(): Message[] {
@@ -490,7 +471,7 @@ export class ThreadImpl<TState = Record<string, unknown>>
           };
         };
         const streamOptions: StreamOptions = {
-          ...(data.options.updateIntervalMs
+          ...(data.options.updateIntervalMs !== undefined
             ? { updateIntervalMs: data.options.updateIntervalMs }
             : {}),
           ...(data.options.groupTasks
@@ -761,7 +742,9 @@ export class ThreadImpl<TState = Record<string, unknown>>
     // Normalize: handles plain strings, AI SDK fullStream events, and StreamChunk objects
     const textStream = takeUntilAborted(fromFullStream(rawStream), this.signal);
     const adapter = this.adapter;
-    const defaults = this._chat?.getStreamingOptions();
+    const defaults = this._binding
+      ?.resolveOwner(adapter)
+      ?.getStreamingOptions();
     const placeholder =
       this._fallbackStreamingPlaceholderText !== undefined
         ? this._fallbackStreamingPlaceholderText
@@ -1164,6 +1147,10 @@ export class ThreadImpl<TState = Record<string, unknown>>
     });
     if (adapter) {
       thread._adapter = adapter;
+    }
+    const owned = adapter ?? chat?.getAdapter(json.adapterName);
+    if (chat && owned && thread._currentMessage) {
+      setMessageAdapter(thread._currentMessage, owned);
     }
     return thread;
   }

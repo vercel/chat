@@ -27,6 +27,7 @@ describe("Chat Singleton", () => {
       getAdapter: vi.fn(),
       getState: vi.fn(),
       getStreamingOptions: vi.fn(),
+      ownsAdapter: vi.fn(),
     };
     setChatSingleton(mock);
     expect(hasChatSingleton()).toBe(true);
@@ -38,6 +39,7 @@ describe("Chat Singleton", () => {
       getAdapter: vi.fn(),
       getState: vi.fn(),
       getStreamingOptions: vi.fn(),
+      ownsAdapter: vi.fn(),
     };
     setChatSingleton(mock);
     expect(hasChatSingleton()).toBe(true);
@@ -51,11 +53,13 @@ describe("Chat Singleton", () => {
       getAdapter: vi.fn(),
       getState: vi.fn(),
       getStreamingOptions: vi.fn(),
+      ownsAdapter: vi.fn(),
     };
     const mock2: ChatSingleton = {
       getAdapter: vi.fn(),
       getState: vi.fn(),
       getStreamingOptions: vi.fn(),
+      ownsAdapter: vi.fn(),
     };
     setChatSingleton(mock1);
     setChatSingleton(mock2);

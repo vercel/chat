@@ -1,11 +1,7 @@
 import { WORKFLOW_DESERIALIZE, WORKFLOW_SERIALIZE } from "@workflow/serde";
 import { processCardCallbackUrls } from "./callback-url";
 import { cardToFallbackText } from "./cards";
-import {
-  type ChatSingleton,
-  getChatSingleton,
-  hasChatSingleton,
-} from "./chat-singleton";
+import { ChatBinding, type ChatSingleton } from "./chat-singleton";
 import { fromFullStream } from "./from-full-stream";
 import { type ChatElement, isJSX, toCardElement } from "./jsx-runtime";
 import {
@@ -98,7 +94,8 @@ export class ChannelImpl<TState = Record<string, unknown>>
   readonly channelVisibility: ChannelVisibility;
 
   private _adapter?: Adapter;
-  private _chat?: ChatSingleton;
+  /** Chat ownership for restored channels */
+  private readonly _binding?: ChatBinding;
   private readonly _adapterName?: string;
   private _stateAdapterInstance?: StateAdapter;
   private _name: string | null = null;
@@ -111,7 +108,7 @@ export class ChannelImpl<TState = Record<string, unknown>>
 
     if (isLazyConfig(config)) {
       this._adapterName = config.adapterName;
-      this._chat = config.chat;
+      this._binding = new ChatBinding(config.chat);
     } else {
       this._adapter = config.adapter;
       this._stateAdapterInstance = config.stateAdapter;
@@ -121,30 +118,16 @@ export class ChannelImpl<TState = Record<string, unknown>>
 
   get adapter(): Adapter {
     if (this._adapter) {
-      if (!this._chat && this._adapterName && hasChatSingleton()) {
-        const chat = getChatSingleton();
-        if (chat.getAdapter(this._adapterName) === this._adapter) {
-          this._chat = chat;
-        }
-      }
+      this._binding?.resolveOwner(this._adapter);
       return this._adapter;
     }
 
-    if (!this._adapterName) {
+    if (!(this._adapterName && this._binding)) {
       throw new Error("Channel has no adapter configured");
     }
 
-    const chat = this._chat ?? getChatSingleton();
-    const adapter = chat.getAdapter(this._adapterName);
-    if (!adapter) {
-      throw new Error(
-        `Adapter "${this._adapterName}" not found in Chat ${this._chat ? "instance" : "singleton"}`
-      );
-    }
-
-    this._chat = chat;
-    this._adapter = adapter;
-    return adapter;
+    this._adapter = this._binding.resolveAdapter(this._adapterName);
+    return this._adapter;
   }
 
   private get _stateAdapter(): StateAdapter {
@@ -152,16 +135,15 @@ export class ChannelImpl<TState = Record<string, unknown>>
       return this._stateAdapterInstance;
     }
 
-    const adapter = this.adapter;
-    const chat = this._chat ?? getChatSingleton();
-    if (chat.getAdapter(this._adapterName ?? adapter.name) !== adapter) {
-      throw new Error(
-        `Adapter "${adapter.name}" does not belong to this Chat instance. Restore with bot.reviver().`
-      );
+    if (!this._binding) {
+      throw new Error("Channel has no state adapter configured");
     }
-    this._chat = chat;
-    this._stateAdapterInstance = chat.getState();
-    return this._stateAdapterInstance;
+
+    const { owned, state } = this._binding.resolveState(this.adapter);
+    if (owned) {
+      this._stateAdapterInstance = state;
+    }
+    return state;
   }
 
   get name(): string | null {

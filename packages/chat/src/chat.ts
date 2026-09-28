@@ -2078,11 +2078,28 @@ export class Chat<
     return this._stateAdapter;
   }
 
+  /**
+   * Streaming defaults applied to restored threads.
+   * @internal Used by ThreadImpl via the ChatSingleton interface.
+   */
   getStreamingOptions() {
     return {
       updateIntervalMs: this._streamingUpdateIntervalMs,
       fallbackStreamingPlaceholderText: this._fallbackStreamingPlaceholderText,
     };
+  }
+
+  /**
+   * Whether this exact adapter instance is registered with this Chat.
+   * @internal Used by ThreadImpl and ChannelImpl to verify restored ownership.
+   */
+  ownsAdapter(adapter: Adapter): boolean {
+    for (const registered of this.adapters.values()) {
+      if (registered === adapter) {
+        return true;
+      }
+    }
+    return false;
   }
 
   getUserName(): string {

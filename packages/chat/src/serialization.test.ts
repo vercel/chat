@@ -501,17 +501,14 @@ describe("Serialization", () => {
       expect(vi.mocked(adapter.stream).mock.calls[0][2]).not.toHaveProperty(
         "fallbackStreamingPlaceholderText"
       );
-      expect(() => thread.state).toThrow("bot.reviver()");
-      expect(() => channel.state).toThrow("bot.reviver()");
-      await expect(thread.setState({ owner: "owner" })).rejects.toThrow(
-        "bot.reviver()"
-      );
-      await expect(channel.setState({ owner: "owner" })).rejects.toThrow(
-        "bot.reviver()"
-      );
-      await expect(thread.subscribe()).rejects.toThrow("bot.reviver()");
-      expect(await other.thread(thread.id).state).toBeNull();
-      expect(await other.channel(channel.id).state).toBeNull();
+      // Unowned explicit adapters keep falling back to the singleton's state
+      await thread.setState({ owner: "other" });
+      await channel.setState({ owner: "other" });
+      expect(await other.thread(thread.id).state).toEqual({ owner: "other" });
+      expect(await other.channel(channel.id).state).toEqual({
+        owner: "other",
+      });
+      expect(await thread.channel.state).toEqual({ owner: "other" });
       owner.registerSingleton();
       await thread.setState({ owner: "owner" });
       await channel.setState({ owner: "owner" });
@@ -527,6 +524,128 @@ describe("Serialization", () => {
       );
       expect(await owner.thread(thread.id).state).toEqual({ owner: "owner" });
       expect(await owner.channel(channel.id).state).toEqual({ owner: "owner" });
+    });
+  });
+
+  describe("restored runtime ownership fixes", () => {
+    const id = "slack:C123:1234.5678";
+
+    afterEach(() => {
+      clearChatSingleton();
+    });
+
+    async function* stream() {
+      yield "Reply";
+    }
+
+    it("throws for an explicit Chat that does not own the explicit adapter", async () => {
+      const adapter = createMockAdapter("slack");
+      const other = new Chat({
+        userName: "other",
+        adapters: { slack: createMockAdapter("slack") },
+        state: createMockState(),
+        logger: "silent",
+      });
+      const thread = ThreadImpl.fromJSON(
+        other.thread(id).toJSON(),
+        adapter,
+        other
+      );
+      const channel = ChannelImpl.fromJSON(
+        other.channel("slack:C123").toJSON(),
+        adapter,
+        other
+      );
+
+      await expect(thread.setState({ owner: "x" })).rejects.toThrow(
+        "does not belong to this Chat instance"
+      );
+      await expect(channel.setState({ owner: "x" })).rejects.toThrow(
+        "does not belong to this Chat instance"
+      );
+      expect(await other.thread(id).state).toBeNull();
+    });
+
+    it("recognizes adapters registered under a key that differs from their name", async () => {
+      const adapter = createMockAdapter("slack");
+      adapter.stream = vi.fn().mockResolvedValue(null);
+      const state = createMockState();
+      const bot = new Chat({
+        userName: "bot",
+        adapters: { mySlack: adapter },
+        state,
+        logger: "silent",
+        streamingUpdateIntervalMs: 1200,
+        fallbackStreamingPlaceholderText: null,
+      }).registerSingleton();
+      const thread = ThreadImpl.fromJSON(
+        {
+          _type: "chat:Thread",
+          id,
+          channelId: "slack:C123",
+          adapterName: "slack",
+          isDM: false,
+        },
+        adapter
+      );
+
+      await thread.post(stream());
+      await thread.setState({ owner: "bot" });
+
+      expect(adapter.stream).toHaveBeenCalledWith(
+        id,
+        expect.anything(),
+        expect.objectContaining({
+          updateIntervalMs: 1200,
+          fallbackStreamingPlaceholderText: null,
+        })
+      );
+      expect(await bot.getState().get(`thread-state:${id}`)).toEqual({
+        owner: "bot",
+      });
+    });
+
+    it("honors a StreamingPlan updateIntervalMs of 0", async () => {
+      const adapter = createMockAdapter("slack");
+      adapter.stream = vi.fn().mockResolvedValue(null);
+      const bot = new Chat({
+        userName: "bot",
+        adapters: { slack: adapter },
+        state: createMockState(),
+        logger: "silent",
+        streamingUpdateIntervalMs: 1200,
+      });
+      const thread = JSON.parse(
+        JSON.stringify(bot.thread(id)),
+        bot.reviver()
+      ) as ThreadImpl;
+
+      await thread.post(new StreamingPlan(stream(), { updateIntervalMs: 0 }));
+
+      expect(adapter.stream).toHaveBeenCalledWith(
+        id,
+        expect.anything(),
+        expect.objectContaining({ updateIntervalMs: 0 })
+      );
+    });
+
+    it("binds messages revived by bot.reviver() to that bot's adapter", async () => {
+      const adapter = createMockAdapter("slack");
+      const subject = { id: "issue-1", title: "Bug", raw: {} };
+      adapter.fetchSubject = vi.fn().mockResolvedValue(subject);
+      const bot = new Chat({
+        userName: "bot",
+        adapters: { slack: adapter },
+        state: createMockState(),
+        logger: "silent",
+      });
+      const restored = JSON.parse(
+        JSON.stringify({ message: createTestMessage("message", "Hello") }),
+        bot.reviver()
+      ) as { message: Message };
+
+      expect(await restored.message.subject).toEqual(subject);
+      expect(adapter.fetchSubject).toHaveBeenCalled();
     });
   });
 
