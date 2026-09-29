@@ -62,33 +62,162 @@ features:
 
 ## Install
 
-<PackageInstall package="@chat-adapter/teams" />
+<PackageInstall package="@chat-adapter/teams @chat-adapter/state-memory" />
 
 ## Quick start
 
 <Callout type="info">
 The adapter auto-detects `TEAMS_APP_ID`, `TEAMS_APP_PASSWORD`, and `TEAMS_APP_TENANT_ID` from the environment.
 
-For managed credentials and webhook verification, see [**Vercel Connect**](#option-a--vercel-connect).
+For managed credentials and webhook verification, see [Vercel Connect](#vercel-connect).
 </Callout>
 
 ```typescript title="lib/bot.ts" lineNumbers
 import { Chat } from "chat";
 import { createTeamsAdapter } from "@chat-adapter/teams";
+import { createMemoryState } from "@chat-adapter/state-memory";
 
-const bot = new Chat({
+export const bot = new Chat({
   userName: "mybot",
   adapters: {
     teams: createTeamsAdapter({
       appType: "SingleTenant",
     }),
   },
+  state: createMemoryState(),
 });
 
 bot.onNewMention(async (thread, message) => {
   await thread.post("Hello from Teams!");
 });
 ```
+
+The memory state adapter keeps subscriptions and locks in process memory, which suits local development. Use [Redis](/adapters/official/redis) or [PostgreSQL](/adapters/official/postgres) in production.
+
+Then create the webhook route:
+
+```typescript title="app/api/webhooks/teams/route.ts" lineNumbers
+import { bot } from "@/lib/bot";
+
+export async function POST(request: Request): Promise<Response> {
+  return bot.webhooks.teams(request);
+}
+```
+
+## Platform setup
+
+The [Teams CLI](https://microsoft.github.io/teams-sdk/cli) handles AAD app registration, client secret generation, bot registration, and Teams channel setup in one command. If you use [Vercel Connect](#vercel-connect), you don't need to copy the generated app ID and password into your environment.
+
+### Install the CLI
+
+```bash
+npm install -g @microsoft/teams.cli
+```
+
+### 1. Create the app
+
+```bash
+teams login
+teams status
+teams app create --name "My Bot" --endpoint "https://your-domain.com/api/webhooks/teams" --env .env
+```
+
+<Callout type="info">
+For local development, use a tunnel such as [devtunnel](https://learn.microsoft.com/en-us/azure/developer/dev-tunnels/), or ngrok to expose your local server.
+</Callout>
+
+Credentials (`CLIENT_ID`, `CLIENT_SECRET`, `TENANT_ID`) are written to `.env`. Rename them to match the adapter:
+
+```bash
+TEAMS_APP_ID=<CLIENT_ID>
+TEAMS_APP_PASSWORD=<CLIENT_SECRET>
+TEAMS_APP_TENANT_ID=<TENANT_ID>
+```
+
+### 2. Install in Teams
+
+Get a direct install link:
+
+```bash
+teams app get <appId> --install-link
+```
+
+Or download the app package for sideloading, then in Teams go to **Apps** > **Manage your apps** > **Upload an app** > **Upload a custom app**.
+
+### 3. Verify
+
+Check the registration, app health, manifest, and endpoint:
+
+```bash
+teams app doctor <appId>
+```
+
+## Authentication
+
+Use Vercel Connect to manage the bot identity and tokens, or configure Microsoft app credentials directly with a client secret, federated workload identity, or a custom token factory.
+
+### Vercel Connect
+
+Use [Vercel Connect](/docs/vercel-connect) to resolve the bot's app ID and request short-lived tokens for Bot Framework and Microsoft Graph:
+
+```typescript
+import { createTeamsAdapter } from "@chat-adapter/teams";
+import { connectTeamsAdapter } from "@vercel/connect/chat";
+
+const teams = createTeamsAdapter({
+  ...connectTeamsAdapter("microsoft-teams/acme-teams"),
+});
+```
+
+The helper resolves `appId` during initialization and supplies a scope-aware `token` callback. It also verifies Connect-forwarded webhooks with Vercel OIDC instead of Microsoft's native JWT. Enable trigger forwarding to `/api/webhooks/teams` and omit `TEAMS_APP_ID` and `TEAMS_APP_PASSWORD` when using the helper.
+
+The callback requests separate tokens for `https://api.botframework.com/.default` and `https://graph.microsoft.com/.default`. Graph reads still require the appropriate installation and consent permissions; Connect uses the bot's home tenant for managed tokens.
+
+An `appId` resolver runs once during successful initialization. Call `await bot.initialize()` before using adapter methods directly; Chat initializes automatically before handling webhooks. `botUserId` becomes available after initialization when using a resolver.
+
+A custom `webhookVerifier` receives the incoming request and its raw body. Return a truthy value to accept, or return a falsy value or throw to reject with HTTP 401. Without a verifier, the adapter retains Microsoft's native JWT verification.
+
+### Client secret
+
+Provide `appPassword`, or set `TEAMS_APP_PASSWORD`, with the client secret generated during [platform setup](#platform-setup):
+
+```typescript
+createTeamsAdapter({
+  appPassword: "your_app_password_here",
+});
+```
+
+### Federated (workload identity)
+
+For environments with managed identities, such as AKS or GitHub Actions, use federated workload identity. `federated.clientId` maps to `managedIdentityClientId` in the Teams SDK:
+
+```typescript
+createTeamsAdapter({
+  federated: {
+    clientId: "your_managed_identity_client_id_here",
+  },
+});
+```
+
+### Custom token factory
+
+For runtimes without access to Azure IMDS, such as serverless platforms, provide your own token-minting logic. `token` maps to `AppOptions.token` in the Teams SDK:
+
+```typescript
+createTeamsAdapter({
+  appId: "your_app_id_here",
+  appTenantId: "your_tenant_id_here",
+  token: async (scope, tenantId) => {
+    // fetch or mint an access token for the given scope/tenant however your
+    // runtime supports it (for example, a workload-identity federation bridge)
+    return await getAccessToken(scope, tenantId);
+  },
+});
+```
+
+<Callout type="warn">
+A custom token factory takes precedence over configured credentials and client-secret environment variables, including `CLIENT_SECRET`.
+</Callout>
 
 ## Configuration
 
@@ -118,8 +247,7 @@ bot.onNewMention(async (thread, message) => {
     },
     appType: {
       type: '"MultiTenant" | "SingleTenant"',
-      default: '"MultiTenant"',
-      description: "App tenancy mode.",
+      description: "App tenancy mode. `\"MultiTenant\"` ignores any tenant ID. When omitted, the adapter uses `appTenantId` or `TEAMS_APP_TENANT_ID` if one is set.",
     },
     appTenantId: {
       type: "string",
@@ -141,161 +269,20 @@ bot.onNewMention(async (thread, message) => {
 
 `appId` is required, along with one authentication method (`appPassword`, `federated`, or `token`). If more than one is configured, `token` takes precedence over `federated`, which takes precedence over `appPassword`.
 
-## Authentication
+### Environment variables
 
-Use Vercel Connect to manage the bot identity and tokens, or configure Microsoft app credentials directly.
-
-### Option A — Vercel Connect
-
-Use [Vercel Connect](/docs/vercel-connect) to resolve the bot's app ID and request short-lived tokens for Bot Framework and Microsoft Graph:
-
-```typescript
-import { createTeamsAdapter } from "@chat-adapter/teams";
-import { connectTeamsAdapter } from "@vercel/connect/chat";
-
-const teams = createTeamsAdapter({
-  ...connectTeamsAdapter("microsoft-teams/acme-teams"),
-});
-```
-
-The helper resolves `appId` during initialization and supplies a scope-aware `token` callback. It also verifies Connect-forwarded webhooks with Vercel OIDC instead of Microsoft's native JWT. Enable trigger forwarding to `/api/webhooks/teams` and omit `TEAMS_APP_ID` and `TEAMS_APP_PASSWORD` when using the helper.
-
-The callback requests separate tokens for `https://api.botframework.com/.default` and `https://graph.microsoft.com/.default`. Graph reads still require the appropriate installation and consent permissions; Connect uses the bot's home tenant for managed tokens.
-
-An `appId` resolver runs once during successful initialization. Call `await bot.initialize()` before using adapter methods directly; Chat initializes automatically before handling webhooks. `botUserId` becomes available after initialization when using a resolver.
-
-A custom `webhookVerifier` receives the incoming request and its raw body. Return a truthy value to accept, or return a falsy value or throw to reject with HTTP 401. Without a verifier, the adapter retains Microsoft's native JWT verification.
-
-### Option B — Microsoft app credentials
-
-The [Teams CLI](https://microsoft.github.io/teams-sdk/cli) handles AAD app registration, client secret generation, bot registration, and Teams channel setup in one command.
-
-#### Install the CLI
-
-```bash
-npm install -g @microsoft/teams.cli
-```
-
-#### 1. Create the app
-
-```bash
-teams login
-teams status
-teams app create --name "My Bot" --endpoint "https://your-domain.com/api/webhooks/teams" --env .env
-```
-
-<Callout type="info">
-For local development, use a tunnel (e.g. [devtunnel](https://learn.microsoft.com/en-us/azure/developer/dev-tunnels/), ngrok) to expose your local server.
-</Callout>
-
-Credentials (`CLIENT_ID`, `CLIENT_SECRET`, `TENANT_ID`) are written to `.env`. Rename them to match the adapter:
-
-```bash
-TEAMS_APP_ID=<CLIENT_ID>
-TEAMS_APP_PASSWORD=<CLIENT_SECRET>
-TEAMS_APP_TENANT_ID=<TENANT_ID>
-```
-
-#### 2. Install in Teams
-
-Get a direct install link:
-
-```bash
-teams app get <appId> --install-link
-```
-
-Or download the app package for sideloading and upload via **Apps** then **Manage your apps** then **Upload an app** then **Upload a custom app**.
-
-#### 3. Verify
-
-```bash
-teams app doctor <appId>
-```
-
-#### Credential methods
-
-**Client secret** — provide `appPassword` or set `TEAMS_APP_PASSWORD`:
-
-```typescript
-createTeamsAdapter({
-  appPassword: "your_app_password_here",
-});
-```
-
-**Federated (workload identity)** — for environments with managed identities (e.g. AKS, GitHub Actions). Maps to `managedIdentityClientId` in the Teams SDK:
-
-```typescript
-createTeamsAdapter({
-  federated: {
-    clientId: "your_managed_identity_client_id_here",
-  },
-});
-```
-
-**Custom token factory** — for runtimes without access to Azure IMDS (e.g. serverless platforms), provide your own token-minting logic. Maps to `AppOptions.token` in the Teams SDK:
-
-```typescript
-createTeamsAdapter({
-  appId: "your_app_id_here",
-  appTenantId: "your_tenant_id_here",
-  token: async (scope, tenantId) => {
-    // fetch or mint an access token for the given scope/tenant however your
-    // runtime supports it (e.g. a workload-identity federation bridge)
-    return await getAccessToken(scope, tenantId);
-  },
-});
-```
-
-<Callout type="warn">
-A custom token factory takes precedence over configured credentials and client-secret environment variables, including `CLIENT_SECRET`.
-</Callout>
+| Variable | Required | Description |
+| --- | --- | --- |
+| `TEAMS_APP_ID` | Yes, unless you pass `appId` or use Vercel Connect | Azure Bot App ID. |
+| `TEAMS_APP_PASSWORD` | With client secret auth, unless you pass `appPassword` | Azure Bot App Password (client secret). Ignored when `federated` or `token` is set. |
+| `TEAMS_APP_TENANT_ID` | For `SingleTenant` apps and message history | Azure AD Tenant ID. |
+| `TEAMS_API_URL` | No | Teams API base URL override, for example for GCC-High or sovereign clouds. |
 
 ## Mentions
 
 Incoming Teams mentions are supported. Outgoing `@name` text, including multi-word names, stays plain text and does not notify the user. The adapter does not resolve display names into user identities or generate mention entities. Teams requires [matching mention text and entities](https://learn.microsoft.com/en-us/microsoftteams/platform/bots/how-to/conversations/channel-and-group-conversations#add-mentions-to-your-messages) for a real mention; `<at>` markup alone is not sufficient.
 
-## Advanced
-
-### Conversation routing
-
-Incoming thread IDs preserve the Teams conversation type when the legacy ID-prefix heuristic would route it incorrectly. When Teams omits `conversationType`, the adapter falls back to `conversation.isGroup` and the activity's team context. This keeps correctly classified IDs stable while selecting the buffered fallback for group chats whose IDs begin with `a:`. Thread IDs created by older adapter versions remain supported.
-
-### Incoming attachments
-
-Incoming inline images and files are exposed through `message.attachments` with a lazy `fetchData()` method. The adapter authenticates connector-hosted inline attachments through the configured Teams bot client, while [Teams file download cards](https://learn.microsoft.com/en-us/microsoftteams/platform/bots/how-to/bots-filesv4) use their direct download URL without the bot token.
-
-Anonymous downloads require HTTPS URLs that resolve to public addresses; private and internal hosts are refused, including after redirects. Responses are limited to 25 MB and downloads time out after 30 seconds. Inline attachments served by the connector use bot authentication instead, including the Bot Framework Emulator's plain-HTTP loopback connector. To change the limits or route downloads through a proxy, override `createFetchDataFn()` in a subclass and call `downloadAttachment` from `@chat-adapter/shared` with your own options.
-
-### User lookup
-
-The adapter supports looking up user profiles via the Microsoft Graph API. To enable it:
-
-1. Grant the `User.Read.All` **application permission** in your Azure AD app registration.
-2. Grant admin consent for the permission.
-
-```typescript
-const user = await bot.getUser(message.author);
-console.log(user?.email);    // "alice@contoso.com"
-console.log(user?.fullName); // "Alice Smith"
-```
-
-The adapter caches each user's Azure AD object ID from incoming activities, so `getUser` only works for users who have previously interacted with the bot.
-
-Live incoming message authors include `email` when the Teams conversation members API resolves the sender. This lookup uses the bot's access to the current conversation and does not require Microsoft Graph permissions. Lookup failures leave `message.author.email` undefined without preventing message delivery. Edited-message events and messages returned by `fetchMessages` are not hydrated with an email.
-
-### Targeted / ephemeral messages
-
-Teams targeted messages are available in public preview. Use `thread.postEphemeral()` or `channel.postEphemeral()` to send a native Teams message that only the selected conversation member can see:
-
-```typescript
-await thread.postEphemeral(message.author, "Only you can see this.", {
-  fallbackToDM: false,
-});
-```
-
-The result has `usedFallback: false` when Teams accepts the targeted message.
-
-### Message history
+## Message history
 
 Fetching message history requires `TEAMS_APP_TENANT_ID` and the right permissions depending on the conversation type:
 
@@ -323,13 +310,9 @@ az ad app permission add \
 az ad app permission admin-consent --id <appId>
 ```
 
-### Receiving all messages
+## Receiving all messages
 
 By default, Teams bots only receive messages when directly @-mentioned. The RSC permissions above also enable receiving all messages in channels and group chats as a side effect.
-
-### Troubleshooting
-
-Run `teams app doctor <appId>` to diagnose common issues — bot registration, AAD app health, manifest consistency, and endpoint reachability.
 
 ## Bot joins
 
@@ -425,6 +408,41 @@ installation activity ID as `replyToId`; it is not a message. Full team and
 selected-channel metadata remain in `event.raw`.
 
 See Microsoft's [installation update documentation](https://learn.microsoft.com/en-us/microsoftteams/platform/bots/how-to/conversations/subscribe-to-conversation-events#installation-update-event).
+
+## Targeted / ephemeral messages
+
+Teams targeted messages are available in public preview. Use `thread.postEphemeral()` or `channel.postEphemeral()` to send a native Teams message that only the selected conversation member can see:
+
+```typescript
+await thread.postEphemeral(message.author, "Only you can see this.", {
+  fallbackToDM: false,
+});
+```
+
+The result has `usedFallback: false` when Teams accepts the targeted message.
+
+## User lookup
+
+`bot.getUser()` looks up user profiles through the Microsoft Graph API. To enable it:
+
+1. Grant the `User.Read.All` application permission in your Azure AD app registration.
+2. Grant admin consent for the permission.
+
+```typescript
+const user = await bot.getUser(message.author);
+console.log(user?.email);    // "alice@contoso.com"
+console.log(user?.fullName); // "Alice Smith"
+```
+
+The adapter caches each user's Azure AD object ID from incoming activities, so `getUser` only works for users who have previously interacted with the bot.
+
+Live incoming message authors include `email` when the Teams conversation members API resolves the sender. This lookup uses the bot's access to the current conversation and does not require Microsoft Graph permissions. Lookup failures leave `message.author.email` undefined without preventing message delivery. Edited-message events and messages returned by `fetchMessages` are not hydrated with an email.
+
+## Incoming attachments
+
+Incoming inline images and files are exposed through `message.attachments` with a lazy `fetchData()` method. The adapter authenticates connector-hosted inline attachments through the configured Teams bot client, while [Teams file download cards](https://learn.microsoft.com/en-us/microsoftteams/platform/bots/how-to/bots-filesv4) use their direct download URL without the bot token.
+
+Anonymous downloads require HTTPS URLs that resolve to public addresses; private and internal hosts are refused, including after redirects. Responses are limited to 25 MB and downloads time out after 30 seconds. Inline attachments served by the connector use bot authentication instead, including the Bot Framework Emulator's plain-HTTP loopback connector. To change the limits or route downloads through a proxy, override `createFetchDataFn()` in a subclass and call `downloadAttachment` from `@chat-adapter/shared` with your own options.
 
 ## Low-level APIs
 
@@ -551,7 +569,7 @@ await deleteTeamsMessage({
 });
 ```
 
-Use `accessToken` in `credentials` when your runtime already owns Microsoft token acquisition. A direct `accessToken` must be scoped for the API you call it against — the Bot Connector subpath (`/api`) needs a `https://api.botframework.com/.default` token, while the Graph subpath (`/graph`) needs a `https://graph.microsoft.com/.default` token. Passing the same token to both will fail against one of them. When you supply `appId`/`appPassword` instead, each subpath requests the correct scope for you.
+Use `accessToken` in `credentials` when your runtime already owns Microsoft token acquisition. A direct `accessToken` must be scoped for the API you call. The Bot Connector subpath (`/api`) needs a `https://api.botframework.com/.default` token, while the Graph subpath (`/graph`) needs a `https://graph.microsoft.com/.default` token. Passing the same token to both will fail against one of them. When you supply `appId`/`appPassword` instead, each subpath requests the correct scope for you.
 
 ### Graph
 
@@ -673,6 +691,14 @@ The low-level Teams subpaths are designed to avoid the full runtime import graph
 - no full adapter import
 
 The package still installs the full Teams adapter dependencies. The subpaths keep your source and bundle imports clean, but they are not a package-size split.
+
+## Conversation routing
+
+Incoming thread IDs preserve the Teams conversation type when the legacy ID-prefix heuristic would route it incorrectly. When Teams omits `conversationType`, the adapter falls back to `conversation.isGroup` and the activity's team context. This keeps correctly classified IDs stable while selecting the buffered fallback for group chats whose IDs begin with `a:`. Thread IDs created by older adapter versions remain supported.
+
+## Troubleshooting
+
+Run `teams app doctor <appId>` to diagnose common issues with bot registration, AAD app health, manifest consistency, and endpoint reachability.
 
 ## Feature support
 

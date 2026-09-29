@@ -128,7 +128,7 @@ createGitHubAdapter({
 
 `installationToken` is the installation access token a GitHub App would normally mint via its private-key JWT exchange. The adapter uses it directly and skips that exchange.
 
-Set `botUserId` to your GitHub App bot user's numeric ID, or set `GITHUB_BOT_USER_ID`. An installation token cannot identify the bot through `/app`, and learning the ID from a posted comment only lasts for that process. Configuring it up front lets every serverless instance recognize its own comments and avoid self-reply loops. See the [GitHub adapter setup](/adapters/official/github#option-a--vercel-connect) for how to find the ID.
+Set `botUserId` to your GitHub App bot user's numeric ID, or set `GITHUB_BOT_USER_ID`. An installation token cannot identify the bot through `/app`, and learning the ID from a posted comment only lasts for that process. Configuring it up front lets every serverless instance recognize its own comments and avoid self-reply loops. See the [GitHub adapter setup](/adapters/official/github#vercel-connect) for how to find the ID.
 
 ### Linear
 

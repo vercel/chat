@@ -100,7 +100,7 @@ For serverless deployments (Vercel, AWS Lambda), use a serverless-compatible Red
 
 - Use Redis 6.0+ for best performance
 - Enable Redis persistence (RDB or AOF)
-- Use Redis Cluster for high availability
+- For Redis Sentinel, use `@chat-adapter/state-ioredis`. Neither adapter supports Redis Cluster
 - Set appropriate memory limits
 
 ## Features

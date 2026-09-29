@@ -1,7 +1,7 @@
 {
   "name": "@chat-adapter/state-ioredis",
   "version": "4.41.1",
-  "description": "ioredis state adapter for Chat SDK — production state with Redis Cluster and Sentinel support via ioredis",
+  "description": "ioredis state adapter for Chat SDK: production state with Redis Sentinel support via ioredis",
   "type": "module",
   "engines": {
     "node": ">=20"
@@ -55,7 +55,6 @@
     "state-adapter",
     "ioredis",
     "redis",
-    "redis-cluster",
     "sentinel",
     "subscriptions",
     "distributed-lock",

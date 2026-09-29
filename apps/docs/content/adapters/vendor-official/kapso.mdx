@@ -1,6 +1,6 @@
 ---
 title: Kapso
-description: Kapso-first WhatsApp adapter for Chat SDK. Receive Kapso platform webhooks, reply through Chat SDK threads, send cards/buttons and media, and fetch Kapso conversation history.
+description: WhatsApp adapter for Chat SDK built on Kapso. Receive Kapso platform webhooks, reply through Chat SDK threads, send cards, buttons, and media, and fetch Kapso conversation history.
 packageName: "@kapso/chat-adapter"
 slug: kapso
 type: platform
@@ -56,7 +56,7 @@ features:
 
 <PackageInstall package="@kapso/chat-adapter chat" />
 
-Install a durable Chat SDK state adapter for production. The examples below use `@chat-adapter/state-memory` for local development.
+The examples below use `@chat-adapter/state-memory` for local development. Install a durable Chat SDK state adapter for production.
 
 ## Quick start
 
@@ -82,7 +82,15 @@ bot.onDirectMessage(async (thread, message) => {
 });
 ```
 
-Kapso webhooks are direct-message conversations. Replies, cards, files, reactions, and history calls use the same Chat SDK `Thread` and `Message` APIs as the official adapters.
+Kapso webhooks are direct-message conversations, which is why the example uses `onDirectMessage`. Replies, cards, files, reactions, and history calls use the same Chat SDK `Thread` and `Message` APIs as the official adapters.
+
+## Platform setup
+
+1. Create or use a Kapso integration and copy your **API key**.
+2. Copy the WhatsApp **phone number ID** connected in Kapso if the bot will initiate outbound direct messages.
+3. Create a webhook secret in Kapso and set the same value as `KAPSO_WEBHOOK_SECRET`.
+4. Set your webhook endpoint URL to the public route that forwards requests to `bot.webhooks.kapso`.
+5. Subscribe to `whatsapp.message.received`; add `whatsapp.message.sent` only if your app needs sent-message echoes.
 
 ## Configuration
 
@@ -157,15 +165,7 @@ Kapso webhooks are direct-message conversations. Replies, cards, files, reaction
 | `KAPSO_BASE_URL` | No | Kapso proxy URL. Defaults to `https://api.kapso.ai/meta/whatsapp`. |
 | `KAPSO_BOT_USERNAME` | No | Bot display name. Defaults to the Chat SDK `userName` after initialization. |
 
-## Platform setup
-
-1. Create or use a Kapso integration and copy your **API key**.
-2. Copy the WhatsApp **phone number ID** connected in Kapso if the bot will initiate outbound direct messages.
-3. Create a webhook secret in Kapso and set the same value as `KAPSO_WEBHOOK_SECRET`.
-4. Configure your webhook endpoint URL to the public route that forwards requests to `bot.webhooks.kapso`.
-5. Subscribe to `whatsapp.message.received`; add `whatsapp.message.sent` only if your app needs sent-message echoes.
-
-## Webhook route
+## Webhooks
 
 Kapso sends platform webhooks as `POST` requests. Forward the raw `Request` to Chat SDK:
 
@@ -177,7 +177,7 @@ export async function POST(request: Request): Promise<Response> {
 }
 ```
 
-The adapter verifies Kapso `X-Webhook-Signature` headers by default and returns `401` for invalid signed requests. For unsigned local fixtures only, pass `verifyWebhookSignatures: false`.
+By default, the adapter verifies the Kapso `X-Webhook-Signature` header and returns `401` when a signature is invalid. Pass `verifyWebhookSignatures: false` only for unsigned local fixtures.
 
 ## Sending messages
 
@@ -223,7 +223,7 @@ await thread.post(
 );
 ```
 
-WhatsApp supports up to 3 reply buttons. Button labels must be 1-20 characters, and the adapter throws a validation error instead of silently truncating labels or dropping buttons.
+WhatsApp allows up to 3 reply buttons, and each label must be 1-20 characters. If a card breaks either limit, the adapter throws a validation error rather than truncating labels or dropping buttons.
 
 ## Media
 
@@ -244,11 +244,11 @@ await thread.post({
 });
 ```
 
-Inbound media is exposed as Chat SDK attachments. When Kapso includes a mirrored media URL, the attachment has `url`. When a WhatsApp media ID is available, the attachment has lazy `fetchData()`.
+Inbound media arrives as Chat SDK attachments. When Kapso includes a mirrored media URL, the attachment has a `url`. When a WhatsApp media ID is available, the attachment has a lazy `fetchData()`.
 
 ## History
 
-With `KAPSO_API_KEY`, history reads from Kapso:
+When `KAPSO_API_KEY` is set, `fetchMessages()` reads history from Kapso:
 
 ```typescript
 const page = await thread.adapter.fetchMessages(thread.id, { limit: 20 });
@@ -258,13 +258,13 @@ const page = await thread.adapter.fetchMessages(thread.id, { limit: 20 });
 
 ## Thread IDs
 
-Current thread IDs are encoded as:
+Current thread IDs use this format, where the conversation ID segment is optional:
 
 ```text
 kapso:<base64url(phoneNumberId)>:<base64url(waId)>[:<base64url(conversationId)>]
 ```
 
-Use helpers instead of constructing thread IDs manually:
+Use the adapter's helpers rather than building thread IDs by hand:
 
 ```typescript
 const threadId = adapter.encodeThreadId({
@@ -277,17 +277,17 @@ const decoded = adapter.decodeThreadId(threadId);
 
 ## Limitations
 
-- Direct Meta webhook setup is a compatibility path; Kapso platform webhooks are preferred.
-- Message edit/delete is not supported by WhatsApp/Kapso for recipient devices.
-- Raw WhatsApp templates, flows, and catalogs should be sent through `@kapso/whatsapp-cloud-api` directly alongside the Chat SDK adapter.
-- Streaming is not supported by WhatsApp/Kapso for recipient devices.
-
-## Links
-
-- [Kapso docs](https://docs.kapso.ai/)
-- [GitHub](https://github.com/gokapso/chat-sdk-adapter)
-- [npm](https://www.npmjs.com/package/@kapso/chat-adapter)
+- Direct Meta webhook setup is a compatibility path. Prefer Kapso platform webhooks.
+- WhatsApp and Kapso don't support editing or deleting messages on recipient devices.
+- WhatsApp and Kapso don't support streaming to recipient devices.
+- Send raw WhatsApp templates, flows, and catalogs through `@kapso/whatsapp-cloud-api` directly, alongside the Chat SDK adapter.
 
 ## Feature support
 
 <FeatureSupport />
+
+## Resources
+
+- [Kapso docs](https://docs.kapso.ai/)
+- [GitHub](https://github.com/gokapso/chat-sdk-adapter)
+- [npm](https://www.npmjs.com/package/@kapso/chat-adapter)

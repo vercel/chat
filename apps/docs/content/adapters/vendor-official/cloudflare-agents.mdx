@@ -4,7 +4,7 @@ description: Vendor-official state adapter for Chat SDK backed by Cloudflare Age
 packageName: agents
 slug: cloudflare-agents
 type: state
-tagline: State adapter for Chat SDK that persists subscriptions, locks, queues, and history in Durable Object SQLite — sharded across Cloudflare Agents sub-agents, with no Redis or external database.
+tagline: State adapter for Chat SDK that persists subscriptions, locks, queues, and history in Durable Object SQLite, sharded across Cloudflare Agents sub-agents, with no Redis or external database.
 community: true
 vendorOfficial: true
 author: Cloudflare
@@ -27,15 +27,13 @@ features:
     label: shardKey
 ---
 
-Use `agents/chat-sdk` when you run [Chat SDK](https://chat-sdk.dev) inside a [Cloudflare Agent](https://developers.cloudflare.com/agents/). It provides a Chat SDK `StateAdapter` that stores subscriptions, locks, queues, dedupe keys, thread and channel state, callback metadata, transcripts, and thread history in Durable Object SQLite. Each state shard is a `ChatSdkStateAgent` sub-agent under your ingress Agent.
-
-Use it with any Chat SDK adapter — Telegram, Slack, Discord, Teams, or Google Chat.
-
 ## Install
 
 <PackageInstall package="agents chat" />
 
 ## Quick start
+
+Import the adapter from `agents/chat-sdk` when you run [Chat SDK](https://chat-sdk.dev) inside a [Cloudflare Agent](https://developers.cloudflare.com/agents/). Each state shard is a `ChatSdkStateAgent` sub-agent under your ingress Agent, and the adapter works with any Chat SDK platform adapter, including Telegram, Slack, Discord, Teams, and Google Chat.
 
 Create a parent Agent that owns your Chat SDK runtime and pass `createChatSdkState()` as the `state` option. Export `ChatSdkStateAgent` from your Worker entry point so sub-agent routing can resolve it.
 
@@ -67,7 +65,40 @@ export class MessengerAgent extends Agent<Env> {
 }
 ```
 
-When `createChatSdkState()` runs inside an Agent lifecycle method or request handler, it uses the current Agent as the parent (via `getCurrentAgent()`) and creates state shards with `this.subAgent()`.
+When `createChatSdkState()` runs inside an Agent lifecycle method or request handler, it gets the current Agent from `getCurrentAgent()`, uses it as the parent, and creates state shards with `this.subAgent()`.
+
+## Configuration
+
+Pass these options to `createChatSdkState()`. All of them are optional:
+
+<TypeTable
+  type={{
+    parent: {
+      type: "Agent",
+      description:
+        "Parent Agent that calls `subAgent()` to create state shards. Defaults to the current Agent from `getCurrentAgent()`.",
+    },
+    agent: {
+      type: "typeof ChatSdkStateAgent",
+      description:
+        "Custom subclass of `ChatSdkStateAgent`. Defaults to `ChatSdkStateAgent`.",
+    },
+    name: {
+      type: "string",
+      default: '"default"',
+      description: "Default shard name for keys that cannot be mapped.",
+    },
+    shardKey: {
+      type: "(threadId: string) => string",
+      description: "Maps Chat SDK thread IDs and lock keys to a shard name.",
+    },
+    keyShard: {
+      type: "(key: string) => string | undefined",
+      description:
+        "Maps generic Chat SDK cache or list keys to a shard name. Return `undefined` to fall back to the built-in sharder.",
+    },
+  }}
+/>
 
 ## Wrangler configuration
 
@@ -96,6 +127,18 @@ name = "MessengerAgent"
 new_sqlite_classes = ["MessengerAgent"]
 tag = "v1"
 ```
+
+## Data model
+
+The adapter implements the full Chat SDK `StateAdapter` interface:
+
+- Subscriptions for `thread.subscribe()` and `thread.unsubscribe()`.
+- Locks for per-thread or per-channel concurrency.
+- Pending message queues for `queue`, `debounce`, and `burst` concurrency strategies.
+- Generic key-value cache entries with optional TTL.
+- Append-only lists with max-length trimming and list-level TTL refresh.
+
+Chat SDK builds message deduplication, thread and channel state, callback URL token storage, modal context storage, and cross-platform transcripts on these primitives. Persistent thread history uses them too, for adapters that opt in to `persistThreadHistory`.
 
 ## State sharding
 
@@ -134,60 +177,17 @@ const state = createChatSdkState({
 
 Returning `undefined` from `keyShard` falls back to the built-in key sharder and then to the default shard.
 
-## Configuration
-
-<TypeTable
-  type={{
-    parent: {
-      type: "Agent",
-      description:
-        "Parent Agent that calls `subAgent()` to create state shards. Defaults to the current Agent from `getCurrentAgent()`.",
-    },
-    agent: {
-      type: "typeof ChatSdkStateAgent",
-      description:
-        "Custom subclass of `ChatSdkStateAgent`. Defaults to `ChatSdkStateAgent`.",
-    },
-    name: {
-      type: "string",
-      default: '"default"',
-      description: "Default shard name for keys that cannot be mapped.",
-    },
-    shardKey: {
-      type: "(threadId: string) => string",
-      description: "Maps Chat SDK thread IDs and lock keys to a shard name.",
-    },
-    keyShard: {
-      type: "(key: string) => string | undefined",
-      description:
-        "Maps generic Chat SDK cache or list keys to a shard name. Return `undefined` to fall back to the built-in sharder.",
-    },
-  }}
-/>
-
-## What is stored
-
-The adapter implements the full Chat SDK `StateAdapter` interface:
-
-- Subscriptions for `thread.subscribe()` and `thread.unsubscribe()`.
-- Locks for per-thread or per-channel concurrency.
-- Pending message queues for `queue`, `debounce`, and `burst` concurrency strategies.
-- Generic key-value cache entries with optional TTL.
-- Append-only lists with max-length trimming and list-level TTL refresh.
-
-Chat SDK features built on these primitives include message deduplication, thread and channel state, persistent thread history (for adapters that opt in to `persistThreadHistory`), callback URL token storage, modal context storage, and cross-platform transcripts.
-
 ## Cleanup behavior
 
 TTL reads are strict: expired locks, cache values, queue entries, and list entries are ignored or deleted before they are returned.
 
-Physical cleanup is lazy. `ChatSdkStateAgent` schedules one cleanup callback for the earliest known expiry and reschedules after cleanup runs. This keeps idle shards quiet while preventing expired rows from accumulating indefinitely.
+Physical cleanup is lazy. `ChatSdkStateAgent` schedules one cleanup callback for the earliest known expiry and reschedules after cleanup runs, so idle shards stay quiet and expired rows don't accumulate.
 
 ## API
 
 ### `createChatSdkState(options)`
 
-Creates a Chat SDK `StateAdapter` backed by a `ChatSdkStateAgent` sub-agent. Options are optional — the defaults resolve the parent from `getCurrentAgent()` and shard by thread-like key prefixes.
+Creates a Chat SDK `StateAdapter` backed by a `ChatSdkStateAgent` sub-agent. With no options, it resolves the parent from `getCurrentAgent()` and shards by thread-like key prefixes. See [Configuration](#configuration) for the full option list.
 
 ### `ChatSdkStateAgent`
 
@@ -197,12 +197,12 @@ The sub-agent class that stores state in SQLite. Export it from your Worker entr
 export { ChatSdkStateAgent } from "agents/chat-sdk";
 ```
 
-## Example
-
-- [GitHub](https://github.com/cloudflare/agents)
-- [Chat SDK messenger example](https://github.com/cloudflare/agents/tree/main/examples/chat-sdk-messenger) — a Telegram messenger bot with Chat SDK state in sub-agents, burst/debounce concurrency, and AI replies running in managed fibers.
-- [Cloudflare Agents docs](https://developers.cloudflare.com/agents/runtime/communication/chat-sdk/)
-
 ## Feature support
 
 <FeatureSupport />
+
+## Resources
+
+- [GitHub](https://github.com/cloudflare/agents)
+- [Chat SDK messenger example](https://github.com/cloudflare/agents/tree/main/examples/chat-sdk-messenger): a Telegram messenger bot with Chat SDK state in sub-agents, burst/debounce concurrency, and AI replies running in managed fibers.
+- [Cloudflare Agents docs](https://developers.cloudflare.com/agents/runtime/communication/chat-sdk/)

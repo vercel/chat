@@ -52,32 +52,29 @@ features:
 
 ## Install
 
-<PackageInstall package="chat-adapter-blooio" />
+<PackageInstall package="chat-adapter-blooio @chat-adapter/state-memory" />
 
 ## Quick start
 
 ```typescript title="lib/bot.ts" lineNumbers
 import { Chat } from "chat";
 import { createBlooioAdapter } from "chat-adapter-blooio";
+import { createMemoryState } from "@chat-adapter/state-memory";
 
 const chat = new Chat({
   userName: "my-bot",
   adapters: {
     blooio: createBlooioAdapter(),
   },
+  state: createMemoryState(),
 });
 ```
 
-`createBlooioAdapter()` reads credentials from environment variables by default:
+The memory state adapter keeps subscriptions and locks in process memory, which suits local development. Use [Redis](/adapters/official/redis) or [PostgreSQL](/adapters/official/postgres) in production.
 
-| Variable | Required | Description |
-| --- | --- | --- |
-| `BLOOIO_API_KEY` | Yes | Blooio API key (Bearer token) |
-| `BLOOIO_FROM_NUMBER` | No | Default sending phone number (E.164) for multi-number accounts |
-| `BLOOIO_WEBHOOK_SECRET` | No | Webhook signing secret for HMAC-SHA256 verification |
-| `BLOOIO_BASE_URL` | No | Override the API base URL (default: `https://backend.blooio.com/v2/api`) |
+## Configuration
 
-Or pass them explicitly:
+`createBlooioAdapter()` reads credentials from environment variables by default. You can also pass them explicitly:
 
 ```typescript
 createBlooioAdapter({
@@ -87,13 +84,22 @@ createBlooioAdapter({
 });
 ```
 
+### Environment variables
+
+| Variable | Required | Description |
+| --- | --- | --- |
+| `BLOOIO_API_KEY` | Yes | Blooio API key (Bearer token) |
+| `BLOOIO_FROM_NUMBER` | No | Default sending phone number (E.164) for multi-number accounts |
+| `BLOOIO_WEBHOOK_SECRET` | No | Webhook signing secret for HMAC-SHA256 verification |
+| `BLOOIO_BASE_URL` | No | Override the API base URL (default: `https://backend.blooio.com/v2/api`) |
+
 ## Webhooks
 
 Point your Blooio webhook URL at your server. The adapter handles these event types:
 
-- `message.received` — incoming iMessage/RCS/SMS routed to your bot
-- `message.sent` / `message.delivered` / `message.failed` / `message.read` — delivery lifecycle
-- `message.reaction` — tapback reactions on messages
+- `message.received`: incoming iMessage, RCS, or SMS messages, routed to your bot
+- `message.sent`, `message.delivered`, `message.failed`, `message.read`: delivery lifecycle
+- `message.reaction`: tapback reactions on messages
 
 ```typescript title="app/api/webhooks/blooio/route.ts" lineNumbers
 import { chat } from "@/lib/bot";
@@ -112,7 +118,7 @@ Blooio signs webhooks with HMAC-SHA256. The adapter verifies the `X-Blooio-Signa
 X-Blooio-Signature: t=<unix_timestamp>,v1=<hmac_sha256_hex>
 ```
 
-Stale timestamps are rejected with a default tolerance of 300 seconds. Customize with:
+The adapter rejects stale timestamps, with a default tolerance of 300 seconds. To change it, set `timestampToleranceSec`:
 
 ```typescript
 createBlooioAdapter({
@@ -123,15 +129,25 @@ createBlooioAdapter({
 
 ## Sending messages
 
-Outbound messages flow through Chat SDK's standard `postMessage` interface. Markdown is automatically stripped to plain text since iMessage does not render it.
+Outbound messages go through Chat SDK's standard `postMessage` interface. The adapter strips Markdown to plain text, because iMessage does not render it.
 
 ```typescript
 await chat.send("blooio", threadId, "Hello from the bot!");
 ```
 
+## Protocol filtering
+
+By default the adapter processes inbound messages from all protocols (iMessage, RCS, SMS). To restrict it to specific protocols, set `allowedProtocols`:
+
+```typescript
+createBlooioAdapter({
+  allowedProtocols: ["imessage"],
+});
+```
+
 ## Attachments
 
-Send media via `sendMediaMessage`:
+Send media with `sendMediaMessage`:
 
 ```typescript
 import type { BlooioAdapter } from "chat-adapter-blooio";
@@ -148,7 +164,7 @@ Inbound attachment URLs from Blooio webhooks are parsed into Chat SDK attachment
 
 ## Reactions (tapbacks)
 
-iMessage tapbacks are supported via `addReaction` and `removeReaction`. The adapter maps common emoji names to Blooio's six tapback types:
+`addReaction` and `removeReaction` send iMessage tapbacks. The adapter maps common emoji names to Blooio's six tapback types:
 
 | Tapback | Aliases |
 | --- | --- |
@@ -159,11 +175,9 @@ iMessage tapbacks are supported via `addReaction` and `removeReaction`. The adap
 | `emphasize` | `exclamation`, `!!` |
 | `question` | `?` |
 
-Unlike some platforms, Blooio supports **removing** reactions too.
-
 ## Typing indicators
 
-`startTyping()` sends the animated "..." bubble to the recipient. Works for both 1:1 and group conversations.
+`startTyping()` sends the animated "..." bubble to the recipient, in both 1:1 and group conversations.
 
 ## Message history
 
@@ -205,17 +219,7 @@ await client.request("POST", "/groups", {
 });
 ```
 
-## Protocol filtering
-
-By default the adapter processes inbound messages from all protocols (iMessage, RCS, SMS). To restrict:
-
-```typescript
-createBlooioAdapter({
-  allowedProtocols: ["imessage"],
-});
-```
-
-## Thread ID format
+## Thread IDs
 
 Thread IDs encode the Blooio device number and chat target so conversations are sticky to a specific phone line:
 
@@ -228,9 +232,9 @@ Use `encodeThreadId` / `decodeThreadId` to work with them programmatically.
 
 ## Limitations
 
-- **No message editing** — iMessage does not support editing sent messages via API. `editMessage` throws.
-- **No unsend** — `deleteMessage` is a no-op; iMessage messages cannot be unsent via API.
-- **Inbound media** — attachment URLs from webhooks may expire. Persist them if you need them long-term.
+- iMessage does not support editing sent messages via API, so `editMessage` throws.
+- iMessage messages cannot be unsent via API, so `deleteMessage` is a no-op.
+- Inbound attachment URLs from webhooks may expire. Persist them if you need them long-term.
 
 ## Feature support
 

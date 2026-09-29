@@ -173,7 +173,7 @@
     "name": "ioredis",
     "slug": "ioredis",
     "type": "state",
-    "description": "Redis state adapter using ioredis with cluster and sentinel support.",
+    "description": "Redis state adapter using ioredis, with Sentinel support.",
     "packageName": "@chat-adapter/state-ioredis",
     "icon": "ioredis",
     "beta": true,

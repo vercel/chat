@@ -5,7 +5,7 @@ packageName: "@chat-adapter/state-redis"
 slug: redis
 type: state
 logo: redis
-tagline: Production state adapter for Chat SDK using the official `redis` client. Persistence, distributed locking, and caching out of the box.
+tagline: Production state adapter for Chat SDK using the official `redis` client, with persistent subscriptions, distributed locking, and a key-value cache.
 beta: true
 features:
   persistence: yes
@@ -25,9 +25,7 @@ features:
 
 ## Quick start
 
-<Callout type="info">
-The adapter auto-detects `REDIS_URL` from the environment.
-</Callout>
+With no options, `createRedisState()` connects to the URL in `REDIS_URL`.
 
 ```typescript title="lib/bot.ts" lineNumbers
 import { Chat } from "chat";
@@ -39,6 +37,8 @@ const bot = new Chat({
   state: createRedisState(),
 });
 ```
+
+If you already use ioredis or need Redis Sentinel, see [when to choose ioredis vs redis](/adapters/official/ioredis#when-to-choose-ioredis-vs-redis).
 
 ## Configuration
 
@@ -62,16 +62,22 @@ const bot = new Chat({
     logger: {
       type: "Logger",
       description:
-        "Logger instance. Defaults to `ConsoleLogger(\"info\")`.",
+        'Logger instance. Defaults to `ConsoleLogger("info").child("redis")`.',
     },
   }}
 />
 
 Either `url`, the `REDIS_URL` env var, or `client` is required.
 
-## Advanced
+### Environment variables
 
-### Using an existing client
+| Variable | Required | Description |
+| --- | --- | --- |
+| `REDIS_URL` | Unless `url` or `client` is set | Redis connection URL, used when `url` is not passed. |
+
+## Using an existing client
+
+Pass a client you created with the `redis` package as `client`. The adapter doesn't connect a client it didn't create, so call `client.connect()` yourself before the bot starts. The adapter's `disconnect()` leaves the client open.
 
 ```typescript title="lib/state.ts" lineNumbers
 import { createClient } from "redis";
@@ -83,9 +89,9 @@ await client.connect();
 export const state = createRedisState({ client });
 ```
 
-### Custom key prefix
+## Data model
 
-All keys are namespaced under `keyPrefix` (default: `"chat-sdk"`):
+Every key starts with `keyPrefix`, which defaults to `"chat-sdk"`. Set your own prefix to keep the bot's keys apart from other data in the same Redis database:
 
 ```typescript
 createRedisState({
@@ -94,21 +100,22 @@ createRedisState({
 });
 ```
 
-### Key structure
+| Key | Redis type | Contents |
+| --- | --- | --- |
+| `{keyPrefix}:subscriptions` | Set | Subscribed thread IDs |
+| `{keyPrefix}:lock:{threadId}` | String | Lock token, with a TTL |
+| `{keyPrefix}:cache:{key}` | String | JSON-serialized cache value, with an optional TTL |
+| `{keyPrefix}:list:{key}` | List | JSON-serialized list entries, with an optional TTL |
+| `{keyPrefix}:queue:{threadId}` | List | Queued messages for a thread, with a TTL |
 
-```
-{keyPrefix}:subscriptions     - SET of subscribed thread IDs
-{keyPrefix}:lock:{threadId}   - Lock key with TTL
-```
-
-### Production recommendations
+## Production notes
 
 - Run Redis 6.0+ for best performance.
 - Enable persistence (RDB or AOF).
-- Use Redis Cluster for high availability.
 - Set explicit memory limits.
+- For Redis Sentinel, use [`@chat-adapter/state-ioredis`](/adapters/official/ioredis). This adapter accepts a single `redis` client. Neither adapter supports Redis Cluster.
 
-For serverless deployments (Vercel, AWS Lambda), use a serverless-compatible Redis provider like [Upstash](https://upstash.com).
+For serverless deployments such as Vercel or AWS Lambda, use a serverless-compatible Redis provider such as [Upstash](https://upstash.com).
 
 ## Feature support
 

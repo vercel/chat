@@ -61,7 +61,7 @@ features:
 
 ## Install
 
-<PackageInstall package="@chat-adapter/whatsapp" />
+<PackageInstall package="@chat-adapter/whatsapp @chat-adapter/state-memory" />
 
 ## Quick start
 
@@ -72,18 +72,22 @@ The adapter auto-detects `WHATSAPP_ACCESS_TOKEN`, `WHATSAPP_APP_SECRET`, `WHATSA
 ```typescript title="lib/bot.ts" lineNumbers
 import { Chat } from "chat";
 import { createWhatsAppAdapter } from "@chat-adapter/whatsapp";
+import { createMemoryState } from "@chat-adapter/state-memory";
 
 const bot = new Chat({
   userName: "mybot",
   adapters: {
     whatsapp: createWhatsAppAdapter(),
   },
+  state: createMemoryState(),
 });
 
 bot.onNewMention(async (thread, message) => {
   await thread.post("Hello from WhatsApp!");
 });
 ```
+
+The memory state adapter keeps subscriptions and locks in process memory, which suits local development. Use [Redis](/adapters/official/redis) or [PostgreSQL](/adapters/official/postgres) in production.
 
 ```typescript title="app/api/webhooks/whatsapp/route.ts" lineNumbers
 import { bot } from "@/lib/bot";
@@ -96,6 +100,32 @@ export async function POST(request: Request) {
   return bot.webhooks.whatsapp(request);
 }
 ```
+
+## Platform setup
+
+### 1. Create a Meta app
+
+1. Go to [developers.facebook.com/apps](https://developers.facebook.com/apps) and create a **Business** app.
+2. Add the **WhatsApp** product to your app.
+
+### 2. Get credentials
+
+From your Meta app dashboard, copy:
+
+- **App Secret** (under **App Settings** then **Basic**) to `WHATSAPP_APP_SECRET`.
+- **Access Token** (under **WhatsApp** then **API Setup**) to `WHATSAPP_ACCESS_TOKEN`. The token shown there is temporary. For production, generate a permanent **System User Token** instead.
+- **Phone Number ID** (under **WhatsApp** then **API Setup**) to `WHATSAPP_PHONE_NUMBER_ID`.
+
+Choose your own random string for `WHATSAPP_VERIFY_TOKEN`. You enter the same value in the next step.
+
+### 3. Configure webhooks
+
+Deploy the GET and POST route shown above to a public HTTPS URL first, then:
+
+1. Open **WhatsApp** then **Configuration**.
+2. Set the callback URL to `https://your-domain.com/api/webhooks/whatsapp`.
+3. Set **Verify Token** to the same value as `WHATSAPP_VERIFY_TOKEN`.
+4. Subscribe to the `messages` webhook field. Also subscribe to `user_id_update` so the adapter can follow [user ID rotations](#user-identity).
 
 ## Configuration
 
@@ -122,86 +152,52 @@ export async function POST(request: Request) {
     },
     apiVersion: {
       type: "string",
-      default: '"v21.0"',
+      default: '"v25.0"',
       description: "Graph API version.",
     },
     userName: {
       type: "string",
       default: '"whatsapp-bot"',
-      description: "Bot username for self-message detection.",
+      description:
+        "Bot username for self-message detection. Auto-detected from `WHATSAPP_BOT_USERNAME`.",
     },
     apiUrl: {
       type: "string",
-      description: "Override the Meta Graph API base URL.",
+      description:
+        "Override the Meta Graph API base URL. Auto-detected from `WHATSAPP_API_URL`.",
     },
   }}
 />
 
-## Authentication
+### Environment variables
 
-### 1. Create a Meta app
+| Variable | Required | Description |
+| --- | --- | --- |
+| `WHATSAPP_ACCESS_TOKEN` | Yes | Meta access token, ideally a System User Token in production |
+| `WHATSAPP_APP_SECRET` | Yes | App secret used to verify webhook signatures |
+| `WHATSAPP_PHONE_NUMBER_ID` | Yes | Phone number ID the bot sends from |
+| `WHATSAPP_VERIFY_TOKEN` | Yes | Your chosen secret for the webhook verification handshake |
+| `WHATSAPP_BOT_USERNAME` | No | Bot username. Defaults to `whatsapp-bot` |
+| `WHATSAPP_API_URL` | No | Meta Graph API base URL override |
 
-1. Go to [developers.facebook.com/apps](https://developers.facebook.com/apps) and create a **Business** app.
-2. Add the **WhatsApp** product to your app.
-3. Open **WhatsApp** then **API Setup** to find your **Phone Number ID** and a temporary **Access Token**.
+## Webhooks
 
-### 2. Configure webhooks
+The route handles two kinds of request from Meta:
 
-1. Open **WhatsApp** then **Configuration**.
-2. Set the callback URL to `https://your-domain.com/api/webhooks/whatsapp`.
-3. Set a **Verify Token** of your choosing — this becomes `WHATSAPP_VERIFY_TOKEN`.
-4. Subscribe to the `messages` webhook field.
+- GET verification handshake: Meta sends a `hub.verify_token` challenge that must match `WHATSAPP_VERIFY_TOKEN`.
+- POST event delivery: incoming messages, reactions, and interactive responses, signed with `X-Hub-Signature-256` and verified against `WHATSAPP_APP_SECRET`.
 
-### 3. Get credentials
+## Interactive messages
 
-From your Meta app dashboard, copy:
+The adapter converts card elements to WhatsApp interactive messages:
 
-- **App Secret** (under **App Settings** then **Basic**) → `WHATSAPP_APP_SECRET`.
-- **Access Token** (under **WhatsApp** then **API Setup**) → `WHATSAPP_ACCESS_TOKEN`. For production, generate a permanent **System User Token** instead.
-- **Phone Number ID** (under **WhatsApp** then **API Setup**) → `WHATSAPP_PHONE_NUMBER_ID`.
+- Cards with 3 or fewer buttons render as WhatsApp reply buttons, with a maximum of 20 characters per title.
+- Cards with more than 3 buttons fall back to formatted text.
+- Body text is limited to 1024 characters.
 
-## Advanced
+WhatsApp reply buttons cannot open URLs, so when a card with reply buttons also contains link buttons, each link button is appended to the interactive message body as a `Label: url` line.
 
-### Inbound attachments
-
-Incoming media attachments expose a lazy `fetchData()`. Media is downloaded only from Meta's `fbcdn.net` and `fbsbx.com` hosts or the configured Graph origin. Downloads refuse private and internal addresses, are limited to 25 MB, and time out after 30 seconds, and the access token never follows a redirect off those hosts. Pass a custom transport to `downloadMedia()` to route downloads through a proxy.
-
-### Webhook flow
-
-WhatsApp uses two webhook mechanisms:
-
-- **Verification handshake** (GET) — Meta sends a `hub.verify_token` challenge that must match your `WHATSAPP_VERIFY_TOKEN`.
-- **Event delivery** (POST) — incoming messages, reactions, and interactive responses, verified via `X-Hub-Signature-256`.
-
-### Interactive messages
-
-Card elements are automatically converted to WhatsApp interactive messages:
-
-- **3 or fewer buttons** — rendered as WhatsApp reply buttons (max 20 chars per title).
-- **More than 3 buttons** — falls back to formatted text.
-- **Max body text** — 1024 characters.
-
-When a card with reply buttons also contains link buttons, each link button is appended to the interactive message body as a `Label: url` line, since WhatsApp reply buttons cannot open URLs.
-
-### Contextual replies
-
-Use `thread.reply()` to quote a specific message in WhatsApp:
-
-```typescript
-bot.onNewMessage(async (thread, message) => {
-  await thread.reply(message, {
-    markdown: "I can help with that.",
-  });
-});
-```
-
-You can pass either a `Message` or a message ID as the target. Text, cards, files, and buffered streams are supported. When one logical reply produces multiple WhatsApp messages, only the first message includes the contextual reference.
-
-Replies are outbound only. When a user quote-replies to one of your messages, the adapter does not yet surface what they quoted, so `message.replyTo` is `undefined` on inbound WhatsApp messages.
-
-WhatsApp does not display the quoted bubble when the target was deleted or moved to long-term storage, when the reply is a template message, or for some media replies on KaiOS. Reaction messages cannot be contextual replies. See [Meta's contextual replies documentation](https://developers.facebook.com/documentation/business-messaging/whatsapp/messages/contextual-replies/).
-
-### Link buttons (CTA URL)
+## Link buttons (CTA URL)
 
 A card whose only interactive element is a single `LinkButton` is sent as a native WhatsApp CTA URL message with a tappable link button. The card is promoted only when all of these hold:
 
@@ -212,7 +208,7 @@ A card whose only interactive element is a single `LinkButton` is sent as a nati
 
 The button label is truncated to 20 characters, the header (card title) to 60, and the body to 1024. Cards that do not match these rules fall back to formatted text, where link buttons render as `Label: url`.
 
-### Template messages
+## Template messages
 
 Outside the 24-hour customer service window, WhatsApp only accepts pre-approved [template messages](https://developers.facebook.com/docs/whatsapp/cloud-api/guides/send-message-templates). Use `sendTemplate` to start business-initiated conversations:
 
@@ -233,75 +229,27 @@ await adapter.sendTemplate(threadId, {
 
 Templates must be created and approved in [WhatsApp Manager](https://business.facebook.com/wa/manage/message-templates/) before they can be sent. Quick reply button taps on a template arrive as button responses and are dispatched to your `onAction` handlers.
 
-### Typing indicators
+## Contextual replies
 
-WhatsApp supports typing indicators through `thread.startTyping()` or `adapter.startTyping(threadId)`.
-
-Use it when the bot is about to respond and may take a few seconds. The adapter sends Meta's read-plus-typing payload using the latest inbound message in the thread, so the indicator only works after the bot has received a message.
+Use `thread.reply()` to quote a specific message in WhatsApp:
 
 ```typescript
 bot.onNewMessage(async (thread, message) => {
-  await thread.startTyping();
-
-  await thread.post({
-    markdown: "Thanks, I am checking that now.",
+  await thread.reply(message, {
+    markdown: "I can help with that.",
   });
 });
 ```
 
-WhatsApp-specific behavior:
+You can pass either a `Message` or a message ID as the target. Text, cards, files, and buffered streams are supported. When one logical reply produces multiple WhatsApp messages, only the first message includes the contextual reference.
 
-- The adapter uses the most recent inbound message ID from thread history.
-- If there is no inbound message context, `startTyping()` no-ops.
-- The typing indicator is dismissed when the bot sends its reply, or after the WhatsApp platform timeout.
+Replies are outbound only. When a user quote-replies to one of your messages, the adapter does not yet surface what they quoted, so `message.replyTo` is `undefined` on inbound WhatsApp messages.
 
-### Read receipts
+WhatsApp does not display the quoted bubble when the target was deleted or moved to long-term storage, when the reply is a template message, or for some media replies on KaiOS. Reaction messages cannot be contextual replies. See [Meta's contextual replies documentation](https://developers.facebook.com/documentation/business-messaging/whatsapp/messages/contextual-replies/).
 
-Mark the current inbound message as read before starting work:
-
-```typescript
-bot.onDirectMessage(async (thread) => {
-  await thread.markAsRead();
-  await thread.post("Thanks, I am checking that now.");
-});
-```
-
-You can also pass an inbound `Message` or its ID to `thread.markAsRead()`. WhatsApp marks that message and earlier messages in the conversation as read. It does not allow outgoing message IDs to be marked as read and recommends acknowledging inbound messages within 30 days.
-
-### User identity
-
-WhatsApp messages include a [business-scoped user ID](https://developers.facebook.com/documentation/business-messaging/whatsapp/business-scoped-user-ids/) in `from_user_id` and `contacts[].user_id`. Users with a username may omit the phone-based `from` and `wa_id` fields.
-
-The adapter accepts either identifier. When both are available, it preserves an existing phone-based thread ID and stores the BSUID as an alias. Replies include both `to` and `recipient`, with the phone number taking precedence according to Meta's API. BSUID-only threads send through `recipient`.
-
-Meta does not support BSUID recipients for one-tap, zero-tap, or copy-code authentication templates. Those templates require the user's phone number.
-
-Use a persistent state adapter in production so identity aliases survive restarts. The adapter preserves the canonical thread when Meta rotates a BSUID by consuming `user_changed_number` and `user_changed_user_id` system messages plus the `user_id_update` webhook, which carries the previous and current BSUID. Subscribe your Meta app to the `user_id_update` webhook field so rotations reach the adapter. Current phone, BSUID, parent BSUID, and username fields remain available through `message.raw`.
-
-### Thread ID format
-
-```
-whatsapp:{phoneNumberId}:{userWaId}
-```
-
-Example: `whatsapp:1234567890:15551234567`.
-
-The final segment is the adapter's canonical user identifier. It may contain a phone number, a BSUID such as `US.13491208655302741918`, or a previously observed identifier retained for thread continuity.
-
-### Auto-chunking
-
-Outgoing messages longer than 4096 characters are automatically chunked.
-
-### File uploads
+## File uploads
 
 `postMessage` accepts both `files` and `attachments` (typed media with optional `data`, `fetchData`, or a public URL). See the [file uploads guide](/docs/files) for the shared API.
-
-WhatsApp-specific behavior:
-
-- **One media per message** — multiple `files` or `attachments` in a single `post()` are sent as sequential messages (the last message ID is returned).
-- **Captions** — markdown (or card fallback text) is attached as a caption on the first media message when supported (max 1024 characters). Text is sent as a separate message first when the caption is too long or when the first media is audio (audio does not support captions).
-- **Binary vs link** — buffers are uploaded via the Cloud API `/media` endpoint; `attachments` with only an `url` use HTTPS link passthrough (no upload). URLs must use `https://`.
-- **Cards + files** — when the card renders as an interactive message (reply buttons or a list), media is sent first without a caption and the interactive message that follows carries the title, body, and buttons. When the card falls back to plain text, the fallback text captions the first media, and the caption includes a `Label: url` line for each link button. A card with only a link button is not promoted to a CTA URL message when media is attached, so it takes this captioned path too. To send a photo with buttons, pass the image via `files` or `attachments` — card-embedded images (`imageUrl` or `<Image>` children) are not sent as native media.
 
 ```typescript title="lib/bot.ts" lineNumbers
 await thread.post({
@@ -315,6 +263,57 @@ await thread.post({
   ],
 });
 ```
+
+WhatsApp allows one media item per message, which shapes how the adapter sends files:
+
+- Multiple `files` or `attachments` in a single `post()` are sent as sequential messages, and the last message ID is returned.
+- Markdown, or card fallback text, is attached as a caption on the first media message when supported, up to 1024 characters. Text is sent as a separate message first when the caption is too long or when the first media is audio, because audio does not support captions.
+- Buffers are uploaded through the Cloud API `/media` endpoint. `attachments` with only a `url` use HTTPS link passthrough without an upload. URLs must use `https://`.
+- When a card renders as an interactive message (reply buttons or a list), media is sent first without a caption, and the interactive message that follows carries the title, body, and buttons. When the card falls back to plain text, the fallback text captions the first media, and the caption includes a `Label: url` line for each link button. A card with only a link button is not promoted to a CTA URL message when media is attached, so it takes this captioned path too.
+- To send a photo with buttons, pass the image through `files` or `attachments`. Card-embedded images (`imageUrl` or `<Image>` children) are not sent as native media.
+
+## Inbound attachments
+
+Incoming media attachments expose a lazy `fetchData()`. Media is downloaded only from Meta's `fbcdn.net` and `fbsbx.com` hosts or the configured Graph origin. Downloads refuse private and internal addresses, are limited to 25 MB, and time out after 30 seconds, and the access token never follows a redirect off those hosts. Pass a custom transport to `downloadMedia()` to route downloads through a proxy.
+
+## Typing indicators
+
+WhatsApp supports typing indicators through `thread.startTyping()` or `adapter.startTyping(threadId)`. Use it when the bot is about to respond and may take a few seconds:
+
+```typescript
+bot.onNewMessage(async (thread, message) => {
+  await thread.startTyping();
+
+  await thread.post({
+    markdown: "Thanks, I am checking that now.",
+  });
+});
+```
+
+The adapter sends Meta's read-plus-typing payload for the most recent inbound message ID in the thread history, so the indicator only works after the bot has received a message. Without that inbound context, `startTyping()` does nothing. The indicator is dismissed when the bot sends its reply, or after the WhatsApp platform timeout.
+
+## Read receipts
+
+Mark the current inbound message as read before starting work:
+
+```typescript
+bot.onDirectMessage(async (thread) => {
+  await thread.markAsRead();
+  await thread.post("Thanks, I am checking that now.");
+});
+```
+
+You can also pass an inbound `Message` or its ID to `thread.markAsRead()`. WhatsApp marks that message and earlier messages in the conversation as read. It does not allow outgoing message IDs to be marked as read and recommends acknowledging inbound messages within 30 days.
+
+## User identity
+
+WhatsApp messages include a [business-scoped user ID](https://developers.facebook.com/documentation/business-messaging/whatsapp/business-scoped-user-ids/) (BSUID) in `from_user_id` and `contacts[].user_id`. Users with a username may omit the phone-based `from` and `wa_id` fields.
+
+The adapter accepts either identifier. When both are available, it preserves an existing phone-based thread ID and stores the BSUID as an alias. Replies include both `to` and `recipient`, with the phone number taking precedence according to Meta's API. BSUID-only threads send through `recipient`.
+
+Meta does not support BSUID recipients for one-tap, zero-tap, or copy-code authentication templates. Those templates require the user's phone number.
+
+Use a persistent state adapter in production so identity aliases survive restarts. The adapter preserves the canonical thread when Meta rotates a BSUID by consuming `user_changed_number` and `user_changed_user_id` system messages plus the `user_id_update` webhook, which carries the previous and current BSUID. Subscribe your Meta app to the `user_id_update` webhook field so rotations reach the adapter. Current phone, BSUID, parent BSUID, and username fields remain available through `message.raw`.
 
 ## API errors
 
@@ -344,6 +343,21 @@ try {
 Meta recommends using [error codes and details](https://developers.facebook.com/documentation/business-messaging/whatsapp/support/error-codes/) for error handling. Subcodes are optional and deprecated in the Cloud API. Missing or malformed provider fields stay `undefined`, and numeric codes that a proxy serializes as strings are accepted. The error message combines the operation, the HTTP status, and Meta's `error.message`, or a bounded excerpt of a non-JSON body.
 
 This covers non-2xx responses from message sends, templates, reactions, read receipts, typing requests, media uploads, and media metadata requests. Transport failures and unparseable response bodies throw `NetworkError`, as do binary media download failures. A 2xx response that reports `success: false` for a typing request or read receipt throws a plain `AdapterError`. A successful API response can still be followed by an asynchronous delivery failure; those webhook errors are not thrown as `WhatsAppApiError`.
+
+## Thread IDs
+
+```
+whatsapp:{phoneNumberId}:{userWaId}
+```
+
+Example: `whatsapp:1234567890:15551234567`.
+
+`phoneNumberId` is the bot's phone number ID. The final segment is the adapter's canonical user identifier. It may contain a phone number, a BSUID such as `US.13491208655302741918`, or a previously observed identifier retained for thread continuity.
+
+## Limitations
+
+- Outgoing messages longer than 4096 characters are split into multiple messages automatically.
+- Outside the 24-hour customer service window, only approved [template messages](#template-messages) can be sent.
 
 ## Feature support
 

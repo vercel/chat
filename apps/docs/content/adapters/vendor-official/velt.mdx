@@ -4,7 +4,7 @@ description: Chat SDK adapter backed by Velt Comments. Build bots that read, rep
 packageName: "@veltdev/chat-sdk-adapter"
 slug: velt
 type: platform
-tagline: Bots that read, reply, mention, and start threads in Velt's anchored comments across editors, canvases, PDFs, and video, mapping Velt organizations, documents, comment annotations, and comments to the Chat SDK Channel/Thread/Message model.
+tagline: Bots that read, reply, mention, and start threads in Velt's anchored comments across editors, canvases, PDFs, and video, mapping Velt organizations, documents, comment annotations, and comments to the Chat SDK channel, thread, and message model.
 community: true
 vendorOfficial: true
 author: Velt
@@ -72,7 +72,20 @@ bot.onNewMention(async (thread, message) => {
 });
 ```
 
-The adapter maps Velt documents to Chat SDK channels, comment annotations to Chat SDK threads, and individual comments to messages, so the rest of the Chat SDK API (subscriptions, handlers, posts, reactions) works exactly the same as with any other adapter.
+The adapter maps Velt documents to Chat SDK channels, comment annotations to Chat SDK threads, and individual comments to messages, so subscriptions, handlers, posts, and reactions work as they do with any other adapter.
+
+## Platform setup
+
+1. Create a [Velt account](https://console.velt.dev) and copy your API key.
+2. Add a bot user to your organization (`POST /v2/users/add` with `userId: "velt-bot"`) so it can post and appears in the @-mention list.
+3. Configure webhooks (Velt Console → **Configurations → Webhook Service**, or `POST /v2/workspace/webhookconfig/update`) and subscribe to:
+   - `comment.add`
+   - `comment_annotation.add`
+   - `comment.reaction_add`
+   - `comment.reaction_delete`
+4. Copy the signing secret (`whsec_...` for Advanced/v2 webhooks) into `webhookSecret`.
+
+Point your Velt webhook URL at the route that forwards requests to `bot.webhooks.velt` (see [Webhooks](#webhooks)).
 
 ## Configuration
 
@@ -123,25 +136,23 @@ The adapter maps Velt documents to Chat SDK channels, comment annotations to Cha
     },
     logger: {
       type: "Logger",
-      description: "Chat SDK–compatible logger. Defaults to a no-op.",
+      description: "Chat SDK-compatible logger. Defaults to a no-op.",
     },
   }}
 />
 
-## Platform setup
+### Environment variables
 
-1. Create a [Velt account](https://console.velt.dev) and copy your **API key**.
-2. Add a **bot user** to your organization (`POST /v2/users/add` with `userId: "velt-bot"`) so it can post and appears in the @-mention list.
-3. Configure webhooks (Velt Console → **Configurations → Webhook Service**, or `POST /v2/workspace/webhookconfig/update`) and subscribe to:
-   - `comment.add`
-   - `comment_annotation.add`
-   - `comment.reaction_add`
-   - `comment.reaction_delete`
-4. Copy the **signing secret** (`whsec_...` for Advanced/v2 webhooks) into `webhookSecret`.
+| Variable | Required | Description |
+| --- | --- | --- |
+| `VELT_API_KEY` | Yes | Velt API key for REST API calls. Used when `apiKey` isn't set. |
+| `VELT_WEBHOOK_SECRET` | Yes | Webhook signing secret. Used when `webhookSecret` isn't set. |
+| `VELT_AUTH_TOKEN` | No | Velt auth token. If neither this nor `authToken` is set, the adapter generates a token for `botUserId`. |
+| `VELT_ORGANIZATION_ID` | No | Default organization ID. Used when `organizationId` isn't set. |
 
-Point your Velt webhook URL at the route that forwards requests to `bot.webhooks.velt` (see [Webhook events](#webhook-events)).
+## Webhooks
 
-## Webhook events
+The adapter handles these Velt webhook events:
 
 | Event | Role |
 | --- | --- |
@@ -149,6 +160,8 @@ Point your Velt webhook URL at the route that forwards requests to `bot.webhooks
 | `comment_annotation.add` | First comment of a new thread |
 | `comment.reaction_add` | Drives reaction handlers |
 | `comment.reaction_delete` | Drives reaction handlers |
+
+Forward webhook requests to `bot.webhooks.velt`:
 
 ```typescript title="app/api/webhooks/velt/route.ts" lineNumbers
 import { after } from "next/server";
@@ -163,12 +176,25 @@ export async function POST(request: Request) {
 }
 ```
 
-Velt has two webhook systems and the adapter verifies both: **Advanced (v2)** with Svix-style HMAC-SHA256 (`whsec_...`, default) and **Basic (v1)** with an `Authorization: Basic <token>` header (set `webhookVersion: "v1"`). Invalid requests return **401**. Passing `waitUntil` lets work continue after the response is sent in serverless environments like Vercel.
+Velt has two webhook systems, and the adapter verifies both. Advanced (v2), the default, uses Svix-style HMAC-SHA256 with a `whsec_...` secret. Basic (v1) uses an `Authorization: Basic <token>` header; set `webhookVersion: "v1"` to verify it. The adapter returns `401` for an invalid request. Passing `waitUntil` lets work continue after the response is sent in serverless environments such as Vercel.
 
-## ID encoding
+## Message format
 
-- **Thread ID:** `velt:{organizationId}:{documentId}:{annotationId}`
-- **Channel ID:** `velt:{organizationId}:{documentId}`
+Velt Comments are stored as `commentHtml`, so the adapter converts between Velt HTML and the Chat SDK's mdast AST (`VeltFormatConverter`). Inbound `{{userId}}` mention tokens are normalized to readable `@Name`. Each parsed `Message.raw` also carries document context in `documentName`, `documentUrl`, and `anchoredText`, which bots can use to ground replies.
+
+Comment bodies support paragraphs with bold, italic, code, strikethrough, links, and @mentions.
+
+The adapter flattens headings, lists, code blocks, and tables to plain text or paragraphs. Card payloads render as fallback text and lose their interactivity.
+
+## Reactions
+
+Reading reactions (`onReaction`) works on all Velt plans.
+
+The managed Velt backend has no REST endpoint for adding a reaction as a user, so `addReaction` and `removeReaction` throw a `PermissionError` there. To write reactions, set `selfHostingConfig.reactionsService` to a self-hosted reactions service backed by your own database.
+
+## Thread IDs
+
+Thread IDs take the form `velt:{organizationId}:{documentId}:{annotationId}`, and channel IDs take the form `velt:{organizationId}:{documentId}`.
 
 ### `encodeThreadId`
 
@@ -199,29 +225,15 @@ adapter.decodeThreadId(threadId: string): {
 };
 ```
 
-Each segment is URL-encoded, so ids may safely contain `:`. Throws if the format is invalid.
-
-## Message format
-
-Velt Comments are stored as `commentHtml`, so the adapter converts between Velt HTML and the Chat SDK's mdast AST (`VeltFormatConverter`). Inbound `{{userId}}` mention tokens are normalized to readable `@Name`. Each parsed `Message.raw` also carries lightweight document context (`documentName`, `documentUrl`, `anchoredText`) so bots can ground replies.
-
-**Supported:** paragraphs with bold, italic, code, strikethrough, links, and @mentions.
-
-**Flattened to plain text / paragraphs:** headings, lists, code blocks, tables, and card payloads (rendered as fallback text). Interactivity is not preserved.
-
-## Reactions
-
-Reading reactions (`onReaction`) works on all Velt plans.
-
-**Writing** reactions (`addReaction` / `removeReaction`) is not supported on the managed Velt backend, because there is no managed REST endpoint to add a reaction as a user, so these methods throw a clear `PermissionError`. To enable reaction writes, provide `selfHostingConfig.reactionsService` (a self-hosted reactions service backed by your own database).
-
-## Examples
-
-- **[Live demo](https://sample-apps-tiptap-comments-demo.vercel.app):** open the Velt tiptap comments demo, leave a comment, and @-mention **Velt Bot** to see a streaming AI reply (runs the AI bot below).
-- [Velt Chat SDK Bot](https://github.com/velt-js/velt-chat-sdk-adapter/tree/main/examples/nextjs-velt-bot): a Next.js bot that replies to @-mentions in Velt comment threads.
-- [Velt Chat SDK AI Bot](https://github.com/velt-js/velt-chat-sdk-adapter/tree/main/examples/nextjs-velt-ai-bot): the same stack with a streaming Claude reply flow.
-- Full walkthrough: [Get started with a Chat SDK bot using Velt](https://velt.dev/docs/ai/chat-sdk-adapter).
+Throws if the format is invalid. Each segment is URL-encoded, so IDs may contain `:`.
 
 ## Feature support
 
 <FeatureSupport />
+
+## Resources
+
+- [Live demo](https://sample-apps-tiptap-comments-demo.vercel.app): open the Velt tiptap comments demo, leave a comment, and @-mention Velt Bot to see a streaming AI reply. The demo runs the AI bot listed below.
+- [Velt Chat SDK Bot](https://github.com/velt-js/velt-chat-sdk-adapter/tree/main/examples/nextjs-velt-bot): a Next.js bot that replies to @-mentions in Velt comment threads.
+- [Velt Chat SDK AI Bot](https://github.com/velt-js/velt-chat-sdk-adapter/tree/main/examples/nextjs-velt-ai-bot): the same stack with a streaming Claude reply flow.
+- Full walkthrough: [Get started with a Chat SDK bot using Velt](https://velt.dev/docs/ai/chat-sdk-adapter).

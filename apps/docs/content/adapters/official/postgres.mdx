@@ -26,9 +26,7 @@ features:
 
 ## Quick start
 
-<Callout type="info">
-The adapter auto-detects `POSTGRES_URL` (or `DATABASE_URL`) from the environment.
-</Callout>
+With no options, `createPostgresState()` connects to the URL in `POSTGRES_URL`, falling back to `DATABASE_URL`.
 
 ```typescript title="lib/bot.ts" lineNumbers
 import { Chat } from "chat";
@@ -76,9 +74,16 @@ By default, the adapter creates its tables and indexes on `connect()` if they do
 
 Either `url`, `POSTGRES_URL`/`DATABASE_URL`, or `client` is required.
 
-## Advanced
+### Environment variables
 
-### Using an existing pool
+| Variable | Required | Description |
+| --- | --- | --- |
+| `POSTGRES_URL` | Unless `url`, `client`, or `DATABASE_URL` is set | Postgres connection URL, used when `url` is not passed. |
+| `DATABASE_URL` | Unless `url`, `client`, or `POSTGRES_URL` is set | Fallback connection URL, used when neither `url` nor `POSTGRES_URL` is set. |
+
+## Using an existing client
+
+Pass a `pg.Pool` as `client`. The adapter leaves a pool it didn't create open after `disconnect()`.
 
 ```typescript title="lib/state.ts" lineNumbers
 import pg from "pg";
@@ -88,9 +93,9 @@ const client = new pg.Pool({ connectionString: process.env.POSTGRES_URL! });
 export const state = createPostgresState({ client });
 ```
 
-### Data model
+## Data model
 
-By default, the following tables are created on first connect:
+With `autoCreateSchema` left on, the adapter creates these tables on first connect:
 
 ```
 chat_state_subscriptions
@@ -100,9 +105,9 @@ chat_state_lists
 chat_state_queues
 ```
 
-All rows are namespaced by `key_prefix`.
+Every row stores the adapter's `keyPrefix` in its `key_prefix` column, so bots with different prefixes can share the same tables.
 
-### Migration-owned schema
+## Migration-owned schema
 
 Set `autoCreateSchema: false` when your migrations provision the tables and indexes. The default is `true`.
 
@@ -212,17 +217,19 @@ GRANT USAGE ON ALL SEQUENCES IN SCHEMA chat_state TO chat_runtime;
 
 The runtime role also needs database `CONNECT` permission. It does not need schema `CREATE` permission or table ownership. Adjust the schema and role names to your deployment; these grants apply to existing objects only.
 
-With this option disabled, `connect()` checks connectivity with `SELECT 1` and then runs one read-only query to verify that all five tables exist and that the current role holds the privileges the adapter uses on each of them: `SELECT`, `INSERT`, and `DELETE` everywhere, `UPDATE` on the locks, cache, and lists tables, and `nextval` on the list and queue sequences through either `USAGE` or `UPDATE`. Identity `seq` columns need no sequence grant. It never issues DDL. If anything is missing, `connect()` rejects with an error naming the problem, so a wrong `search_path` or a forgotten grant fails at startup instead of on the first message. Your application owns migrations for future adapter schema changes too; the changelog for `@chat-adapter/state-pg` lists the statements to run when the schema changes. An externally supplied pool remains open after `disconnect()`.
+With `autoCreateSchema: false`, `connect()` checks connectivity with `SELECT 1` and then runs one read-only query to verify that all five tables exist and that the current role holds the privileges the adapter uses on each of them: `SELECT`, `INSERT`, and `DELETE` everywhere, `UPDATE` on the locks, cache, and lists tables, and `nextval` on the list and queue sequences through either `USAGE` or `UPDATE`. Identity `seq` columns need no sequence grant. It never issues DDL. If anything is missing, `connect()` rejects with an error naming the problem, so a wrong `search_path` or a forgotten grant fails at startup instead of on the first message.
 
 Column-level grants are supported for `SELECT`, `INSERT`, and `UPDATE`: the probe checks each column used by the adapter, accepting either a column grant or a table-wide grant. `DELETE` is checked at the table level. The broader grants shown above remain sufficient.
 
-### Locking under high contention
+Your application also owns migrations for future adapter schema changes. The changelog for `@chat-adapter/state-pg` lists the statements to run when the schema changes.
 
-The Redis adapters use atomic `SET NX PX` for lock acquisition. The Postgres adapter uses `INSERT ... ON CONFLICT DO UPDATE WHERE expires_at <= now()`, relying on row-level locking. Safe for typical workloads, but under extreme contention prefer a Redis adapter.
+## Locking under high contention
 
-### Expired row cleanup
+The Redis adapters use atomic `SET NX PX` for lock acquisition. The Postgres adapter uses `INSERT ... ON CONFLICT DO UPDATE WHERE expires_at <= now()`, which relies on row-level locking. This is safe for typical workloads, but under extreme contention prefer a Redis adapter.
 
-Postgres does not delete expired rows automatically. The adapter cleans up opportunistically — expired locks are overwritten on the next `acquireLock()`, expired cache entries are deleted on the next `get()`, and so on. For high-throughput deployments, run a periodic job:
+## Expired row cleanup
+
+Postgres does not delete expired rows automatically. The adapter cleans up as it goes: the next `acquireLock()` overwrites an expired lock, the next `get()` deletes an expired cache entry, and so on. For high-throughput deployments, run a periodic job:
 
 ```sql
 DELETE FROM chat_state_locks WHERE expires_at <= now();

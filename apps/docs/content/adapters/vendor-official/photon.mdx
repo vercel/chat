@@ -4,7 +4,7 @@ description: iMessage adapter for Chat SDK, built and maintained by Photon. Clou
 packageName: "@photon-ai/chat-adapter-imessage"
 slug: photon
 type: platform
-tagline: iMessage adapter for Chat SDK — run against Spectrum Cloud, your own gRPC server, or on-device on a Mac — mapping iMessage chats to the Chat SDK thread/message/reaction model with signed webhooks and native tapbacks.
+tagline: iMessage adapter for Chat SDK that runs against Spectrum Cloud, your own gRPC server, or on-device on a Mac. Maps iMessage chats to the Chat SDK thread, message, and reaction model, with signed webhooks and native tapbacks.
 community: true
 vendorOfficial: true
 author: Photon
@@ -56,14 +56,6 @@ features:
   postChannelMessage: no
 ---
 
-The Photon adapter connects [Chat SDK](https://chat-sdk.dev) bots to **iMessage**. It is built on [spectrum-ts](https://github.com/photon-hq/spectrum-ts), Photon's unified messaging SDK, and runs in three modes:
-
-- **Cloud** (recommended) — connects to [Spectrum Cloud](https://app.photon.codes) with a project ID and secret. Runs anywhere, including serverless.
-- **Self-hosted** — connects to your own `@photon-ai/advanced-imessage` gRPC endpoint.
-- **Local** — runs directly on a Mac, reading the on-device iMessage database. macOS only.
-
-The mode is auto-detected from environment variables. The adapter maps an iMessage chat to a Chat SDK thread, a text to a message, and a tapback to a reaction, so subscriptions, handlers, posts, and reactions work the same as with any other adapter.
-
 ## Install
 
 <PackageInstall package="@photon-ai/chat-adapter-imessage chat @chat-adapter/state-memory" />
@@ -94,13 +86,38 @@ bot.onNewMention(async (thread, message) => {
 });
 ```
 
-For local development on a Mac, drop the credentials and let local mode default on:
+For local development on a Mac, drop the credentials and use local mode:
 
 ```typescript
 createiMessageAdapter({ local: true });
 ```
 
 Local mode requires macOS with iMessage signed in and **Full Disk Access** granted to your terminal or app (**System Settings → Privacy & Security → Full Disk Access**).
+
+## Platform setup
+
+The adapter is built on [spectrum-ts](https://github.com/photon-hq/spectrum-ts), Photon's unified messaging SDK, and runs in three modes. It detects the mode from environment variables.
+
+### Cloud (recommended)
+
+Cloud mode connects to [Spectrum Cloud](https://app.photon.codes) with a project ID and secret, and runs anywhere, including serverless.
+
+1. Sign up at [app.photon.codes](https://app.photon.codes) to get your project ID and project secret.
+2. Set `IMESSAGE_PROJECT_ID`, `IMESSAGE_PROJECT_SECRET`, and `IMESSAGE_LOCAL=false`.
+
+### Self-hosted
+
+Self-hosted mode connects to your own `@photon-ai/advanced-imessage` gRPC endpoint.
+
+1. Set `IMESSAGE_SERVER_URL` to the server's gRPC address as `host:port` (for example, `imessage.example.com:443`). Don't use an `https://` URL.
+2. Set `IMESSAGE_API_KEY` to the server's auth token, and `IMESSAGE_LOCAL=false`.
+
+### Local
+
+Local mode runs directly on a Mac and reads the on-device iMessage database. It is macOS only.
+
+1. Grant **Full Disk Access** to your terminal or app.
+2. Make sure iMessage is signed in and working on the Mac. Local mode is the default, so no extra environment variables are required.
 
 ## Configuration
 
@@ -124,7 +141,7 @@ Local mode requires macOS with iMessage signed in and **Full Disk Access** grant
     serverUrl: {
       type: "string",
       description:
-        "Self-host gRPC `host:port` (e.g. `imessage.example.com:443`) — not an https URL. Falls back to `IMESSAGE_SERVER_URL`.",
+        "Self-host gRPC `host:port` (for example, `imessage.example.com:443`), not an https URL. Falls back to `IMESSAGE_SERVER_URL`.",
     },
     apiKey: {
       type: "string",
@@ -160,35 +177,18 @@ Local mode requires macOS with iMessage signed in and **Full Disk Access** grant
 | `IMESSAGE_WEBHOOK_SECRET` | Webhooks | Per-webhook signing secret for verifying Spectrum Cloud deliveries. |
 | `IMESSAGE_PHONE` | No | Routing/identity phone for multi-number setups. |
 
-## Platform setup
-
-### Cloud (recommended)
-
-1. Sign up at [app.photon.codes](https://app.photon.codes) to get your **project ID** and **project secret**.
-2. Set `IMESSAGE_PROJECT_ID`, `IMESSAGE_PROJECT_SECRET`, and `IMESSAGE_LOCAL=false`.
-
-### Self-hosted
-
-Point the adapter at your own `@photon-ai/advanced-imessage` gRPC server.
-
-1. Set `IMESSAGE_SERVER_URL` to the server's gRPC address as `host:port` (e.g. `imessage.example.com:443`) — **not** an `https://` URL.
-2. Set `IMESSAGE_API_KEY` to the server's auth token, and `IMESSAGE_LOCAL=false`.
-
-### Local
-
-1. Grant **Full Disk Access** to your terminal or app.
-2. Ensure iMessage is signed in and working on the Mac. Local mode is the default — no extra environment variables are required.
-
 ## Receiving messages
 
-There are two ways to receive inbound messages in remote (cloud) mode:
+The adapter maps an iMessage chat to a Chat SDK thread, a text to a message, and a tapback to a reaction, so subscriptions, handlers, posts, and reactions work the same as with any other adapter.
 
-- **Webhooks** (recommended for serverless) — Spectrum Cloud delivers each message to an HTTPS endpoint as signed JSON. No long-lived connection or cron job.
-- **Gateway listener** — `startGatewayListener()` consumes the spectrum-ts message stream in real time. Works in all modes; in serverless it needs a cron job to stay connected.
+In remote (cloud) mode, you can receive inbound messages in two ways:
+
+- Webhooks, recommended for serverless: Spectrum Cloud delivers each message to an HTTPS endpoint as signed JSON, with no long-lived connection or cron job.
+- Gateway listener: `startGatewayListener()` consumes the spectrum-ts message stream in real time. It works in all modes, but in serverless it needs a cron job to stay connected.
 
 ### Webhooks
 
-Register your endpoint URL in the [Spectrum Cloud dashboard](https://app.photon.codes) and copy the per-webhook **signing secret** (shown only once) into `IMESSAGE_WEBHOOK_SECRET`. The adapter verifies the `X-Spectrum-Signature` HMAC on every delivery and rejects unsigned, mismatched, or stale (>5 min) requests.
+Register your endpoint URL in the [Spectrum Cloud dashboard](https://app.photon.codes) and copy the per-webhook signing secret, which is shown only once, into `IMESSAGE_WEBHOOK_SECRET`. The adapter verifies the `X-Spectrum-Signature` HMAC on every delivery and rejects unsigned, mismatched, or stale requests older than 5 minutes.
 
 ```typescript title="app/api/imessage/webhook/route.ts" lineNumbers
 import { after } from "next/server";
@@ -201,9 +201,9 @@ export async function POST(request: Request): Promise<Response> {
 }
 ```
 
-`bot.webhooks.imessage` verifies the signature, parses the `messages` event, and routes the message into your bot. Processing runs in the background via `waitUntil`, so the endpoint acknowledges immediately. Spectrum Cloud retries failed deliveries and delivers at-least-once — dedupe on `X-Spectrum-Webhook-Id` + `message.id` if you need exactly-once side effects.
+`bot.webhooks.imessage` verifies the signature, parses the `messages` event, and routes the message into your bot. Processing runs in the background through `waitUntil`, so the endpoint acknowledges immediately. Spectrum Cloud retries failed deliveries and delivers at least once, so dedupe on `X-Spectrum-Webhook-Id` plus `message.id` if you need exactly-once side effects.
 
-A webhook delivery carries no live connection, but your bot can still respond. For a **DM**, the adapter rebuilds the thread from its address over spectrum-ts (gRPC) and can send, react, edit, and show typing — no gateway needed:
+A webhook delivery carries no live connection, but your bot can still respond. For a DM, the adapter rebuilds the thread from its address over spectrum-ts (gRPC) and can send, react, edit, and show typing without the gateway:
 
 ```typescript
 bot.onNewMention(async (thread, message) => {
@@ -211,7 +211,7 @@ bot.onNewMention(async (thread, message) => {
 });
 ```
 
-Replying into a **group** requires that the group was received over the gateway listener in the same session — an unseen group cannot be reconstructed from its id (see [Limitations](#limitations)).
+Replying into a group requires that the group was received over the gateway listener in the same session, because an unseen group cannot be reconstructed from its id. See [Limitations](#limitations).
 
 ### Gateway listener for serverless
 
@@ -250,7 +250,7 @@ Running every 9 minutes overlaps the 10-minute listener duration. `CRON_SECRET` 
 
 ## Message format
 
-iMessage is plain text only. Outbound markdown is rendered to plain text (formatting is stripped, content preserved), and inbound text is parsed into the Chat SDK AST.
+iMessage is plain text only. Outbound markdown is rendered to plain text, which strips the formatting but keeps the content. Inbound text is parsed into the Chat SDK AST.
 
 ## Reactions
 
@@ -269,7 +269,7 @@ Removing reactions is not supported.
 
 ## Attachments
 
-`fileUploads` are supported for sending. Attach files to a post and they are delivered as iMessage media:
+The adapter supports file uploads for sending. Files attached to a post are delivered as iMessage media:
 
 ```typescript
 import { readFile } from "node:fs/promises";
@@ -286,9 +286,9 @@ await thread.post({
 });
 ```
 
-## Modals (limited)
+## Modals
 
-Remote mode maps the Chat SDK's `openModal()` to iMessage native polls. Only the first `Select` in the modal is used: `Modal.title` becomes the poll question and `Select.options` (2–10) become the choices. Votes fire `onModalSubmit` with the selected option's `value`.
+Modal support is limited. Remote mode maps the Chat SDK's `openModal()` to iMessage native polls. Only the first `Select` in the modal is used: `Modal.title` becomes the poll question and `Select.options` (2 to 10) become the choices. Votes fire `onModalSubmit` with the selected option's `value`.
 
 ```typescript
 bot.onModalSubmit("fav-color", async (event) => {
@@ -300,21 +300,21 @@ Not supported: `TextInput`, `RadioSelect`, placeholders, submit/close labels, mo
 
 ## Limitations
 
-- **DMs send cold; groups are session-bound.** A DM thread is rebuilt from its address over gRPC, so the adapter can send, react, edit, and show typing even into a thread it has not seen this session (including from a webhook). A group chat has no by-id resolver, so addressing one requires it to have been received over the gateway/stream in the current session; cold sends to an unseen group throw `NotImplementedError`.
-- **No message history or thread info** — `fetchMessages` and `fetchThread` are not supported by spectrum-ts.
-- **No reaction removal** — `removeReaction` is not supported.
-- **Remote-only capabilities** — reactions, typing, editing, and modals require cloud or self-host mode. Local mode supports sending and receiving only.
-- **Plain text** — iMessage has no markdown or structured cards.
-- **Platform** — local mode requires macOS; cloud and self-host run anywhere.
+- DMs can be sent cold, but groups are session-bound. A DM thread is rebuilt from its address over gRPC, so the adapter can send, react, edit, and show typing even into a thread it has not seen this session, including from a webhook. A group chat has no by-id resolver, so addressing one requires it to have been received over the gateway or stream in the current session. Cold sends to an unseen group throw `NotImplementedError`.
+- spectrum-ts doesn't support message history or thread info, so `fetchMessages` and `fetchThread` are unavailable.
+- `removeReaction` is not supported.
+- Reactions, typing, editing, and modals require cloud or self-host mode. Local mode supports sending and receiving only.
+- iMessage has no markdown or structured cards.
+- Local mode requires macOS. Cloud and self-host run anywhere.
 
-## Links
+## Feature support
+
+<FeatureSupport />
+
+## Resources
 
 - [GitHub](https://github.com/photon-hq/vercel-chat-adapter-imessage)
 - [npm](https://www.npmjs.com/package/@photon-ai/chat-adapter-imessage)
 - [spectrum-ts](https://github.com/photon-hq/spectrum-ts)
 - [Spectrum Cloud dashboard](https://app.photon.codes)
 - [Webhook docs](https://photon.codes/docs/webhooks/overview)
-
-## Feature support
-
-<FeatureSupport />

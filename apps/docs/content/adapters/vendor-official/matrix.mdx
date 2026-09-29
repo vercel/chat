@@ -1,6 +1,6 @@
 ---
 title: Beeper Matrix
-description: Matrix adapter for Chat SDK that runs over Matrix sync, with first-class support for E2EE, Beeper conversations, and bridged networks like WhatsApp, Telegram, Instagram, and Signal.
+description: Matrix adapter for Chat SDK that runs over Matrix sync, with support for E2EE, Beeper conversations, and bridged networks like WhatsApp, Telegram, Instagram, and Signal.
 packageName: "@beeper/chat-adapter-matrix"
 slug: matrix
 type: platform
@@ -83,9 +83,11 @@ bot.onSlashCommand("/ping", async (event) => {
 await bot.initialize();
 ```
 
-The standard Chat SDK building blocks — [Threads](/docs/threads-messages-channels), [Direct Messages](/docs/direct-messages), subscriptions, and handlers — work the same here. The Matrix adapter just maps them onto Matrix rooms and threaded replies.
+[Threads](/docs/threads-messages-channels), [direct messages](/docs/direct-messages), subscriptions, and handlers work the same as with other adapters. The Matrix adapter maps them onto Matrix rooms and threaded replies.
 
 ## Authentication
+
+The adapter supports two login modes. Both take the homeserver URL in `baseURL`.
 
 ### Access token
 
@@ -140,12 +142,12 @@ createMatrixAdapter({
 });
 ```
 
-Defaults worth knowing:
+Default behavior:
 
-- Persistence kicks in automatically whenever the `Chat` instance has a `state` adapter — Redis is recommended for restart durability.
-- `deviceID` is inferred from the auth payload when possible, then read back from state, and only generated as a last resort.
+- Persistence turns on automatically whenever the `Chat` instance has a `state` adapter. Redis is recommended so state survives restarts.
+- `deviceID` is inferred from the auth payload when possible, then read back from state, and generated only as a last resort.
 - `recoveryKey` enables E2EE and key-backup bootstrap.
-- `inviteAutoJoin: {}` enables invite auto-join. Pass `inviterAllowlist` to scope it to specific accounts.
+- `inviteAutoJoin: {}` enables invite auto-join. Pass `inviterAllowlist` to limit it to specific accounts.
 
 ### Advanced options
 
@@ -173,7 +175,7 @@ createMatrixAdapter({
 });
 ```
 
-## Environment variables
+### Environment variables
 
 When you call `createMatrixAdapter()` with no arguments, the adapter reads only these variables:
 
@@ -228,16 +230,9 @@ The state adapter persists:
 - Matrix sync snapshots
 - E2EE secrets bundles when E2EE is enabled
 
-## Thread model
+## Message history
 
-- A Matrix room is a Chat SDK channel.
-- Top-level room messages live on the channel timeline.
-- Matrix threaded replies map to Chat SDK threads using `roomID + rootEventID`.
-- `openDM(userId)` reuses an existing direct room when one is already in state and creates a new one otherwise.
-
-## Message history APIs
-
-The adapter implements the standard fetch surface:
+The adapter implements the standard fetch methods:
 
 - `fetchMessage(threadId, messageId)`
 - `fetchMessages(threadId, options)`
@@ -247,10 +242,17 @@ The adapter implements the standard fetch surface:
 - `listThreads(channelId, options)`
 - `openDM(userId)`
 
+## Thread model
+
+- A Matrix room is a Chat SDK channel.
+- Top-level room messages live on the channel timeline.
+- Matrix threaded replies map to Chat SDK threads using `roomID + rootEventID`.
+- `openDM(userId)` reuses an existing direct room when one is already in state and creates a new one otherwise.
+
 ## Limitations
 
-- `handleWebhook()` returns `501` by design — Matrix uses sync polling, not webhooks.
-- Cards, modals, and ephemeral messages are not implemented (Matrix has no native equivalent).
+- `handleWebhook()` returns `501` by design, because the adapter receives events through Matrix sync polling rather than webhooks.
+- Cards, modals, and ephemeral messages are not implemented because Matrix has no native equivalent.
 - Native streaming is not implemented at the adapter layer.
 - Slash commands are parsed from plain text messages because Matrix does not emit native slash command events.
 

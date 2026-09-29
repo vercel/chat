@@ -13,9 +13,7 @@ features:
   postMessage: yes
   editMessage: no
   deleteMessage: no
-  fileUploads:
-    status: yes
-    label: Inbound only
+  fileUploads: no
   streaming: no
   scheduledMessages: no
   cardFormat:
@@ -84,7 +82,7 @@ chat.onSubscribedMessage(async (thread, message) => {
 });
 ```
 
-Forward Resend webhooks to your server's webhook endpoint — the adapter verifies signatures and routes events into the Chat SDK handler pipeline. See the [`examples/basic`](https://github.com/resend/resend-chat-sdk/tree/main/examples/basic) folder in the adapter repo for a full working server.
+Forward Resend webhooks to your server's webhook endpoint. The adapter verifies signatures and routes events into the Chat SDK handler pipeline. See the [`examples/basic`](https://github.com/resend/resend-chat-sdk/tree/main/examples/basic) folder in the adapter repo for a full working server.
 
 ## Configuration
 
@@ -113,19 +111,19 @@ Forward Resend webhooks to your server's webhook endpoint — the adapter verifi
 
 ### Environment variables
 
-| Variable | Description |
-| --- | --- |
-| `RESEND_API_KEY` | Resend API key. Overridden by `config.apiKey`. |
-| `RESEND_WEBHOOK_SECRET` | Webhook signing secret. Overridden by `config.webhookSecret`. |
-| `FROM_ADDRESS` | Used by example apps only. |
+| Variable | Required | Description |
+| --- | --- | --- |
+| `RESEND_API_KEY` | Yes, unless `apiKey` is passed | Resend API key. Overridden by `config.apiKey`. |
+| `RESEND_WEBHOOK_SECRET` | For webhooks | Webhook signing secret. Overridden by `config.webhookSecret`. |
+| `FROM_ADDRESS` | No | Used by example apps only. The adapter takes the sender from `fromAddress`. |
 
 ## Email threading
 
-Threads are resolved using the standard `Message-ID`, `In-Reply-To`, and `References` email headers. Reply chains are automatically grouped into Chat SDK threads — your handlers receive each follow-up as a `onSubscribedMessage` event on the same thread.
+Threads are resolved using the standard `Message-ID`, `In-Reply-To`, and `References` email headers. Reply chains are grouped into Chat SDK threads automatically, and your handlers receive each follow-up as an `onSubscribedMessage` event on the same thread.
 
 ## Sending email proactively
 
-Use `openDM` to start a new email thread to any address — useful for notifications, alerts, or scheduled reports:
+Use `openDM` to start a new email thread to any address, for example to send notifications, alerts, or scheduled reports:
 
 ```typescript
 const threadId = await chat.adapters.resend.openDM("user@example.com");
@@ -158,30 +156,32 @@ await thread.post({
 
 ## Attachments
 
-Inbound email attachments are exposed on `message.raw.attachments` as objects with `filename`, `content_type`, and `url` fields — your handler can fetch the URL or hand it off to downstream processing.
+Inbound email attachments are exposed on `message.raw.attachments` as objects with `filename`, `content_type`, and `url` fields, not on `message.attachments`. Your handler can fetch the URL or pass it on to downstream processing.
+
+The adapter doesn't send attachments. Files included in a posted message are not attached to the outgoing email.
 
 ## Limitations
 
-Email is inherently one-shot. The following operations throw `NotImplementedError`:
+Email has no native concept of message edits, reactions, or typing indicators, so these operations throw `NotImplementedError`:
 
 - `editMessage` / `deleteMessage`
 - `addReaction` / `removeReaction`
 - `startTyping`
 
-There are no native concepts for typing indicators, reactions, or message edits in email — use cards or new replies instead.
-
-## Examples
-
-| Example | Description |
-| --- | --- |
-| [basic](https://github.com/resend/resend-chat-sdk/tree/main/examples/basic) | Echo bot — replies to every email |
-| [welcome-cards](https://github.com/resend/resend-chat-sdk/tree/main/examples/welcome-cards) | Sends a styled card email on first contact |
-| [notifications](https://github.com/resend/resend-chat-sdk/tree/main/examples/notifications) | Proactive emails via `openDM()` + HTTP POST |
-| [support-bot](https://github.com/resend/resend-chat-sdk/tree/main/examples/support-bot) | Multi-turn support with subscribe/unsubscribe |
-| [attachments](https://github.com/resend/resend-chat-sdk/tree/main/examples/attachments) | Detects attachments and replies with a summary |
-
-Official docs are available at [resend.com/docs/chat-sdk](https://resend.com/docs/chat-sdk).
+Send cards or new replies instead.
 
 ## Feature support
 
 <FeatureSupport />
+
+## Resources
+
+Official docs are at [resend.com/docs/chat-sdk](https://resend.com/docs/chat-sdk). Example apps in the adapter repo:
+
+| Example | Description |
+| --- | --- |
+| [basic](https://github.com/resend/resend-chat-sdk/tree/main/examples/basic) | Echo bot that replies to every email |
+| [welcome-cards](https://github.com/resend/resend-chat-sdk/tree/main/examples/welcome-cards) | Sends a styled card email on first contact |
+| [notifications](https://github.com/resend/resend-chat-sdk/tree/main/examples/notifications) | Proactive emails via `openDM()` and an HTTP POST |
+| [support-bot](https://github.com/resend/resend-chat-sdk/tree/main/examples/support-bot) | Multi-turn support with subscribe/unsubscribe |
+| [attachments](https://github.com/resend/resend-chat-sdk/tree/main/examples/attachments) | Detects attachments and replies with a summary |

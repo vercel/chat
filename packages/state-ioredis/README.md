@@ -5,7 +5,7 @@
 [![Agent Stack](https://img.shields.io/badge/Agent%20Stack-000?style=flat-square&logo=vercel&logoColor=FFF&labelColor=000&color=000)](https://vercel.com/kb/agent-stack)
 [![MIT License](https://img.shields.io/badge/License-MIT-000?style=flat-square&logo=opensourceinitiative&logoColor=white&labelColor=000&color=000)](../../LICENSE)
 
-Alternative Redis state adapter for [Chat SDK](https://chat-sdk.dev) using [ioredis](https://www.npmjs.com/package/ioredis). Use this if you already have ioredis in your project or need Redis Cluster/Sentinel support.
+Alternative Redis state adapter for [Chat SDK](https://chat-sdk.dev) using [ioredis](https://www.npmjs.com/package/ioredis). Use this if you already have ioredis in your project or need Redis Sentinel support.
 
 Documentation: [chat-sdk.dev/adapters/official/ioredis](https://chat-sdk.dev/adapters/official/ioredis) · Guides: [vercel.com/kb/chat-sdk](https://vercel.com/kb/chat-sdk)
 
@@ -66,7 +66,6 @@ const state = createIoRedisState({ client });
 **Use `@chat-adapter/state-ioredis` when:**
 
 - You already use ioredis in your project
-- You need Redis Cluster support
 - You need Redis Sentinel support
 - You prefer the ioredis API
 
@@ -74,7 +73,9 @@ const state = createIoRedisState({ client });
 
 - You want the official Redis client
 - You're starting a new project
-- You don't need Cluster or Sentinel
+- You don't need Sentinel
+
+Neither adapter supports Redis Cluster. The `client` option accepts an ioredis `Redis` instance, and a `Cluster` doesn't satisfy that type.
 
 ## Key structure
 
@@ -93,7 +94,7 @@ const state = createIoRedisState({ client });
 | Distributed locking | Yes |
 | Key-value caching | Yes |
 | Automatic reconnection | Yes |
-| Redis Cluster support | Yes |
+| Redis Cluster support | No |
 | Redis Sentinel support | Yes |
 | Key prefix namespacing | Yes |
 

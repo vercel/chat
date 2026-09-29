@@ -4,7 +4,7 @@ description: iMessage and SMS adapter for Chat SDK, built and maintained by Linq
 packageName: "@linqapp/chat-sdk-adapter"
 slug: linq
 type: platform
-tagline: Bots that text over iMessage and SMS through Linq — DMs and group chats, media both ways, and native tapback reactions, mapping Linq chats to the Chat SDK thread/message/reaction model.
+tagline: Bots that text over iMessage and SMS through Linq, in DMs and group chats, with media in both directions and native tapback reactions. Maps Linq chats to the Chat SDK thread, message, and reaction model.
 community: true
 vendorOfficial: true
 author: Linq
@@ -88,7 +88,16 @@ bot.onReaction(["thumbs_up"], async (event) => {
 });
 ```
 
-The adapter maps a Linq chat to a Chat SDK thread, a text to a message, and an iMessage tapback to a reaction, so the rest of the Chat SDK API (subscriptions, handlers, posts, reactions) works exactly the same as with any other adapter.
+The adapter maps a Linq chat to a Chat SDK thread, a text to a message, and an iMessage tapback to a reaction, so subscriptions, handlers, posts, and reactions work as they do with any other adapter.
+
+## Platform setup
+
+1. Create a Linq account and copy your API key. For testing, the [Linq CLI](https://www.npmjs.com/package/@linqapp/cli) provisions a sandbox number: `linq signup --phone <your cell>`.
+2. Create a webhook subscription that points at the route forwarding to `bot.webhooks.linq` (see [Webhooks](#webhooks)), and subscribe to:
+   - `message.received`
+   - `reaction.added`
+   - `reaction.removed`
+3. Copy the signing secret returned by the subscription into `signingSecret`.
 
 ## Configuration
 
@@ -110,24 +119,17 @@ The adapter maps a Linq chat to a Chat SDK thread, a text to a message, and an i
   }}
 />
 
-## Platform setup
+## Webhooks
 
-1. Create a Linq account and copy your **API key**. For testing, the [Linq CLI](https://www.npmjs.com/package/@linqapp/cli) provisions a sandbox number: `linq signup --phone <your cell>`.
-2. Create a **webhook subscription** pointing at the route that forwards to `bot.webhooks.linq`, and subscribe to:
-   - `message.received`
-   - `reaction.added`
-   - `reaction.removed`
-3. Copy the **signing secret** returned by the subscription into `signingSecret`.
-
-Other event types are acknowledged with a `200` and ignored.
-
-## Webhook events
+The adapter handles these Linq webhook events:
 
 | Event | Role |
 | --- | --- |
 | `message.received` | Drives Chat SDK message processing |
 | `reaction.added` | Drives reaction handlers |
 | `reaction.removed` | Drives reaction handlers |
+
+The adapter acknowledges other event types with a `200` and ignores them. Forward webhook requests to `bot.webhooks.linq`:
 
 ```typescript title="app/api/webhooks/linq/route.ts" lineNumbers
 import { after } from "next/server";
@@ -142,7 +144,30 @@ export async function POST(request: Request) {
 }
 ```
 
-Requests are verified with HMAC-SHA256 and a replay-window check before dispatch; an invalid or stale signature returns **401**. Passing `waitUntil` lets work continue after the response is sent in serverless environments like Vercel.
+The adapter verifies each request's HMAC-SHA256 signature and timestamp before dispatch, and returns `401` for an invalid or stale signature. Passing `waitUntil` lets work continue after the response is sent in serverless environments such as Vercel.
+
+## Message format
+
+iMessage has no markdown, and Linq delivers message text as-is, so the adapter renders outbound markdown to plain text. Inbound text is parsed to the Chat SDK AST, with URLs surfaced as link previews.
+
+## Reactions
+
+Standard iMessage tapbacks map to normalized Chat SDK emoji in both directions:
+
+| Linq tapback | Chat SDK emoji |
+| ------------ | -------------- |
+| `like`       | `thumbs_up`    |
+| `dislike`    | `thumbs_down`  |
+| `love`       | `heart`        |
+| `laugh`      | `laugh`        |
+| `emphasize`  | `exclamation`  |
+| `question`   | `question`     |
+
+Custom emoji reactions go through the default emoji resolver, so `👍` becomes `thumbs_up`, and anything the resolver can't map is passed through as the raw emoji. Sticker reactions have no Chat SDK equivalent and are skipped.
+
+## Attachments
+
+Inbound media (images, audio, files) arrives as Chat SDK attachments with downloadable data. Outbound `attachments` and `files` are sent as Linq media parts: a public HTTPS URL under 10 MB is sent by reference, while raw bytes, non-HTTPS URLs, and files up to 100 MB are pre-uploaded. Messages can be media-only.
 
 ## Thread IDs
 
@@ -165,36 +190,13 @@ const encoded = adapter.encodeThreadId({ chatId: "3caaf1a0-ef9f-46e0-8c22-31e82c
 adapter.decodeThreadId(threadId: string): { chatId: string; isGroup?: boolean };
 ```
 
-Group vs. DM identity is tracked internally from webhook payloads; legacy `linq:{chatId}:group` / `linq:{chatId}:dm` IDs still decode.
-
-## Message format
-
-Outbound markdown is rendered to plain text — Linq delivers message text as-is (iMessage has no markdown). Inbound text is parsed to the Chat SDK AST, with URLs surfaced as link previews.
-
-## Reactions
-
-Standard iMessage tapbacks map to normalized Chat SDK emoji in both directions:
-
-| Linq tapback | Chat SDK emoji |
-| ------------ | -------------- |
-| `like`       | `thumbs_up`    |
-| `dislike`    | `thumbs_down`  |
-| `love`       | `heart`        |
-| `laugh`      | `laugh`        |
-| `emphasize`  | `exclamation`  |
-| `question`   | `question`     |
-
-Custom emoji reactions pass through the default emoji resolver (e.g. `👍` → `thumbs_up`), falling back to the raw emoji for anything unmapped. Sticker reactions have no Chat SDK equivalent and are skipped.
-
-## Attachments
-
-Inbound media (images, audio, files) arrives as Chat SDK attachments with downloadable data. Outbound `attachments` and `files` are sent as Linq media parts: a public HTTPS URL under 10 MB is sent by reference, while raw bytes, non-HTTPS URLs, and files up to 100 MB are pre-uploaded. Messages can be media-only.
-
-## Examples
-
-- [Adapter source and README](https://github.com/linq-team/linq-chat-sdk/tree/main/packages/adapter-linq)
-- [Example app](https://github.com/linq-team/linq-chat-sdk/tree/main/apps/api) — one AI bot running across Linq, Telegram, and WhatsApp from a single set of handlers.
+The adapter tracks whether a chat is a group or a DM from webhook payloads, so the thread ID doesn't carry it. Legacy `linq:{chatId}:group` and `linq:{chatId}:dm` IDs still decode.
 
 ## Feature support
 
 <FeatureSupport />
+
+## Resources
+
+- [Adapter source and README](https://github.com/linq-team/linq-chat-sdk/tree/main/packages/adapter-linq)
+- [Example app](https://github.com/linq-team/linq-chat-sdk/tree/main/apps/api): one AI bot running across Linq, Telegram, and WhatsApp from a single set of handlers.

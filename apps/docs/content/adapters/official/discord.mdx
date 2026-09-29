@@ -5,7 +5,7 @@ packageName: "@chat-adapter/discord"
 slug: discord
 type: platform
 logo: discord
-tagline: Create Discord bots with slash commands, threads, rich embeds, and Components v2 cards — works on serverless via a cron-driven Gateway listener.
+tagline: Build Discord bots with slash commands, threads, embeds, and Components v2 cards. Runs on serverless with a cron-driven Gateway listener.
 beta: true
 features:
   postMessage: yes
@@ -52,32 +52,91 @@ features:
 
 ## Install
 
-<PackageInstall package="@chat-adapter/discord" />
+<PackageInstall package="@chat-adapter/discord @chat-adapter/state-memory" />
 
 ## Quick start
 
 <Callout type="info">
 The adapter auto-detects `DISCORD_BOT_TOKEN`, `DISCORD_PUBLIC_KEY`, `DISCORD_APPLICATION_ID`, and `DISCORD_MENTION_ROLE_IDS` from the environment.
 
-For managed credentials and webhook verification, see [**Vercel Connect**](#option-a--vercel-connect).
+For managed credentials and webhook verification, see [Vercel Connect](#vercel-connect).
 </Callout>
 
 ```typescript title="lib/bot.ts" lineNumbers
 import { Chat } from "chat";
 import { createDiscordAdapter } from "@chat-adapter/discord";
+import { createMemoryState } from "@chat-adapter/state-memory";
 
 const discord = createDiscordAdapter();
-const bot = new Chat({
+export const bot = new Chat({
   userName: "mybot",
   adapters: {
     discord,
   },
+  state: createMemoryState(),
 });
 
 bot.onNewMention(async (thread, message) => {
   await thread.post("Hello from Discord!");
 });
 ```
+
+The memory state adapter keeps subscriptions and locks in process memory, which suits local development. Use [Redis](/adapters/official/redis) or [PostgreSQL](/adapters/official/postgres) in production.
+
+Then create the webhook route:
+
+```typescript title="app/api/webhooks/discord/route.ts" lineNumbers
+import { bot } from "@/lib/bot";
+
+export async function POST(request: Request): Promise<Response> {
+  return bot.webhooks.discord(request);
+}
+```
+
+## Platform setup
+
+These steps create your own Discord application and bot, which you need when you [authenticate with Discord app credentials](#discord-app-credentials).
+
+### 1. Create the application
+
+1. Go to the [Discord Developer Portal](https://discord.com/developers/applications) and click **New Application**.
+2. Note the **Application ID** and copy the **Public Key** from the General Information page.
+
+### 2. Create the bot
+
+1. Open **Bot** in the sidebar and click **Reset Token** to generate a bot token. Discord shows the token only once.
+2. Enable **Message Content Intent**, and **Server Members Intent** if your bot needs it.
+
+### 3. Set the interactions endpoint
+
+In **General Information**, set **Interactions Endpoint URL** to `https://your-domain.com/api/webhooks/discord`. Discord sends a PING to verify the endpoint.
+
+### 4. Add the bot to your server
+
+In **OAuth2** then **URL Generator**, select the `bot` and `applications.commands` scopes, pick the permissions your bot needs (Send Messages, Send Messages in Threads, Create Public Threads, Manage Threads, Read Message History, Add Reactions, Attach Files), and use the generated URL to invite the bot.
+
+## Authentication
+
+### Vercel Connect
+
+Use [Vercel Connect](/docs/vercel-connect) to resolve the bot token and application ID from a Discord connector and verify trigger-forwarded interactions with Vercel OIDC:
+
+```typescript title="lib/bot.ts" lineNumbers
+import { createDiscordAdapter } from "@chat-adapter/discord";
+import { connectDiscordAdapter } from "@vercel/connect/chat";
+
+const discord = createDiscordAdapter({
+  ...connectDiscordAdapter("discord/acme-discord"),
+});
+```
+
+Replace `discord/acme-discord` with your connector UID. The helper supplies `botToken`, `applicationId`, and `webhookVerifier`, so you don't need `DISCORD_BOT_TOKEN`, `DISCORD_PUBLIC_KEY`, or `DISCORD_APPLICATION_ID` in your deployment. Configure the Connect trigger to forward interactions to `/api/webhooks/discord` on your deployed app.
+
+Connect OIDC verification replaces Discord's Ed25519 public-key check for forwarded interactions. Regular messages and reactions still require a [Gateway connection](#http-interactions-vs-gateway).
+
+### Discord app credentials
+
+Set `DISCORD_BOT_TOKEN`, `DISCORD_PUBLIC_KEY`, and `DISCORD_APPLICATION_ID` from the application you created in [Platform setup](#platform-setup), and the adapter picks them up automatically.
 
 ## Configuration
 
@@ -138,48 +197,88 @@ bot.onNewMention(async (thread, message) => {
 `botToken` and `applicationId` are required. Provide either `publicKey` or
 `webhookVerifier`.
 
-## Authentication
+### Environment variables
 
-### Option A — Vercel Connect
+| Variable | Required | Description |
+|----------|----------|-------------|
+| `DISCORD_BOT_TOKEN` | Yes, unless using Vercel Connect | Bot token. |
+| `DISCORD_PUBLIC_KEY` | Yes, unless using Vercel Connect or a custom `webhookVerifier` | Application public key for Ed25519 interaction verification. |
+| `DISCORD_APPLICATION_ID` | Yes, unless using Vercel Connect | Application ID. |
+| `DISCORD_MENTION_ROLE_IDS` | No | Comma-separated role IDs that trigger mention handlers. |
+| `DISCORD_RESPOND_TO_CHANNEL_IDS` | No | Comma-separated parent channel IDs whose messages trigger mention handlers without an @mention. |
 
-Use [Vercel Connect](/docs/vercel-connect) to resolve the bot token and application ID from a Discord connector and verify trigger-forwarded interactions with Vercel OIDC:
+## HTTP Interactions vs Gateway
 
-```typescript title="lib/bot.ts" lineNumbers
-import { createDiscordAdapter } from "@chat-adapter/discord";
-import { connectDiscordAdapter } from "@vercel/connect/chat";
+Discord delivers events over two channels:
 
-const discord = createDiscordAdapter({
-  ...connectDiscordAdapter("discord/acme-discord"),
+- HTTP Interactions deliver button clicks, slash commands, and verification pings. They work on serverless but do not include regular messages.
+- The Gateway WebSocket is required to receive regular messages and reactions, and it needs a persistent connection.
+
+In serverless environments, use a cron job to keep the Gateway connection alive.
+
+## Gateway setup for serverless
+
+```typescript title="app/api/discord/gateway/route.ts" lineNumbers
+import { after } from "next/server";
+import { bot } from "@/lib/bot";
+
+export const maxDuration = 800;
+
+export async function GET(request: Request): Promise<Response> {
+  const cronSecret = process.env.CRON_SECRET;
+  if (!cronSecret) {
+    return new Response("CRON_SECRET not configured", { status: 500 });
+  }
+
+  const authHeader = request.headers.get("authorization");
+  if (authHeader !== `Bearer ${cronSecret}`) {
+    return new Response("Unauthorized", { status: 401 });
+  }
+
+  const durationMs = 600 * 1000;
+  const webhookUrl = `https://${process.env.VERCEL_URL}/api/webhooks/discord`;
+
+  await bot.initialize();
+  const discord = bot.getAdapter("discord");
+  return discord.startGatewayListener(
+    { waitUntil: (task) => after(() => task) },
+    durationMs,
+    undefined,
+    webhookUrl
+  );
+}
+```
+
+```json title="vercel.json" lineNumbers
+{
+  "crons": [
+    {
+      "path": "/api/discord/gateway",
+      "schedule": "*/9 * * * *"
+    }
+  ]
+}
+```
+
+This runs every 9 minutes, overlapping with the 10-minute listener duration to keep coverage continuous.
+
+## Role mentions
+
+By default, only direct user mentions (`@BotName`) trigger `onNewMention` handlers. To also trigger on role mentions:
+
+1. Create a role in your Discord server (for example, "AI") and assign it to your bot.
+2. Copy the role ID. With Developer Mode enabled, right-click the role in server settings.
+3. Add it to `mentionRoleIds`:
+
+```typescript
+createDiscordAdapter({
+  mentionRoleIds: ["1457473602180878604"],
 });
 ```
 
-Replace `discord/acme-discord` with your connector UID. The helper supplies `botToken`, `applicationId`, and `webhookVerifier`, so you don't need `DISCORD_BOT_TOKEN`, `DISCORD_PUBLIC_KEY`, or `DISCORD_APPLICATION_ID` in your deployment. Configure the Connect trigger to forward interactions to `/api/webhooks/discord` on your deployed app.
+Or set `DISCORD_MENTION_ROLE_IDS` as a comma-separated string.
 
-Connect OIDC verification replaces Discord's Ed25519 public-key check for forwarded interactions. Regular messages and reactions still require a [Gateway connection](#http-interactions-vs-gateway).
-
-### Option B — Discord app credentials
-
-Configure your own Discord application and set `DISCORD_BOT_TOKEN`, `DISCORD_PUBLIC_KEY`, and `DISCORD_APPLICATION_ID` for the adapter to auto-detect.
-
-#### 1. Create the application
-
-1. Go to the [Discord Developer Portal](https://discord.com/developers/applications) and click **New Application**.
-2. Note the **Application ID** and copy the **Public Key** from the General Information page.
-
-#### 2. Create the bot
-
-1. Open **Bot** in the sidebar and click **Reset Token** to generate a bot token (you only see it once).
-2. Enable **Message Content Intent** (and **Server Members Intent** if needed).
-
-#### 3. Set the interactions endpoint
-
-In **General Information**, set **Interactions Endpoint URL** to `https://your-domain.com/api/webhooks/discord`. Discord sends a PING to verify.
-
-#### 4. Add the bot to your server
-
-In **OAuth2** then **URL Generator**, select scopes `bot` and `applications.commands`, pick the permissions your bot needs (Send Messages, Send Messages in Threads, Create Public Threads, Manage Threads, Read Message History, Add Reactions, Attach Files), and use the generated URL to invite the bot.
-
-## Components cards
+## Cards
 
 Discord cards render as embeds by default. Set `contentFormat` to render Chat SDK cards with [Discord Components](https://docs.discord.com/developers/components/reference):
 
@@ -230,82 +329,9 @@ The callback receives the parsed command path, flattened option text, invoking u
 
 Call `discord.setThreadTitle(thread.id, title)` to rename an existing Discord thread channel. The bot needs the **Manage Threads** permission.
 
-## Advanced
+## Inbound attachments
 
-### Inbound attachments
-
-Incoming attachments expose a lazy `fetchData()` that downloads from Discord's CDN anonymously. Downloads refuse private and internal addresses (including after redirects), are limited to 25 MB, and time out after 30 seconds.
-
-### HTTP Interactions vs Gateway
-
-Discord has two ways to receive events:
-
-- **HTTP Interactions** — receives button clicks, slash commands, and verification pings. Works on serverless. Does **not** receive regular messages.
-- **Gateway WebSocket** — required to receive regular messages and reactions. Requires a persistent connection.
-
-In serverless environments, use a cron job to keep the Gateway connection alive.
-
-### Gateway setup for serverless
-
-```typescript title="app/api/discord/gateway/route.ts" lineNumbers
-import { after } from "next/server";
-import { bot } from "@/lib/bot";
-
-export const maxDuration = 800;
-
-export async function GET(request: Request): Promise<Response> {
-  const cronSecret = process.env.CRON_SECRET;
-  if (!cronSecret) {
-    return new Response("CRON_SECRET not configured", { status: 500 });
-  }
-
-  const authHeader = request.headers.get("authorization");
-  if (authHeader !== `Bearer ${cronSecret}`) {
-    return new Response("Unauthorized", { status: 401 });
-  }
-
-  const durationMs = 600 * 1000;
-  const webhookUrl = `https://${process.env.VERCEL_URL}/api/webhooks/discord`;
-
-  await bot.initialize();
-  const discord = bot.getAdapter("discord");
-  return discord.startGatewayListener(
-    { waitUntil: (task) => after(() => task) },
-    durationMs,
-    undefined,
-    webhookUrl
-  );
-}
-```
-
-```json title="vercel.json" lineNumbers
-{
-  "crons": [
-    {
-      "path": "/api/discord/gateway",
-      "schedule": "*/9 * * * *"
-    }
-  ]
-}
-```
-
-This runs every 9 minutes, overlapping with the 10-minute listener duration to keep coverage continuous.
-
-### Role mentions
-
-By default, only direct user mentions (`@BotName`) trigger `onNewMention` handlers. To also trigger on role mentions:
-
-1. Create a role in your Discord server (e.g., "AI") and assign it to your bot.
-2. Copy the role ID (right-click in server settings with Developer Mode enabled).
-3. Add it to `mentionRoleIds`:
-
-```typescript
-createDiscordAdapter({
-  mentionRoleIds: ["1457473602180878604"],
-});
-```
-
-Or set `DISCORD_MENTION_ROLE_IDS` as a comma-separated string.
+Incoming attachments expose a lazy `fetchData()` that downloads from Discord's CDN anonymously. Downloads refuse private and internal addresses, including after redirects, are limited to 25 MB, and time out after 30 seconds.
 
 ## Feature support
 
@@ -313,6 +339,6 @@ Or set `DISCORD_MENTION_ROLE_IDS` as a comma-separated string.
 
 ## Resources
 
-- [Create a Discord support bot with Nuxt and Redis](https://vercel.com/kb/guide/create-a-discord-support-bot-with-nuxt-and-redis?utm_source=chat-sdk_site&utm_medium=docs&utm_campaign=adapter-discord&utm_content=create-a-discord-support-bot-with-nuxt-and-redis) — Walks through building a Discord support bot with Nuxt, covering project setup, Discord app configuration, Gateway forwarding, AI-powered responses, and deployment.
+- [Create a Discord support bot with Nuxt and Redis](https://vercel.com/kb/guide/create-a-discord-support-bot-with-nuxt-and-redis?utm_source=chat-sdk_site&utm_medium=docs&utm_campaign=adapter-discord&utm_content=create-a-discord-support-bot-with-nuxt-and-redis): build a Discord support bot with Nuxt, from project setup and Discord app configuration through Gateway forwarding, AI responses, and deployment.
 
 See all guides and templates on the [resources](/resources?utm_source=chat-sdk_site&utm_medium=docs&utm_campaign=adapter-discord&utm_content=resources) page.

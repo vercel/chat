@@ -48,9 +48,12 @@ features:
 
 ## Quick start
 
+QQ bots receive events in one of two modes. WebSocket mode is the default; set
+`mode: "callback"` to use webhooks.
+
 ### WebSocket mode
 
-Connect directly to the QQ Bot Gateway — no public endpoint required:
+The adapter connects directly to the QQ Bot Gateway, so you don't need a public endpoint:
 
 ```typescript title="lib/bot.ts" lineNumbers
 import { createQQBotAdapter } from "@agentor/chat-qq";
@@ -70,9 +73,9 @@ await adapter.initialize({
 
 ### Webhook (callback) mode
 
-Receive events over HTTP with Ed25519 signature verification. Once an HTTPS
-callback URL is configured on the bot, WebSocket mode is no longer available —
-the two modes are mutually exclusive.
+The adapter receives events over HTTP and verifies their Ed25519 signatures.
+The two modes are mutually exclusive: once you configure an HTTPS callback URL
+on the bot, WebSocket mode is no longer available.
 
 ```typescript title="lib/bot.ts" lineNumbers
 import { createQQBotAdapter } from "@agentor/chat-qq";
@@ -83,13 +86,6 @@ const adapter = createQQBotAdapter({
   clientSecret: process.env.QQ_BOT_CLIENT_SECRET,
 });
 ```
-
-## Environment variables
-
-| Variable | Required | Description |
-| --- | --- | --- |
-| `QQ_BOT_APP_ID` | Yes | QQ Bot application ID. |
-| `QQ_BOT_CLIENT_SECRET` | Yes | QQ Bot client secret. |
 
 ## Configuration
 
@@ -116,11 +112,18 @@ const adapter = createQQBotAdapter({
   }}
 />
 
+### Environment variables
+
+| Variable | Required | Description |
+| --- | --- | --- |
+| `QQ_BOT_APP_ID` | Yes | QQ Bot application ID. |
+| `QQ_BOT_CLIENT_SECRET` | Yes | QQ Bot client secret. |
+
 ## Rich media
 
-`postMessage` uploads local files (`FileUpload`) and URL attachments
-automatically, then sends them as rich-media messages; unsupported scenarios
-fall back to text.
+`postMessage` uploads local files (`FileUpload`) and URL attachments, then
+sends them as rich-media messages. Scenarios that don't support rich media fall
+back to text.
 
 ```typescript
 // Send a local file
@@ -138,9 +141,9 @@ await adapter.postMessage(threadId, {
 
 ## Scenes
 
-Supports QQ DM (C2C), QQ Group, Text Channel, and Channel DM. File upload in
-group chats is not currently available; text channels and channel DMs send
-images and videos via `msg_type: 7`.
+The adapter supports four QQ scenes: QQ DM (C2C), QQ Group, Text Channel, and
+Channel DM. File upload in group chats is not currently available. Text
+channels and channel DMs send images and videos via `msg_type: 7`.
 
 ## Feature support
 

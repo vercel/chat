@@ -442,7 +442,7 @@ export const ADAPTERS = {
   },
   ioredis: {
     description:
-      "Redis state adapter using ioredis with cluster and sentinel support.",
+      "Redis state adapter using ioredis, with Sentinel support.",
     env: {
       config: ["url or client", "keyPrefix"],
       notes: "Either a Redis URL or an existing ioredis client is required.",
