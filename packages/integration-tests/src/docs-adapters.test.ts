@@ -1,8 +1,15 @@
 import { readFileSync } from "node:fs";
 import { basename, join } from "node:path";
+import { runInNewContext } from "node:vm";
+import type { WebhookOptions } from "chat";
 import { ADAPTERS } from "chat/adapters";
-import { describe, expect, it } from "vitest";
-import { DOCS_CONTENT_DIR, findDocsMdxFiles } from "./documentation-test-utils";
+import { ModuleKind, transpileModule } from "typescript";
+import { describe, expect, it, vi } from "vitest";
+import {
+  DOCS_CONTENT_DIR,
+  extractTypeScriptBlocks,
+  findDocsMdxFiles,
+} from "./documentation-test-utils";
 
 const ADAPTERS_DIR = join(DOCS_CONTENT_DIR, "adapters");
 const VENDOR_DIR = join(ADAPTERS_DIR, "vendor-official");
@@ -16,6 +23,56 @@ const CHAT_ADAPTER_PACKAGE = /^@chat-adapter\//;
 const CHAT_STATE_ADAPTER_PACKAGE = /^@chat-adapter\/state-/;
 const PACKAGE_INSTALL_PATTERN = /<PackageInstall package="([^"]+)" \/>/g;
 const PACKAGE_INSTALL_PACKAGE_SEPARATOR = /\s+/;
+
+describe("Adapter webhook route examples", () => {
+  it.each([
+    "official/slack",
+    "official/teams",
+    "official/discord",
+    "official/github",
+    "official/linear",
+    "vendor-official/agentphone",
+    "community/webex",
+  ])("keeps %s handlers alive after the response", async (path) => {
+    const slug = basename(path);
+    const content = readFileSync(join(ADAPTERS_DIR, `${path}.mdx`), "utf-8");
+    const example = extractTypeScriptBlocks(content).find((block) =>
+      block.includes(`webhooks.${slug}(`)
+    );
+    expect(example).toBeDefined();
+    const { outputText } = transpileModule(example ?? "", {
+      compilerOptions: { module: ModuleKind.CommonJS },
+    });
+    const after = vi.fn<(callback: () => Promise<unknown>) => void>();
+    const task = new Promise(() => {});
+    const response = new Response("OK");
+    const webhook = vi.fn((_request: Request, options?: WebhookOptions) => {
+      options?.waitUntil?.(task);
+      return Promise.resolve(response);
+    });
+    const bot = { webhooks: { [slug]: webhook } };
+    const exports: { POST?: (request: Request) => Promise<Response> } = {};
+    runInNewContext(outputText, {
+      exports,
+      require: (specifier: string) => {
+        if (specifier === "next/server") {
+          return { after };
+        }
+        if (specifier === "@/lib/bot") {
+          return { bot, chat: bot };
+        }
+        throw new Error(`Unexpected import: ${specifier}`);
+      },
+    });
+    const request = new Request("https://example.com/webhook", {
+      method: "POST",
+    });
+    expect(await exports.POST?.(request)).toBe(response);
+    expect(webhook.mock.calls[0][0]).toBe(request);
+    expect(after).toHaveBeenCalledOnce();
+    expect(after.mock.calls[0][0]()).toBe(task);
+  });
+});
 
 interface Frontmatter {
   fields: Record<string, string>;

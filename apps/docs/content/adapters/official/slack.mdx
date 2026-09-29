@@ -90,10 +90,13 @@ The memory state adapter keeps subscriptions and locks in process memory, which 
 Then create the webhook route:
 
 ```typescript title="app/api/webhooks/slack/route.ts" lineNumbers
+import { after } from "next/server";
 import { bot } from "@/lib/bot";
 
 export async function POST(request: Request): Promise<Response> {
-  return bot.webhooks.slack(request);
+  return bot.webhooks.slack(request, {
+    waitUntil: (task) => after(() => task),
+  });
 }
 ```
 
