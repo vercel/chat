@@ -127,9 +127,13 @@ Set these through the environment (the CLI writes them for you) or pass them to 
 
 <TypeTable
   type={{
-    secretKey: {
+    apiKey: {
       type: "string",
-      description: "Novu API key. Authorizes replies and verifies the inbound HMAC. Set automatically by `npx novu connect`. Falls back to `NOVU_SECRET_KEY`.",
+      description: "Novu API key. Authorizes replies. Falls back to `NOVU_SECRET_KEY`, which `npx novu connect` sets automatically.",
+    },
+    bridgeSecret: {
+      type: "string",
+      description: "Secret used to verify inbound webhook signatures. Falls back to `NOVU_SECRET_KEY`, which `npx novu connect` sets automatically.",
     },
     agentIdentifier: {
       type: "string",
@@ -147,7 +151,7 @@ Set these through the environment (the CLI writes them for you) or pass them to 
 
 | Variable | Required | Description |
 | --- | --- | --- |
-| `NOVU_SECRET_KEY` | Yes, unless `secretKey` is passed | Novu API key. Authorizes replies and verifies the inbound HMAC. Set automatically by `npx novu connect`. |
+| `NOVU_SECRET_KEY` | Yes, unless both `apiKey` and `bridgeSecret` are passed | Novu API key. Authorizes replies and verifies the inbound HMAC. Set automatically by `npx novu connect`. |
 | `NOVU_AGENT_IDENTIFIER` | Yes, unless `agentIdentifier` is passed | Your bridge agent ID. Set automatically by `npx novu connect`. |
 | `NOVU_API_BASE_URL` | No | API base URL. Defaults to `https://api.novu.co`. |
 
