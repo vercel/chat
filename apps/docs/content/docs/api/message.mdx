@@ -31,7 +31,7 @@ import { Message } from "chat";
       type: 'string',
     },
     formatted: {
-      description: 'mdast AST representation — the canonical format for processing.',
+      description: 'mdast AST representation. This is the canonical format for processing.',
       type: 'Root',
     },
     raw: {
@@ -119,7 +119,7 @@ The detection logic varies by platform:
 | Google Chat | Checks `message.sender.name === botUserId`. The bot user ID is learned dynamically from message annotations when the bot is first @-mentioned. |
 
 <Callout type="info">
-All adapters return `false` if the bot ID isn't known yet. This is a safe default that prevents the bot from ignoring messages it should process.
+All adapters return `false` if the bot ID isn't known yet, so the bot doesn't ignore messages it should process.
 </Callout>
 
 ## MessageMetadata
@@ -222,7 +222,7 @@ When using [`toAiMessages()`](/docs/ai/to-ai-messages), link metadata is automat
 | Platform | Link extraction | `fetchMessage()` |
 |----------|----------------|-------------------|
 | Slack | URLs from `rich_text` blocks or `<url>` text patterns | Slack message links (`*.slack.com/archives/...`) |
-| Others | Not yet — `links` is always `[]` | — |
+| Others | Not supported yet; `links` is always `[]` | — |
 
 ## MessageSubject
 

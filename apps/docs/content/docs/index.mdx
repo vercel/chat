@@ -9,27 +9,25 @@ related:
   - /docs/ai
 ---
 
-Chat SDK is a TypeScript library for building chat bots that work across multiple platforms with a single codebase. Write your bot logic once and deploy it wherever you have an [adapter](/adapters).
+Chat SDK is a TypeScript library for building chat bots that run on multiple platforms from one codebase. You write the bot logic once and deploy it to any platform that has an [adapter](/adapters).
 
 ## Why Chat SDK?
 
-Building a chat bot that works across multiple platforms typically means maintaining separate codebases, learning different APIs, and handling platform-specific quirks individually. Chat SDK abstracts these differences behind a unified interface.
+Each chat platform has its own API, webhook format, and quirks, so supporting several of them usually means maintaining separate code for each. Chat SDK puts those differences behind adapters and gives you one interface for:
 
-- **Single codebase** for all platforms
-- **Type-safe** [adapters](/adapters) and event handlers with full TypeScript support
-- **Event-driven** architecture with handlers for mentions, messages, reactions, button clicks, slash commands, and modals
-- **Thread subscriptions** for multi-turn conversations
-- **Rich UI** with JSX cards, buttons, and modals that render natively on each platform
-- **AI streaming** with first-class support for streaming LLM responses
-- **Serverless-ready** with distributed state via Redis and message deduplication
+- Typed event handlers for mentions, messages, reactions, button clicks, slash commands, and modals
+- Thread subscriptions for multi-turn conversations
+- Cards, buttons, and modals written in JSX that render natively on each platform
+- Streaming LLM responses into a message
+- Serverless deployments, with distributed state in Redis and message deduplication
 
 ## How it works
 
 Chat SDK has three core concepts:
 
-1. **Chat** — the main entry point that coordinates [adapters](/adapters) and routes events to your handlers
-2. **[Adapters](/adapters)** — platform-specific implementations that handle webhook parsing, message formatting, and API calls
-3. **State** — a pluggable persistence layer for thread subscriptions and distributed locking
+1. `Chat` coordinates your adapters and routes incoming events to your handlers.
+2. [Adapters](/adapters) handle the platform-specific work: parsing webhooks, formatting messages, and calling the platform's API.
+3. State is a pluggable persistence layer for thread subscriptions and distributed locking.
 
 ```typescript title="lib/bot.ts" lineNumbers
 import { Chat } from "chat";
@@ -50,7 +48,7 @@ bot.onNewMention(async (thread) => {
 });
 ```
 
-Each adapter factory auto-detects credentials from environment variables (`SLACK_BOT_TOKEN`, `SLACK_SIGNING_SECRET`, `REDIS_URL`, etc.), so you can get started with zero config. Pass explicit values to override.
+Adapter and state factories read their credentials from environment variables such as `SLACK_BOT_TOKEN`, `SLACK_SIGNING_SECRET`, and `REDIS_URL`, so the example above passes no options. Pass explicit values to override them.
 
 ## Adapters
 
@@ -63,7 +61,7 @@ Install only the adapters you need. Browse the full catalog on the [Adapters](/a
 
 ## AI coding agents
 
-If you use an AI coding agent such as OpenAI Codex, Claude Code, or Cursor, install the Chat SDK skill so it knows the SDK APIs, adapter patterns, and project conventions before writing code.
+If you use an AI coding agent such as OpenAI Codex, Claude Code, or Cursor, install the Chat SDK skill so it knows the SDK's APIs, adapter patterns, and project conventions before it writes code.
 
 ```bash
 npx skills add vercel/chat
@@ -71,7 +69,7 @@ npx skills add vercel/chat
 
 The skill references bundled documentation in `node_modules/chat/docs`, plus adapter guides and starter templates in the published package.
 
-You can also install the [Vercel Plugin](https://vercel.com/plugin) for a broader agent toolkit. It includes the Chat SDK skill alongside specialist agents, slash commands, and more:
+You can also install the [Vercel Plugin](https://vercel.com/plugin) for a broader agent toolkit. It includes the Chat SDK skill along with specialist agents and slash commands:
 
 ```bash
 npx plugins add vercel/vercel-plugin

@@ -1,10 +1,10 @@
 ---
 title: Overview
-description: AI utilities that ship with Chat SDK — agent tools, message conversion, and supporting types.
+description: AI utilities that ship with Chat SDK, including agent tools, message conversion, and supporting types.
 type: overview
 ---
 
-The `chat/ai` subpath is the home for AI utilities that ship with Chat SDK. Bots built on the [AI SDK](https://ai-sdk.dev) import from `chat/ai`; bots built on [TanStack AI](https://tanstack.com/ai) import the equivalent helpers from `chat/ai/tanstack`.
+The `chat/ai` subpath contains the AI utilities that ship with Chat SDK. Bots built on the [AI SDK](https://ai-sdk.dev) import from `chat/ai`; bots built on [TanStack AI](https://tanstack.com/ai) import the equivalent helpers from `chat/ai/tanstack`.
 
 ```ts
 import { createChatTools, toAiMessages } from "chat/ai";
@@ -19,10 +19,10 @@ Add the optional peers if you don't already have them:
 
 | Page | What it gives you |
 |---|---|
-| [AI SDK Tools](/docs/ai/ai-sdk-tools) | `createChatTools` and standalone tool factories that let an agent post messages, send DMs, react, edit, delete, and manage subscriptions across every adapter your `Chat` instance has registered. Built-in approval gates and presets keep writes safe. |
+| [AI SDK Tools](/docs/ai/ai-sdk-tools) | `createChatTools` and standalone tool factories that let an agent post messages, send DMs, react, edit, delete, and manage subscriptions across every adapter your `Chat` instance has registered. Write tools and `getUser` require approval by default, and presets limit which tools the agent gets. |
 | [`toAiMessages`](/docs/ai/to-ai-messages) | Convert Chat SDK [`Message[]`](/docs/api/message) into the `{ role, content }[]` shape expected by AI SDK calls. Handles role mapping, attachments, links, sorting, and optional per-message transforms. |
 | [TanStack AI](/docs/ai/tanstack-ai) | `toTanStackMessages` and `createTanStackTools` from `chat/ai/tanstack`: the same history conversion and tools, shaped for `chat()` from `@tanstack/ai`. No runtime dependency on `@tanstack/ai`. |
-| [Types](/docs/ai/types) | Reference for every type exported from `chat/ai` — agent message shapes, tool option contracts, presets, approval config, and the binding type that ties tools to your `Chat` instance. |
+| [Types](/docs/ai/types) | Reference for the types exported from `chat/ai`: agent message shapes, tool option contracts, presets, approval config, and the binding type that ties tools to your `Chat` instance. |
 
 ## Typical flow
 
@@ -41,7 +41,7 @@ const agent = new ToolLoopAgent({
   tools: createChatTools({ chat, preset: "messenger", requireApproval: true }),
 });
 
-bot.onSubscribedMessage(async (thread) => {
+chat.onSubscribedMessage(async (thread) => {
   const { messages } = await thread.adapter.fetchMessages(thread.id, {
     limit: 20,
   });
@@ -52,14 +52,14 @@ bot.onSubscribedMessage(async (thread) => {
 ```
 
 1. [`toAiMessages`](/docs/ai/to-ai-messages) converts messages into an output compatible with AI SDK's `ModelMessage[]`.
-2. [`createChatTools`](/docs/ai/ai-sdk-tools) gives the agent pre-built and fully customizable AI SDK tools.
-3. The streamed response is rendered back into the thread via the standard [`thread.post(stream)`](/docs/streaming) flow.
+2. [`createChatTools`](/docs/ai/ai-sdk-tools) gives the agent AI SDK tools for acting in chat, which you can narrow with presets and customize per tool.
+3. [`thread.post(stream)`](/docs/streaming) renders the streamed response back into the thread.
 
 Using TanStack AI instead? The same flow works with `toTanStackMessages` and `createTanStackTools`; see [TanStack AI](/docs/ai/tanstack-ai) for the `chat()` version of this example.
 
 ## Backwards compatibility
 
-`toAiMessages` and the related `Ai*` types are still re-exported from the top-level `chat` package so older bots keep working. Those re-exports are now flagged with `@deprecated` JSDoc — your editor will surface a hint pointing at `chat/ai`. Migrating is a one-line import change:
+`toAiMessages` and the related `Ai*` types are still re-exported from the top-level `chat` package so older bots keep working. Those re-exports are marked `@deprecated` in JSDoc, so your editor shows a hint pointing at `chat/ai`. To migrate, change the import:
 
 ```diff
 - import { toAiMessages } from "chat";
@@ -68,6 +68,6 @@ Using TanStack AI instead? The same flow works with `toTanStackMessages` and `cr
 
 ## Resources
 
-- [Human-in-the-Loop with Chat SDK and Workflow SDK](https://vercel.com/kb/guide/human-in-the-loop-with-chat-sdk-and-workflow-sdk?utm_source=chat-sdk_site&utm_medium=docs&utm_campaign=ai&utm_content=human-in-the-loop-with-chat-sdk-and-workflow-sdk) — Pause durable workflows on Slack approval cards using Chat SDK and Workflow SDK. Uses `createWebhook` to suspend workflows until a button click, with patterns for multi-stage approvals, timeouts via durable sleep, and approver validation.
+- [Human-in-the-Loop with Chat SDK and Workflow SDK](https://vercel.com/kb/guide/human-in-the-loop-with-chat-sdk-and-workflow-sdk?utm_source=chat-sdk_site&utm_medium=docs&utm_campaign=ai&utm_content=human-in-the-loop-with-chat-sdk-and-workflow-sdk): pause durable workflows on Slack approval cards using Chat SDK and Workflow SDK. The guide uses `createWebhook` to suspend a workflow until a button click, with patterns for multi-stage approvals, timeouts via durable sleep, and approver validation.
 
 See all guides and templates on the [resources](/resources?utm_source=chat-sdk_site&utm_medium=docs&utm_campaign=ai&utm_content=resources) page.

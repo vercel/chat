@@ -4,7 +4,7 @@ description: API reference for the Chat SDK core package.
 type: overview
 ---
 
-Complete API reference for the `chat` package. All exports are available from the top-level import:
+API reference for the `chat` package. All exports are available from the top-level import:
 
 ```typescript
 import { Chat, root, paragraph, text, Card, Button, emoji } from "chat";
@@ -14,11 +14,11 @@ import { Chat, root, paragraph, text, Card, Button, emoji } from "chat";
 
 | Export | Description |
 |--------|-------------|
-| [`Chat`](/docs/api/chat) | Main class — registers adapters, event handlers, and webhook routing |
+| [`Chat`](/docs/api/chat) | Main class that registers adapters, event handlers, and webhook routing |
 | [`Thread`](/docs/api/thread) | Conversation thread with methods for posting, subscribing, and state |
-| [`Channel`](/docs/api/channel) | Channel/conversation container that holds threads |
+| [`Channel`](/docs/api/channel) | Channel or conversation container that holds threads |
 | [`Message`](/docs/api/message) | Normalized message with text, AST, author, and metadata |
-| [`ScheduledMessage`](/docs/api/thread#scheduledmessage) | Returned by `thread.schedule()` / `channel.schedule()` with `cancel()` |
+| [`ScheduledMessage`](/docs/api/thread#scheduledmessage) | Returned by `thread.schedule()` and `channel.schedule()`, with a `cancel()` method |
 
 ## Message formats
 
@@ -27,19 +27,19 @@ import { Chat, root, paragraph, text, Card, Button, emoji } from "chat";
 | [`PostableMessage`](/docs/api/postable-message) | Union type accepted by `thread.post()` |
 | [`Plan`](/docs/api/postable-message#plan) | Step-by-step task list that mutates after posting |
 | [`StreamingPlan`](/docs/api/postable-message#streamingplan) | Wraps an async iterable with platform-specific streaming options |
-| [`Cards`](/docs/api/cards) | Rich card components — `Card`, `Text`, `Button`, `Actions`, etc. |
-| [`Markdown`](/docs/api/markdown) | AST builder functions — `root`, `paragraph`, `text`, `strong`, etc. |
-| [`Modals`](/docs/api/modals) | Modal form components — `Modal`, `TextInput`, `Select`, etc. |
+| [`Cards`](/docs/api/cards) | Rich card components: `Card`, `Text`, `Button`, `Actions`, and more |
+| [`Markdown`](/docs/api/markdown) | AST builder functions: `root`, `paragraph`, `text`, `strong`, and more |
+| [`Modals`](/docs/api/modals) | Modal form components: `Modal`, `TextInput`, `Select`, and more |
 
 ## History
 
 | Export | Description |
 |--------|-------------|
-| [`bot.history.user`](/docs/api/history#bothistoryuser) | Cross-platform per-user message store — append, list, count, delete |
-| [`bot.history.thread`](/docs/api/history#bothistorythread) | Per-thread message reads — platform API with SDK cache fallback |
-| [`bot.history.channel`](/docs/api/history#bothistorychannel) | Per-channel reads — `listMessages`, `listThreads`, and related adapter APIs |
-| [`Transcripts`](/docs/api/transcripts) | Deprecated alias — use `bot.history.user` instead |
+| [`bot.history.user`](/docs/api/history#bothistoryuser) | Cross-platform per-user message store with append, list, count, and delete |
+| [`bot.history.thread`](/docs/api/history#bothistorythread) | Per-thread message reads from the platform API, with SDK cache fallback |
+| [`bot.history.channel`](/docs/api/history#bothistorychannel) | Per-channel reads through `listMessages`, `listThreads`, and related adapter APIs |
+| [`Transcripts`](/docs/api/transcripts) | Deprecated alias for `bot.history.user` |
 
 ## AI utilities
 
-`toAiMessages`, `createChatTools`, and the supporting types live in the [`chat/ai`](/docs/ai) subpath — see the [AI section](/docs/ai) for the full reference.
+`toAiMessages`, `createChatTools`, and the supporting types live in the [`chat/ai`](/docs/ai) subpath. See the [AI section](/docs/ai) for the full reference.

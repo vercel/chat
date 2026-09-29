@@ -145,7 +145,7 @@ Write tools and `getUser` default to `needsApproval: true`, matching `createChat
 
 ### Scope
 
-`scope` and `strictScope` behave exactly as they do for `createChatTools`: tools built inside a handler are confined to that conversation, calls that resolve outside it are rejected before the platform is called, and `getUser` and `sendDirectMessage` are exempt because they target user ids rather than conversations. Read [Limiting what the agent can reach](/docs/ai/ai-sdk-tools#limiting-what-the-agent-can-reach) for the full model, including what `scope` does not check.
+`scope` and `strictScope` behave the same as they do for `createChatTools`: tools built inside a handler are confined to that conversation, calls that resolve outside it are rejected before the platform is called, and `getUser` and `sendDirectMessage` are exempt because they target user ids rather than conversations. Read [Limiting what the agent can reach](/docs/ai/ai-sdk-tools#limiting-what-the-agent-can-reach) for the full model, including what `scope` does not check.
 
 ## Differences from the AI SDK helpers
 
@@ -154,14 +154,14 @@ Write tools and `getUser` default to `needsApproval: true`, matching `createChat
 | Tools return type | Object keyed by tool name, spread into `tools` | Array of tool objects, passed as `tools` |
 | Tool overrides | The `ToolOverrides` keys: `description`, `title`, `needsApproval`, `metadata`, `providerOptions`, `strict`, `inputExamples`, `toModelOutput`, and the `onInput*` hooks | `description`, `needsApproval`, `metadata`, `lazy` only |
 | Text file attachments | `file` parts with base64 data | Inlined into the message text as `[File: name (mime)]` blocks |
-| Image attachments | `image` parts with `image` and `mediaType` | `image` parts with `source: { type: "data", value, mimeType }` |
+| Image attachments | `file` parts with `data` and `mediaType` | `image` parts with `source: { type: "data", value, mimeType }` |
 | System prompt | A `system` message or the call's `system` option | `chat({ systemPrompts })` only; there is no system role |
 | zod requirement | Any version the AI SDK accepts | 4.2 or newer for `createTanStackTools` |
 | Approval flow | The AI SDK surfaces an approval request your app confirms | `chat()` pauses with an interrupt you resume via `resume` and `parentRunId` |
 
 ## Types
 
-Everything below is exported from `chat/ai/tanstack`. The tool option types (`ChatToolName`, `ChatToolPreset`, `ChatWriteToolName`, `ChatApprovalToolName`, `ApprovalConfig`, `ReadScope`, `ChatBinding`) are the same types documented on the [Types](/docs/ai/types) page, re-exported for convenience.
+Everything below is exported from `chat/ai/tanstack`. The subpath also re-exports the tool option types `ChatToolName`, `ChatToolPreset`, `ChatWriteToolName`, `ChatApprovalToolName`, `ApprovalConfig`, `ReadScope`, and `ChatBinding` from `chat/ai` unchanged; see the [Types](/docs/ai/types) page.
 
 ```typescript
 type TanStackMessage = TanStackUserMessage | TanStackAssistantMessage;

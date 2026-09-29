@@ -1,6 +1,6 @@
 ---
 title: State Adapters
-description: Pluggable state adapters for thread subscriptions, distributed locking, and caching.
+description: State adapters store thread subscriptions, distributed locks, and cached data for your bot.
 type: overview
 prerequisites:
   - /docs/getting-started
@@ -10,19 +10,21 @@ related:
   - /docs/testing
 ---
 
-State adapters handle persistent storage for thread subscriptions, distributed locks (to prevent duplicate processing), and caching. You must provide a state adapter when creating a `Chat` instance. Browse all available state adapters on the [Adapters](/adapters) page.
+State adapters store thread subscriptions, distributed locks, and cached data. Every `Chat` instance needs one. Browse the available state adapters on the [Adapters](/adapters) page.
 
 ## What state adapters manage
 
 ### Thread subscriptions
 
-When your bot calls `thread.subscribe()`, the state adapter persists that subscription. On subsequent webhooks, the SDK checks subscriptions to route messages to `onSubscribedMessage` handlers. With a production adapter, subscriptions survive restarts and work across multiple instances.
+When your bot calls `thread.subscribe()`, the state adapter persists that subscription. On later webhooks, the SDK checks it to route messages to `onSubscribedMessage`. With a production adapter such as Redis or PostgreSQL, subscriptions survive restarts and are shared across instances.
 
 ### Distributed locking
 
-When a webhook arrives, the SDK acquires a lock on the thread to prevent duplicate processing. This is critical for serverless deployments where multiple instances may receive the same event.
+When a message arrives, the SDK acquires a lock on its thread, or on its channel for adapters that lock per channel, such as WhatsApp and Telegram. The lock stops two handlers from processing messages in the same thread at once, even when your bot runs on several serverless instances.
 
-By default, if a lock is already held, the incoming message is dropped with a `LockError`. For long-running handlers (e.g. AI agent streaming), you can configure `onLockConflict: 'force'` to force-release the existing lock and allow the new message through:
+The `concurrency` option decides what happens when the lock is already held. By default, the new message is dropped with a `LockError`. You can also queue it, debounce a burst of messages, or skip locking entirely. See [Concurrency](/docs/concurrency) for the strategies and for [lock scope](/docs/concurrency#lock-scope).
+
+The deprecated `onLockConflict` option still works under the default `drop` strategy. Set it to `'force'` to release the held lock and let the new message through, for example so a new message can interrupt a long-running AI response:
 
 ```typescript
 const chat = new Chat({
@@ -33,7 +35,7 @@ const chat = new Chat({
 });
 ```
 
-You can also pass a callback for custom logic:
+You can also pass a callback that decides per message:
 
 ```typescript
 onLockConflict: (threadId, message) => {
@@ -41,13 +43,14 @@ onLockConflict: (threadId, message) => {
 }
 ```
 
-Note that force-releasing a lock does not cancel the previous handler — it continues running. Only the lock is released, so two handlers may briefly run concurrently on the same thread.
+Force-releasing a lock doesn't cancel the previous handler. It keeps running without the lock, so two handlers can briefly run on the same thread at the same time.
 
-### Caching
+### Caching and storage
 
-State adapters provide key-value storage with TTL for thread state (`thread.setState()`), message deduplication, and other internal caching.
+State adapters also provide key-value storage with a TTL. The SDK uses it for thread and channel state (`thread.setState()`), for message deduplication, which ignores webhooks a platform delivers more than once, and for internal caches. Lists back the [History API](/docs/history), and queues back the `queue`, `debounce`, and `burst` concurrency strategies.
+
+To build your own state adapter, implement the `StateAdapter` interface exported from `chat`. The `@chat-adapter/state-memory` package is a small implementation you can use as a reference.
 
 <Cards>
-  <Card title="Build an adapter" description="Implement a state adapter for subscriptions, locks, and caching." href="/docs/contributing/building" />
   <Card title="List a vendor-official adapter" description="How platform vendors qualify and list a maintained adapter in the Vendor Official tier." href="/docs/contributing/vendor-official" />
 </Cards>

@@ -12,7 +12,7 @@ related:
   - /docs/ephemeral-messages
 ---
 
-Slash commands let users invoke your bot with `/command` syntax. Register handlers with `onSlashCommand` to respond.
+Slash commands let users invoke your bot with `/command` syntax. Register handlers with `onSlashCommand` to respond to them.
 
 Slash commands are supported on [Slack](/adapters/official/slack), [Discord](/adapters/official/discord), and [Telegram](/adapters/official/telegram).
 
@@ -122,7 +122,7 @@ Telegram supports bot commands such as `/status` and `/status@mybot`. Register h
 
 ## Discord
 
-Discord slash commands are received via [HTTP Interactions](/adapters/official/discord#http-interactions-vs-gateway) — no Gateway connection is needed. The adapter automatically sends a deferred response to Discord, then resolves it when your handler calls `event.channel.post()`.
+Discord slash commands arrive through [HTTP Interactions](/adapters/official/discord#http-interactions-vs-gateway), so no Gateway connection is needed. The adapter sends Discord a deferred response, then resolves it when your handler calls `event.channel.post()`.
 
 To make selected Discord slash command responses ephemeral, return `DiscordInteractionResponseFlag.Ephemeral` from the Discord adapter's [`interactionFlags` option](/adapters/official/discord#interaction-flags).
 
@@ -136,7 +136,7 @@ Discord supports subcommand groups and subcommands. The adapter flattens these i
 | `/project create --name="Acme"` | `/project create` | `Acme` |
 | `/project issue list --status="open"` | `/project issue list` | `open` |
 
-For full option details (names, types), use `event.raw` to access the original Discord interaction payload.
+For full option details such as names and types, read the original Discord interaction payload from `event.raw`.
 
 ### Registering commands with Discord
 

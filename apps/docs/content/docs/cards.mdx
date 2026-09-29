@@ -11,7 +11,7 @@ related:
   - /docs/emoji
 ---
 
-Cards let you send structured, interactive messages that render natively on each platform — Block Kit on Slack, Adaptive Cards on Teams, Discord embeds or Components, and Google Chat Cards.
+Cards are structured, interactive messages that each adapter renders in its platform's native format: Block Kit on Slack, Adaptive Cards on Teams, embeds or Components on Discord, and Cards on Google Chat.
 
 ## Setup
 
@@ -119,7 +119,7 @@ The `id` maps to your `onAction` handler. Optional `value` passes extra data:
 <Button id="report" value="bug">Report Bug</Button>
 ```
 
-Set `actionType="modal"` to indicate the button opens a [modal](/docs/modals). The button still triggers your `onAction` handler, where you call `event.openModal()` — this prop tells adapters like Teams to wire up the button for dialog opening:
+Set `actionType="modal"` to indicate the button opens a [modal](/docs/modals). The button still triggers your `onAction` handler, where you call `event.openModal()`. The prop tells adapters such as Teams to wire the button up to open a dialog:
 
 ```tsx title="lib/bot.tsx"
 <Button id="open-feedback" actionType="modal">Give Feedback</Button>
@@ -139,7 +139,7 @@ Optional `tooltip` is hover text for the button. Teams renders it; other adapter
 
 ### CardLink
 
-Inline hyperlink rendered as text. Unlike `LinkButton` (which must be inside `Actions`), `CardLink` can be placed directly in a card alongside other content.
+Inline hyperlink rendered as text. `LinkButton` must be inside `Actions`, but you can place `CardLink` directly in a card alongside other content.
 
 ```tsx title="lib/bot.tsx"
 <CardLink url="https://example.com/order/1234" label="View order details" />

@@ -3,13 +3,13 @@ title: History
 description: Store and retrieve message history across user, thread, and channel scopes.
 type: guide
 prerequisites:
-  - /docs/state
+  - /docs/state-adapters
 related:
   - /docs/handling-events
   - /docs/api/history
 ---
 
-The History API gives you three scopes for reading and persisting message history — keyed by user, thread, or channel. The **user** scope is stored in your state adapter; **thread** history uses platform APIs with an optional state-backed cache; **channel** history reads from the platform via adapter methods.
+The History API reads and persists message history in three scopes, keyed by user, thread, or channel. The user scope is stored in your state adapter. Thread history comes from platform APIs, with an optional cache in the state adapter. Channel history reads from the platform through adapter methods.
 
 | Scope | Access | Keyed by | Typical use |
 |-------|--------|----------|-------------|
@@ -23,7 +23,7 @@ The History API gives you three scopes for reading and persisting message histor
 
 ## Setup
 
-All three scopes are available once you configure a state adapter and — for the user scope — an `identity` resolver:
+All three scopes are available once you configure a state adapter. The user scope also needs an `identity` resolver:
 
 ```typescript title="lib/bot.ts" lineNumbers
 import { Chat } from "chat";
@@ -41,7 +41,7 @@ const bot = new Chat({
 
   history: {
     user: {
-      // Required — maps each inbound message to a stable cross-platform key.
+      // Required. Maps each inbound message to a stable cross-platform key.
       // Return null to skip persistence for that message.
       identity: ({ author }) => author.email ?? null,
 
@@ -53,11 +53,11 @@ const bot = new Chat({
 });
 ```
 
-`history.user` requires an identity resolver — set `history.user.identity`, or keep the deprecated top-level `identity` field during migration. Omitting both when `history.user` (or legacy `transcripts`) is set throws at construction.
+`history.user` requires an identity resolver. Set `history.user.identity`, or keep the deprecated top-level `identity` field during migration. Omitting both when `history.user` (or legacy `transcripts`) is set throws at construction.
 
 Set `history.user.maxPerUser: false` to disable count-based eviction. Omit `retention` as well to keep entries without a TTL. The state adapter must use durable storage to retain history across restarts. The legacy `transcripts.maxPerUser` field also accepts `false`.
 
-Thread and channel scopes are always available on `bot.history`. The **thread cache** (for adapters with `persistThreadHistory: true`, e.g. Telegram and WhatsApp) is tuned via `history.thread`:
+Thread and channel scopes are always available on `bot.history`. Use `history.thread` to tune the thread cache, which is used by adapters with `persistThreadHistory: true` such as Telegram and WhatsApp:
 
 ```typescript
 const bot = new Chat({
@@ -77,7 +77,7 @@ const bot = new Chat({
 
 ### Building LLM context
 
-The most common pattern: append the user's message, build a prompt from recent history, post the reply, then append the reply.
+The most common pattern is to append the user's message, build a prompt from recent history, post the reply, and then append the reply.
 
 ```typescript title="lib/bot.ts" lineNumbers
 bot.onSubscribedMessage(async (thread, msg) => {
@@ -99,11 +99,11 @@ bot.onSubscribedMessage(async (thread, msg) => {
 });
 ```
 
-Key things to know:
+A few details about this pattern:
 
-- **`msg.userKey`** is set automatically by the SDK from your `identity` resolver before your handler runs. If the resolver returned `null`, it remains `undefined` and `append` is a no-op.
-- **Bot replies are explicit.** The SDK does not auto-capture `thread.post()` output — you decide what gets persisted. This matters for retries and intermediate streaming chunks.
-- **Order is chronological.** `list` returns oldest-first, ready to feed into a model. Use `limit` to keep prompts bounded.
+- The SDK sets `msg.userKey` from your `identity` resolver before your handler runs. If the resolver returned `null`, `msg.userKey` stays `undefined` and `append` does nothing.
+- Bot replies are stored only when you append them. The SDK does not capture `thread.post()` output, so you decide what gets persisted. That matters for retries and intermediate streaming chunks.
+- `list` returns entries oldest first, the order a model expects. Use `limit` to keep prompts bounded.
 
 ### Filtering entries
 
@@ -136,17 +136,18 @@ await bot.history.user.delete({ userKey: "mike@acme.com" });
 // → { deleted: 47 }
 ```
 
-This wipes every entry stored under the key. Single-entry and time-range deletes are not supported — the underlying `appendToList` primitive cannot support them safely under concurrent writes.
+This deletes every entry stored under the key. Single-entry and time-range deletes are not supported, because the underlying `appendToList` primitive can't do them safely under concurrent writes.
 
 ## Thread history
 
-`bot.history.thread` caches messages per thread. It is used internally by adapters that lack server-side message history APIs and set `persistThreadHistory: true` (Telegram, WhatsApp). For those adapters, reads are served from the cache; for everything else, the platform response is authoritative.
+`bot.history.thread` reads thread messages through `adapter.fetchMessages` and keeps a per-thread cache for adapters that lack server-side message history APIs and set `persistThreadHistory: true`, such as Telegram and WhatsApp. For those adapters, `list()` falls back to the cache when the adapter returns an empty first page. For every other adapter, the platform response is authoritative.
 
 ```typescript title="lib/bot.ts" lineNumbers
 bot.onSubscribedMessage(async (thread, message) => {
-  // bot.history.thread.list() handles both cases — it delegates to
+  // bot.history.thread.list() handles both cases: it delegates to
   // adapter.fetchMessages, and on adapters that persist history in the
-  // SDK-maintained cache (persistThreadHistory) serves it from there.
+  // SDK-maintained cache (persistThreadHistory) falls back to that cache
+  // when the adapter returns an empty first page.
   const { messages } = await bot.history.thread.list(thread.id, { limit: 20 });
 
   const reply = await generateReply(messages, message);
@@ -160,7 +161,7 @@ bot.onSubscribedMessage(async (thread, message) => {
 
 ## Channel history
 
-`bot.history.channel` provides channel-level reads: top-level messages and thread listings. It delegates to the adapter — methods throw when the adapter doesn't implement the underlying capability (for example, `listThreads` on WhatsApp).
+`bot.history.channel` reads top-level channel messages and lists threads. It delegates to the adapter, and its methods throw when the adapter doesn't implement the underlying capability, such as `listThreads` on WhatsApp.
 
 ```typescript title="lib/bot.ts" lineNumbers
 bot.onSubscribedMessage(async (thread, message) => {
@@ -198,13 +199,13 @@ history: {
 }
 ```
 
-Return `null` when you cannot resolve a key. The SDK will not fall back to a platform-specific ID — that would silently fragment a user's history across platforms.
+Return `null` when you can't resolve a key. The SDK won't fall back to a platform-specific ID, because that would split a user's history across platforms without any warning.
 
 If the resolver throws, the SDK logs a warning and dispatches the message without a `userKey`. Handlers still run; only the persistence is skipped.
 
 ## Migrating from `bot.transcripts`
 
-`bot.transcripts` is deprecated in favour of `bot.history.user`. The API surface is identical — rename the config key and the call site:
+`bot.transcripts` is deprecated in favor of `bot.history.user`. The API is identical, so you rename the config key and the call sites:
 
 ```typescript
 // Before
@@ -217,7 +218,7 @@ await bot.transcripts.append(thread, msg);
 const entries = await bot.transcripts.list({ userKey, limit: 20 });
 await bot.transcripts.delete({ userKey });
 
-// After — identity on history.user (top-level identity still works during migration)
+// After: identity on history.user (top-level identity still works during migration)
 const bot = new Chat({
   history: {
     user: {
@@ -239,7 +240,7 @@ You can migrate one field at a time: when both `history.user` and the legacy `tr
 
 ## Storage
 
-User and thread **cache** scopes use `StateAdapter.appendToList` / `getList`. Channel scope reads from platform APIs and is not persisted in state by default.
+The user scope and the thread cache use `StateAdapter.appendToList` and `getList`. Channel scope reads from platform APIs and is not persisted in state by default.
 
 | Scope | Storage / source | Key or API |
 |-------|------------------|------------|
@@ -247,9 +248,9 @@ User and thread **cache** scopes use `StateAdapter.appendToList` / `getList`. Ch
 | Thread cache | State adapter (when `persistThreadHistory: true`) | `msg-history:{threadId}` |
 | Thread / channel reads | Platform adapter | `adapter.fetchMessages`, `fetchChannelMessages`, `listThreads` |
 
-On channel-scoped platforms (WhatsApp, Telegram), inbound messages may also be appended under `msg-history:{channelId}` so channel-level iteration can fall back to the cache.
+On channel-scoped platforms such as WhatsApp and Telegram, inbound messages may also be appended under `msg-history:{channelId}`. `bot.history.channel.listMessages` reads from that cache only when the adapter doesn't implement `fetchChannelMessages`.
 
-Appends to user/thread cache keys are atomic, so concurrent inbound messages on the same key don't race.
+Appends to user and thread cache keys are atomic, so concurrent inbound messages on the same key don't race.
 
 ## Reference
 

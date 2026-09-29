@@ -1,6 +1,6 @@
 ---
 title: History
-description: API reference for bot.history — user, thread, and channel scopes.
+description: API reference for bot.history, covering the user, thread, and channel scopes.
 type: reference
 ---
 
@@ -133,7 +133,7 @@ When `message` is a `Message`, `userKey` is read from the instance (set automati
 
 ### list
 
-Returns entries in chronological order (oldest first). When `limit` is set, returns the newest `N` entries — still chronologically ordered.
+Returns entries in chronological order (oldest first). When `limit` is set, returns the newest `N` entries, still in chronological order.
 
 ```typescript
 list(query: ListQuery): Promise<HistoryEntry[]>;
@@ -187,7 +187,7 @@ Wipes every entry stored under the user key. Returns the count that was removed.
 
 ## bot.history.thread
 
-Per-thread message history. Always available — delegates to the adapter's `fetchMessages`. For adapters that persist history in the SDK-maintained `ThreadHistoryCache` (`persistThreadHistory: true`, e.g. Telegram, WhatsApp), an empty platform response falls back to that cache. Every method throws when the adapter named in the thread ID prefix is not registered, so a typo'd ID fails loudly instead of reading as an empty thread.
+Per-thread message history. Always available, and delegates to the adapter's `fetchMessages`. For adapters that persist history in the SDK-maintained `ThreadHistoryCache` (`persistThreadHistory: true`, e.g. Telegram, WhatsApp), an empty platform response falls back to that cache. Every method throws when the adapter named in the thread ID prefix is not registered, so a typo'd ID fails loudly instead of reading as an empty thread.
 
 ### list
 
@@ -195,7 +195,7 @@ Per-thread message history. Always available — delegates to the adapter's `fet
 list(threadId: string, options?: FetchOptions): Promise<FetchResult>;
 ```
 
-Fetches messages from a thread. Delegates to `adapter.fetchMessages`. On adapters with `persistThreadHistory: true`, an empty first page is served from the SDK-side cache instead (never a continuation page — passing a `cursor` always returns the adapter's response as-is). The cache honors `direction`: the newest `limit` messages by default, the oldest `limit` with `direction: "forward"`.
+Fetches messages from a thread. Delegates to `adapter.fetchMessages`. On adapters with `persistThreadHistory: true`, an empty first page is served from the SDK-side cache instead. Continuation pages never fall back: when you pass a `cursor`, you get the adapter's response as-is. The cache honors `direction`: the newest `limit` messages by default, the oldest `limit` with `direction: "forward"`.
 
 #### FetchOptions
 
@@ -251,13 +251,13 @@ for await (const msg of bot.history.thread.collect(thread.id, { limit: 50 })) {
 append(threadId: string, message: Message): Promise<void>;
 ```
 
-Atomically appends a message to the SDK-side thread cache. Called automatically by the SDK on adapters where `persistThreadHistory` is `true`. You can call this manually to warm the cache, but under normal circumstances you won't need to.
+Atomically appends a message to the SDK-side thread cache. Called automatically by the SDK on adapters where `persistThreadHistory` is `true`. You can call it manually to warm the cache, but you normally won't need to.
 
 ---
 
 ## bot.history.channel
 
-Channel-level history. Always available — delegates all operations to the appropriate adapter resolved from the channel ID prefix. Individual methods throw when the adapter does not implement the underlying capability.
+Channel-level history. Always available, and delegates every operation to the adapter named in the channel ID prefix. Individual methods throw when the adapter does not implement the underlying capability.
 
 ### listMessages
 
@@ -265,7 +265,7 @@ Channel-level history. Always available — delegates all operations to the appr
 listMessages(channelId: string, options?: FetchOptions): Promise<FetchResult>;
 ```
 
-Fetches top-level messages in a channel (not thread replies). Delegates to `adapter.fetchChannelMessages`. Adapters that persist history in the SDK-side store (`persistThreadHistory: true`) are served from the channel-keyed cache instead. Throws when the adapter supports neither.
+Fetches top-level messages in a channel (not thread replies). Delegates to `adapter.fetchChannelMessages`. If the adapter doesn't implement it but persists history in the SDK-side store (`persistThreadHistory: true`), messages are served from the channel-keyed cache. Throws when the adapter supports neither.
 
 ### listThreads
 
@@ -320,7 +320,7 @@ Convenience helper: lists up to `maxThreads` (default 5) threads, then fetches `
 
 ## HistoryEntry
 
-Returned by `bot.history.user.append` and `bot.history.user.list`. Exported as `HistoryEntry` (canonical) and `TranscriptEntry` (deprecated alias — both available from `chat`).
+Returned by `bot.history.user.append` and `bot.history.user.list`. Exported from `chat` as `HistoryEntry` (canonical) and `TranscriptEntry` (deprecated alias).
 
 <TypeTable
   type={{
@@ -337,7 +337,7 @@ Returned by `bot.history.user.append` and `bot.history.user.list`. Exported as `
       type: '"user" | "assistant" | "system"',
     },
     text: {
-      description: 'Plain-text body — canonical for prompt building.',
+      description: 'Plain-text body. Use this field when building prompts.',
       type: 'string',
     },
     formatted: {
@@ -403,7 +403,7 @@ const { text } = await generateText({
 | `bot.history.user` | `transcripts:user:{userKey}` | Backed by `StateAdapter.appendToList` |
 | `bot.history.thread` (cache) | `msg-history:{threadId}` | Only populated when `persistThreadHistory: true` |
 
-Appends are atomic — concurrent inbound messages on the same key don't race.
+Appends are atomic, so concurrent inbound messages on the same key don't race.
 
 ## Deprecated aliases
 

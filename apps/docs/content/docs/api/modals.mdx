@@ -6,7 +6,7 @@ related:
   - /docs/modals
 ---
 
-Modals display form dialogs that collect structured user input. Currently supported on Slack and Teams.
+Modals display form dialogs that collect structured user input. Modals are currently supported on Slack and Teams.
 
 ```typescript
 import {
@@ -15,6 +15,7 @@ import {
   DateInput,
   NumberInput,
   Select,
+  ExternalSelect,
   RadioSelect,
   SelectOption,
 } from "chat";
@@ -102,7 +103,7 @@ TextInput({
 <TypeTable
   type={{
     id: {
-      description: 'Input ID — used as the key in event.values.',
+      description: 'Input ID, used as the key in event.values.',
       type: 'string',
     },
     label: {
@@ -136,7 +137,7 @@ TextInput({
 
 ## DateInput
 
-A date picker — a Slack `datepicker`, an Adaptive Card `Input.Date` on Teams.
+A date picker. Renders a Slack `datepicker` and an Adaptive Card `Input.Date` on Teams.
 
 ```typescript
 DateInput({
@@ -150,7 +151,7 @@ DateInput({
 <TypeTable
   type={{
     id: {
-      description: 'Input ID — used as the key in event.values.',
+      description: 'Input ID, used as the key in event.values.',
       type: 'string',
     },
     label: {
@@ -173,11 +174,11 @@ DateInput({
   }}
 />
 
-The submitted value arrives in `event.values` as an ISO `YYYY-MM-DD` string. An `initialValue` that is not a valid `YYYY-MM-DD` date is ignored with a warning — Slack rejects a malformed `initial_date` by failing the whole modal, so it is dropped rather than forwarded.
+The submitted value arrives in `event.values` as an ISO `YYYY-MM-DD` string. An `initialValue` that is not a valid `YYYY-MM-DD` date is dropped with a warning rather than forwarded, because Slack rejects a malformed `initial_date` by failing the whole modal.
 
 ## NumberInput
 
-A numeric input — a Slack `number_input`, an Adaptive Card `Input.Number` on Teams.
+A numeric input. Renders a Slack `number_input` and an Adaptive Card `Input.Number` on Teams.
 
 ```typescript
 NumberInput({
@@ -191,7 +192,7 @@ NumberInput({
 <TypeTable
   type={{
     id: {
-      description: 'Input ID — used as the key in event.values.',
+      description: 'Input ID, used as the key in event.values.',
       type: 'string',
     },
     label: {
@@ -227,7 +228,7 @@ NumberInput({
   }}
 />
 
-Values in `event.values` are always strings — parse with `Number(...)` when you need a number.
+Values in `event.values` are always strings. Parse with `Number(...)` when you need a number.
 
 ## Select
 
@@ -249,7 +250,7 @@ Select({
 <TypeTable
   type={{
     id: {
-      description: 'Input ID — used as the key in event.values.',
+      description: 'Input ID, used as the key in event.values.',
       type: 'string',
     },
     label: {
@@ -298,7 +299,7 @@ ExternalSelect({
 <TypeTable
   type={{
     id: {
-      description: 'Input ID — used as the key in event.values.',
+      description: 'Input ID, used as the key in event.values.',
       type: 'string',
     },
     label: {
@@ -314,7 +315,7 @@ ExternalSelect({
       type: 'number',
     },
     initialOption: {
-      description: 'Pre-selected option when the modal opens. Unlike static Select where initialOption is a value string, ExternalSelect needs the full label/value object since the loader has not run yet.',
+      description: 'Pre-selected option when the modal opens. Unlike static Select where initialOption is a value string, ExternalSelect needs the full label/value object because the loader has not run yet.',
       type: '{ label: string, value: string }',
     },
     optional: {
@@ -380,5 +381,5 @@ The `children` array in `Modal` accepts these element types:
 | `NumberInputElement` | `NumberInput()` |
 | `SelectElement` | `Select()` |
 | `RadioSelectElement` | `RadioSelect()` |
-| `TextElement` | `Text()` — static text content |
-| `FieldsElement` | `Fields()` — key-value display |
+| `TextElement` | `Text()`, for static text content |
+| `FieldsElement` | `Fields()`, for key-value display |

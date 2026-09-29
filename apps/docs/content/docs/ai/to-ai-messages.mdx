@@ -23,8 +23,8 @@ import { toAiMessages } from "chat/ai";
 
 <Callout>
   `toAiMessages` is also re-exported from the main `chat` entrypoint
-  for backwards compatibility (with a `@deprecated` JSDoc hint), but
-  new code should import it from [`chat/ai`](/docs/ai) alongside
+  for backwards compatibility and marked `@deprecated` in JSDoc. New
+  code should import it from [`chat/ai`](/docs/ai) alongside
   [`createChatTools`](/docs/ai/ai-sdk-tools) and the rest of the AI
   utilities.
 </Callout>
@@ -90,15 +90,15 @@ function toAiMessages(
 
 ### Returns
 
-`Promise<AiMessage[]>` — an array of messages with `role` and `content` fields, directly assignable to AI SDK's `ModelMessage[]`.
+`Promise<AiMessage[]>`: an array of messages with `role` and `content` fields, assignable to AI SDK's `ModelMessage[]`.
 
 ## Behavior
 
-- **Role mapping** — `author.isMe === true` maps to `"assistant"`, all others to `"user"`
-- **Filtering** — A message with no text is kept when it has links or attachments the converter can include: images and text files with a working `fetchData()`. Messages with no text whose only attachments are unsupported (video, audio, other file types, or missing `fetchData()`) are removed. Attachment-only messages produce multipart `content` with no leading text part
-- **Sorting** — Messages are sorted chronologically (oldest first) by `metadata.dateSent`
-- **Links** — Link metadata (URL, title, description, site name) is appended to message content. Third-party title, description, and site-name fields are normalized, length-limited, escaped, and enclosed in an explicit untrusted-content fence. Embedded message links are labeled as `[Embedded message: ...]`
-- **Attachments** — Images and text files (JSON, XML, YAML, etc.) are included as multipart content using `fetchData()`. When the message has no text, the `content` array contains only attachment parts, with no leading text part. Video and audio attachments trigger `onUnsupportedAttachment`
+- Role mapping: messages with `author.isMe === true` become `"assistant"`, and all others become `"user"`.
+- Filtering: a message with no text is kept when it has links or attachments the converter can include, meaning images and text files with a working `fetchData()`. Messages with no text whose only attachments are unsupported (video, audio, other file types, or missing `fetchData()`) are removed.
+- Sorting: messages are sorted oldest first by `metadata.dateSent`.
+- Links: link metadata (URL, title, description, site name) is appended to the message content. Third-party title, description, and site-name fields are normalized, length-limited, escaped, and enclosed in an explicit untrusted-content fence. Embedded message links are labeled `[Embedded message: ...]`.
+- Attachments: images and text files (JSON, XML, YAML, and similar) are fetched with `fetchData()` and included as multipart content. When the message has no text, the `content` array contains only attachment parts, with no leading text part. Video and audio attachments trigger `onUnsupportedAttachment`.
 
 ## Return types
 
@@ -144,7 +144,7 @@ interface AiFilePart {
 
 ### Multi-user context
 
-Prefix each user message with their username so the AI model can distinguish speakers:
+Prefix each user message with the sender's username so the model can tell speakers apart:
 
 ```typescript
 const history = await toAiMessages(result.messages, { includeNames: true });

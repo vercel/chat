@@ -8,7 +8,7 @@ prerequisites:
 
 Adapters connect Chat SDK to messaging platforms and state backends. Install only the adapters you need, then register them on your `Chat` instance.
 
-### Adapter tiers
+## Adapter tiers
 
 | Tier | Who maintains it |
 |------|------------------|
@@ -16,12 +16,12 @@ Adapters connect Chat SDK to messaging platforms and state backends. Install onl
 | Vendor-official | The platform vendor |
 | Community | Third-party developers |
 
-Browse all three on the [Adapters](/adapters) listing page. To ship your own, start with [Building an adapter](/docs/contributing/building), then list as [community](/docs/contributing/publishing#listing-on-chat-sdkdev) or [vendor-official](/docs/contributing/vendor-official).
+Browse all three tiers on the [Adapters](/adapters) listing page. To ship your own, start with [Building an adapter](/docs/contributing/building), then list it as a [community](/docs/contributing/publishing#listing-on-chat-sdkdev) or [vendor-official](/docs/contributing/vendor-official) adapter.
 
-Use the dedicated guides for adapter-specific concepts:
+Each kind of adapter has its own guide:
 
-- [Platform Adapters](/docs/platform-adapters) cover webhook verification, message parsing, API calls, feature support, and multi-platform bots.
-- [State Adapters](/docs/state-adapters) cover subscriptions, distributed locking, and caching.
+- [Platform Adapters](/docs/platform-adapters) covers webhook verification, message parsing, feature support by platform, and bots that run on several platforms.
+- [State Adapters](/docs/state-adapters) covers subscriptions, distributed locking, and caching.
 
 ## Adapter catalog (`chat/adapters`)
 
@@ -47,20 +47,20 @@ const secrets = getSecretEnvVars("slack").map((envVar) => envVar.key);
 console.log(slack.name, secrets);
 ```
 
-The catalog intentionally covers official and vendor-official adapters. Community adapters live on the [Adapters](/adapters) listing page.
+Community adapters aren't in the catalog. Find them on the [Adapters](/adapters) listing page.
 
 ### Environment specs
 
 Each adapter entry includes an `env` spec:
 
 - `required` lists variables needed regardless of auth mode.
-- `credentialModes` groups mutually exclusive ways to authenticate, such as a bot token vs OAuth client credentials.
+- `credentialModes` groups mutually exclusive ways to authenticate, such as a bot token or OAuth client credentials.
 - `optional` lists tuning variables that are safe to omit.
 - `config` lists constructor options that do not have an environment-variable equivalent.
 
 ### Types
 
-The main `CatalogAdapter` metadata shape is:
+Each catalog entry is a `CatalogAdapter`:
 
 <TypeTable
   type={{
@@ -78,7 +78,7 @@ The main `CatalogAdapter` metadata shape is:
     },
     packageName: {
       type: "string",
-      description: "NPM package that provides the adapter implementation.",
+      description: "npm package that provides the adapter implementation.",
     },
     type: {
       type: '"platform" | "state"',
@@ -98,6 +98,8 @@ The main `CatalogAdapter` metadata shape is:
     },
   }}
 />
+
+`AdapterEnvSpec` describes the `env` field:
 
 <TypeTable
   type={{
@@ -124,6 +126,8 @@ The main `CatalogAdapter` metadata shape is:
   }}
 />
 
+`EnvGroup` describes one credential mode:
+
 <TypeTable
   type={{
     label: {
@@ -136,6 +140,8 @@ The main `CatalogAdapter` metadata shape is:
     },
   }}
 />
+
+`EnvVar` describes one environment variable:
 
 <TypeTable
   type={{

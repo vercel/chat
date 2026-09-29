@@ -16,7 +16,7 @@ Chat SDK adapters are the trust boundary between your application and a platform
 All adapters in this repo use [vitest](https://vitest.dev) with `@vitest/coverage-v8`. Community adapters should follow the same convention.
 
 <Callout type="info">
-This page covers the hand-rolled patterns used inside this repo's `packages/`. If you're testing a bot or a custom adapter as a **consumer** of Chat SDK, use [`@chat-adapter/tests`](/docs/testing) — it ships factories and Vitest matchers that cover most of these patterns in a few lines.
+This page covers the hand-rolled patterns used inside this repo's `packages/`. If you're testing a bot or a custom adapter as a consumer of Chat SDK, use [`@chat-adapter/tests`](/docs/testing). It ships factories and Vitest matchers that cover most of these patterns in a few lines.
 </Callout>
 
 ## Unit tests
@@ -116,7 +116,7 @@ describe("thread ID encoding", () => {
 
 ### Webhook signature verification
 
-Test the three key scenarios: missing headers, invalid signature, and valid signature.
+Test a missing signature header, an invalid signature, and a valid signature.
 
 ```typescript title="src/webhook.test.ts" lineNumbers
 import { describe, it, expect } from "vitest";
@@ -441,29 +441,29 @@ Cover these flows in your integration tests:
 
 | Flow | What to verify |
 |------|----------------|
-| **Mention** | Bot detects @mention, handler fires, `mentionMessage` is captured |
-| **Subscribe + follow-up** | After `thread.subscribe()`, subsequent messages trigger `onSubscribedMessage` |
-| **Actions** | Button clicks fire `onAction` with correct action ID and user info |
-| **Reactions** | Emoji reactions fire `onReaction` with correct emoji and message ID |
-| **Self-message filtering** | Messages from the bot itself are ignored |
-| **DM flow** | Direct messages are detected and routed correctly |
+| Mention | Bot detects @mention, handler fires, `mentionMessage` is captured |
+| Subscribe + follow-up | After `thread.subscribe()`, subsequent messages trigger `onSubscribedMessage` |
+| Actions | Button clicks fire `onAction` with correct action ID and user info |
+| Reactions | Emoji reactions fire `onReaction` with correct emoji and message ID |
+| Self-message filtering | Messages from the bot itself are ignored |
+| DM flow | Direct messages are detected and routed correctly |
 
 ## Recording and replay tests (advanced)
 
-For production debugging, Chat SDK supports recording webhook interactions and replaying them as test fixtures.
+To debug production issues, you can record webhook interactions and replay them as test fixtures. The recording tooling lives in the Chat SDK repo's `examples/nextjs-chat` app, and the `pnpm recording:*` commands run from there.
 
-1. **Enable recording** — Set `RECORDING_ENABLED=true` in your deployed environment. Recordings are tagged with the current git SHA.
+1. Enable recording by setting `RECORDING_ENABLED=true` in your deployed environment. Recordings are tagged with the current git SHA.
 
-2. **Interact with the bot** — Send messages, click buttons, add reactions — each interaction is recorded.
+2. Interact with the bot. Each message you send, button you click, and reaction you add is recorded.
 
-3. **Export recordings**
+3. Export the recordings:
 
 ```sh title="Terminal"
 pnpm recording:list
 pnpm recording:export session-<id>
 ```
 
-4. **Create test fixtures** — Extract webhook payloads from the exported recording and save them as JSON fixtures:
+4. Create test fixtures by extracting webhook payloads from the exported recording and saving them as JSON:
 
 ```json title="fixtures/replay/matrix-mention.json"
 {
@@ -474,7 +474,7 @@ pnpm recording:export session-<id>
 }
 ```
 
-5. **Write replay tests** — Use the fixtures in your test context:
+5. Write replay tests that use the fixtures in your test context:
 
 ```typescript title="src/replay.test.ts" lineNumbers
 import { describe, it, expect } from "vitest";

@@ -1,6 +1,6 @@
 ---
 title: Emoji
-description: Type-safe, cross-platform emoji that automatically convert to each platform's format.
+description: Type-safe, cross-platform emoji that convert to each platform's format.
 type: reference
 related:
   - /docs/posting-messages
@@ -8,7 +8,7 @@ related:
   - /docs/handling-events
 ---
 
-The `emoji` helper provides cross-platform emoji that automatically convert to the correct format for each platform. On Slack, emoji render as `:shortcode:` format. On other platforms, they render as Unicode characters.
+The `emoji` helper gives you named emoji that convert to each platform's format when posted. On Slack, they render as `:shortcode:` text. On other platforms, they render as Unicode characters.
 
 ## Usage
 
@@ -55,7 +55,7 @@ For a one-off custom emoji, use `emoji.custom("name")`.
 
 ## Custom emoji
 
-For workspace-specific emoji with full type safety, use `createEmoji()`:
+For workspace-specific emoji with typed names, use `createEmoji()`:
 
 ```typescript title="lib/bot.ts" lineNumbers
 import { createEmoji } from "chat";

@@ -18,10 +18,10 @@ await thread.postEphemeral(user, "Only you can see this!", {
 });
 ```
 
-The `fallbackToDM` option is required and controls behavior on platforms without native ephemeral support:
+The `fallbackToDM` option is required. It controls what happens on platforms without native ephemeral support:
 
-- `fallbackToDM: true` — send as a DM if native ephemeral is not supported
-- `fallbackToDM: false` — return `null` if native ephemeral is not supported
+- `fallbackToDM: true`: send the message as a DM instead. If the adapter can't open DMs either, nothing is sent and the call returns `null`.
+- `fallbackToDM: false`: don't send anything, and return `null`.
 
 ## Platform behavior
 
@@ -48,7 +48,7 @@ if (result?.usedFallback) {
 
 ## Graceful degradation
 
-Only send if the platform supports native ephemeral:
+To send only when the platform supports native ephemeral messages, set `fallbackToDM` to `false` and check for `null`:
 
 ```typescript title="lib/bot.ts" lineNumbers
 const result = await thread.postEphemeral(user, "Contextual hint", {

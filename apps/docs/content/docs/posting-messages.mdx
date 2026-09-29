@@ -12,21 +12,19 @@ related:
   - /docs/threads-messages-channels
 ---
 
-`thread.post()` accepts several message formats, each suited to different use cases. Choose the format that best fits your content — from plain strings to structured AST to rich interactive cards.
+`thread.post()` accepts several message formats: plain strings, markdown, an mdast AST, interactive cards, and streams. [Choosing a format](#choosing-a-format) compares them.
 
 ## Plain text
 
-The simplest option. Pass a string and it goes through as-is to the platform.
+Pass a string to send it to the platform as-is, without any formatting conversion.
 
 ```typescript title="lib/bot.ts" lineNumbers
 await thread.post("Hello world");
 ```
 
-This sends the string directly without any formatting conversion.
-
 ## Markdown
 
-Pass a `{ markdown }` object to have the SDK render standard markdown on each platform — passed through to Slack's native `markdown_text` field, converted to HTML for Teams, and so on.
+Pass a `{ markdown }` object to have the SDK render standard markdown on each platform. Slack receives it in its native `markdown_text` field, and other adapters convert it to their platform's format.
 
 ```typescript title="lib/bot.ts" lineNumbers
 await thread.post({
@@ -34,14 +32,14 @@ await thread.post({
 });
 ```
 
-Under the hood, the SDK parses the markdown into an mdast AST, then each adapter handles it natively or converts it to the platform's format.
+The SDK parses the markdown into an mdast AST, and each adapter either handles it natively or converts it to the platform's format.
 
 ## Reply to a message
 
 Use `thread.reply()` when the platform should preserve a native reference to a specific message:
 
 ```typescript title="lib/bot.ts" lineNumbers
-bot.onNewMessage(async (thread, message) => {
+bot.onNewMessage(/help/i, async (thread, message) => {
   await thread.reply(message, {
     markdown: "Thanks, I can help with that.",
   });
@@ -54,7 +52,7 @@ Adapters without native message replies throw `NotImplementedError`. See the [ad
 
 ## AST builders
 
-For programmatic control over message formatting, use the mdast AST builder functions exported from `chat`. This is the recommended approach for most use cases — it gives you fine-grained control without the overhead of card rendering.
+For programmatic control over message formatting, use the mdast AST builder functions exported from `chat`. This is the recommended approach for most messages, because it gives you fine-grained control without the overhead of card rendering.
 
 ```typescript title="lib/bot.ts" lineNumbers
 import { root, paragraph, text, strong, link } from "chat";
@@ -99,7 +97,7 @@ await thread.post({ ast });
 
 ## Cards
 
-When you need interactive elements like buttons, dropdowns, or structured layouts, use cards. Cards render natively on each platform — Block Kit on Slack, Adaptive Cards on Teams, and Google Chat Cards.
+When you need interactive elements like buttons, dropdowns, or structured layouts, use cards. Cards render natively on each platform: Block Kit on Slack, Adaptive Cards on Teams, and Google Chat Cards on Google Chat.
 
 ### Function syntax
 
@@ -150,7 +148,7 @@ await thread.post(
 ```
 
 <Callout type="warn">
-The JSX syntax requires `jsxImportSource: "chat"` in your `tsconfig.json` (or a per-file `/** @jsxImportSource chat */` pragma). Without this, TypeScript won't recognize the card JSX types. If you run into type issues with JSX, use the function-call syntax instead — it produces the same output with better type inference.
+The JSX syntax requires `jsxImportSource: "chat"` in your `tsconfig.json` (or a per-file `/** @jsxImportSource chat */` pragma). Without this, TypeScript won't recognize the card JSX types. If you run into type issues with JSX, use the function-call syntax instead. It produces the same output with better type inference.
 </Callout>
 
 See the [Cards](/docs/cards) page for the full list of card components.
@@ -167,11 +165,11 @@ const result = await agent.stream({ prompt: message.text });
 await thread.post(result.fullStream);
 ```
 
-Both `fullStream` and `textStream` are supported. Use `fullStream` with multi-step agents — it preserves paragraph breaks between steps. Streams returned by TanStack AI's `chat()` are also auto-detected, with a paragraph break inserted between tool-loop turns. Any `AsyncIterable<string>` also works for custom streams.
+Both `fullStream` and `textStream` are supported. Use `fullStream` with multi-step agents, because it preserves paragraph breaks between steps. Streams returned by TanStack AI's `chat()` are also auto-detected, with a paragraph break inserted between tool-loop turns. Any `AsyncIterable<string>` also works for custom streams.
 
 For multi-turn conversations, use [`toAiMessages()`](/docs/ai/to-ai-messages) to convert thread history into the `{ role, content }[]` format expected by AI SDKs.
 
-To pass platform-specific streaming options (e.g. Slack task grouping or stop blocks), wrap the stream in a [`StreamingPlan`](/docs/streaming#streaming-with-options) and post that.
+To pass platform-specific streaming options, such as Slack task grouping or stop blocks, wrap the stream in a [`StreamingPlan`](/docs/streaming#streaming-with-options) and post that.
 
 See the [Streaming](/docs/streaming) page for details on platform behavior and configuration.
 
@@ -203,4 +201,4 @@ See the [Files](/docs/files) page for more on attachments.
 | [`Plan`](/docs/streaming#plan-api) | Step-by-step tasks that mutate after posting | Multi-step agents, deploy progress |
 | [`StreamingPlan`](/docs/streaming#streaming-with-options) | Streaming with platform-specific options | Slack streaming with grouped tasks or stop blocks |
 
-For most cases, **AST builders** give the best balance of control and simplicity. Reach for **cards** when you need interactive elements like buttons or dropdowns.
+For most messages, AST builders give the best balance of control and simplicity. Use cards when you need interactive elements like buttons or dropdowns.

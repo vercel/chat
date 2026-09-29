@@ -6,15 +6,15 @@ prerequisites:
   - /docs/usage
 ---
 
-Open direct message conversations with users using `bot.openDM()`. For globally recognizable user IDs, the adapter is automatically inferred from the ID format.
+Use `bot.openDM()` to open a direct message conversation with a user. When the user ID format is unique to one platform, Chat SDK infers the adapter from the ID.
 
 ## DM behavior
 
 DMs behave slightly differently from channel messages:
 
-- **Direct message handlers** — if you register `onDirectMessage`, every incoming DM routes there before `onSubscribedMessage`, `onNewMention`, and pattern handlers. This keeps DM-centric flows like WhatsApp conversations, Telegram DMs, and web chat on one consistent handler.
-- **Mention fallback** — if no `onDirectMessage` handlers are registered, DMs continue through normal routing. Unsubscribed DMs are treated as mentions, so existing `onNewMention` bots keep working without requiring the user to @-mention the bot.
-- **Per-conversation threading** — Each top-level DM starts a new conversation. Thread replies within a DM continue the same conversation, giving you the same per-thread isolation as channels.
+- If you register `onDirectMessage`, every incoming DM routes there before `onSubscribedMessage`, `onNewMention`, and pattern handlers. DM-centric flows such as WhatsApp conversations, Telegram DMs, and web chat then run through one handler.
+- If no `onDirectMessage` handlers are registered, DMs continue through normal routing. Unsubscribed DMs are treated as mentions, so existing `onNewMention` bots keep working without the user having to @-mention the bot.
+- Each top-level DM starts a new conversation. Thread replies within a DM continue the same conversation, giving you the same per-thread isolation as channels.
 
 ## Handle incoming DMs
 
@@ -28,7 +28,7 @@ bot.onDirectMessage(async (thread, message) => {
 
 ### From an Author object
 
-The most common pattern — use the `author` from an incoming message:
+The most common pattern is to pass the `author` from an incoming message:
 
 ```typescript title="lib/bot.ts" lineNumbers
 bot.onSubscribedMessage(async (thread, message) => {

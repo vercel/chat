@@ -24,7 +24,7 @@ bot.onNewMention(async (thread, message) => {
 });
 ```
 
-On Linear, GitHub, and Notion, comment webhooks deliver the comment text but not the full parent resource — `message.subject` fetches it from the platform API on first access. The result is cached on the message instance. On chat platforms (which have no parent-resource concept), or if the API call fails, it returns `null`.
+On Linear, GitHub, and Notion, comment webhooks deliver the comment text but not the full parent resource, so `message.subject` fetches it from the platform API on first access and caches the result on the message instance. Chat platforms have no parent resource, so `message.subject` returns `null` there. It also returns `null` if the API call fails.
 
 See [`MessageSubject`](/docs/api/message#messagesubject) for the full type shape.
 
