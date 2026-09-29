@@ -18,7 +18,7 @@ const { createPostgresState, PostgresStateAdapter, postgresSchemaStatements } =
   await import("./index");
 
 const schemaProbe = expect.stringContaining("has_table_privilege(");
-const migrationHeading = "### Migration-owned schema";
+const migrationHeading = /^#{2,3} Migration-owned schema$/m;
 const sqlFences = /```sql[^\n]*\r?\n([\s\S]*?)```/g;
 const whitespace = /\s+/g;
 
