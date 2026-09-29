@@ -31,4 +31,9 @@ export interface TwilioAdapterConfig {
   webhookVerifier?: TwilioWebhookVerifier;
 }
 
+export interface TwilioTemplateMessage {
+  contentSid: string;
+  contentVariables?: Record<string, string> | string;
+}
+
 export type TwilioRawMessage = TwilioMessageResource | TwilioWebhookPayload;

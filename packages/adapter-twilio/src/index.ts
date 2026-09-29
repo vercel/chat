@@ -54,6 +54,7 @@ import {
 import type {
   TwilioAdapterConfig,
   TwilioRawMessage,
+  TwilioTemplateMessage,
   TwilioThreadId,
 } from "./types";
 import { attachmentType, senderFields, twimlResponse } from "./utils";
@@ -231,18 +232,7 @@ export class TwilioAdapter
           );
         }
         if (contentSid) {
-          const raw = await sendTwilioMessage({
-            ...this.apiOptions(),
-            contentSid,
-            statusCallbackUrl: this.statusCallbackUrl,
-            to: thread.recipient,
-            ...senderFields(thread.sender),
-          });
-          return {
-            id: raw.sid,
-            raw,
-            threadId: this.threadIdForResource(raw, thread),
-          };
+          return this.sendTemplate(threadId, { contentSid });
         }
       }
     }
@@ -265,6 +255,29 @@ export class TwilioAdapter
       ...senderFields(thread.sender),
     });
 
+    return {
+      id: raw.sid,
+      raw,
+      threadId: this.threadIdForResource(raw, thread),
+    };
+  }
+
+  async sendTemplate(
+    threadId: string,
+    template: TwilioTemplateMessage
+  ): Promise<RawMessage<TwilioRawMessage>> {
+    if (!template.contentSid) {
+      throw new ValidationError("twilio", "contentSid is required");
+    }
+    const thread = this.decodeThreadId(threadId);
+    const raw = await sendTwilioMessage({
+      ...this.apiOptions(),
+      contentSid: template.contentSid,
+      contentVariables: template.contentVariables,
+      statusCallbackUrl: this.statusCallbackUrl,
+      to: thread.recipient,
+      ...senderFields(thread.sender),
+    });
     return {
       id: raw.sid,
       raw,
@@ -653,5 +666,6 @@ export { TwilioFormatConverter } from "./markdown";
 export type {
   TwilioAdapterConfig,
   TwilioRawMessage,
+  TwilioTemplateMessage,
   TwilioThreadId,
 } from "./types";

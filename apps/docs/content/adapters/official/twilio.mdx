@@ -226,6 +226,21 @@ await thread.post({
 
 Over RCS, this renders as a rich card with tappable buttons. Over SMS, it falls back to plain text.
 
+## Template messages
+
+Cards create Content API templates on demand for RCS senders only. To send a template on any channel, such as an approved WhatsApp template or an RCS template you manage yourself, pass its ContentSid to `sendTemplate`:
+
+```typescript title="send-template.ts" lineNumbers
+const threadId = await bot.adapters.twilio.openDM("whatsapp:+15551234567");
+
+await bot.adapters.twilio.sendTemplate(threadId, {
+  contentSid: "HXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX",
+  contentVariables: { "1": "Tomorrow at 2pm" },
+});
+```
+
+`contentVariables` takes an object keyed by placeholder, or a pre-serialized JSON string. The send is routed like `postMessage`: `MG…` senders use `MessagingServiceSid`, everything else uses `From`. Create templates in the Twilio Console under Messaging → Content Template Builder or with the [Content API](https://www.twilio.com/docs/content/create-templates-with-the-content-api). WhatsApp templates must be [approved by Meta](https://www.twilio.com/docs/content/whatsapp-approval) first and are the only message WhatsApp accepts outside the 24-hour customer service window.
+
 ## Media
 
 Inbound MMS media is exposed as message attachments. Twilio media URLs are not treated as public files, so each attachment includes `fetchData()` and `fetchMetadata` for authenticated downloads and queue rehydration.
@@ -308,7 +323,7 @@ For live calls, `updateTwilioCall()` in `@chat-adapter/twilio/api` can post repl
 - Cards render as rich RCS content when the sender is a Messaging Service (`MG…`) or RCS address; otherwise they fall back to plain text.
 - RCS read receipts (`EventType=READ`) are parsed and logged but not surfaced to Chat SDK handlers (no delivery API exists today).
 - `fetchMessages` uses the Messages API and is best for phone-number based threads. Messaging Service history can be less precise because inbound webhooks identify the receiving phone number, not only the Messaging Service SID.
-- Content templates are created on demand and reused by a stable name derived from the card's content, so identical cards share one template across restarts. Cards that embed changing values (timestamps, order ids, user names) produce a new template per unique body, and Twilio keeps Content resources until you delete them. Keep card bodies stable, or pre-create templates, for high-volume use.
+- Content templates are created on demand and reused by a stable name derived from the card's content, so identical cards share one template across restarts. Cards that embed changing values (timestamps, order ids, user names) produce a new template per unique body, and Twilio keeps Content resources until you delete them. Keep card bodies stable, or pre-create templates and send them with `sendTemplate`, for high-volume use.
 
 ## Feature support
 

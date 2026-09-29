@@ -861,6 +861,107 @@ describe("TwilioAdapter", () => {
   });
 });
 
+describe("sendTemplate", () => {
+  it("sends a pre-created template by ContentSid with JSON variables", async () => {
+    const fetch = mockFetch({
+      direction: "outbound-api",
+      from: "whatsapp:+15550000001",
+      sid: "SM123",
+      to: "whatsapp:+15550000002",
+    });
+    const adapter = createTwilioAdapter({
+      accountSid: "AC123",
+      authToken: "token",
+      fetch,
+      statusCallbackUrl: "https://example.com/status",
+    });
+
+    const result = await adapter.sendTemplate(
+      "twilio:whatsapp%3A%2B15550000001:whatsapp%3A%2B15550000002",
+      {
+        contentSid: "HX123",
+        contentVariables: { "1": "Tomorrow at 2pm" },
+      }
+    );
+
+    expect(result).toMatchObject({
+      id: "SM123",
+      threadId: "twilio:whatsapp%3A%2B15550000001:whatsapp%3A%2B15550000002",
+    });
+    expect(fetch).toHaveBeenCalledTimes(1);
+    expect(String(fetch.mock.calls[0]?.[0])).toContain("/Messages.json");
+    const body = fetch.mock.calls[0]?.[1]?.body as URLSearchParams;
+    expect(body.get("ContentSid")).toBe("HX123");
+    expect(body.get("ContentVariables")).toBe('{"1":"Tomorrow at 2pm"}');
+    expect(body.get("From")).toBe("whatsapp:+15550000001");
+    expect(body.get("To")).toBe("whatsapp:+15550000002");
+    expect(body.get("StatusCallback")).toBe("https://example.com/status");
+    expect(body.has("Body")).toBe(false);
+  });
+
+  it("sends templates through messaging service senders", async () => {
+    const fetch = mockFetch({
+      direction: "outbound-api",
+      messaging_service_sid: "MG123",
+      sid: "SM123",
+      to: "+15550000002",
+    });
+    const adapter = createTwilioAdapter({
+      accountSid: "AC123",
+      authToken: "token",
+      fetch,
+    });
+
+    const result = await adapter.sendTemplate("twilio:MG123:%2B15550000002", {
+      contentSid: "HX123",
+    });
+
+    expect(result.threadId).toBe("twilio:MG123:%2B15550000002");
+    const body = fetch.mock.calls[0]?.[1]?.body as URLSearchParams;
+    expect(body.get("MessagingServiceSid")).toBe("MG123");
+    expect(body.has("From")).toBe(false);
+    expect(body.has("ContentVariables")).toBe(false);
+  });
+
+  it("passes pre-serialized content variables through untouched", async () => {
+    const fetch = mockFetch({
+      direction: "outbound-api",
+      from: "+15550000001",
+      sid: "SM123",
+      to: "+15550000002",
+    });
+    const adapter = createTwilioAdapter({
+      accountSid: "AC123",
+      authToken: "token",
+      fetch,
+    });
+
+    await adapter.sendTemplate("twilio:%2B15550000001:%2B15550000002", {
+      contentSid: "HX123",
+      contentVariables: '{"1":"already json"}',
+    });
+
+    const body = fetch.mock.calls[0]?.[1]?.body as URLSearchParams;
+    expect(body.get("ContentVariables")).toBe('{"1":"already json"}');
+  });
+
+  it("rejects an empty ContentSid before calling Twilio", async () => {
+    const fetch = mockFetch({ sid: "SM123" });
+    const adapter = createTwilioAdapter({
+      accountSid: "AC123",
+      authToken: "token",
+      fetch,
+    });
+
+    await expect(
+      adapter.sendTemplate("twilio:%2B15550000001:%2B15550000002", {
+        contentSid: "",
+      })
+    ).rejects.toThrow("contentSid is required");
+    expect(fetch).not.toHaveBeenCalled();
+  });
+});
+
 const threadIdAdapter = createTwilioAdapter();
 
 threadIdContract<TwilioThreadId>({
