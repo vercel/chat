@@ -95,6 +95,7 @@ bot.onDirectMessage(async (thread, message) => {
 The memory state adapter keeps subscriptions and locks in process memory, which suits local development. Use [Redis](/adapters/official/redis) or [PostgreSQL](/adapters/official/postgres) in production.
 
 ```typescript title="app/api/webhooks/messenger/route.ts" lineNumbers
+import { after } from "next/server";
 import { bot } from "@/lib/bot";
 
 export async function GET(request: Request) {
@@ -102,7 +103,9 @@ export async function GET(request: Request) {
 }
 
 export async function POST(request: Request) {
-  return bot.webhooks.messenger(request);
+  return bot.webhooks.messenger(request, {
+    waitUntil: (task) => after(() => task),
+  });
 }
 ```
 

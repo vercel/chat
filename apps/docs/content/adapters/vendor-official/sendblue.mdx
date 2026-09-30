@@ -129,11 +129,14 @@ createSendblueAdapter({
 Create a webhook route and forward incoming Sendblue requests to Chat SDK:
 
 ```typescript title="app/api/webhooks/sendblue/route.ts" lineNumbers
+import { after } from "next/server";
 import { chat } from "@/lib/bot";
 
 export async function POST(request: Request) {
   await chat.initialize();
-  return chat.webhooks.sendblue(request);
+  return chat.webhooks.sendblue(request, {
+    waitUntil: (task) => after(() => task),
+  });
 }
 ```
 

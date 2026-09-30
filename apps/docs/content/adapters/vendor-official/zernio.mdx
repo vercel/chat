@@ -99,10 +99,13 @@ bot.onNewMessage(/.*/, async (thread, message) => {
 ```
 
 ```typescript title="app/api/chat-webhook/route.ts" lineNumbers
+import { after } from "next/server";
 import { bot } from "@/lib/bot";
 
 export async function POST(request: Request) {
-  return bot.webhooks.zernio(request);
+  return bot.webhooks.zernio(request, {
+    waitUntil: (task) => after(() => task),
+  });
 }
 ```
 

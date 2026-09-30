@@ -111,16 +111,28 @@ See [`getAdapter`](/docs/api/chat#getadapter) for multi-tenant constraints.
 The `webhooks` property provides a typed handler for each registered adapter. Wire each one to a route in your HTTP framework:
 
 ```typescript title="app/api/webhooks/slack/route.ts" lineNumbers
+import { after } from "next/server";
 import { bot } from "@/lib/bot";
 
-export const POST = bot.webhooks.slack;
+export async function POST(request: Request): Promise<Response> {
+  return bot.webhooks.slack(request, {
+    waitUntil: (task) => after(() => task),
+  });
+}
 ```
 
 ```typescript title="app/api/webhooks/teams/route.ts" lineNumbers
+import { after } from "next/server";
 import { bot } from "@/lib/bot";
 
-export const POST = bot.webhooks.teams;
+export async function POST(request: Request): Promise<Response> {
+  return bot.webhooks.teams(request, {
+    waitUntil: (task) => after(() => task),
+  });
+}
 ```
+
+Your event handlers can keep running after the webhook responds. `waitUntil` keeps the function alive until they finish, so a serverless platform doesn't stop them early. These examples use Next.js `after`. In other Vercel Functions, pass `waitUntil` from `@vercel/functions`.
 
 ## Lifecycle
 

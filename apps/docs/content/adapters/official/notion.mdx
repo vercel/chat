@@ -83,10 +83,13 @@ bot.onNewMention(async (thread, message) => {
 ```
 
 ```typescript title="app/api/webhooks/notion/route.ts" lineNumbers
+import { after } from "next/server";
 import { bot } from "@/lib/bot";
 
 export async function POST(request: Request): Promise<Response> {
-  return bot.webhooks.notion(request);
+  return bot.webhooks.notion(request, {
+    waitUntil: (task) => after(() => task),
+  });
 }
 ```
 

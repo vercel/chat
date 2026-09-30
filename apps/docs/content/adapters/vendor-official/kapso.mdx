@@ -170,10 +170,13 @@ Kapso webhooks are direct-message conversations, which is why the example uses `
 Kapso sends platform webhooks as `POST` requests. Forward the raw `Request` to Chat SDK:
 
 ```typescript title="app/api/webhooks/kapso/route.ts" lineNumbers
+import { after } from "next/server";
 import { bot } from "@/lib/bot";
 
 export async function POST(request: Request): Promise<Response> {
-  return bot.webhooks.kapso(request);
+  return bot.webhooks.kapso(request, {
+    waitUntil: (task) => after(() => task),
+  });
 }
 ```
 

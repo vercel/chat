@@ -102,11 +102,14 @@ Point your Blooio webhook URL at your server. The adapter handles these event ty
 - `message.reaction`: tapback reactions on messages
 
 ```typescript title="app/api/webhooks/blooio/route.ts" lineNumbers
+import { after } from "next/server";
 import { chat } from "@/lib/bot";
 
 export async function POST(request: Request) {
   await chat.initialize();
-  return chat.webhooks.blooio(request);
+  return chat.webhooks.blooio(request, {
+    waitUntil: (task) => after(() => task),
+  });
 }
 ```
 

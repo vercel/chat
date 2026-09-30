@@ -145,10 +145,13 @@ ZALO_BOT_USERNAME=mybot           # Optional, defaults to "zalo-bot"
 ## Webhooks
 
 ```typescript title="app/api/webhooks/zalo/route.ts" lineNumbers
+import { after } from "next/server";
 import { bot } from "@/lib/bot";
 
 export async function POST(request: Request) {
-  return bot.webhooks.zalo(request);
+  return bot.webhooks.zalo(request, {
+    waitUntil: (task) => after(() => task),
+  });
 }
 ```
 

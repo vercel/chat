@@ -94,10 +94,13 @@ bot.onNewMention(async (thread, message) => {
 The memory state adapter keeps subscriptions and locks in process memory, which suits local development. Use [Redis](/adapters/official/redis) or [PostgreSQL](/adapters/official/postgres) in production.
 
 ```typescript title="app/api/webhooks/telegram/route.ts" lineNumbers
+import { after } from "next/server";
 import { bot } from "@/lib/bot";
 
 export async function POST(request: Request): Promise<Response> {
-  return bot.webhooks.telegram(request);
+  return bot.webhooks.telegram(request, {
+    waitUntil: (task) => after(() => task),
+  });
 }
 ```
 
