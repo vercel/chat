@@ -129,15 +129,15 @@ Set these through the environment (the CLI writes them for you) or pass them to 
   type={{
     apiKey: {
       type: "string",
-      description: "Novu API key. Authorizes replies. Falls back to `NOVU_SECRET_KEY`, which `npx novu connect` sets automatically.",
+      description: "Novu secret key that authorizes the adapter's calls to the Novu API. Falls back to `NOVU_SECRET_KEY`.",
     },
     bridgeSecret: {
       type: "string",
-      description: "Secret used to verify inbound webhook signatures. Falls back to `NOVU_SECRET_KEY`, which `npx novu connect` sets automatically.",
+      description: "Secret that verifies the signature on inbound bridge requests. Falls back to `NOVU_SECRET_KEY`.",
     },
     agentIdentifier: {
       type: "string",
-      description: "Your bridge agent ID. Set automatically by `npx novu connect`. Falls back to `NOVU_AGENT_IDENTIFIER`.",
+      description: "Your bridge agent ID. Falls back to `NOVU_AGENT_IDENTIFIER`.",
     },
     apiBaseUrl: {
       type: "string",
@@ -151,8 +151,8 @@ Set these through the environment (the CLI writes them for you) or pass them to 
 
 | Variable | Required | Description |
 | --- | --- | --- |
-| `NOVU_SECRET_KEY` | Yes, unless both `apiKey` and `bridgeSecret` are passed | Novu API key. Authorizes replies and verifies the inbound HMAC. Set automatically by `npx novu connect`. |
-| `NOVU_AGENT_IDENTIFIER` | Yes, unless `agentIdentifier` is passed | Your bridge agent ID. Set automatically by `npx novu connect`. |
+| `NOVU_SECRET_KEY` | Yes, unless both `apiKey` and `bridgeSecret` are passed | Novu secret key, used for both `apiKey` and `bridgeSecret`. |
+| `NOVU_AGENT_IDENTIFIER` | Yes, unless `agentIdentifier` is passed | Your bridge agent ID. |
 | `NOVU_API_BASE_URL` | No | API base URL. Defaults to `https://api.novu.co`. |
 
 ## Channels

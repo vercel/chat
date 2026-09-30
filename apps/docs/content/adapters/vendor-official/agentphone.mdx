@@ -54,12 +54,6 @@ features:
 
 ## Quick start
 
-Set `AGENTPHONE_API_KEY`, `AGENTPHONE_AGENT_ID`, and `AGENTPHONE_WEBHOOK_SECRET` before exposing your webhook route. Use the signing secret from your [AgentPhone webhook configuration](https://docs.agentphone.ai/documentation/guides/webhooks).
-
-<Callout type="warn">
-Without `AGENTPHONE_WEBHOOK_SECRET` or `config.webhookSecret`, the adapter accepts unsigned requests and skips timestamp checks. Configure a signing secret for public webhook endpoints.
-</Callout>
-
 ```typescript title="lib/bot.ts" lineNumbers
 import { Chat } from "chat";
 import { MemoryStateAdapter } from "@chat-adapter/state-memory";
@@ -101,7 +95,7 @@ export async function POST(request: Request): Promise<Response> {
 }
 ```
 
-Point your AgentPhone webhook at this route's deployed URL. With the signing secret configured, the adapter verifies each request's HMAC-SHA256 signature before routing the event to your Chat SDK handlers.
+Point your AgentPhone webhook at this route's deployed URL, and set `AGENTPHONE_WEBHOOK_SECRET` so the adapter can verify each request. See [Webhooks](#webhooks).
 
 ## Configuration
 
@@ -117,7 +111,7 @@ Point your AgentPhone webhook at this route's deployed URL. With the signing sec
     },
     webhookSecret: {
       type: "string",
-      description: "Webhook signing secret. Enables HMAC-SHA256 verification and timestamp checks. Auto-detected from `AGENTPHONE_WEBHOOK_SECRET`.",
+      description: "Webhook signing secret. When set, the adapter verifies each request's signature and timestamp. Auto-detected from `AGENTPHONE_WEBHOOK_SECRET`.",
     },
     apiUrl: {
       type: "string",
@@ -136,7 +130,7 @@ Point your AgentPhone webhook at this route's deployed URL. With the signing sec
 | --- | --- | --- |
 | `AGENTPHONE_API_KEY` | Yes | AgentPhone API key. Overridden by `config.apiKey`. |
 | `AGENTPHONE_AGENT_ID` | Yes | Agent ID. Overridden by `config.agentId`. |
-| `AGENTPHONE_WEBHOOK_SECRET` | For verification, unless `config.webhookSecret` is passed | Webhook signing secret. Required for public webhook endpoints. |
+| `AGENTPHONE_WEBHOOK_SECRET` | For webhook verification | Webhook signing secret. Overridden by `config.webhookSecret`. |
 
 ## Webhooks
 
@@ -148,7 +142,11 @@ The adapter handles three webhook event types:
 | `agent.call_ended` | Voice call completed with transcript |
 | `agent.reaction` | iMessage tapback reaction |
 
-AgentPhone signs every webhook with HMAC-SHA256. With a signing secret configured, the adapter also rejects requests whose timestamp falls outside a 5-minute window, which protects against replayed deliveries.
+AgentPhone signs each webhook with HMAC-SHA256. Copy the signing secret from your [AgentPhone webhook configuration](https://docs.agentphone.ai/documentation/guides/webhooks) into `AGENTPHONE_WEBHOOK_SECRET`. With a secret set, the adapter returns `401` for a request with a missing or invalid signature, or with a timestamp outside a 5-minute window, which blocks replayed deliveries.
+
+<Callout type="warn">
+Without a signing secret, the adapter accepts unsigned requests. Set one before you expose the route publicly.
+</Callout>
 
 ## Channels
 
