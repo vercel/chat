@@ -282,8 +282,9 @@ works in segments: once a segment is `streamSegmentMaxAgeMs` old (the
 clock starts at the first call Slack accepts, not at construction), the
 next paragraph break (or, after a 30 s grace, the next line break)
 finalizes it and a new `chatStream` continues the reply. Rotation closes
-and reopens an open code fence, repeats a table header, replays the plan
-and open task cards, and keeps `session_status: "processing"` with
+open task cards in the retired segment, replays them into the new segment,
+closes and reopens an open code fence, repeats a table header, replays the
+plan, and keeps `session_status: "processing"` with
 `agentView`. Tests drive this with a mocked `Date.now()`; see the
 "native stream rotation" describe block.
 
