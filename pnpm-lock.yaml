@@ -711,6 +711,9 @@ importers:
       '@microsoft/teams.cards':
         specifier: ^2.0.14
         version: 2.0.14
+      '@microsoft/teams.graph':
+        specifier: ^2.0.14
+        version: 2.0.14
       '@microsoft/teams.graph-endpoints':
         specifier: ^2.0.14
         version: 2.0.14
@@ -721,9 +724,6 @@ importers:
       '@chat-adapter/tests':
         specifier: workspace:*
         version: link:../tests
-      '@microsoft/teams.graph':
-        specifier: ^2.0.14
-        version: 2.0.14
       '@types/node':
         specifier: ^25.3.2
         version: 25.3.2
