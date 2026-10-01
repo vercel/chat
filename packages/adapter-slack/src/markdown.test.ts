@@ -6,6 +6,51 @@ describe("SlackFormatConverter", () => {
   const converter = new SlackFormatConverter();
 
   describe("toMarkdown (mrkdwn -> markdown)", () => {
+    it.each([
+      "cost is 2 * 3 seats and 4 * 5 licenses",
+      "run `rm -rf *` then 5 * 3",
+      "keep `*star* ~strike~` literal",
+    ])("preserves literal content in %s", (text) => {
+      expect(toPlainText(converter.toAst(text))).toBe(text.replaceAll("`", ""));
+    });
+
+    it("retains bold around literal inline code", () => {
+      const ast = converter.toAst("*before `*code*` after*");
+
+      expect(ast.children[0]).toMatchObject({
+        type: "paragraph",
+        children: [
+          {
+            type: "strong",
+            children: [
+              { type: "text", value: "before " },
+              { type: "inlineCode", value: "*code*" },
+              { type: "text", value: " after" },
+            ],
+          },
+        ],
+      });
+    });
+
+    it.each([
+      ["mailto:a*b*c@example.com", "email"],
+      ["mailto:a~b~c@example.com", "email"],
+      ["mailto:user@example.com", "https://example.com"],
+      ["tel:+15551234567", "https://example.com"],
+      ["mailto:user@example.com", "support ] desk"],
+      ["mailto:user@example.com?subject=(help)", "support"],
+    ])("preserves link destination %s and label %s", (url, label) => {
+      const ast = converter.toAst(`<${url}|${label}>`);
+
+      expect(ast.children[0]).toMatchObject({
+        type: "paragraph",
+        children: [
+          { type: "link", url, children: [{ type: "text", value: label }] },
+        ],
+      });
+      expect(toPlainText(ast)).toBe(label);
+    });
+
     it("preserves code starting immediately after the opening fence", () => {
       const ast = converter.toAst("```first line\nsecond line\n```");
 
