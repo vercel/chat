@@ -1,5 +1,13 @@
 # @chat-adapter/github
 
+## 4.41.2
+
+### Patch Changes
+
+- Updated dependencies [80e7bae]
+  - chat@4.41.2
+  - @chat-adapter/shared@4.41.2
+
 ## 4.41.1
 
 ### Patch Changes

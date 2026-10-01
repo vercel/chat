@@ -1,6 +1,6 @@
 {
   "name": "@chat-adapter/gmail",
-  "version": "4.41.1",
+  "version": "4.41.2",
   "description": "Gmail adapter for Chat SDK with authenticated mailbox notifications and threaded email replies",
   "type": "module",
   "engines": {
