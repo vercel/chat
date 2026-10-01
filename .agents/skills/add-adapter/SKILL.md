@@ -1,6 +1,8 @@
 ---
 name: add-adapter
 description: Add a vendor-official or community adapter to the Chat SDK catalog and docs — adapters.json registry, chat/adapters catalog entry, the docs MDX page, meta.json, and a changeset. Use when a developer wants to add, list, register, or submit a third-party (vendor-official or community) adapter to this repo, add an adapter to the catalog, or create or edit an adapter docs page under apps/docs/content/adapters/vendor-official or apps/docs/content/adapters/community.
+metadata:
+  internal: true
 ---
 
 # Add a catalog adapter (vendor-official or community)

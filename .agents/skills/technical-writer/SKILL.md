@@ -3,6 +3,7 @@ name: technical-writer
 description: Write, review, and edit developer documentation for SDKs, libraries, and frameworks, including sites such as ai-sdk.dev and chat-sdk.dev. Use for getting-started guides, tutorials, API references, conceptual explanations, integration guides, migration guides, troubleshooting, and code examples.
 metadata:
   version: "1.3"
+  internal: true
 ---
 
 # Technical writer
