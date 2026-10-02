@@ -156,4 +156,66 @@ describe("Gateway client configuration", () => {
     controller.abort();
     await listenerPromise;
   });
+
+  it("forwards the wire packet when discord.js patches it after the raw listener returns", async () => {
+    mockClientInstance.on.mockClear();
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue(new Response(null, { status: 200 }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const adapter = createDiscordAdapter({
+      botToken: "test-token",
+      publicKey: "a".repeat(64),
+      applicationId: "test-app-id",
+      logger: mockLogger,
+      respondToChannelIds: ["channel456"],
+    });
+    await adapter.initialize(createMockChatInstance());
+
+    const controller = new AbortController();
+    let listenerPromise: Promise<unknown> | undefined;
+    await adapter.startGatewayListener(
+      {
+        waitUntil: (promise) => {
+          listenerPromise = promise as Promise<unknown>;
+        },
+      },
+      1000,
+      controller.signal,
+      "https://example.com/webhook"
+    );
+
+    const packet = {
+      t: "MESSAGE_CREATE",
+      d: {
+        channel_id: "unregistered999",
+        author: { bot: false },
+        member: {} as Record<string, unknown>,
+      },
+    };
+
+    mockClientInstance.channels.fetch.mockResolvedValue({
+      isThread: () => false,
+    });
+
+    const rawHandler = mockClientInstance.on.mock.calls.find(
+      ([event]) => event === "raw"
+    )?.[1] as (packet: { t: string; d: unknown }) => Promise<void>;
+    const forwarded = rawHandler(packet);
+    // Stands in for discord.js, which handles the packet as soon as the `raw`
+    // listeners return (`Message.js`: `Object.assign(data.member, { user })`).
+    Object.assign(packet.d.member, { user: { id: "u1", username: "bob" } });
+    await forwarded;
+
+    const request = fetchMock.mock.calls[0]?.[1] as RequestInit;
+    expect(JSON.parse(request.body as string).data).toEqual({
+      channel_id: "unregistered999",
+      author: { bot: false },
+      member: {},
+    });
+
+    controller.abort();
+    await listenerPromise;
+  });
 });

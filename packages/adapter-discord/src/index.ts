@@ -2373,10 +2373,15 @@ export class DiscordAdapter implements Adapter<DiscordThreadId, unknown> {
           type: packet.t,
         });
 
+        // Snapshot before yielding. discord.js emits `raw` and handles the
+        // packet in the same turn, so once this handler yields it patches
+        // this same object in place (`Message.js` assigns `member.user`) and
+        // the webhook would receive fields that were never on the wire.
+        const wire = { ...packet, d: structuredClone(packet.d) };
         // Enrichment awaits REST calls, so serialize per channel to keep
         // e.g. REACTION_ADD ahead of the REACTION_REMOVE that followed it.
-        await this.enqueueOrderedForward(getPacketChannelId(packet), () =>
-          this.forwardRawGatewayPacket(client, webhookUrl, packet)
+        await this.enqueueOrderedForward(getPacketChannelId(wire), () =>
+          this.forwardRawGatewayPacket(client, webhookUrl, wire)
         );
       });
     } else {
