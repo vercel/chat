@@ -5428,6 +5428,155 @@ describe("Chat", () => {
     });
   });
 
+  describe("concurrency: entries enqueued around lock release", () => {
+    const threadId = "slack:C123:1234.5678";
+    const strategies = ["queue", "burst", "debounce"] as const;
+
+    function gate(): { open: () => void; opened: Promise<void> } {
+      let open: () => void = () => undefined;
+      const opened = new Promise<void>((resolve) => {
+        open = resolve;
+      });
+      return { open, opened };
+    }
+
+    async function setupGatedChat(strategy: (typeof strategies)[number]) {
+      const state = createMockState();
+      const adapter = createMockAdapter("slack");
+      const chat = new Chat({
+        userName: "testbot",
+        adapters: { slack: adapter },
+        state,
+        logger: mockLogger,
+        concurrency: { strategy, debounceMs: 1 },
+      });
+      await chat.webhooks.slack(
+        new Request("http://test.com", { method: "POST" })
+      );
+
+      const acquireLock = state.acquireLock.getMockImplementation();
+      const dequeue = state.dequeue.getMockImplementation();
+      const enqueue = state.enqueue.getMockImplementation();
+      const releaseLock = state.releaseLock.getMockImplementation();
+      if (!(acquireLock && dequeue && enqueue && releaseLock)) {
+        throw new Error("Expected state methods to have mock implementations");
+      }
+
+      const first = createTestMessage(
+        `msg-release-${strategy}-1`,
+        "Hey @slack-bot first"
+      );
+      const second = createTestMessage(
+        `msg-release-${strategy}-2`,
+        "Hey @slack-bot second"
+      );
+
+      // Keeps the first handler running until the second message is on the
+      // enqueue path.
+      const secondSawBusyLock = gate();
+      vi.mocked(state.acquireLock).mockImplementation(async (key, ttlMs) => {
+        const lock = await acquireLock(key, ttlMs);
+        if (!lock) {
+          secondSawBusyLock.open();
+        }
+        return lock;
+      });
+
+      const handled: string[] = [];
+      const run: { secondTask?: Promise<void>; firstTurnDone: boolean } = {
+        firstTurnDone: false,
+      };
+      chat.onNewMention(async (_thread, message) => {
+        handled.push(message.text);
+        if (message.id === first.id) {
+          run.secondTask = chat.handleIncomingMessage(
+            adapter,
+            threadId,
+            second
+          );
+          await secondSawBusyLock.opened;
+          run.firstTurnDone = true;
+        }
+      });
+
+      return {
+        adapter,
+        chat,
+        first,
+        handled,
+        real: { dequeue, enqueue, releaseLock },
+        run,
+        second,
+        state,
+      };
+    }
+
+    it.each(
+      strategies
+    )("should drain a %s entry enqueued between the holder's last dequeue and its lock release", async (strategy) => {
+      const { adapter, chat, first, handled, real, run, second, state } =
+        await setupGatedChat(strategy);
+
+      const holderDrained = gate();
+      vi.mocked(state.dequeue).mockImplementation(async (key) => {
+        const entry = await real.dequeue(key);
+        if (!entry && run.firstTurnDone) {
+          holderDrained.open();
+        }
+        return entry;
+      });
+      vi.mocked(state.enqueue).mockImplementation(
+        async (key, entry, maxSize) => {
+          if (entry.message.id === second.id) {
+            await holderDrained.opened;
+          }
+          return real.enqueue(key, entry, maxSize);
+        }
+      );
+      vi.mocked(state.releaseLock).mockImplementation(async (lock) => {
+        // Hold the lock until the second message has given up on it
+        await run.secondTask;
+        await real.releaseLock(lock);
+      });
+
+      await chat.handleIncomingMessage(adapter, threadId, first);
+      await run.secondTask;
+
+      expect(handled).toEqual([
+        "Hey @slack-bot first",
+        "Hey @slack-bot second",
+      ]);
+      expect(await state.queueDepth(threadId)).toBe(0);
+    });
+
+    it.each(
+      strategies
+    )("should drain a %s entry enqueued after the holder released the lock", async (strategy) => {
+      const { adapter, chat, first, handled, real, run, second, state } =
+        await setupGatedChat(strategy);
+
+      const firstFinished = gate();
+      vi.mocked(state.enqueue).mockImplementation(
+        async (key, entry, maxSize) => {
+          if (entry.message.id === second.id) {
+            await firstFinished.opened;
+          }
+          return real.enqueue(key, entry, maxSize);
+        }
+      );
+
+      await chat.handleIncomingMessage(adapter, threadId, first);
+      firstFinished.open();
+      await run.secondTask;
+
+      expect(handled).toEqual([
+        "Hey @slack-bot first",
+        "Hey @slack-bot second",
+      ]);
+      expect(await state.queueDepth(threadId)).toBe(0);
+    });
+  });
+
   describe("concurrency: concurrent", () => {
     it("should process messages without acquiring a lock", async () => {
       const state = createMockState();
