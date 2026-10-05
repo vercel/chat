@@ -115,7 +115,36 @@ function isAsyncIterable(
   );
 }
 
-const NEVER_ABORTED_SIGNAL = new AbortController().signal;
+/**
+ * Stand-in signal for environments without `AbortController`. This module is
+ * pulled into Workflow DevKit bundles for serde class registration, and that
+ * bundle is evaluated in a VM whose global object only carries ECMAScript
+ * built-ins — `AbortController`, timers and `fetch` are all missing there.
+ */
+const NEVER_ABORTED_SIGNAL_FALLBACK = {
+  aborted: false,
+  reason: undefined,
+  onabort: null,
+  throwIfAborted() {},
+  addEventListener() {},
+  removeEventListener() {},
+  dispatchEvent: () => false,
+} as unknown as AbortSignal;
+
+let neverAbortedSignal: AbortSignal | undefined;
+
+/**
+ * Signal used when a thread has no caller-provided signal. Created lazily so
+ * that evaluating this module never touches `AbortController`, and tolerant so
+ * a `ThreadImpl` revived inside the workflow VM still gets a usable signal.
+ */
+function getNeverAbortedSignal(): AbortSignal {
+  neverAbortedSignal ??=
+    typeof AbortController === "function"
+      ? new AbortController().signal
+      : NEVER_ABORTED_SIGNAL_FALLBACK;
+  return neverAbortedSignal;
+}
 
 async function* takeUntilAborted<T>(
   source: AsyncIterable<T>,
@@ -189,7 +218,7 @@ export class ThreadImpl<TState = Record<string, unknown>>
     this.channelId = config.channelId;
     this.isDM = config.isDM ?? false;
     this.channelVisibility = config.channelVisibility ?? "unknown";
-    this.signal = config.signal ?? NEVER_ABORTED_SIGNAL;
+    this.signal = config.signal ?? getNeverAbortedSignal();
     this._isSubscribedContext = config.isSubscribedContext ?? false;
     this._currentMessage = config.currentMessage;
     this._logger = config.logger;
