@@ -57,8 +57,8 @@ importers:
         specifier: ^1.4.3
         version: 1.4.3(@opentelemetry/api@1.9.0)(next@16.3.3(@opentelemetry/api@1.9.0)(@types/node@25.3.2)(react-dom@19.2.3(react@19.2.3))(react@19.2.3))
       '@vercel/geistdocs':
-        specifier: 1.25.2
-        version: 1.25.2(@svta/cml-cta@1.0.1(@svta/cml-structured-field-values@1.0.1(@svta/cml-utils@1.0.1))(@svta/cml-utils@1.0.1))(@svta/cml-structured-field-values@1.0.1(@svta/cml-utils@1.0.1))(@svta/cml-utils@1.0.1)(@tanstack/react-router@1.170.39(react-dom@19.2.3(react@19.2.3))(react@19.2.3))(@types/mdast@4.0.4)(@types/react-dom@19.2.3(@types/react@19.2.7))(@types/react@19.2.7)(@vercel/functions@3.9.9(@aws-sdk/credential-provider-web-identity@3.972.49)(ws@8.21.0))(h3@1.15.11)(micromark-util-types@2.0.2)(micromark@4.0.2)(next@16.3.3(@opentelemetry/api@1.9.0)(@types/node@25.3.2)(react-dom@19.2.3(react@19.2.3))(react@19.2.3))(react-dom@19.2.3(react@19.2.3))(react@19.2.3)(tailwindcss@4.1.18)(vite@7.3.6(@types/node@25.3.2)(jiti@2.7.0)(lightningcss@1.33.0)(terser@5.48.0)(tsx@4.22.3)(yaml@2.9.0))
+        specifier: 1.28.1
+        version: 1.28.1(@svta/cml-cta@1.0.1(@svta/cml-structured-field-values@1.0.1(@svta/cml-utils@1.0.1))(@svta/cml-utils@1.0.1))(@svta/cml-structured-field-values@1.0.1(@svta/cml-utils@1.0.1))(@svta/cml-utils@1.0.1)(@tanstack/react-router@1.170.39(react-dom@19.2.3(react@19.2.3))(react@19.2.3))(@types/mdast@4.0.4)(@types/react-dom@19.2.3(@types/react@19.2.7))(@vercel/functions@3.9.9(@aws-sdk/credential-provider-web-identity@3.972.49)(ws@8.21.0))(h3@1.15.11)(micromark-util-types@2.0.2)(micromark@4.0.2)(next@16.3.3(@opentelemetry/api@1.9.0)(@types/node@25.3.2)(react-dom@19.2.3(react@19.2.3))(react@19.2.3))(react-dom@19.2.3(react@19.2.3))(react@19.2.3)(tailwindcss@4.1.18)(vite@7.3.6(@types/node@25.3.2)(jiti@2.7.0)(lightningcss@1.33.0)(terser@5.48.0)(tsx@4.22.3)(yaml@2.9.0))
       '@vercel/speed-insights':
         specifier: ^1.3.1
         version: 1.3.1(next@16.3.3(@opentelemetry/api@1.9.0)(@types/node@25.3.2)(react-dom@19.2.3(react@19.2.3))(react@19.2.3))(react@19.2.3)(svelte@5.55.7)(vue-router@4.6.4(vue@3.5.39(typescript@5.9.3)))(vue@3.5.39(typescript@5.9.3))
@@ -7061,8 +7061,8 @@ packages:
   '@upsetjs/venn.js@2.0.0':
     resolution: {integrity: sha512-WbBhLrooyePuQ1VZxrJjtLvTc4NVfpOyKx0sKqioq9bX1C1m7Jgykkn8gLrtwumBioXIqam8DLxp88Adbue6Hw==}
 
-  '@vercel/agent-readability@0.6.0':
-    resolution: {integrity: sha512-nNmgOHwAAvKstCcCa7AARAqUSyFdwRBbT8utdjiAFUMTsNgtc4O6RwgJ2AHc78sY5NdSQN2z959o6w61zAmOMw==}
+  '@vercel/agent-readability@0.7.0':
+    resolution: {integrity: sha512-++aMEYribR25jInIv3QRBVhSmd2y7TscrtaO8YDaXbZjRcEaTWGgioaAtOl3a3VbzcgNl0VkiG59hn1yu/fNjQ==}
     engines: {node: '>=20.0.0'}
     hasBin: true
     peerDependencies:
@@ -7111,9 +7111,6 @@ packages:
 
   '@vercel/cli-config@0.2.0':
     resolution: {integrity: sha512-fJRRRB7734BDuXZ89yBEaA2ncYhH7bWX30mk04W80J6VAfQc+4iB8lyzAdaGpFV3/vNlkt9VZt+/uoQoWX6UsQ==}
-
-  '@vercel/cli-config@0.2.2':
-    resolution: {integrity: sha512-kAy35eymNzRBfmcqEViVQge0KJ59FYEKsPqGNCSJQ7M9HTuFGWd3qPcZos1A5cZpAWRBdiYe82Bcz9P7pIZvUQ==}
 
   '@vercel/cli-config@0.3.0':
     resolution: {integrity: sha512-kQLt5Pm8wKd7/imzDY9/9u0tf8OuRkAuXI+s7j057FSUrXapAmumJSKwDqnR4ZZqdWoUcNLlFAgVIAdiwcGTcw==}
@@ -7178,8 +7175,8 @@ packages:
       ws:
         optional: true
 
-  '@vercel/geistdocs@1.25.2':
-    resolution: {integrity: sha512-ypKFBHagwYi9ekrINX7wOSa+iPNHdpcTYQi0sn/fIN2sF57NsWuztV4dd/lhxMN2rL0XFRb7Pc41mIq6EMOnOQ==}
+  '@vercel/geistdocs@1.28.1':
+    resolution: {integrity: sha512-cXpfdVc8b52B0Jcopj0zIH948uGvqKXIgSdcUJtCfI9Ksa2vtOv3PPGrjgjhvkAacF+D88wY5P0/1TwG83Dwew==}
     hasBin: true
     peerDependencies:
       next: ^16.3.3
@@ -7202,10 +7199,6 @@ packages:
 
   '@vercel/oidc@3.7.1':
     resolution: {integrity: sha512-RrSsVWbq3KLK5lJobyTPp3tSthNfUp+zWkXno5Wkko0oEW05rA4ngOrnVypP4+L8/Av89uPo2rWFmzL8iwnsmA==}
-    engines: {node: '>= 20'}
-
-  '@vercel/oidc@3.8.2':
-    resolution: {integrity: sha512-nmVSeQ7tewCkqYBNB/MNL8aPB9sTvtjvqIE6+U17U4IuTyehuWVERDlWrSn0DVfiFAstRlRkGLHBlKHB2FyzbQ==}
     engines: {node: '>= 20'}
 
   '@vercel/oidc@3.8.9':
@@ -11577,6 +11570,12 @@ packages:
   react-is@16.13.1:
     resolution: {integrity: sha512-24e6ynE2H+OKt4kqsOvNd8kBpV65zoxbA4BVsEOB3ARVWQki/DHzaUoC5KuON/BiccDaCCTZBuOcfZs70kR8bQ==}
 
+  react-markdown@10.1.0:
+    resolution: {integrity: sha512-qKxVopLT/TyA6BX3Ue5NwabOsAzm0Q7kAPwq6L+wWDwisYs7R8vZ0nRXqq6rkueboxpkjvLGU9fWifiX/ZZFxQ==}
+    peerDependencies:
+      '@types/react': '>=18'
+      react: '>=18'
+
   react-medium-image-zoom@5.4.0:
     resolution: {integrity: sha512-BsE+EnFVQzFIlyuuQrZ9iTwyKpKkqdFZV1ImEQN573QPqGrIUuNni7aF+sZwDcxlsuOMayCr6oO/PZR/yJnbRg==}
     peerDependencies:
@@ -13471,8 +13470,8 @@ snapshots:
 
   '@antfu/install-pkg@1.1.0':
     dependencies:
-      package-manager-detector: 1.6.0
-      tinyexec: 1.2.4
+      package-manager-detector: 1.8.0
+      tinyexec: 1.3.0
 
   '@aws-crypto/sha256-browser@5.2.0':
     dependencies:
@@ -19358,7 +19357,7 @@ snapshots:
       d3-selection: 3.0.0
       d3-transition: 3.0.1(d3-selection@3.0.0)
 
-  '@vercel/agent-readability@0.6.0(@vercel/functions@3.9.9(@aws-sdk/credential-provider-web-identity@3.972.49)(ws@8.21.0))(h3@1.15.11)(next@16.3.3(@opentelemetry/api@1.9.0)(@types/node@25.3.2)(react-dom@19.2.3(react@19.2.3))(react@19.2.3))':
+  '@vercel/agent-readability@0.7.0(@vercel/functions@3.9.9(@aws-sdk/credential-provider-web-identity@3.972.49)(ws@8.21.0))(h3@1.15.11)(next@16.3.3(@opentelemetry/api@1.9.0)(@types/node@25.3.2)(react-dom@19.2.3(react@19.2.3))(react@19.2.3))':
     optionalDependencies:
       '@vercel/functions': 3.9.9(@aws-sdk/credential-provider-web-identity@3.972.49)(ws@8.21.0)
       h3: 1.15.11
@@ -19380,11 +19379,6 @@ snapshots:
       zod: 4.1.11
 
   '@vercel/cli-config@0.2.0':
-    dependencies:
-      xdg-app-paths: 5.1.0
-      zod: 4.1.11
-
-  '@vercel/cli-config@0.2.2':
     dependencies:
       xdg-app-paths: 5.1.0
       zod: 4.1.11
@@ -19433,16 +19427,19 @@ snapshots:
       '@aws-sdk/credential-provider-web-identity': 3.972.49
       ws: 8.21.0
 
-  '@vercel/geistdocs@1.25.2(@svta/cml-cta@1.0.1(@svta/cml-structured-field-values@1.0.1(@svta/cml-utils@1.0.1))(@svta/cml-utils@1.0.1))(@svta/cml-structured-field-values@1.0.1(@svta/cml-utils@1.0.1))(@svta/cml-utils@1.0.1)(@tanstack/react-router@1.170.39(react-dom@19.2.3(react@19.2.3))(react@19.2.3))(@types/mdast@4.0.4)(@types/react-dom@19.2.3(@types/react@19.2.7))(@types/react@19.2.7)(@vercel/functions@3.9.9(@aws-sdk/credential-provider-web-identity@3.972.49)(ws@8.21.0))(h3@1.15.11)(micromark-util-types@2.0.2)(micromark@4.0.2)(next@16.3.3(@opentelemetry/api@1.9.0)(@types/node@25.3.2)(react-dom@19.2.3(react@19.2.3))(react@19.2.3))(react-dom@19.2.3(react@19.2.3))(react@19.2.3)(tailwindcss@4.1.18)(vite@7.3.6(@types/node@25.3.2)(jiti@2.7.0)(lightningcss@1.33.0)(terser@5.48.0)(tsx@4.22.3)(yaml@2.9.0))':
+  '@vercel/geistdocs@1.28.1(@svta/cml-cta@1.0.1(@svta/cml-structured-field-values@1.0.1(@svta/cml-utils@1.0.1))(@svta/cml-utils@1.0.1))(@svta/cml-structured-field-values@1.0.1(@svta/cml-utils@1.0.1))(@svta/cml-utils@1.0.1)(@tanstack/react-router@1.170.39(react-dom@19.2.3(react@19.2.3))(react@19.2.3))(@types/mdast@4.0.4)(@types/react-dom@19.2.3(@types/react@19.2.7))(@vercel/functions@3.9.9(@aws-sdk/credential-provider-web-identity@3.972.49)(ws@8.21.0))(h3@1.15.11)(micromark-util-types@2.0.2)(micromark@4.0.2)(next@16.3.3(@opentelemetry/api@1.9.0)(@types/node@25.3.2)(react-dom@19.2.3(react@19.2.3))(react@19.2.3))(react-dom@19.2.3(react@19.2.3))(react@19.2.3)(tailwindcss@4.1.18)(vite@7.3.6(@types/node@25.3.2)(jiti@2.7.0)(lightningcss@1.33.0)(terser@5.48.0)(tsx@4.22.3)(yaml@2.9.0))':
     dependencies:
       '@ai-sdk/react': 3.0.184(react@19.2.3)(zod@4.6.5)
       '@clack/prompts': 0.11.0
       '@icons-pack/react-simple-icons': 13.11.2(react@19.2.3)
+      '@next/env': 16.3.3
       '@orama/tokenizers': 3.1.18
       '@streamdown/cjk': 1.0.2(@types/mdast@4.0.4)(micromark-util-types@2.0.2)(micromark@4.0.2)(react@19.2.3)(unified@11.0.5)
       '@streamdown/code': 1.0.3(react@19.2.3)
-      '@vercel/agent-readability': 0.6.0(@vercel/functions@3.9.9(@aws-sdk/credential-provider-web-identity@3.972.49)(ws@8.21.0))(h3@1.15.11)(next@16.3.3(@opentelemetry/api@1.9.0)(@types/node@25.3.2)(react-dom@19.2.3(react@19.2.3))(react@19.2.3))
-      '@vercel/oidc': 3.8.2
+      '@types/mdx': 2.0.13
+      '@types/react': 19.2.7
+      '@vercel/agent-readability': 0.7.0(@vercel/functions@3.9.9(@aws-sdk/credential-provider-web-identity@3.972.49)(ws@8.21.0))(h3@1.15.11)(next@16.3.3(@opentelemetry/api@1.9.0)(@types/node@25.3.2)(react-dom@19.2.3(react@19.2.3))(react@19.2.3))
+      '@vercel/oidc': 3.8.9
       ai: 6.0.182(zod@4.6.5)
       class-variance-authority: 0.7.1
       clsx: 2.1.1
@@ -19461,6 +19458,7 @@ snapshots:
       radix-ui: 1.6.4(@types/react-dom@19.2.3(@types/react@19.2.7))(@types/react@19.2.7)(react-dom@19.2.3(react@19.2.3))(react@19.2.3)
       react: 19.2.3
       react-dom: 19.2.3(react@19.2.3)
+      react-markdown: 10.1.0(@types/react@19.2.7)(react@19.2.3)
       react-player: 3.4.0(@svta/cml-cta@1.0.1(@svta/cml-structured-field-values@1.0.1(@svta/cml-utils@1.0.1))(@svta/cml-utils@1.0.1))(@svta/cml-structured-field-values@1.0.1(@svta/cml-utils@1.0.1))(@svta/cml-utils@1.0.1)(@types/react-dom@19.2.3(@types/react@19.2.7))(@types/react@19.2.7)(react-dom@19.2.3(react@19.2.3))(react@19.2.3)
       remark-frontmatter: 5.0.0
       remark-gfm: 4.0.1
@@ -19488,7 +19486,6 @@ snapshots:
       - '@svta/cml-utils'
       - '@tanstack/react-router'
       - '@types/mdast'
-      - '@types/react'
       - '@types/react-dom'
       - '@vercel/functions'
       - algoliasearch
@@ -19533,12 +19530,6 @@ snapshots:
       '@vercel/cli-exec': 1.0.0
       jose: 5.10.0
 
-  '@vercel/oidc@3.8.2':
-    dependencies:
-      '@vercel/cli-config': 0.2.2
-      '@vercel/cli-exec': 1.0.1
-      jose: 5.10.0
-
   '@vercel/oidc@3.8.9':
     dependencies:
       '@vercel/cli-config': 0.3.0
@@ -19547,14 +19538,14 @@ snapshots:
 
   '@vercel/queue@0.1.4':
     dependencies:
-      '@vercel/oidc': 3.8.2
+      '@vercel/oidc': 3.8.9
       minimatch: 10.2.5
       mixpart: 0.0.5
       picocolors: 1.1.1
 
   '@vercel/queue@0.4.0(@opentelemetry/api@1.9.0)':
     dependencies:
-      '@vercel/oidc': 3.8.2
+      '@vercel/oidc': 3.8.9
       minimatch: 10.2.5
       mixpart: 0.0.6
       picocolors: 1.1.1
@@ -25296,6 +25287,24 @@ snapshots:
       scheduler: 0.28.0
 
   react-is@16.13.1: {}
+
+  react-markdown@10.1.0(@types/react@19.2.7)(react@19.2.3):
+    dependencies:
+      '@types/hast': 3.0.4
+      '@types/mdast': 4.0.4
+      '@types/react': 19.2.7
+      devlop: 1.1.0
+      hast-util-to-jsx-runtime: 2.3.6
+      html-url-attributes: 3.0.1
+      mdast-util-to-hast: 13.2.1
+      react: 19.2.3
+      remark-parse: 11.0.0
+      remark-rehype: 11.1.2
+      unified: 11.0.5
+      unist-util-visit: 5.1.0
+      vfile: 6.0.3
+    transitivePeerDependencies:
+      - supports-color
 
   react-medium-image-zoom@5.4.0(react-dom@19.2.3(react@19.2.3))(react@19.2.3):
     dependencies:
