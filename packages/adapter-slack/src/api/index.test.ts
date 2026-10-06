@@ -302,6 +302,39 @@ describe("Slack api primitives", () => {
     expect(result.fileIds).toEqual(["F123"]);
   });
 
+  it("forwards blocks to files.completeUploadExternal", async () => {
+    const blocks = [
+      { text: { text: "report attached", type: "mrkdwn" }, type: "section" },
+    ];
+    const request = vi
+      .fn()
+      .mockResolvedValueOnce(
+        jsonResponse({
+          file_id: "F123",
+          ok: true,
+          upload_url: "https://files.slack.com/upload/v1/abc",
+        })
+      )
+      .mockResolvedValueOnce(new Response(null, { status: 200 }))
+      .mockResolvedValueOnce(
+        jsonResponse({ files: [{ id: "F123" }], ok: true })
+      );
+
+    await uploadSlackFiles(
+      [{ data: new Uint8Array([1, 2, 3]), filename: "report.txt" }],
+      {
+        blocks,
+        channelId: "C123",
+        fetch: request,
+        token: "xoxb",
+      }
+    );
+
+    const body = new URLSearchParams(textRequestBody(...request.mock.calls[2]));
+    expect(JSON.parse(String(body.get("blocks")))).toEqual(blocks);
+    expect(body.get("initial_comment")).toBeNull();
+  });
+
   it("fetches private Slack file URLs with bearer auth", async () => {
     const response = new Response("file", { status: 200 });
     const request = vi.fn().mockResolvedValue(response);

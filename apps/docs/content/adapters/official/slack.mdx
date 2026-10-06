@@ -1074,6 +1074,21 @@ await uploadSlackFiles(
 );
 ```
 
+Pass `blocks` instead of `initialComment` to share the files with Block Kit blocks. Slack renders the files below the blocks and ignores `blocks` when `initialComment` is also set.
+
+```typescript
+await uploadSlackFiles(
+  [{ data: new Uint8Array([1, 2, 3]), filename: "report.txt" }],
+  {
+    blocks: [
+      { type: "section", text: { type: "mrkdwn", text: "*Weekly report*" } },
+    ],
+    channelId: "C123",
+    token: process.env.SLACK_BOT_TOKEN!,
+  }
+);
+```
+
 Use `fetchSlackFile` for private Slack file URLs that require bearer token authorization.
 
 ### Blocks

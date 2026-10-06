@@ -82,6 +82,12 @@ export interface SlackFileUpload {
 }
 
 export interface SlackUploadOptions extends SlackApiOptions {
+  /**
+   * Block Kit blocks for the message that shares the files. Slack renders the
+   * files below the blocks and ignores `blocks` when `initialComment` is also
+   * set.
+   */
+  blocks?: unknown[];
   channelId?: string;
   initialComment?: string;
   threadTs?: string;
@@ -305,6 +311,7 @@ export async function uploadSlackFiles(
   const raw = await callSlackApi(
     "files.completeUploadExternal",
     {
+      blocks: options.blocks,
       channel_id: options.channelId,
       files: files.map((file, index) => ({
         id: fileIds[index],
