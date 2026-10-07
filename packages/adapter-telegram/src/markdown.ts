@@ -351,7 +351,7 @@ function renderMarkdownV2(node: Nodes): string {
         .map((item, i) => {
           const content = item.children.map(renderMarkdownV2).join("\n");
           if (node.ordered) {
-            return `${escapeMarkdownV2(`${i + 1}.`)} ${content}`;
+            return `${escapeMarkdownV2(`${(node.start ?? 1) + i}.`)} ${content}`;
           }
           return `\\- ${content}`;
         })
