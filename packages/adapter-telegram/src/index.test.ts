@@ -8044,7 +8044,10 @@ describe("Telegram Business mode", () => {
   });
 });
 
-describe("longMessages: split", () => {
+// These tests parse and render the issue's ~10k character sample several
+// times per post. That takes well under a second locally but can pass the
+// default 5s timeout under CI coverage instrumentation.
+describe("longMessages: split", { timeout: 20_000 }, () => {
   const ISSUE_MARKDOWN = Array.from(
     { length: 200 },
     (_, index) =>
