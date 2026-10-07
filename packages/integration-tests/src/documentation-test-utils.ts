@@ -151,6 +151,9 @@ export function createTempProject(codeBlocks: string[]): string {
         "@chat-adapter/github": [
           join(import.meta.dirname, "../../adapter-github/src/index.ts"),
         ],
+        "@chat-adapter/gitlab": [
+          join(import.meta.dirname, "../../adapter-gitlab/src/index.ts"),
+        ],
         "@chat-adapter/linear": [
           join(import.meta.dirname, "../../adapter-linear/src/index.ts"),
         ],

@@ -60,6 +60,16 @@
     "readme": "https://github.com/vercel/chat/tree/main/packages/adapter-github"
   },
   {
+    "name": "GitLab",
+    "slug": "gitlab",
+    "type": "platform",
+    "description": "Build bots that respond to merge request and issue comment threads on GitLab.com or GitLab Self-Managed.",
+    "packageName": "@chat-adapter/gitlab",
+    "icon": "gitlab",
+    "beta": true,
+    "readme": "https://github.com/vercel/chat/tree/main/packages/adapter-gitlab"
+  },
+  {
     "name": "Linear",
     "slug": "linear",
     "type": "platform",
@@ -360,7 +370,7 @@
     "slug": "wecom",
     "type": "platform",
     "community": true,
-    "description": "Community WeCom (企业微信) adapter for Chat SDK covering group webhook bots, smart bots, and apps, with template cards and AES encryption.",
+    "description": "Community WeCom (\u4f01\u4e1a\u5fae\u4fe1) adapter for Chat SDK covering group webhook bots, smart bots, and apps, with template cards and AES encryption.",
     "packageName": "@agentor/chat-wecom",
     "author": "DemoMacro",
     "readme": "https://github.com/DemoMacro/agentor/tree/6248fcc6b09821cfc2fb7bc50ef16eec1526e756/packages/chat-wecom"

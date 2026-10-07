@@ -1,0 +1,190 @@
+import { describe, expect, it } from "vitest";
+import { GitLabFormatConverter } from "./markdown";
+
+const TEST_BOT_MENTION_WITH_WHITESPACE_REGEX = /@test-bot\s+hi there/;
+
+describe("GitLabFormatConverter", () => {
+  const converter = new GitLabFormatConverter();
+
+  describe("toAst", () => {
+    it("preserves formatting, links, code, and lists in inbound markdown", () => {
+      const ast = converter.toAst(
+        "**bold** _italic_ [link](https://example.com)\n\n```ts\ncode\n```\n\n- ~~removed~~"
+      );
+      expect(ast).toMatchObject({
+        type: "root",
+        children: [
+          {
+            type: "paragraph",
+            children: [
+              { type: "strong", children: [{ type: "text", value: "bold" }] },
+              { type: "text", value: " " },
+              {
+                type: "emphasis",
+                children: [{ type: "text", value: "italic" }],
+              },
+              { type: "text", value: " " },
+              {
+                type: "link",
+                url: "https://example.com",
+                children: [{ type: "text", value: "link" }],
+              },
+            ],
+          },
+          { type: "code", lang: "ts", value: "code" },
+          {
+            type: "list",
+            ordered: false,
+            children: [
+              {
+                type: "listItem",
+                children: [
+                  {
+                    type: "paragraph",
+                    children: [
+                      {
+                        type: "delete",
+                        children: [{ type: "text", value: "removed" }],
+                      },
+                    ],
+                  },
+                ],
+              },
+            ],
+          },
+        ],
+      });
+    });
+
+    it("should parse @mentions", () => {
+      const text = converter.extractPlainText("Hey @username, check this out");
+      expect(text).toContain("@username");
+    });
+  });
+
+  describe("fromAst", () => {
+    it("should render plain text", () => {
+      const ast = {
+        type: "root" as const,
+        children: [
+          {
+            type: "paragraph" as const,
+            children: [{ type: "text" as const, value: "Hello world" }],
+          },
+        ],
+      };
+      const result = converter.fromAst(ast);
+      expect(result).toBe("Hello world");
+    });
+
+    it("should render bold text", () => {
+      const ast = {
+        type: "root" as const,
+        children: [
+          {
+            type: "paragraph" as const,
+            children: [
+              {
+                type: "strong" as const,
+                children: [{ type: "text" as const, value: "bold" }],
+              },
+            ],
+          },
+        ],
+      };
+      const result = converter.fromAst(ast);
+      expect(result).toBe("**bold**");
+    });
+
+    it("should render italic text", () => {
+      const ast = {
+        type: "root" as const,
+        children: [
+          {
+            type: "paragraph" as const,
+            children: [
+              {
+                type: "emphasis" as const,
+                children: [{ type: "text" as const, value: "italic" }],
+              },
+            ],
+          },
+        ],
+      };
+      const result = converter.fromAst(ast);
+      expect(result).toBe("*italic*");
+    });
+  });
+
+  describe("extractPlainText", () => {
+    it("should extract text from markdown", () => {
+      const result = converter.extractPlainText("**bold** and _italic_");
+      expect(result).toBe("bold and italic");
+    });
+
+    it("should preserve @mentions", () => {
+      const result = converter.extractPlainText("Hey @user, **thanks**!");
+      expect(result).toContain("@user");
+      expect(result).toContain("thanks");
+    });
+
+    it("should preserve whitespace after newline-separated @mentions", () => {
+      const result = converter.extractPlainText("@test-bot\nhi there");
+      expect(result).toMatch(TEST_BOT_MENTION_WITH_WHITESPACE_REGEX);
+    });
+
+    it("should extract text from code blocks", () => {
+      const result = converter.extractPlainText("```\ncode\n```");
+      expect(result).toContain("code");
+    });
+  });
+
+  describe("renderPostable", () => {
+    it("should render string directly", () => {
+      const result = converter.renderPostable("Hello world");
+      expect(result).toBe("Hello world");
+    });
+
+    it("should render raw message", () => {
+      const result = converter.renderPostable({ raw: "Raw content" });
+      expect(result).toBe("Raw content");
+    });
+
+    it("should render markdown message", () => {
+      const result = converter.renderPostable({ markdown: "**bold**" });
+      expect(result).toBe("**bold**");
+    });
+
+    it("should render ast message", () => {
+      const ast = {
+        type: "root" as const,
+        children: [
+          {
+            type: "paragraph" as const,
+            children: [{ type: "text" as const, value: "AST content" }],
+          },
+        ],
+      };
+      const result = converter.renderPostable({ ast });
+      expect(result).toBe("AST content");
+    });
+  });
+
+  describe("roundtrip", () => {
+    it("should roundtrip simple text", () => {
+      const original = "Hello world";
+      const ast = converter.toAst(original);
+      const result = converter.fromAst(ast);
+      expect(result.trim()).toBe(original);
+    });
+
+    it("should roundtrip markdown with formatting", () => {
+      const original = "**bold** and *italic*";
+      const ast = converter.toAst(original);
+      const result = converter.fromAst(ast);
+      // Note: remark may normalize to different italic syntax
+      expect(result).toContain("bold");
+      expect(result).toContain("italic");
+    });
+  });
+});

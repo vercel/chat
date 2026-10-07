@@ -1,0 +1,253 @@
+---
+title: GitLab
+description: Respond to @mentions in merge request and issue comment threads.
+packageName: "@chat-adapter/gitlab"
+slug: gitlab
+type: platform
+logo: gitlab
+tagline: Build bots that respond to merge request and issue comment threads on GitLab.com or GitLab Self-Managed. Treats merge requests, issues, and discussions as threads, comments as messages.
+beta: true
+features:
+  postMessage: yes
+  messageReplies: yes
+  editMessage: yes
+  deleteMessage: yes
+  fileUploads: yes
+  streaming:
+    status: partial
+    label: Buffered
+  scheduledMessages: no
+  cardFormat:
+    status: yes
+    label: GLFM Markdown
+  buttons: no
+  linkButtons: no
+  selectMenus: no
+  tables:
+    status: yes
+    label: GLFM
+  fields: yes
+  imagesInCards: yes
+  modals: no
+  slashCommands: no
+  mentions: yes
+  addReactions: yes
+  removeReactions: yes
+  typingIndicator: no
+  messageUpdatedEvents: no
+  messageDeletedEvents: no
+  directMessages: no
+  ephemeralMessages: no
+  userLookup: yes
+  parentSubject: yes
+  nativeClient:
+    status: partial
+    label: REST helper
+  customApiEndpoint: yes
+  fetchMessages: yes
+  fetchSingleMessage: yes
+  fetchThreadInfo: yes
+  fetchChannelMessages: no
+  listThreads: yes
+  fetchChannelInfo: yes
+  postChannelMessage: no
+---
+
+## Install
+
+<PackageInstall package="@chat-adapter/gitlab @chat-adapter/state-memory" />
+
+## Quick start
+
+<Callout type="info">
+The adapter auto-detects credentials from `GITLAB_TOKEN` and either `GITLAB_WEBHOOK_SIGNING_TOKEN` or `GITLAB_WEBHOOK_SECRET`. It looks up the bot's username and user ID from the token during initialization.
+</Callout>
+
+```typescript title="lib/bot.ts" lineNumbers
+import { Chat } from "chat";
+import { createGitLabAdapter } from "@chat-adapter/gitlab";
+import { createMemoryState } from "@chat-adapter/state-memory";
+
+export const bot = new Chat({
+  userName: "my-bot",
+  adapters: {
+    gitlab: createGitLabAdapter(),
+  },
+  state: createMemoryState(),
+});
+
+bot.onNewMention(async (thread, message) => {
+  await thread.post("Hello from GitLab!");
+});
+```
+
+The memory state adapter keeps subscriptions and locks in process memory, which suits local development. Use [Redis](/adapters/official/redis) or [PostgreSQL](/adapters/official/postgres) in production.
+
+Then create the webhook route:
+
+```typescript title="app/api/webhooks/gitlab/route.ts" lineNumbers
+import { after } from "next/server";
+import { bot } from "@/lib/bot";
+
+export async function POST(request: Request): Promise<Response> {
+  return bot.webhooks.gitlab(request, {
+    waitUntil: (task) => after(() => task),
+  });
+}
+```
+
+## Authentication
+
+The adapter calls the GitLab REST API with one access token that has the `api` scope. The token's user is the bot: it authors every comment and reaction, and users @mention its username to get a response.
+
+### Project or group access token
+
+A project or group access token creates a dedicated bot user, so comments don't appear under a person's account.
+
+1. In your project or group, go to **Settings** then **Access tokens** and select **Add new token**.
+2. Select the **Developer** role or higher, and the `api` scope.
+3. Select **Create project access token** (or **Create group access token**) and copy the token.
+4. Set `GITLAB_TOKEN`.
+
+GitLab names the bot user `project_{project_id}_bot_{random_string}` (or `group_{group_id}_bot_{random_string}`), and users mention that username. On GitLab.com, project and group access tokens require a Premium or Ultimate subscription.
+
+### Personal access token
+
+A personal access token suits personal projects, testing, or a dedicated service account.
+
+1. Go to **User settings** then **Access tokens** and select **Add new token**.
+2. Select the `api` scope and create the token.
+3. Set `GITLAB_TOKEN`.
+
+```typescript
+createGitLabAdapter({
+  token: process.env.GITLAB_TOKEN!,
+});
+```
+
+### GitLab Self-Managed and Dedicated
+
+Set `apiUrl`, or the `GITLAB_API_URL` environment variable, to your instance's REST API base URL:
+
+```typescript
+createGitLabAdapter({
+  apiUrl: "https://gitlab.example.com/api/v4",
+});
+```
+
+## Configuration
+
+<TypeTable
+  type={{
+    token: {
+      type: "string",
+      description:
+        "Access token with the `api` scope. Auto-detected from `GITLAB_TOKEN`.",
+    },
+    webhookSigningToken: {
+      type: "string",
+      description:
+        "Webhook signing token (`whsec_…`) used to verify the `webhook-signature` header. Auto-detected from `GITLAB_WEBHOOK_SIGNING_TOKEN`. Requires GitLab 19.0 or later.",
+    },
+    webhookSecret: {
+      type: "string",
+      description:
+        "Webhook secret token, compared against the `X-Gitlab-Token` header. Auto-detected from `GITLAB_WEBHOOK_SECRET`.",
+    },
+    webhookVerifier: {
+      type: "(request, body) => unknown | Promise<unknown>",
+      description:
+        "Custom verifier used in place of `webhookSigningToken` and `webhookSecret`. Takes precedence over both.",
+    },
+    userName: {
+      type: "string",
+      description:
+        "Bot username for @mention detection. Auto-detected from `GITLAB_BOT_USERNAME`, then from the token's user, then defaults to `gitlab-bot`.",
+    },
+    botUserId: {
+      type: "number",
+      description:
+        "Numeric ID of the bot user, used to ignore the bot's own comments. Auto-detected from `GITLAB_BOT_USER_ID`, then from the token's user.",
+    },
+    apiUrl: {
+      type: "string",
+      default: '"https://gitlab.com/api/v4"',
+      description:
+        "GitLab REST API base URL. Auto-detected from `GITLAB_API_URL`.",
+    },
+    logger: {
+      type: "Logger",
+      description: "Logger instance. Defaults to a console logger.",
+    },
+  }}
+/>
+
+`token` is required, plus one of `webhookSigningToken`, `webhookSecret`, or
+`webhookVerifier`.
+
+### Environment variables
+
+| Variable | Required | Description |
+|----------|----------|-------------|
+| `GITLAB_TOKEN` | Yes | Personal, project, or group access token with the `api` scope. |
+| `GITLAB_WEBHOOK_SIGNING_TOKEN` | One webhook token required | Webhook signing token for HMAC signature verification. |
+| `GITLAB_WEBHOOK_SECRET` | One webhook token required | Webhook secret token sent in the `X-Gitlab-Token` header. |
+| `GITLAB_BOT_USERNAME` | No | Bot username for @mention detection. Defaults to the token user's username. |
+| `GITLAB_BOT_USER_ID` | No | Numeric bot user ID. Defaults to the token user's ID. |
+| `GITLAB_API_URL` | No | REST API base URL for GitLab Self-Managed or Dedicated. |
+
+## Webhooks
+
+Add a project or group webhook:
+
+1. Go to **Settings** then **Webhooks** and select **Add new webhook**.
+2. Set **URL** to `https://your-domain.com/api/webhooks/gitlab`.
+3. Under request authentication, select **Generate signing token** and set `GITLAB_WEBHOOK_SIGNING_TOKEN` to the token. On GitLab versions earlier than 19.0, enter a **Secret token** instead and set `GITLAB_WEBHOOK_SECRET` to the same value.
+4. Under **Trigger**, select **Comments**. Select **Emoji events** too if your bot handles reactions with `onReaction`.
+5. Select **Add webhook**.
+
+When both tokens are configured, the adapter verifies the `webhook-signature` header if GitLab sends one and falls back to the `X-Gitlab-Token` header otherwise. Signed requests with a `webhook-timestamp` more than five minutes old are rejected.
+
+The adapter dispatches newly created comments on merge requests and issues. It ignores comment edits, system notes, and comments on commits and snippets. It also ignores internal notes and comments on confidential issues, so a public reply can't expose their content.
+
+## Thread IDs
+
+Top-level comments map to the merge request or issue thread. Diff comments, started threads, and replies to a comment map to their discussion thread, and the bot replies inside that discussion:
+
+| Type | Context | Thread ID format |
+|------|---------|-----------------|
+| Merge request | Top-level comments | `gitlab:{projectId}:mr:{iid}` |
+| Issue | Top-level comments | `gitlab:{projectId}:issue:{iid}` |
+| Discussion | Threaded or diff comments | `gitlab:{projectId}:{mr\|issue}:{iid}:{discussionId}` |
+
+The channel ID for a project is `gitlab:{projectId}`. `listThreads` returns the project's open merge requests.
+
+## Reactions
+
+The adapter maps SDK emoji to GitLab emoji names. Most names match Slack-style shortcodes, such as `rocket`, `eyes`, and `tada` for `party`:
+
+| SDK emoji | GitLab emoji |
+|-----------|--------------|
+| `thumbs_up` | `thumbsup` |
+| `thumbs_down` | `thumbsdown` |
+| `heart` | `heart` |
+| `party` | `tada` |
+| `rocket` | `rocket` |
+| `eyes` | `eyes` |
+
+With **Emoji events** enabled on the webhook, reactions on comments reach `onReaction` handlers.
+
+## REST API helper
+
+Call any GitLab REST endpoint with the adapter's credentials through `request`:
+
+```typescript
+const gitlab = bot.getAdapter("gitlab");
+const pipelines = await gitlab.request("GET", "/projects/42/pipelines", {
+  query: { ref: "main" },
+});
+```
+
+## Feature support
+
+<FeatureSupport />
