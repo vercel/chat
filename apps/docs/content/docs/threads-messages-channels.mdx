@@ -13,7 +13,7 @@ related:
   - /docs/history
 ---
 
-Threads, messages, and channels are the core objects your bot works with on every platform. This page covers posting and subscribing in threads, reading message data, working with channels, and the thread ID format.
+A channel holds threads, and each thread holds the messages in one conversation. Your event handlers receive the `Thread` and `Message` for each event, and `thread.channel` returns the `Channel` that contains the thread.
 
 ## Threads
 

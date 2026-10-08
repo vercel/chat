@@ -13,7 +13,7 @@ related:
   - /docs/actions
 ---
 
-This guide walks through building a Chat SDK adapter for a new messaging platform, from project setup and types to implementing the `Adapter` interface, a format converter, and a factory function.
+Build your adapter as its own npm package. It implements the `Adapter` interface for your platform, converts messages between Chat SDK's Markdown AST and the platform's format, and exports a factory function such as `createMatrixAdapter`.
 
 ## What adapters are
 
