@@ -33,6 +33,8 @@ const VIEWER_ID = "4145994";
 const CHAT_THREAD = `twitch:${BROADCASTER_ID}`;
 const WHISPER_THREAD = `twitch:whisper:${VIEWER_ID}`;
 const TOKEN_URL = "https://id.twitch.tv/oauth2/token";
+const USER_TOKEN_KEY = `twitch:oauth:${CLIENT_ID}:${BOT_ID}`;
+const APP_TOKEN_KEY = `twitch:app-token:${CLIENT_ID}`;
 const HELIX = "https://api.twitch.tv/helix";
 
 const mockLogger = createMockLogger();
@@ -217,6 +219,15 @@ function dispatched(chat: ChatInstance) {
     throw new Error("processMessage was not called");
   }
   return { message: call[2], threadId: call[1] };
+}
+
+/** Whispers dispatch a message factory; run it like Chat SDK does. */
+async function dispatchedWhisper(chat: ChatInstance) {
+  const { message, threadId } = dispatched(chat);
+  return {
+    message: typeof message === "function" ? await message() : message,
+    threadId,
+  };
 }
 
 beforeEach(() => {
@@ -609,6 +620,18 @@ describe("handleWebhook", () => {
     expect(replyTo?.text).toBe("Celeste is a great pick");
     expect(replyTo?.author.isMe).toBe(true);
     expect(replyTo?.author.userName).toBe(BOT_LOGIN);
+    expect(replyTo?.raw).toMatchObject({
+      event: {
+        chatter_user_id: BOT_ID,
+        message: { text: "Celeste is a great pick" },
+        message_id: "parent-1",
+        reply: null,
+      },
+      kind: "chat",
+    });
+    expect(replyTo?.metadata.dateSent.getTime()).toBeLessThan(
+      dispatched(chat).message.metadata.dateSent.getTime()
+    );
   });
 
   it("leaves replyTo unset on messages that aren't replies", async () => {
@@ -649,12 +672,35 @@ describe("handleWebhook", () => {
       })
     );
 
-    const { message, threadId } = dispatched(chat);
+    const { message, threadId } = await dispatchedWhisper(chat);
     expect(threadId).toBe(WHISPER_THREAD);
     expect(message.id).toBe("some-whisper-id");
     expect(message.text).toBe("a secret");
     expect(message.author.userName).toBe("viewer32");
     expect(adapter.isDM(threadId)).toBe(true);
+    expect(
+      await chat.getState().get(`twitch:whispered:${BOT_ID}:${VIEWER_ID}`)
+    ).toBe(true);
+  });
+
+  it("ignores shared chat copies of messages from other channels", async () => {
+    const { adapter, chat } = await initialized();
+    await adapter.handleWebhook(
+      chatNotification({
+        message_id: "copy-in-this-channel",
+        source_broadcaster_user_id: "555",
+        source_message_id: "original-id",
+      })
+    );
+    expect(chat.processMessage).not.toHaveBeenCalled();
+
+    await adapter.handleWebhook(
+      chatNotification({
+        source_broadcaster_user_id: BROADCASTER_ID,
+        source_message_id: "cc106a89-1814-919d-454c-f4f2f970aae7",
+      })
+    );
+    expect(chat.processMessage).toHaveBeenCalledTimes(1);
   });
 
   it("ignores malformed events and unsupported subscription types", async () => {
@@ -722,8 +768,51 @@ describe("postMessage", () => {
     expect(tokenRequests).toHaveLength(1);
   });
 
+  it("reuses the app access token stored by another instance", async () => {
+    const state = createMockState();
+    const first = await initialized(
+      {},
+      createMockChatInstance({ logger: mockLogger, state })
+    );
+    queue(json({ data: [{ is_sent: true, message_id: "sent-1" }] }));
+    await first.adapter.postMessage(CHAT_THREAD, "one");
+
+    const second = await initialized(
+      {},
+      createMockChatInstance({ logger: mockLogger, state })
+    );
+    queue(json({ data: [{ is_sent: true, message_id: "sent-2" }] }));
+    await second.adapter.postMessage(CHAT_THREAD, "two");
+
+    expect(tokenRequests).toHaveLength(1);
+    expect(lastHelixCall().init.headers).toMatchObject({
+      Authorization: "Bearer app-token-1",
+    });
+  });
+
+  it("doesn't reuse a rejected app token that couldn't be deleted from state", async () => {
+    const state = createMockState();
+    vi.spyOn(state, "delete").mockRejectedValue(new Error("state down"));
+    const { adapter } = await initialized(
+      {},
+      createMockChatInstance({ logger: mockLogger, state })
+    );
+    queue(
+      json({ data: [{ is_sent: true, message_id: "sent-1" }] }),
+      json({ message: "Invalid OAuth token", status: 401 }, 401),
+      json({ data: [{ is_sent: true, message_id: "sent-2" }] })
+    );
+    await adapter.postMessage(CHAT_THREAD, "one");
+    await adapter.postMessage(CHAT_THREAD, "two");
+
+    expect(tokenRequests).toHaveLength(2);
+    expect(lastHelixCall().init.headers).toMatchObject({
+      Authorization: "Bearer app-token-2",
+    });
+  });
+
   it("refreshes the app access token once after a 401", async () => {
-    const { adapter } = await initialized();
+    const { adapter, chat } = await initialized();
     queue(
       json(
         { error: "Unauthorized", message: "Invalid OAuth token", status: 401 },
@@ -735,6 +824,9 @@ describe("postMessage", () => {
     expect(tokenRequests).toHaveLength(2);
     expect(lastHelixCall().init.headers).toMatchObject({
       Authorization: "Bearer app-token-2",
+    });
+    expect(await chat.getState().get(APP_TOKEN_KEY)).toMatchObject({
+      accessToken: "app-token-2",
     });
   });
 
@@ -824,11 +916,19 @@ describe("postMessage", () => {
     );
   });
 
-  it("rejects empty messages and attachments", async () => {
+  it("skips the blank placeholder Chat SDK posts for empty output", async () => {
     const { adapter } = await initialized();
-    await expect(adapter.postMessage(CHAT_THREAD, "  ")).rejects.toThrow(
-      ValidationError
-    );
+    const result = await adapter.postMessage(CHAT_THREAD, { markdown: " " });
+    expect(result.id).toBeTruthy();
+    expect(result.threadId).toBe(CHAT_THREAD);
+    expect(helixCalls()).toHaveLength(0);
+  });
+
+  it("rejects messages that render empty, and attachments", async () => {
+    const { adapter } = await initialized();
+    await expect(
+      adapter.postMessage(CHAT_THREAD, { markdown: "---" })
+    ).rejects.toThrow(ValidationError);
     await expect(
       adapter.postMessage(CHAT_THREAD, {
         files: [{ data: Buffer.from("x"), filename: "x.png" }],
@@ -844,21 +944,16 @@ describe("postMessage", () => {
     expect(lastHelixCall().body.broadcaster_id).toBe(BROADCASTER_ID);
   });
 
-  it("caches sent messages for fetchMessages", async () => {
-    const { adapter, chat } = await initialized();
+  it("returns no messages so Chat SDK reads its persisted history", async () => {
+    const { adapter } = await initialized();
     await adapter.handleWebhook(chatNotification());
     queue(json({ data: [{ is_sent: true, message_id: "sent-1" }] }));
     await adapter.postMessage(CHAT_THREAD, "reply");
 
-    const { messages } = await adapter.fetchMessages(CHAT_THREAD);
-    expect(messages.map((m) => m.id)).toEqual([
-      "cc106a89-1814-919d-454c-f4f2f970aae7",
-      "sent-1",
-    ]);
-    expect(messages[1]?.author.isMe).toBe(true);
-    expect(chat.processMessage).toHaveBeenCalledTimes(1);
-    expect(await adapter.fetchMessage(CHAT_THREAD, "sent-1")).not.toBeNull();
-    expect(await adapter.fetchMessage(CHAT_THREAD, "missing")).toBeNull();
+    expect(await adapter.fetchMessages(CHAT_THREAD)).toEqual({ messages: [] });
+    await expect(adapter.fetchMessages("slack:C1:1")).rejects.toThrow(
+      ValidationError
+    );
   });
 });
 
@@ -934,10 +1029,178 @@ describe("whispers", () => {
     expect(lastHelixCall().init.headers).toMatchObject({
       Authorization: "Bearer user-token-1",
     });
-    expect(await state.get(`twitch:oauth:${CLIENT_ID}`)).toMatchObject({
+    expect(await state.get(USER_TOKEN_KEY)).toMatchObject({
       accessToken: "user-token-1",
       refreshToken: "rotated-refresh-1",
     });
+  });
+
+  it("shares one state read and one refresh between concurrent whispers", async () => {
+    const state = createMockState();
+    const getSpy = vi.spyOn(state, "get");
+    const { adapter } = await initialized(
+      { refreshToken: "initial-refresh" },
+      createMockChatInstance({ logger: mockLogger, state })
+    );
+    queue(
+      new Response(null, { status: 204 }),
+      new Response(null, { status: 204 })
+    );
+
+    await Promise.all([
+      adapter.postMessage(WHISPER_THREAD, "one"),
+      adapter.postMessage(WHISPER_THREAD, "two"),
+    ]);
+
+    expect(tokenRequests).toHaveLength(1);
+    const userTokenReads = getSpy.mock.calls.filter(
+      ([key]) => key === USER_TOKEN_KEY
+    );
+    // One load, plus one re-read before the refresh.
+    expect(userTokenReads).toHaveLength(2);
+  });
+
+  it("ignores a stored token minted from a different refresh token", async () => {
+    const state = createMockState();
+    const chat = createMockChatInstance({ logger: mockLogger, state });
+    const first = await initialized({ refreshToken: "old-refresh" }, chat);
+    queue(new Response(null, { status: 204 }));
+    await first.adapter.postMessage(WHISPER_THREAD, "one");
+
+    const next = await initialized({ refreshToken: "new-refresh" }, chat);
+    queue(new Response(null, { status: 204 }));
+    await next.adapter.postMessage(WHISPER_THREAD, "two");
+
+    expect(tokenRequests.map((p) => p.get("refresh_token"))).toEqual([
+      "old-refresh",
+      "new-refresh",
+    ]);
+  });
+
+  it("keeps tokens for different bots apart", async () => {
+    const state = createMockState();
+    const chat = createMockChatInstance({ logger: mockLogger, state });
+    const bot = await initialized({ refreshToken: "shared-refresh" }, chat);
+    queue(new Response(null, { status: 204 }));
+    await bot.adapter.postMessage(WHISPER_THREAD, "one");
+
+    const other = await initialized(
+      { refreshToken: "shared-refresh", userId: "777", userName: "otherbot" },
+      chat
+    );
+    queue(new Response(null, { status: 204 }));
+    await other.adapter.postMessage(WHISPER_THREAD, "two");
+
+    expect(tokenRequests).toHaveLength(2);
+    expect(await state.get(`twitch:oauth:${CLIENT_ID}:777`)).toBeTruthy();
+  });
+
+  it("uses a refresh stored by another instance before refreshing itself", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    try {
+      const state = createMockState();
+      const chat = createMockChatInstance({ logger: mockLogger, state });
+      const a = await initialized({ refreshToken: "initial-refresh" }, chat);
+      const b = await initialized({ refreshToken: "initial-refresh" }, chat);
+      queue(
+        new Response(null, { status: 204 }),
+        new Response(null, { status: 204 })
+      );
+      await a.adapter.postMessage(WHISPER_THREAD, "one");
+      await b.adapter.postMessage(WHISPER_THREAD, "two");
+      expect(tokenRequests).toHaveLength(1);
+
+      // Both in-memory tokens expire; A refreshes and rotates first.
+      vi.setSystemTime(Date.now() + 15_000_000);
+      queue(
+        new Response(null, { status: 204 }),
+        new Response(null, { status: 204 })
+      );
+      await a.adapter.postMessage(WHISPER_THREAD, "three");
+      await b.adapter.postMessage(WHISPER_THREAD, "four");
+
+      expect(tokenRequests.map((p) => p.get("refresh_token"))).toEqual([
+        "initial-refresh",
+        "rotated-refresh-1",
+      ]);
+      expect(lastHelixCall().init.headers).toMatchObject({
+        Authorization: "Bearer user-token-2",
+      });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("refreshes the user token and retries once after a 401", async () => {
+    const { adapter } = await initialized({ refreshToken: "initial-refresh" });
+    queue(
+      new Response(null, { status: 204 }),
+      json({ message: "Invalid OAuth token", status: 401 }, 401),
+      new Response(null, { status: 204 })
+    );
+    await adapter.postMessage(WHISPER_THREAD, "one");
+    await adapter.postMessage(WHISPER_THREAD, "two");
+
+    expect(tokenRequests).toHaveLength(2);
+    expect(lastHelixCall().init.headers).toMatchObject({
+      Authorization: "Bearer user-token-2",
+    });
+  });
+
+  it("uses a configured access token before refreshing it", async () => {
+    const { adapter } = await initialized({
+      refreshToken: "initial-refresh",
+      userAccessToken: "configured-token",
+    });
+    queue(
+      new Response(null, { status: 204 }),
+      json({ message: "Invalid OAuth token", status: 401 }, 401),
+      new Response(null, { status: 204 })
+    );
+
+    await adapter.postMessage(WHISPER_THREAD, "one");
+    expect(tokenRequests).toHaveLength(0);
+    expect(lastHelixCall().init.headers).toMatchObject({
+      Authorization: "Bearer configured-token",
+    });
+
+    await adapter.postMessage(WHISPER_THREAD, "two");
+    expect(tokenRequests).toHaveLength(1);
+    expect(lastHelixCall().init.headers).toMatchObject({
+      Authorization: "Bearer user-token-1",
+    });
+  });
+
+  it("does not retry a 401 on a static user token", async () => {
+    const { adapter } = await initialized({ userAccessToken: "user-token" });
+    queue(json({ message: "Invalid OAuth token", status: 401 }, 401));
+    await expect(adapter.postMessage(WHISPER_THREAD, "hi")).rejects.toThrow(
+      AuthenticationError
+    );
+    expect(helixCalls()).toHaveLength(1);
+  });
+
+  it("limits whispers to 500 characters until the user has whispered the bot", async () => {
+    const { adapter, chat } = await initialized({
+      userAccessToken: "user-token",
+    });
+    const long = "word ".repeat(400).trim();
+    queue(new Response(null, { status: 204 }));
+    await adapter.postMessage(WHISPER_THREAD, long);
+    const first = String(lastHelixCall().body.message);
+    expect(Array.from(first).length).toBeLessThanOrEqual(500);
+    expect(first.endsWith("…")).toBe(true);
+
+    await adapter.handleWebhook(
+      signedRequest({
+        event: whisperEvent(),
+        subscription: subscription("user.whisper.message"),
+      })
+    );
+    await dispatchedWhisper(chat);
+    queue(new Response(null, { status: 204 }));
+    await adapter.postMessage(WHISPER_THREAD, long);
+    expect(lastHelixCall().body.message).toBe(long);
   });
 
   it("encrypts the persisted token when an encryption key is set", async () => {
@@ -951,9 +1214,7 @@ describe("whispers", () => {
     queue(new Response(null, { status: 204 }));
     await adapter.postMessage(WHISPER_THREAD, "one");
 
-    const stored = await state.get<{ refreshToken: unknown }>(
-      `twitch:oauth:${CLIENT_ID}`
-    );
+    const stored = await state.get<{ refreshToken: unknown }>(USER_TOKEN_KEY);
     expect(typeof stored?.refreshToken).toBe("object");
 
     // A fresh adapter reads the stored token back instead of refreshing.
@@ -996,6 +1257,14 @@ describe("deleteMessage", () => {
       message_id: "msg-1",
       moderator_id: BOT_ID,
     });
+  });
+
+  it("rejects an empty message ID instead of clearing the chat", async () => {
+    const { adapter } = await initialized();
+    await expect(adapter.deleteMessage(CHAT_THREAD, "")).rejects.toThrow(
+      ValidationError
+    );
+    expect(helixCalls()).toHaveLength(0);
   });
 
   it("rejects deleting whispers", async () => {
@@ -1063,6 +1332,21 @@ describe("stream", () => {
     expect(result.id).toBe("sent-1");
     expect(helixCalls()).toHaveLength(1);
     expect(lastHelixCall().body.message).toBe("Hello chat");
+  });
+
+  it("posts nothing when the stream has no text", async () => {
+    const { adapter } = await initialized();
+    async function* chunks() {
+      yield {
+        id: "t",
+        status: "complete" as const,
+        title: "x",
+        type: "task_update" as const,
+      };
+    }
+    const result = await adapter.stream(CHAT_THREAD, chunks());
+    expect(result.id).toBeTruthy();
+    expect(helixCalls()).toHaveLength(0);
   });
 });
 
@@ -1238,30 +1522,6 @@ describe("thread helpers", () => {
     });
     expect(outbound.threadId).toBe(WHISPER_THREAD);
     expect(outbound.author.isMe).toBe(true);
-  });
-
-  it("paginates cached messages", async () => {
-    const { adapter } = await initialized();
-    for (let i = 0; i < 5; i++) {
-      adapter.parseMessage({
-        event: chatEvent({ message_id: `m${i}` }),
-        kind: "chat",
-        receivedAt: new Date(Date.UTC(2026, 0, 1, 0, 0, i)).toISOString(),
-      });
-    }
-    const latest = await adapter.fetchMessages(CHAT_THREAD, { limit: 2 });
-    expect(latest.messages.map((m) => m.id)).toEqual(["m3", "m4"]);
-    const older = await adapter.fetchMessages(CHAT_THREAD, {
-      cursor: latest.nextCursor,
-      limit: 2,
-    });
-    expect(older.messages.map((m) => m.id)).toEqual(["m1", "m2"]);
-    const forward = await adapter.fetchMessages(CHAT_THREAD, {
-      direction: "forward",
-      limit: 3,
-    });
-    expect(forward.messages.map((m) => m.id)).toEqual(["m0", "m1", "m2"]);
-    expect(forward.nextCursor).toBe("m2");
   });
 
   it("renders formatted content as one line", () => {

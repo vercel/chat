@@ -21,8 +21,8 @@ export interface TwitchAdapterConfig {
    */
   clientSecret?: string;
   /**
-   * Base64 32-byte AES-256-GCM key used to encrypt the managed user token
-   * persisted in the state adapter. Defaults to TWITCH_ENCRYPTION_KEY. Tokens
+   * Base64 32-byte AES-256-GCM key used to encrypt the app and user tokens
+   * stored in the state adapter. Defaults to TWITCH_ENCRYPTION_KEY. Tokens
    * are stored unencrypted when omitted.
    */
   encryptionKey?: string;
@@ -217,9 +217,17 @@ export interface TwitchOauthTokenResult {
   token_type?: string;
 }
 
+/** App access token cached in the state adapter. */
+export interface TwitchStoredAppToken {
+  accessToken: EncryptedTokenData | string;
+  expiresAt: number;
+}
+
 /** Managed user token persisted in the state adapter. */
 export interface TwitchStoredOauthToken {
   accessToken: EncryptedTokenData | string;
   expiresAt: number;
   refreshToken: EncryptedTokenData | string;
+  /** SHA-256 hex of the configured refresh token the stored token descends from. */
+  seed: string;
 }

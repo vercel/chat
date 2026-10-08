@@ -68,4 +68,41 @@ describe("cardToTwitchText", () => {
       })
     ).toBe("Inside");
   });
+
+  it("flattens table elements to header: value pairs", () => {
+    expect(
+      cardToTwitchText({
+        children: [
+          {
+            headers: ["Game", "Votes"],
+            rows: [
+              ["Celeste", "42"],
+              ["Hades", ""],
+            ],
+            type: "table",
+          },
+        ],
+        title: "Results",
+        type: "card",
+      })
+    ).toBe("Results · Game: Celeste, Votes: 42 · Game: Hades");
+  });
+
+  it("joins cell values when a table has no headers", () => {
+    expect(
+      cardToTwitchText({
+        children: [
+          {
+            headers: [],
+            rows: [
+              ["Celeste", "42"],
+              ["Hades", "17"],
+            ],
+            type: "table",
+          },
+        ],
+        type: "card",
+      })
+    ).toBe("Celeste, 42 · Hades, 17");
+  });
 });

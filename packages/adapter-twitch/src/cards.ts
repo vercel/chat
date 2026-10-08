@@ -1,11 +1,5 @@
 import type { ActionsElement, CardChild, CardElement } from "chat";
-import { tableElementToAscii } from "chat";
-
-/**
- * Twitch chat is one line, so card parts are joined with a visible separator
- * instead of line breaks that would collapse into plain spaces.
- */
-const PART_SEPARATOR = " · ";
+import { PART_SEPARATOR, tableToTwitchText } from "./table";
 
 /**
  * Render a card as plain text for Twitch chat.
@@ -59,7 +53,7 @@ function childToText(child: CardChild): string | null {
         .map((field) => `${field.label}: ${field.value}`)
         .join(PART_SEPARATOR);
     case "table":
-      return tableElementToAscii(child.headers, child.rows);
+      return tableToTwitchText(child.headers, child.rows) || null;
     default:
       return null;
   }

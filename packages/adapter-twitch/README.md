@@ -57,10 +57,10 @@ When you call `createTwitchAdapter()` without arguments, it reads credentials fr
 | `TWITCH_CLIENT_SECRET` | Yes | Twitch application client secret |
 | `TWITCH_WEBHOOK_SECRET` | Yes | EventSub webhook secret, 10 to 100 characters |
 | `TWITCH_BOT_USERNAME` | Yes, unless `TWITCH_BOT_USER_ID` is set | Bot account login |
-| `TWITCH_BOT_USER_ID` | No | Bot account user ID. Looked up from the login when unset |
+| `TWITCH_BOT_USER_ID` | No | Bot account user ID. Looked up from the login when unset. Set it with `TWITCH_BOT_USERNAME` to skip the Get Users call on startup |
 | `TWITCH_USER_ACCESS_TOKEN` | For whispers, unless `TWITCH_REFRESH_TOKEN` is set | Bot user access token with `user:manage:whispers` |
 | `TWITCH_REFRESH_TOKEN` | No | Bot refresh token for managed whisper token refresh |
-| `TWITCH_ENCRYPTION_KEY` | No | Base64 32-byte key used to encrypt the persisted user token |
+| `TWITCH_ENCRYPTION_KEY` | No | Base64 32-byte key used to encrypt the tokens stored in the state adapter |
 
 ## Twitch setup
 
@@ -83,7 +83,9 @@ Chat uses an app access token that the adapter mints and refreshes with the clie
 - **Threads:** a broadcaster's chat room is one thread, `twitch:{broadcasterUserId}`. Whispers use `twitch:whisper:{userId}`.
 - **Mentions:** an `@mention` of the bot or a reply to one of its messages counts as a mention. The bot's own messages are ignored.
 - **Replies:** `thread.reply(message, ...)` sends a Twitch reply with `reply_parent_message_id`. On incoming replies, `message.replyTo` holds the text and author of the message being replied to.
-- **Formatting:** messages are sent as one line of plain text. Card parts are joined with ` · `, and messages over 500 characters are cut at a word boundary.
+- **Formatting:** messages are sent as one line of plain text. Card parts and table rows are joined with ` · `, and messages over 500 characters are cut at a word boundary.
+- **Concurrency:** the adapter locks a whole chat room while a handler runs. Set `concurrency: "queue"` or `"concurrent"` on `Chat` so messages that arrive during a slow reply aren't dropped.
+- **History:** Twitch has no history API. Chat SDK keeps thread history in the state adapter (`persistThreadHistory`).
 - **Streaming:** buffered and posted once, because Twitch chat messages can't be edited.
 - **Unsupported:** editing, reactions, typing indicators, file uploads, and interactive components.
 

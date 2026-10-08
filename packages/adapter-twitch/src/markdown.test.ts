@@ -54,6 +54,32 @@ describe("TwitchFormatConverter", () => {
   });
 });
 
+describe("TwitchFormatConverter tables", () => {
+  it("flattens markdown tables to header: value pairs on one line", () => {
+    expect(
+      converter.fromMarkdown(
+        "| Game | Votes |\n| --- | --- |\n| Celeste | 42 |\n| Hades | 17 |"
+      )
+    ).toBe("Game: Celeste, Votes: 42 · Game: Hades, Votes: 17");
+  });
+
+  it("flattens inline formatting and links inside table cells", () => {
+    expect(
+      converter.fromMarkdown(
+        "| Name | Link |\n| --- | --- |\n| **Clip** | [watch](https://clips.twitch.tv/abc) |"
+      )
+    ).toBe("Name: Clip, Link: watch (https://clips.twitch.tv/abc)");
+  });
+
+  it("skips empty table cells", () => {
+    expect(
+      converter.fromMarkdown(
+        "| Game | Notes |\n| --- | --- |\n| Celeste |  |\n| Hades | fun |"
+      )
+    ).toBe("Game: Celeste · Game: Hades, Notes: fun");
+  });
+});
+
 describe("toSingleLine", () => {
   it("collapses line breaks and surrounding whitespace", () => {
     expect(toSingleLine("  one \n\n  two\nthree  ")).toBe("one two three");

@@ -1125,11 +1125,29 @@ export const ADAPTERS = {
     description:
       "Read and reply in Twitch channel chat with EventSub webhooks and the Helix Chat API, plus whispers.",
     env: {
+      credentialModes: [
+        {
+          label: "Bot username",
+          vars: [
+            env(
+              "TWITCH_BOT_USERNAME",
+              "Bot account login, used for mention detection. The user ID is looked up with Get Users."
+            ),
+          ],
+        },
+        {
+          label: "Bot user ID",
+          vars: [
+            env(
+              "TWITCH_BOT_USER_ID",
+              "Bot account user ID, used as the sender of chat messages and whispers and for self-detection. The login is looked up with Get Users."
+            ),
+          ],
+        },
+      ],
+      notes:
+        "Set TWITCH_BOT_USERNAME, TWITCH_BOT_USER_ID, or both. Setting both skips the Get Users lookup during initialization.",
       optional: [
-        env(
-          "TWITCH_BOT_USER_ID",
-          "Bot account user ID. Looked up from TWITCH_BOT_USERNAME when omitted."
-        ),
         secretEnv(
           "TWITCH_USER_ACCESS_TOKEN",
           "Bot user access token with user:manage:whispers, used only to send whispers."
@@ -1140,7 +1158,7 @@ export const ADAPTERS = {
         ),
         secretEnv(
           "TWITCH_ENCRYPTION_KEY",
-          "AES-256-GCM key for encrypting the stored user token."
+          "AES-256-GCM key for encrypting the tokens stored in the state adapter."
         ),
         urlEnv("TWITCH_API_BASE_URL", "Override the Helix API base URL."),
         urlEnv("TWITCH_AUTH_BASE_URL", "Override the Twitch OAuth base URL."),
@@ -1154,10 +1172,6 @@ export const ADAPTERS = {
         secretEnv(
           "TWITCH_WEBHOOK_SECRET",
           "EventSub webhook secret (10 to 100 characters) for signature verification."
-        ),
-        env(
-          "TWITCH_BOT_USERNAME",
-          "Bot account login, used as the sender and for mention detection."
         ),
       ],
     },

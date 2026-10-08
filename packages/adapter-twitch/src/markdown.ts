@@ -13,10 +13,10 @@ import {
   paragraph,
   type Root,
   root,
-  tableToAscii,
   text,
 } from "chat";
 import { cardToTwitchText } from "./cards";
+import { tableToTwitchText } from "./table";
 
 const URL_PATTERN = /https?:\/\/[^\s<>"')\]]+/g;
 const LINE_BREAKS = /\s*\n+\s*/g;
@@ -64,7 +64,11 @@ export class TwitchFormatConverter extends BaseFormatConverter {
       return this.renderList(node, 0, (child) => this.nodeToText(child), "•");
     }
     if (isTableNode(node)) {
-      return tableToAscii(node);
+      const [headerRow, ...bodyRows] = getNodeChildren(node);
+      return tableToTwitchText(
+        headerRow ? this.rowToCells(headerRow) : [],
+        bodyRows.map((row) => this.rowToCells(row))
+      );
     }
     if (node.type === "break") {
       return "\n";
@@ -73,6 +77,14 @@ export class TwitchFormatConverter extends BaseFormatConverter {
       return "";
     }
     return this.defaultNodeToText(node, (child) => this.nodeToText(child));
+  }
+
+  private rowToCells(row: Content): string[] {
+    return getNodeChildren(row).map((cell) =>
+      getNodeChildren(cell)
+        .map((child) => this.nodeToText(child))
+        .join("")
+    );
   }
 }
 

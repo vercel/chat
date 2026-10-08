@@ -29,7 +29,7 @@ features:
   selectMenus: no
   tables:
     status: partial
-    label: ASCII
+    label: One line of text
   fields:
     status: partial
     label: Plain text
@@ -50,10 +50,8 @@ features:
   customApiEndpoint: yes
   fetchMessages:
     status: partial
-    label: Cached
-  fetchSingleMessage:
-    status: partial
-    label: Cached
+    label: Persisted history
+  fetchSingleMessage: no
   fetchThreadInfo: yes
   fetchChannelMessages: no
   listThreads: no
@@ -197,7 +195,7 @@ Subscriptions persist on Twitch's side until they are deleted or revoked, so run
     encryptionKey: {
       type: "string",
       description:
-        "Base64 32-byte AES-256-GCM key used to encrypt the persisted user token. Auto-detected from `TWITCH_ENCRYPTION_KEY`.",
+        "Base64 32-byte AES-256-GCM key used to encrypt the tokens stored in the state adapter. Auto-detected from `TWITCH_ENCRYPTION_KEY`.",
     },
     apiBaseUrl: {
       type: "string",
@@ -220,10 +218,10 @@ Subscriptions persist on Twitch's side until they are deleted or revoked, so run
 | `TWITCH_CLIENT_SECRET` | Yes | Twitch application client secret |
 | `TWITCH_WEBHOOK_SECRET` | Yes | EventSub webhook secret, 10 to 100 characters |
 | `TWITCH_BOT_USERNAME` | Yes, unless `TWITCH_BOT_USER_ID` is set | Bot account login |
-| `TWITCH_BOT_USER_ID` | No | Bot account user ID. Looked up from the login when unset |
+| `TWITCH_BOT_USER_ID` | No | Bot account user ID. Looked up from the login when unset. Set it with `TWITCH_BOT_USERNAME` to skip the Get Users call on startup |
 | `TWITCH_USER_ACCESS_TOKEN` | For whispers, unless `TWITCH_REFRESH_TOKEN` is set | Bot user access token with `user:manage:whispers` |
 | `TWITCH_REFRESH_TOKEN` | No | Bot refresh token for managed whisper token refresh |
-| `TWITCH_ENCRYPTION_KEY` | No | Base64 32-byte key used to encrypt the persisted user token |
+| `TWITCH_ENCRYPTION_KEY` | No | Base64 32-byte key used to encrypt the tokens stored in the state adapter |
 | `TWITCH_API_BASE_URL` | No | Helix API base URL override |
 | `TWITCH_AUTH_BASE_URL` | No | OAuth base URL override |
 
@@ -255,9 +253,20 @@ const prompt = await toAiMessages(
 
 Chat SDK treats a chat room as one thread. After `thread.subscribe()`, `onSubscribedMessage` receives every message in that channel's chat, so filter in your handler on busy channels.
 
+The adapter locks the whole chat room while a handler runs. With Chat SDK's default `drop` [concurrency strategy](/docs/concurrency), messages that arrive during that time are discarded, including mentions. A bot that takes several seconds to answer, such as one that streams an AI reply, misses viewers on a busy channel. Set `concurrency: "queue"` to handle those messages after the current one, or `concurrency: "concurrent"` to handle them in parallel:
+
+```typescript title="lib/bot.ts"
+export const bot = new Chat({
+  // ...userName, adapters, and state as above
+  concurrency: "queue",
+});
+```
+
 ## Message formatting
 
-Twitch chat is plain text on a single line. The adapter renders markdown as plain text, joins the parts of a card with ` · `, collapses line breaks into spaces, and converts emoji placeholders to Unicode. Messages longer than 500 characters are cut at the last word that fits and end with `…`. Twitch turns emote names it recognizes, such as `Kappa`, into emotes. File uploads aren't supported.
+Twitch chat is plain text on a single line. The adapter renders markdown as plain text, joins the parts of a card with ` · `, collapses line breaks into spaces, and converts emoji placeholders to Unicode. Tables become one entry per row, such as `Game: Celeste, Votes: 42 · Game: Hades, Votes: 17`. Messages longer than 500 characters are cut at the last word that fits and end with `…`. Twitch turns emote names it recognizes, such as `Kappa`, into emotes. File uploads aren't supported.
+
+When a stream or AI reply finishes without any text, for example because the model only called tools, Chat SDK posts a single space. Twitch rejects empty messages, so the adapter skips the send and returns a message ID that doesn't exist on Twitch.
 
 When Twitch accepts a request but the message fails one of its checks, Send Chat Message reports `is_sent: false`. The adapter then throws a `ValidationError` that includes Twitch's `drop_reason`.
 
@@ -270,9 +279,11 @@ const twitch = bot.getAdapter("twitch");
 await bot.thread(await twitch.openDM("4145994")).post("Thanks for the raid!");
 ```
 
-Sending a whisper needs a user access token for the bot account with `user:manage:whispers`. Set `TWITCH_REFRESH_TOKEN` so the adapter refreshes that token and persists the rotated refresh token in the state adapter, or set `TWITCH_USER_ACCESS_TOKEN` (or pass an async `userAccessToken` provider) to supply tokens yourself.
+Sending a whisper needs a user access token for the bot account with `user:manage:whispers`. Set `TWITCH_REFRESH_TOKEN` so the adapter refreshes that token and persists the rotated refresh token in the state adapter, or set `TWITCH_USER_ACCESS_TOKEN` (or pass an async `userAccessToken` provider) to supply tokens yourself. When you set both, the adapter uses the access token until Twitch rejects it, then refreshes. After the first refresh, the adapter uses the refreshed token from the state adapter instead.
 
-Twitch requires a verified phone number on the bot account and limits whispers to 40 unique recipients per day, 3 per second, and 100 per minute. A whisper can be up to 500 characters if the recipient hasn't whispered the bot before, and up to 10,000 otherwise.
+The stored token belongs to one bot account and to the refresh token you configured. After you re-authorize the bot and set a new `TWITCH_REFRESH_TOKEN`, the adapter ignores the token stored from the old one. When Twitch rejects a token with a 401, the adapter refreshes it, or calls your provider again, and retries once.
+
+Twitch requires a verified phone number on the bot account and limits whispers to 40 unique recipients per day, 3 per second, and 100 per minute. A whisper can be up to 10,000 characters if the recipient has whispered the bot before. Otherwise Twitch cuts it to 500 characters without an error. The adapter records each user who whispers the bot in the state adapter and truncates whispers to everyone else at 500 characters, so a long message ends with `…` instead of stopping mid-word.
 
 ## Deleting messages
 
@@ -284,7 +295,7 @@ Twitch chat messages can't be edited, so the adapter buffers the stream and post
 
 ## Message history
 
-Twitch has no chat history API. `fetchMessages` and `fetchMessage` return the messages this adapter instance received or sent, up to 200 per thread, and the adapter enables `persistThreadHistory` so Chat SDK keeps longer history in the state adapter.
+Twitch has no chat history API. The adapter enables `persistThreadHistory`, so Chat SDK stores incoming and sent messages in the state adapter, and `thread.messages`, `thread.allMessages`, and `thread.refresh()` read them from there. That history survives restarts and is shared by every instance that uses the same state adapter. `fetchMessages` on the adapter itself returns no messages.
 
 ## Thread IDs
 
@@ -300,7 +311,7 @@ A chat room thread ID is also its channel ID, so `bot.channel("twitch:141981764"
 ## Limitations
 
 - Twitch has no reactions, typing indicators, message edits, or interactive components.
-- In a shared chat session, messages from the other channels arrive with `source_broadcaster_user_id` set on `message.raw.event`. Messages the adapter sends go only to the chat room in the thread ID, which is Twitch's default for app access tokens.
+- In a shared chat session, Twitch copies each message into every channel in the session with a new message ID. The adapter handles a message only in the channel where it was sent and ignores copies whose `source_broadcaster_user_id` names another channel, so a bot subscribed to several channels in the session replies once. Messages the adapter sends go only to the chat room in the thread ID, which is Twitch's default for app access tokens. A bot subscribed to only one channel therefore doesn't see viewers chatting from the other channels.
 - Twitch rate-limits chat messages. The adapter raises a `429` response as `AdapterRateLimitError`.
 - Look up users with `bot.getAdapter("twitch").getUser(id)`. `bot.getUser(id)` can't infer the platform from a numeric Twitch user ID.
 

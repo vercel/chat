@@ -1,4 +1,9 @@
-import { createHmac, randomUUID, timingSafeEqual } from "node:crypto";
+import {
+  createHash,
+  createHmac,
+  randomUUID,
+  timingSafeEqual,
+} from "node:crypto";
 import {
   AdapterRateLimitError,
   AuthenticationError,
@@ -48,6 +53,7 @@ import type {
   TwitchOauthTokenResult,
   TwitchRawMessage,
   TwitchSendChatMessageResult,
+  TwitchStoredAppToken,
   TwitchStoredOauthToken,
   TwitchThreadId,
   TwitchUser,
@@ -74,15 +80,15 @@ const SUBSCRIPTION_WHISPER_MESSAGE = "user.whisper.message";
 const MAX_MESSAGE_AGE_MS = 10 * 60 * 1000;
 /** Send Chat Message accepts at most 500 characters. */
 const CHAT_MESSAGE_LIMIT = 500;
-/** Send Whisper accepts at most 10,000 characters (500 to first-time recipients). */
+/** Send Whisper accepts at most 10,000 characters to users who have whispered the bot. */
 const WHISPER_MESSAGE_LIMIT = 10_000;
+/** Twitch silently cuts whispers to 500 characters for everyone else. */
+const FIRST_WHISPER_MESSAGE_LIMIT = 500;
 const WEBHOOK_SECRET_MIN_LENGTH = 10;
 const WEBHOOK_SECRET_MAX_LENGTH = 100;
 /** Refresh cached tokens this long before they expire. */
 const TOKEN_REFRESH_MARGIN_MS = 60_000;
 const DEFAULT_USER_TOKEN_LIFETIME_S = 14_400;
-/** Per-thread cap on cached messages; busy chat rooms would otherwise grow unbounded. */
-const MESSAGE_CACHE_LIMIT = 200;
 const WHISPER_SEGMENT = "whisper";
 const FRACTIONAL_SECONDS = /\.(\d{3})\d+/;
 
@@ -126,16 +132,15 @@ export class TwitchAdapter
   protected _userName: string;
   protected readonly hasExplicitUserName: boolean;
 
-  private readonly messageCache = new Map<
-    string,
-    Message<TwitchRawMessage>[]
-  >();
-
   private appToken: CachedToken | null = null;
   private appTokenPromise: Promise<string> | null = null;
+  /** The last app token Twitch rejected, so a stored copy isn't reused. */
+  private rejectedAppToken: string | null = null;
   private managedToken: ManagedToken | null = null;
+  private managedTokenLoad: Promise<ManagedToken> | null = null;
   private refreshPromise: Promise<string> | null = null;
-  private storedTokenLoaded = false;
+  /** The last user token Twitch rejected, so a stored copy isn't reused. */
+  private rejectedUserToken: string | null = null;
 
   get botUserId(): string | undefined {
     return this._botUserId;
@@ -379,6 +384,14 @@ export class TwitchAdapter
     if (!this.chat || this.isBotUser(event.chatter_user_id)) {
       return;
     }
+    // In a shared chat session, a message sent in another channel is copied
+    // into this one with a new message ID. Handle it only in its source
+    // channel: the bot's reply there is what the sender sees, and a bot
+    // subscribed to several channels in the session would otherwise reply
+    // once per copy.
+    if (isSharedChatCopy(event)) {
+      return;
+    }
 
     const threadId = this.encodeThreadId({
       broadcasterUserId: event.broadcaster_user_id,
@@ -388,7 +401,6 @@ export class TwitchAdapter
       { event, kind: "chat", receivedAt },
       threadId
     );
-    this.cacheMessage(message);
     this.chat.processMessage(this, threadId, message, options);
   }
 
@@ -409,8 +421,15 @@ export class TwitchAdapter
       { event, kind: "whisper", receivedAt },
       threadId
     );
-    this.cacheMessage(message);
-    this.chat.processMessage(this, threadId, message, options);
+    this.chat.processMessage(
+      this,
+      threadId,
+      async () => {
+        await this.rememberWhisperer(event.from_user_id);
+        return message;
+      },
+      options
+    );
   }
 
   /**
@@ -423,7 +442,7 @@ export class TwitchAdapter
     threadId: string,
     message: AdapterPostableMessage
   ): Promise<RawMessage<TwitchRawMessage>> {
-    return this.send(threadId, message);
+    return await this.send(threadId, message);
   }
 
   /**
@@ -435,7 +454,7 @@ export class TwitchAdapter
     messageId: string,
     message: AdapterPostableMessage
   ): Promise<RawMessage<TwitchRawMessage>> {
-    return this.send(threadId, message, messageId);
+    return await this.send(threadId, message, messageId);
   }
 
   /** Chat thread IDs double as channel IDs, so this posts to the chat room. */
@@ -443,7 +462,7 @@ export class TwitchAdapter
     channelId: string,
     message: AdapterPostableMessage
   ): Promise<RawMessage<TwitchRawMessage>> {
-    return this.send(channelId, message);
+    return await this.send(channelId, message);
   }
 
   protected async send(
@@ -462,18 +481,115 @@ export class TwitchAdapter
       );
     }
 
+    if (isBlankPlaceholder(message)) {
+      // Core posts a single space when a stream or AI reply produced no text.
+      // Twitch rejects empty messages, so there is nothing to send.
+      this.logger.debug("Skipping empty Twitch message", { threadId });
+      return this.blankMessage(threadId, decoded);
+    }
+
     if (decoded.kind === "whisper") {
-      const text = this.renderOutbound(message, WHISPER_MESSAGE_LIMIT);
-      return this.sendWhisper(threadId, decoded.userId, text);
+      const limit = await this.whisperLimit(decoded.userId);
+      const text = this.renderOutbound(message, limit);
+      return await this.sendWhisper(threadId, decoded.userId, text);
     }
 
     const text = this.renderOutbound(message, CHAT_MESSAGE_LIMIT);
-    return this.sendChatMessage(
+    return await this.sendChatMessage(
       threadId,
       decoded.broadcasterUserId,
       text,
       replyParentMessageId
     );
+  }
+
+  /** A sent-message record for a placeholder that was never posted to Twitch. */
+  protected blankMessage(
+    threadId: string,
+    decoded: TwitchThreadId
+  ): RawMessage<TwitchRawMessage> {
+    const id = randomUUID();
+    const receivedAt = new Date().toISOString();
+    const botUserId = this._botUserId ?? "";
+    if (decoded.kind === "whisper") {
+      return {
+        id,
+        raw: {
+          event: {
+            from_user_id: botUserId,
+            from_user_login: this._userName,
+            from_user_name: this._userName,
+            to_user_id: decoded.userId,
+            to_user_login: "",
+            to_user_name: "",
+            whisper: { text: "" },
+            whisper_id: id,
+          },
+          kind: "whisper",
+          receivedAt,
+        },
+        threadId,
+      };
+    }
+    return {
+      id,
+      raw: {
+        event: {
+          broadcaster_user_id: decoded.broadcasterUserId,
+          broadcaster_user_login: "",
+          broadcaster_user_name: "",
+          chatter_user_id: botUserId,
+          chatter_user_login: this._userName,
+          chatter_user_name: this._userName,
+          message: { fragments: [], text: "" },
+          message_id: id,
+          message_type: "text",
+          reply: null,
+        },
+        kind: "chat",
+        receivedAt,
+      },
+      threadId,
+    };
+  }
+
+  /**
+   * Twitch cuts whispers to 500 characters unless the recipient has whispered
+   * the bot before. Inbound whispers are recorded in the state adapter, and
+   * without a record the shorter limit applies.
+   */
+  protected async whisperLimit(userId: string): Promise<number> {
+    const state = this.tryGetState();
+    if (!state) {
+      return FIRST_WHISPER_MESSAGE_LIMIT;
+    }
+    try {
+      const whispered = await state.get<boolean>(this.whispererKey(userId));
+      return whispered ? WHISPER_MESSAGE_LIMIT : FIRST_WHISPER_MESSAGE_LIMIT;
+    } catch (error) {
+      this.logger.warn("Failed to read Twitch whisper history", {
+        error: String(error),
+      });
+      return FIRST_WHISPER_MESSAGE_LIMIT;
+    }
+  }
+
+  protected async rememberWhisperer(userId: string): Promise<void> {
+    const state = this.tryGetState();
+    if (!state) {
+      return;
+    }
+    try {
+      await state.set(this.whispererKey(userId), true);
+    } catch (error) {
+      this.logger.warn("Failed to record Twitch whisper sender", {
+        error: String(error),
+      });
+    }
+  }
+
+  private whispererKey(userId: string): string {
+    return `twitch:whispered:${this._botUserId ?? ""}:${userId}`;
   }
 
   protected async sendChatMessage(
@@ -532,7 +648,6 @@ export class TwitchAdapter
       kind: "chat",
       receivedAt: new Date().toISOString(),
     };
-    this.cacheMessage(this.buildChatMessage(raw, threadId));
     return { id: sent.message_id, raw, threadId };
   }
 
@@ -575,7 +690,6 @@ export class TwitchAdapter
       kind: "whisper",
       receivedAt: new Date().toISOString(),
     };
-    this.cacheMessage(this.buildWhisperMessage(raw, threadId));
     return { id, raw, threadId };
   }
 
@@ -604,6 +718,14 @@ export class TwitchAdapter
         "Twitch does not support deleting whispers"
       );
     }
+    // Delete Chat Messages clears the whole chat room when message_id is
+    // omitted, so never send the request without one.
+    if (!messageId.trim()) {
+      throw new ValidationError(
+        "twitch",
+        "A message ID is required to delete a Twitch chat message"
+      );
+    }
 
     await this.helixFetch(
       "/moderation/chat",
@@ -617,7 +739,6 @@ export class TwitchAdapter
       },
       "app"
     );
-    this.uncacheMessage(threadId, messageId);
   }
 
   async addReaction(
@@ -658,29 +779,21 @@ export class TwitchAdapter
         accumulated += chunk.text;
       }
     }
-    return this.postMessage(threadId, { markdown: accumulated });
+    return await this.postMessage(threadId, { markdown: accumulated });
   }
 
   /**
-   * Twitch has no chat history API, so messages are served from the messages
-   * this adapter received or sent. `persistThreadHistory` backs longer
-   * retention in the state adapter.
+   * Twitch has no chat history API. Returning no messages makes Chat SDK read
+   * the thread history it persists in the state adapter
+   * (`persistThreadHistory`), which survives restarts and is shared across
+   * instances.
    */
   async fetchMessages(
     threadId: string,
-    options: FetchOptions = {}
+    _options?: FetchOptions
   ): Promise<FetchResult<TwitchRawMessage>> {
     this.decodeThreadId(threadId);
-    return paginateMessages(this.messageCache.get(threadId) ?? [], options);
-  }
-
-  async fetchMessage(
-    threadId: string,
-    messageId: string
-  ): Promise<Message<TwitchRawMessage> | null> {
-    return (
-      this.messageCache.get(threadId)?.find((m) => m.id === messageId) ?? null
-    );
+    return { messages: [] };
   }
 
   async fetchThread(threadId: string): Promise<ThreadInfo> {
@@ -755,18 +868,14 @@ export class TwitchAdapter
         ? raw.event.to_user_id
         : raw.event.from_user_id;
       const threadId = this.encodeThreadId({ kind: "whisper", userId });
-      const message = this.buildWhisperMessage(raw, threadId);
-      this.cacheMessage(message);
-      return message;
+      return this.buildWhisperMessage(raw, threadId);
     }
 
     const threadId = this.encodeThreadId({
       broadcasterUserId: raw.event.broadcaster_user_id,
       kind: "chat",
     });
-    const message = this.buildChatMessage(raw, threadId);
-    this.cacheMessage(message);
-    return message;
+    return this.buildChatMessage(raw, threadId);
   }
 
   renderFormatted(content: FormattedContent): string {
@@ -783,7 +892,7 @@ export class TwitchAdapter
     broadcasterUserId: string,
     callbackUrl: string
   ): Promise<TwitchEventSubSubscription> {
-    return this.createEventSubSubscription(
+    return await this.createEventSubSubscription(
       SUBSCRIPTION_CHAT_MESSAGE,
       {
         broadcaster_user_id: broadcasterUserId,
@@ -801,7 +910,7 @@ export class TwitchAdapter
   async subscribeToWhispers(
     callbackUrl: string
   ): Promise<TwitchEventSubSubscription> {
-    return this.createEventSubSubscription(
+    return await this.createEventSubSubscription(
       SUBSCRIPTION_WHISPER_MESSAGE,
       { user_id: this.requireBotUserId("subscribe to whispers") },
       callbackUrl
@@ -887,14 +996,30 @@ export class TwitchAdapter
 
   /**
    * Build the message a chat reply points at from the `reply` metadata. Twitch
-   * sends the parent's text and author but no timestamp or payload of its own,
-   * so it reuses the reply's received time and raw event.
+   * sends the parent's ID, text, and author but no timestamp, so the raw event
+   * is rebuilt from those fields and `dateSent` is set just before the reply's.
    */
   protected buildReplyParent(
     reply: TwitchChatReply,
     raw: Extract<TwitchRawMessage, { kind: "chat" }>,
     threadId: string
   ): Message<TwitchRawMessage> {
+    const text = reply.parent_message_body;
+    const parentRaw: TwitchRawMessage = {
+      event: {
+        broadcaster_user_id: raw.event.broadcaster_user_id,
+        broadcaster_user_login: raw.event.broadcaster_user_login,
+        broadcaster_user_name: raw.event.broadcaster_user_name,
+        chatter_user_id: reply.parent_user_id,
+        chatter_user_login: reply.parent_user_login,
+        chatter_user_name: reply.parent_user_name,
+        message: { fragments: [{ text, type: "text" }], text },
+        message_id: reply.parent_message_id,
+        reply: null,
+      },
+      kind: "chat",
+    };
+    const dateSent = new Date(parseTimestamp(raw.receivedAt).getTime() - 1);
     return new Message<TwitchRawMessage>({
       attachments: [],
       author: this.buildAuthor(
@@ -903,11 +1028,11 @@ export class TwitchAdapter
         reply.parent_user_name,
         this.isBotUser(reply.parent_user_id)
       ),
-      formatted: this.formatConverter.toAst(reply.parent_message_body),
+      formatted: this.formatConverter.toAst(text),
       id: reply.parent_message_id,
-      metadata: { dateSent: parseTimestamp(raw.receivedAt), edited: false },
-      raw,
-      text: reply.parent_message_body,
+      metadata: { dateSent, edited: false },
+      raw: parentRaw,
+      text,
       threadId,
     });
   }
@@ -977,51 +1102,34 @@ export class TwitchAdapter
     return this._botUserId;
   }
 
-  protected cacheMessage(message: Message<TwitchRawMessage>): void {
-    const existing = this.messageCache.get(message.threadId) ?? [];
-    const index = existing.findIndex((item) => item.id === message.id);
-    if (index >= 0) {
-      existing[index] = message;
-    } else {
-      existing.push(message);
-    }
-    existing.sort(compareByDate);
-    if (existing.length > MESSAGE_CACHE_LIMIT) {
-      existing.splice(0, existing.length - MESSAGE_CACHE_LIMIT);
-    }
-    this.messageCache.set(message.threadId, existing);
-  }
-
-  protected uncacheMessage(threadId: string, messageId: string): void {
-    const existing = this.messageCache.get(threadId);
-    if (existing) {
-      this.messageCache.set(
-        threadId,
-        existing.filter((message) => message.id !== messageId)
-      );
-    }
-  }
-
   /**
-   * Get an app access token with the client credentials grant, cached until
-   * shortly before it expires. Concurrent callers share one request.
+   * Get an app access token with the client credentials grant. The token is
+   * cached in memory and in the state adapter until shortly before it
+   * expires, so cold starts reuse it. Concurrent callers share one request.
    */
   protected async getAppAccessToken(): Promise<string> {
-    if (
-      this.appToken &&
-      this.appToken.expiresAt - Date.now() > TOKEN_REFRESH_MARGIN_MS
-    ) {
+    if (this.appToken && isTokenFresh(this.appToken)) {
       return this.appToken.accessToken;
     }
     if (!this.appTokenPromise) {
-      this.appTokenPromise = this.requestAppAccessToken().finally(() => {
+      this.appTokenPromise = this.loadAppAccessToken().finally(() => {
         this.appTokenPromise = null;
       });
     }
-    return this.appTokenPromise;
+    return await this.appTokenPromise;
   }
 
-  private async requestAppAccessToken(): Promise<string> {
+  private async loadAppAccessToken(): Promise<string> {
+    const stored = await this.readStoredAppToken();
+    if (
+      stored &&
+      stored.accessToken !== this.rejectedAppToken &&
+      isTokenFresh(stored)
+    ) {
+      this.appToken = stored;
+      return stored.accessToken;
+    }
+
     const result = await this.requestToken(
       new URLSearchParams({
         client_id: this.clientId,
@@ -1030,11 +1138,86 @@ export class TwitchAdapter
       }),
       "app access token"
     );
+    const ttlMs = (result.expiresIn ?? 3600) * 1000;
     this.appToken = {
       accessToken: result.accessToken,
-      expiresAt: Date.now() + (result.expiresIn ?? 3600) * 1000,
+      expiresAt: Date.now() + ttlMs,
     };
+    await this.persistAppToken(this.appToken, ttlMs);
     return result.accessToken;
+  }
+
+  /**
+   * Drop an app token Twitch rejected from memory and the state adapter. A
+   * late 401 for an older token leaves a newer one in place, and the rejected
+   * token is remembered so a stored copy that failed to delete isn't reused.
+   */
+  private async invalidateAppToken(token: string): Promise<void> {
+    this.rejectedAppToken = token;
+    if (this.appToken?.accessToken !== token) {
+      return;
+    }
+    this.appToken = null;
+    const state = this.tryGetState();
+    if (!state) {
+      return;
+    }
+    try {
+      await state.delete(this.appTokenStateKey());
+    } catch (error) {
+      this.logger.warn("Failed to delete stored Twitch app token", {
+        error: String(error),
+      });
+    }
+  }
+
+  private appTokenStateKey(): string {
+    return `twitch:app-token:${this.clientId}`;
+  }
+
+  private async readStoredAppToken(): Promise<CachedToken | null> {
+    const state = this.tryGetState();
+    if (!state) {
+      return null;
+    }
+    try {
+      const stored = await state.get<TwitchStoredAppToken>(
+        this.appTokenStateKey()
+      );
+      if (!stored) {
+        return null;
+      }
+      return {
+        accessToken: this.revealToken(stored.accessToken),
+        expiresAt: stored.expiresAt,
+      };
+    } catch (error) {
+      this.logger.warn("Failed to read stored Twitch app token", {
+        error: String(error),
+      });
+      return null;
+    }
+  }
+
+  private async persistAppToken(
+    token: CachedToken,
+    ttlMs: number
+  ): Promise<void> {
+    const state = this.tryGetState();
+    if (!state) {
+      return;
+    }
+    try {
+      const stored: TwitchStoredAppToken = {
+        accessToken: this.concealToken(token.accessToken),
+        expiresAt: token.expiresAt,
+      };
+      await state.set(this.appTokenStateKey(), stored, ttlMs);
+    } catch (error) {
+      this.logger.warn("Failed to persist Twitch app token", {
+        error: String(error),
+      });
+    }
   }
 
   protected async resolveUserAccessToken(): Promise<string> {
@@ -1042,7 +1225,7 @@ export class TwitchAdapter
       return await this.userAccessToken();
     }
     if (this.refreshToken) {
-      return this.resolveManagedToken();
+      return await this.resolveManagedToken();
     }
     if (this.userAccessToken) {
       return this.userAccessToken;
@@ -1055,10 +1238,7 @@ export class TwitchAdapter
 
   private async resolveManagedToken(): Promise<string> {
     const current = await this.loadManagedToken();
-    if (
-      current?.accessToken &&
-      current.expiresAt - Date.now() > TOKEN_REFRESH_MARGIN_MS
-    ) {
+    if (current.accessToken && isTokenFresh(current)) {
       return current.accessToken;
     }
     // Single-flight so concurrent calls share one refresh. Twitch may rotate
@@ -1068,51 +1248,117 @@ export class TwitchAdapter
         this.refreshPromise = null;
       });
     }
-    return this.refreshPromise;
+    return await this.refreshPromise;
   }
 
-  private async loadManagedToken(): Promise<ManagedToken | null> {
-    if (!this.refreshToken) {
-      return null;
+  /**
+   * Load the managed token once per instance: the stored token when it was
+   * minted from the configured refresh token, else a token seeded from config.
+   * Concurrent callers share one state read.
+   */
+  private async loadManagedToken(): Promise<ManagedToken> {
+    if (this.managedToken) {
+      return this.managedToken;
     }
-    if (!(this.managedToken || this.storedTokenLoaded)) {
-      const state = this.tryGetState();
-      if (state) {
-        this.storedTokenLoaded = true;
-        this.managedToken = await this.readStoredToken(state);
-      }
+    if (!this.managedTokenLoad) {
+      this.managedTokenLoad = (async () => {
+        const stored = await this.readStoredToken();
+        // A refresh that finished during the read is newer than either.
+        this.managedToken ??= stored ?? this.seedManagedToken();
+        return this.managedToken;
+      })().finally(() => {
+        this.managedTokenLoad = null;
+      });
     }
-    if (!this.managedToken) {
-      this.managedToken = {
-        accessToken: "",
-        expiresAt: 0,
-        refreshToken: this.refreshToken,
-      };
-    }
-    return this.managedToken;
+    return await this.managedTokenLoad;
+  }
+
+  /**
+   * The configured tokens, before any refresh. A configured access token has
+   * no known expiry, so it is used until Twitch rejects it with a 401.
+   */
+  private seedManagedToken(): ManagedToken {
+    const accessToken =
+      typeof this.userAccessToken === "string" ? this.userAccessToken : "";
+    return {
+      accessToken,
+      expiresAt: accessToken ? Number.MAX_SAFE_INTEGER : 0,
+      refreshToken: this.refreshToken ?? "",
+    };
   }
 
   private async refreshManagedToken(): Promise<string> {
-    const current = await this.loadManagedToken();
-    const refreshToken = current?.refreshToken ?? this.refreshToken ?? "";
-    const result = await this.requestToken(
-      new URLSearchParams({
-        client_id: this.clientId,
-        client_secret: this.clientSecret,
-        grant_type: "refresh_token",
-        refresh_token: refreshToken,
-      }),
-      "user access token"
-    );
+    // Another instance may have refreshed already. Its refresh may also have
+    // rotated the refresh token this instance holds.
+    const stored = await this.readStoredToken();
+    if (stored && this.isUsableManagedToken(stored)) {
+      this.managedToken = stored;
+      return stored.accessToken;
+    }
+
+    const current = stored ?? (await this.loadManagedToken());
+    let result: Awaited<ReturnType<TwitchAdapter["requestToken"]>>;
+    try {
+      result = await this.requestToken(
+        new URLSearchParams({
+          client_id: this.clientId,
+          client_secret: this.clientSecret,
+          grant_type: "refresh_token",
+          refresh_token: current.refreshToken,
+        }),
+        "user access token"
+      );
+    } catch (error) {
+      // Another instance may have rotated the refresh token while this one
+      // was refreshing; use its result if so.
+      const latest = await this.readStoredToken();
+      if (latest && this.isUsableManagedToken(latest)) {
+        this.managedToken = latest;
+        return latest.accessToken;
+      }
+      throw error;
+    }
+
+    this.rejectedUserToken = null;
     this.managedToken = {
       accessToken: result.accessToken,
       expiresAt:
         Date.now() + (result.expiresIn ?? DEFAULT_USER_TOKEN_LIFETIME_S) * 1000,
       // Refresh tokens may change; persist the new one or auth breaks after restart.
-      refreshToken: result.refreshToken ?? refreshToken,
+      refreshToken: result.refreshToken ?? current.refreshToken,
     };
     await this.persistManagedToken(this.managedToken);
     return this.managedToken.accessToken;
+  }
+
+  private isUsableManagedToken(token: ManagedToken): boolean {
+    return (
+      Boolean(token.accessToken) &&
+      token.accessToken !== this.rejectedUserToken &&
+      isTokenFresh(token)
+    );
+  }
+
+  /**
+   * Mark a user token Twitch rejected with a 401 so the next call refreshes
+   * it. Returns whether a retry can produce a different token.
+   */
+  private invalidateUserToken(token: string): boolean {
+    if (typeof this.userAccessToken === "function") {
+      return true;
+    }
+    if (!this.refreshToken) {
+      return false;
+    }
+    this.rejectedUserToken = token;
+    if (this.managedToken?.accessToken === token) {
+      this.managedToken = {
+        ...this.managedToken,
+        accessToken: "",
+        expiresAt: 0,
+      };
+    }
+    return true;
   }
 
   private async requestToken(
@@ -1167,8 +1413,22 @@ export class TwitchAdapter
     };
   }
 
+  /**
+   * Scoped to the bot account so two bots sharing a client ID keep separate
+   * tokens.
+   */
   private tokenStateKey(): string {
-    return `twitch:oauth:${this.clientId}`;
+    return `twitch:oauth:${this.clientId}:${this._botUserId ?? ""}`;
+  }
+
+  /**
+   * Fingerprint of the configured refresh token. A stored token minted from a
+   * different one (for example, after re-authorizing the bot) is ignored.
+   */
+  private refreshTokenSeed(): string {
+    return createHash("sha256")
+      .update(this.refreshToken ?? "")
+      .digest("hex");
   }
 
   private tryGetState(): StateAdapter | null {
@@ -1179,14 +1439,16 @@ export class TwitchAdapter
     }
   }
 
-  private async readStoredToken(
-    state: StateAdapter
-  ): Promise<ManagedToken | null> {
+  private async readStoredToken(): Promise<ManagedToken | null> {
+    const state = this.tryGetState();
+    if (!state) {
+      return null;
+    }
     try {
       const stored = await state.get<TwitchStoredOauthToken>(
         this.tokenStateKey()
       );
-      if (!stored) {
+      if (!stored || stored.seed !== this.refreshTokenSeed()) {
         return null;
       }
       return {
@@ -1212,6 +1474,7 @@ export class TwitchAdapter
         accessToken: this.concealToken(token.accessToken),
         expiresAt: token.expiresAt,
         refreshToken: this.concealToken(token.refreshToken),
+        seed: this.refreshTokenSeed(),
       };
       await state.set(this.tokenStateKey(), stored);
     } catch (error) {
@@ -1239,9 +1502,9 @@ export class TwitchAdapter
   }
 
   /**
-   * Call a Helix endpoint with the app or user access token. A 401 on the app
-   * token clears the cached token and retries once, since app tokens can be
-   * revoked or expire early.
+   * Call a Helix endpoint with the app or user access token. Tokens can be
+   * revoked or expire early, so a 401 drops the cached token and retries once
+   * when a new token can be obtained.
    */
   protected async helixFetch<TData>(
     path: string,
@@ -1280,9 +1543,14 @@ export class TwitchAdapter
       );
     }
 
-    if (response.status === 401 && tokenKind === "app" && !isRetry) {
-      this.appToken = null;
-      return this.helixFetch(path, request, tokenKind, true);
+    if (response.status === 401 && !isRetry) {
+      if (tokenKind === "app") {
+        await this.invalidateAppToken(token);
+        return await this.helixFetch(path, request, tokenKind, true);
+      }
+      if (this.invalidateUserToken(token)) {
+        return await this.helixFetch(path, request, tokenKind, true);
+      }
     }
 
     if (response.status === 204) {
@@ -1401,6 +1669,29 @@ function retryAfterSeconds(response: Response): number | undefined {
   return Math.max(0, resetEpoch - Math.floor(Date.now() / 1000));
 }
 
+/** Whether `message` is the whitespace-only text core posts for empty output. */
+function isBlankPlaceholder(message: AdapterPostableMessage): boolean {
+  if (typeof message === "string") {
+    return !message.trim();
+  }
+  return (
+    isRecord(message) &&
+    typeof message.markdown === "string" &&
+    !message.markdown.trim()
+  );
+}
+
+function isSharedChatCopy(event: TwitchChatMessageEvent): boolean {
+  return Boolean(
+    event.source_broadcaster_user_id &&
+      event.source_broadcaster_user_id !== event.broadcaster_user_id
+  );
+}
+
+function isTokenFresh(token: CachedToken): boolean {
+  return token.expiresAt - Date.now() > TOKEN_REFRESH_MARGIN_MS;
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
 }
@@ -1425,50 +1716,6 @@ function isWhisperEvent(value: unknown): value is TwitchWhisperEvent {
     isRecord(value.whisper) &&
     typeof value.whisper.text === "string"
   );
-}
-
-function compareByDate(
-  a: Message<TwitchRawMessage>,
-  b: Message<TwitchRawMessage>
-): number {
-  return a.metadata.dateSent.getTime() - b.metadata.dateSent.getTime();
-}
-
-function paginateMessages(
-  messages: Message<TwitchRawMessage>[],
-  options: FetchOptions
-): FetchResult<TwitchRawMessage> {
-  const limit = Math.max(1, Math.min(options.limit ?? 50, 100));
-  const direction = options.direction ?? "backward";
-
-  if (messages.length === 0) {
-    return { messages: [] };
-  }
-
-  const indexById = new Map(
-    messages.map((message, index) => [message.id, index])
-  );
-
-  if (direction === "backward") {
-    const end =
-      options.cursor && indexById.has(options.cursor)
-        ? (indexById.get(options.cursor) ?? messages.length)
-        : messages.length;
-    const start = Math.max(0, end - limit);
-    const page = messages.slice(start, end);
-    return { messages: page, nextCursor: start > 0 ? page[0]?.id : undefined };
-  }
-
-  const start =
-    options.cursor && indexById.has(options.cursor)
-      ? (indexById.get(options.cursor) ?? -1) + 1
-      : 0;
-  const end = Math.min(messages.length, start + limit);
-  const page = messages.slice(start, end);
-  return {
-    messages: page,
-    nextCursor: end < messages.length ? page.at(-1)?.id : undefined,
-  };
 }
 
 export function createTwitchAdapter(
@@ -1537,6 +1784,7 @@ export type {
   TwitchOauthTokenResult,
   TwitchRawMessage,
   TwitchSendChatMessageResult,
+  TwitchStoredAppToken,
   TwitchStoredOauthToken,
   TwitchThreadId,
   TwitchUser,
