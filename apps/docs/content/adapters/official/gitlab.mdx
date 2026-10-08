@@ -228,7 +228,7 @@ Every comment belongs to a GitLab discussion, including top-level comments, so e
 | Merge request | `gitlab:{projectId}:mr:{iid}` |
 | Issue | `gitlab:{projectId}:issue:{iid}` |
 
-Webhooks never produce merge request or issue thread IDs. You get them from `listThreads`, which returns the project's open merge requests, or by building one yourself. Posting to one creates a new top-level comment, and `fetchMessages` on it returns every non-system comment on the merge request or issue, paged with a cursor. On a discussion thread, `fetchMessages` returns that discussion's comments.
+Webhooks never produce merge request or issue thread IDs. You get them from `listThreads`, which returns the project's open merge requests, or by building one yourself. Posting to one creates a new top-level comment, and `fetchMessages` on it returns every comment on the merge request or issue, paged with a cursor. On a discussion thread, `fetchMessages` returns that discussion's comments. Both leave out system notes and internal notes, and `fetchMessage` returns `null` for an internal note, so a handler that replies from history can't repeat internal content in a public comment.
 
 This model has two consequences:
 

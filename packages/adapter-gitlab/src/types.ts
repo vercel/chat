@@ -127,6 +127,8 @@ export type GitLabNoteType = "DiscussionNote" | "DiffNote" | null;
 export interface GitLabNote {
   author: GitLabUser;
   body: string;
+  /** Same flag as `internal`; the REST API returns it under both keys. */
+  confidential?: boolean;
   created_at: string;
   /** Set on webhook notes. The REST Notes API doesn't return it. */
   discussion_id?: string;

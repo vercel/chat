@@ -1509,6 +1509,45 @@ describe("fetchMessages", () => {
   const notesPath = `/projects/${PROJECT_ID}/merge_requests/3/notes`;
   const issueNotesPath = `/projects/${PROJECT_ID}/issues/17/notes`;
 
+  it("keeps internal notes out of a public comment's reply context", async () => {
+    mockFetch([
+      {
+        path: `${discussionsPath}/${DISCUSSION_ID}`,
+        body: {
+          id: DISCUSSION_ID,
+          individual_note: false,
+          notes: [
+            restNote({ id: 1, body: "public question", author: humanUser }),
+            restNote({ id: 2, body: "secret plan", internal: true }),
+            restNote({ id: 3, body: "legacy secret", confidential: true }),
+          ],
+        },
+      },
+    ]);
+    const { adapter, chat } = await setup();
+
+    await adapter.handleWebhook(webhookRequest(noteEvent()));
+    const [, threadId] = vi.mocked(chat.processMessage).mock.calls[0];
+    const { messages } = await adapter.fetchMessages(threadId);
+
+    expect(messages.map((m) => m.text)).toEqual(["public question"]);
+  });
+
+  it("drops internal notes from a merge request thread page", async () => {
+    mockFetch([
+      {
+        path: notesPath,
+        body: [
+          restNote({ id: 2, body: "secret plan", internal: true }),
+          restNote({ id: 1, body: "public" }),
+        ],
+      },
+    ]);
+    const { adapter } = await setup();
+    const { messages } = await adapter.fetchMessages("gitlab:42:mr:3");
+    expect(messages.map((m) => m.text)).toEqual(["public"]);
+  });
+
   it("returns a page of comments for a merge request thread, oldest first", async () => {
     mockFetch([
       {
@@ -1649,6 +1688,20 @@ describe("fetchMessages", () => {
 });
 
 describe("fetchMessage", () => {
+  it.each([
+    ["internal", { internal: true }],
+    ["confidential", { confidential: true }],
+  ])("returns null for an %s note", async (_label, flags) => {
+    mockFetch([
+      {
+        path: `/projects/${PROJECT_ID}/merge_requests/3/notes/500`,
+        body: restNote(flags),
+      },
+    ]);
+    const { adapter } = await setup();
+    expect(await adapter.fetchMessage("gitlab:42:mr:3", "500")).toBeNull();
+  });
+
   it("returns a single comment", async () => {
     mockFetch([
       {

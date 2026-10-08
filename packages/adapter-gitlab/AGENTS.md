@@ -69,7 +69,7 @@ gitlab:{projectId}:{mr|issue}:{iid}:{discussionId}
 - Webhooks never produce the merge request or issue thread
   (`gitlab:{projectId}:{mr|issue}:{iid}`). `listThreads` returns it, posting
   to it creates a new top-level comment, and `fetchMessages` on it returns
-  every non-system comment, paged by `x-next-page`.
+  every comment except system and internal notes, paged by `x-next-page`.
 - `encodeThreadId` / `decodeThreadId` are the only sanctioned constructors.
 - The channel ID is `gitlab:{projectId}`.
 
@@ -79,7 +79,10 @@ gitlab:{projectId}:{mr|issue}:{iid}:{discussionId}
   system notes and commit or snippet comments.
 - Internal notes, `Confidential Note Hook` events, and
   `event_type: "confidential_note"` are ignored on purpose. Replying would
-  post their content into a public comment.
+  post their content into a public comment. For the same reason,
+  `fetchMessages` drops internal notes and `fetchMessage` returns `null` for
+  one: the bot's token can read them, but a reply built from history is
+  public.
 - `isMention` is set by the adapter: `@userName` counts only outside inline
   code, code blocks, and block quotes.
 - `metadata.edited` is always `false`. GitLab bumps `updated_at` on resolve

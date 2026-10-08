@@ -1107,8 +1107,8 @@ export class GitLabAdapter
   /**
    * Fetch comments in a thread, oldest first. Discussion threads return the
    * discussion's comments. Merge request and issue threads return every
-   * comment on the merge request or issue, a page at a time. System notes are
-   * excluded.
+   * comment on the merge request or issue, a page at a time. System and
+   * internal notes are excluded.
    */
   async fetchMessages(
     threadId: string,
@@ -1121,7 +1121,7 @@ export class GitLabAdapter
     const basePath = this.noteablePath(projectId, noteableType, noteableIid);
     const toMessages = (notes: GitLabNote[]) =>
       notes
-        .filter((note) => !note.system)
+        .filter((note) => !(note.system || isInternalNote(note)))
         .map((note) => this.parseMessage(this.toRawMessage(note, thread)));
 
     if (!discussionId) {
@@ -1166,7 +1166,7 @@ export class GitLabAdapter
   }
 
   /**
-   * Fetch a single comment by ID.
+   * Fetch a single comment by ID. Returns `null` for internal notes.
    */
   async fetchMessage(
     threadId: string,
@@ -1181,6 +1181,9 @@ export class GitLabAdapter
         "GET",
         this.notePath(thread, messageId)
       );
+      if (isInternalNote(note)) {
+        return null;
+      }
       return this.parseMessage(this.toRawMessage(note, thread));
     } catch (error) {
       if (error instanceof ResourceNotFoundError) {
@@ -1532,6 +1535,15 @@ function mentionableText(node: Content | Root): string {
   return node.children
     .map((child) => mentionableText(child as Content))
     .join(separator);
+}
+
+/**
+ * Whether a note is internal. The bot's token can read internal notes, so
+ * history reads drop them: a handler that replies from history would otherwise
+ * post their content where people who can't see the original can read it.
+ */
+function isInternalNote(note: GitLabNote): boolean {
+  return note.internal === true || note.confidential === true;
 }
 
 /**
