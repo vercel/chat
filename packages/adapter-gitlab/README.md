@@ -29,17 +29,19 @@ Visit the [adapters directory](https://chat-sdk.dev/adapters) to see other avail
 
 ## Quick start
 
-The adapter auto-detects credentials from `GITLAB_TOKEN` and either `GITLAB_WEBHOOK_SIGNING_TOKEN` or `GITLAB_WEBHOOK_SECRET`. It looks up the bot's username and user ID from the token during initialization:
+The adapter auto-detects credentials from `GITLAB_TOKEN` and either `GITLAB_WEBHOOK_SIGNING_TOKEN` or `GITLAB_WEBHOOK_SECRET`. Unless both are configured, it looks up the bot's username and user ID from the token during initialization:
 
 ```typescript
 import { Chat } from "chat";
 import { createGitLabAdapter } from "@chat-adapter/gitlab";
+import { createMemoryState } from "@chat-adapter/state-memory";
 
 const bot = new Chat({
   userName: "my-bot",
   adapters: {
     gitlab: createGitLabAdapter(),
   },
+  state: createMemoryState(),
 });
 
 bot.onNewMention(async (thread, message) => {
@@ -49,12 +51,14 @@ bot.onNewMention(async (thread, message) => {
 
 Point a project or group webhook at `/api/webhooks/gitlab` and select the **Comments** trigger, plus **Emoji events** if you handle reactions.
 
+On serverless platforms, set `GITLAB_BOT_USER_ID` to the bot's numeric user ID so the bot recognizes its own comments without depending on the `GET /user` lookup.
+
 ## Configuration
 
 | Option | Description |
 |--------|-------------|
 | `token` | Access token with the `api` scope. Auto-detected from `GITLAB_TOKEN`. |
-| `webhookSigningToken` | Webhook signing token (`whsec_…`). Auto-detected from `GITLAB_WEBHOOK_SIGNING_TOKEN`. |
+| `webhookSigningToken` | Webhook signing token, the `whsec_` value GitLab shows (the prefix is optional). Auto-detected from `GITLAB_WEBHOOK_SIGNING_TOKEN`. |
 | `webhookSecret` | Webhook secret token sent in `X-Gitlab-Token`. Auto-detected from `GITLAB_WEBHOOK_SECRET`. |
 | `apiUrl` | REST API base URL for GitLab Self-Managed or Dedicated. Auto-detected from `GITLAB_API_URL`. |
 

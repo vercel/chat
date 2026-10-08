@@ -355,7 +355,7 @@ export const ADAPTERS = {
         ),
         env(
           "GITLAB_BOT_USER_ID",
-          "Numeric bot user ID for self-message detection. Defaults to the token user's ID."
+          "Numeric bot user ID for self-message detection. Defaults to the token user's ID; recommended on serverless to prevent reply loops."
         ),
         urlEnv(
           "GITLAB_API_URL",

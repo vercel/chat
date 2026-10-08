@@ -2,8 +2,8 @@
  * GitLab-specific format conversion using AST-based parsing.
  *
  * GitLab uses GitLab Flavored Markdown (GLFM), which builds on GitHub Flavored
- * Markdown (GFM). This converter passes standard markdown through and leaves
- * GitLab references as plain text for GitLab to render:
+ * Markdown (GFM). Markdown strings are posted as written, so GitLab references
+ * reach GitLab unescaped and render as links:
  * - @mentions (user references)
  * - #123, !123, and ~label (issue, merge request, and label references)
  * - SHA references (commit links)
@@ -36,8 +36,9 @@ export class GitLabFormatConverter extends BaseFormatConverter {
   }
 
   /**
-   * Override renderPostable to handle @mentions in plain strings.
-   * GitLab @mentions are already in the correct format (@username).
+   * Strings and markdown are posted as written. Round-tripping markdown through
+   * remark-stringify would escape GitLab reference syntax (`~label` becomes
+   * `\~label`), which stops GitLab from linking it.
    */
   override renderPostable(message: AdapterPostableMessage): string {
     if (typeof message === "string") {
@@ -47,7 +48,7 @@ export class GitLabFormatConverter extends BaseFormatConverter {
       return message.raw;
     }
     if ("markdown" in message) {
-      return this.fromMarkdown(message.markdown);
+      return message.markdown;
     }
     if ("ast" in message) {
       return this.fromAst(message.ast);

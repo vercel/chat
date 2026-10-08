@@ -155,6 +155,11 @@ describe("GitLabFormatConverter", () => {
       expect(result).toBe("**bold**");
     });
 
+    it("passes GitLab references in markdown through unchanged", () => {
+      const markdown = "Fixes ~bug, see !12 and snake_case";
+      expect(converter.renderPostable({ markdown })).toBe(markdown);
+    });
+
     it("should render ast message", () => {
       const ast = {
         type: "root" as const,

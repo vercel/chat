@@ -16,6 +16,13 @@ import type {
 } from "chat";
 import { cardChildToFallbackText } from "chat";
 
+const BACKSLASH_PATTERN = /\\/g;
+const ASTERISK_PATTERN = /\*/g;
+const UNDERSCORE_PATTERN = /_/g;
+const OPEN_BRACKET_PATTERN = /\[/g;
+const CLOSE_BRACKET_PATTERN = /\]/g;
+const URL_UNSAFE_PATTERN = /[\s()<>]/g;
+
 /**
  * Convert a CardElement to GitLab Flavored Markdown.
  *
@@ -72,7 +79,7 @@ export function cardToGitLabMarkdown(card: CardElement): string {
 
   // Header image
   if (card.imageUrl) {
-    lines.push(`![](${card.imageUrl})`);
+    lines.push(`![](${escapeUrl(card.imageUrl)})`);
     lines.push("");
   }
 
@@ -114,12 +121,12 @@ function renderChild(child: CardChild): string[] {
 
     case "image":
       if (child.alt) {
-        return [`![${escapeMarkdown(child.alt)}](${child.url})`];
+        return [`![${escapeMarkdown(child.alt)}](${escapeUrl(child.url)})`];
       }
-      return [`![](${child.url})`];
+      return [`![](${escapeUrl(child.url)})`];
 
     case "link":
-      return [`[${escapeMarkdown(child.label)}](${child.url})`];
+      return [`[${escapeMarkdown(child.label)}](${escapeUrl(child.url)})`];
 
     case "divider":
       return ["---"];
@@ -178,7 +185,7 @@ function renderActions(actions: ActionsElement): string[] {
   const buttonTexts = actions.children.map((button) => {
     if (button.type === "link-button") {
       // Link buttons become markdown links
-      return `[${escapeMarkdown(button.label)}](${button.url})`;
+      return `[${escapeMarkdown(button.label)}](${escapeUrl(button.url)})`;
     }
     // Action buttons become bold text (no interactivity in GitLab comments)
     // We could potentially use a special format that the bot recognizes
@@ -197,56 +204,20 @@ function escapeMarkdown(text: string): string {
   // We're deliberately light-handed to preserve intentional markdown
   // Backslash must be escaped first to avoid double-escaping
   return text
-    .replace(/\\/g, "\\\\")
-    .replace(/\*/g, "\\*")
-    .replace(/_/g, "\\_")
-    .replace(/\[/g, "\\[")
-    .replace(/\]/g, "\\]");
+    .replace(BACKSLASH_PATTERN, "\\\\")
+    .replace(ASTERISK_PATTERN, "\\*")
+    .replace(UNDERSCORE_PATTERN, "\\_")
+    .replace(OPEN_BRACKET_PATTERN, "\\[")
+    .replace(CLOSE_BRACKET_PATTERN, "\\]");
 }
 
 /**
- * Generate plain text fallback from a card (no markdown).
- * Used for alt text or plain text contexts.
+ * Percent-encode characters that would end a markdown link destination early.
  */
-export function cardToPlainText(card: CardElement): string {
-  const parts: string[] = [];
-
-  if (card.title) {
-    parts.push(card.title);
-  }
-
-  if (card.subtitle) {
-    parts.push(card.subtitle);
-  }
-
-  for (const child of card.children) {
-    const text = childToPlainText(child);
-    if (text) {
-      parts.push(text);
-    }
-  }
-
-  return parts.join("\n");
-}
-
-/**
- * Convert card child to plain text.
- */
-function childToPlainText(child: CardChild): string | null {
-  switch (child.type) {
-    case "text":
-      return child.content;
-    case "fields":
-      return child.children.map((f) => `${f.label}: ${f.value}`).join("\n");
-    case "actions":
-      // Actions are interactive-only — exclude from fallback text.
-      // See: https://docs.slack.dev/reference/methods/chat.postMessage
-      return null;
-    case "table":
-      return renderTable(child).join("\n");
-    case "section":
-      return child.children.map(childToPlainText).filter(Boolean).join("\n");
-    default:
-      return cardChildToFallbackText(child);
-  }
+function escapeUrl(url: string): string {
+  return url.replace(
+    URL_UNSAFE_PATTERN,
+    (char) =>
+      `%${char.charCodeAt(0).toString(16).toUpperCase().padStart(2, "0")}`
+  );
 }

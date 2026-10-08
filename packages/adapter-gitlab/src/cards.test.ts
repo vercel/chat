@@ -1,7 +1,7 @@
 import type { CardElement } from "chat";
 import { Card, CardLink } from "chat";
 import { describe, expect, it } from "vitest";
-import { cardToGitLabMarkdown, cardToPlainText } from "./cards";
+import { cardToGitLabMarkdown } from "./cards";
 
 describe("cardToGitLabMarkdown", () => {
   it("should render a simple card with title", () => {
@@ -174,28 +174,6 @@ describe("cardToGitLabMarkdown", () => {
   });
 });
 
-describe("cardToPlainText", () => {
-  it("should generate plain text from card", () => {
-    const card: CardElement = {
-      type: "card",
-      title: "Hello",
-      subtitle: "World",
-      children: [
-        { type: "text", content: "Some content" },
-        {
-          type: "fields",
-          children: [{ type: "field", label: "Key", value: "Value" }],
-        },
-      ],
-    };
-    const result = cardToPlainText(card);
-    expect(result).toContain("Hello");
-    expect(result).toContain("World");
-    expect(result).toContain("Some content");
-    expect(result).toContain("Key: Value");
-  });
-});
-
 describe("cardToGitLabMarkdown with CardLink", () => {
   it("renders CardLink as markdown link", () => {
     const card = Card({
@@ -205,5 +183,17 @@ describe("cardToGitLabMarkdown with CardLink", () => {
     const markdown = cardToGitLabMarkdown(card);
 
     expect(markdown).toBe("[Click here](https://example.com)");
+  });
+
+  it("percent-encodes characters that would end a link destination", () => {
+    const card = Card({
+      imageUrl: "https://example.com/my image.png",
+      children: [CardLink({ url: "https://example.com/a_(b)", label: "Docs" })],
+    });
+
+    const markdown = cardToGitLabMarkdown(card);
+
+    expect(markdown).toContain("![](https://example.com/my%20image.png)");
+    expect(markdown).toContain("[Docs](https://example.com/a_%28b%29)");
   });
 });

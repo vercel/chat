@@ -17,7 +17,11 @@ comments on GitLab.com, GitLab Self-Managed, and GitLab Dedicated:
 - REST API v4 over `fetch` with one access token (`GITLAB_TOKEN`). There is no
   SDK dependency.
 - Bot identity (`userName`, `botUserId`) detected from `GET /user` during
-  `initialize()` unless configured.
+  `initialize()` unless configured. `ensureBotIdentity()` retries the lookup
+  when a comment arrives and the ID is still unknown (at most every 30
+  seconds). `isSelf()` compares user IDs, falling back to a configured
+  username. With neither known, comments are dropped with a warning so the
+  bot can't reply to itself.
 
 ## Directory layout
 
@@ -57,19 +61,32 @@ gitlab:{projectId}:{mr|issue}:{iid}:{discussionId}
 
 - `projectId` is the numeric project ID, which survives project renames and
   transfers. Never encode the project path: it contains `/`.
-- A note with `type: null` is a top-level comment and maps to the merge
-  request or issue thread. `DiscussionNote` and `DiffNote` map to the
-  discussion thread, and `postMessage` replies inside that discussion.
+- Note Hook and Emoji Hook payloads carry each note's `discussion_id`,
+  including top-level (`type: null`) comments, so every webhook note maps to
+  its discussion thread and
+  `postMessage` replies inside that discussion. Replying to a top-level
+  comment turns it into a thread in GitLab's UI.
+- Webhooks never produce the merge request or issue thread
+  (`gitlab:{projectId}:{mr|issue}:{iid}`). `listThreads` returns it, posting
+  to it creates a new top-level comment, and `fetchMessages` on it returns
+  every non-system comment, paged by `x-next-page`.
 - `encodeThreadId` / `decodeThreadId` are the only sanctioned constructors.
 - The channel ID is `gitlab:{projectId}`.
 
 ## Webhook handling
 
-- Only `object_attributes.action === "create"` comments dispatch. Edits,
-  system notes, and commit or snippet comments are ignored.
+- Notes with an `action` other than `create` (edits) are ignored, as are
+  system notes and commit or snippet comments.
 - Internal notes, `Confidential Note Hook` events, and
   `event_type: "confidential_note"` are ignored on purpose. Replying would
   post their content into a public comment.
+- `isMention` is set by the adapter: `@userName` counts only outside inline
+  code, code blocks, and block quotes.
+- `metadata.edited` is always `false`. GitLab bumps `updated_at` on resolve
+  and thread conversion, and the API has no last-edited field.
+- The signing token is the `whsec_` value, with the prefix optional (32
+  bytes: 43 base64 characters plus `=`). Malformed tokens throw at
+  construction.
 - Webhook notes are normalized into the REST `GitLabNote` shape
   (`object_attributes.note` becomes `body`, the top-level `user` becomes
   `author`) so parsing has one code path.
@@ -80,15 +97,26 @@ gitlab:{projectId}:{mr|issue}:{iid}:{discussionId}
 
 - Edits and deletes use the notes API (`/notes/:note_id`) for every note,
   including discussion notes.
-- Emoji reactions use `/notes/:note_id/award_emoji`. GitLab names match
-  Slack-style shortcodes except the overrides in `GITLAB_EMOJI_NAMES`.
+- Emoji reactions use `/notes/:note_id/award_emoji`. `GITLAB_EMOJI_NAMES`
+  holds the normalized emoji whose Slack-style shortcode isn't GitLab's
+  canonical award name; everything else uses the shortcode. Incoming award
+  names are reverse-mapped through the same table.
 - List endpoints paginate with `x-next-page`; `requestAll` follows it up to
-  `MAX_PAGES`.
-- Errors map to `@chat-adapter/shared` errors: 401 `AuthenticationError`,
-  403 `PermissionError`, 404 `ResourceNotFoundError`, 429
+  `MAX_PAGES`. `listThreads` and merge request or issue `fetchMessages` return
+  the header as `nextCursor` instead, with `per_page` capped at 100.
+- The `listThreads` root message is the merge request description (or title),
+  not a note. Its ID is `mr-{iid}`. `notePath` rejects non-numeric IDs with
+  `ValidationError`, and `fetchMessage` returns `null` for them.
+- Errors map to `@chat-adapter/shared` errors: 400 and 422
+  `ValidationError` with GitLab's reason, 401 `AuthenticationError`, 403
+  `PermissionError`, 404 `ResourceNotFoundError`, 429
   `AdapterRateLimitError`, anything else `NetworkError`.
-- Streaming is buffered: GitLab rejects empty note bodies, so the default
-  post-then-edit fallback can't post a placeholder.
+- Streaming is buffered and posted once: GitLab rejects empty note bodies, so
+  the default post-then-edit fallback can't post a placeholder. An empty
+  stream throws `ValidationError`.
+- Strings, `{ raw }`, `{ markdown }`, and streamed text are posted as written
+  apart from emoji placeholders, so GitLab references (`~label`, `!12`, `#12`)
+  render. AST input is serialized with remark.
 
 ## Coding conventions
 

@@ -2,7 +2,9 @@ import { createHmac } from "node:crypto";
 import {
   AdapterRateLimitError,
   AuthenticationError,
+  NetworkError,
   PermissionError,
+  ResourceNotFoundError,
   ValidationError,
 } from "@chat-adapter/shared";
 import {
@@ -11,7 +13,7 @@ import {
   selfMessageContract,
   threadIdContract,
 } from "@chat-adapter/tests";
-import type { ChatInstance } from "chat";
+import { type ChatInstance, getEmoji } from "chat";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   createGitLabAdapter,
@@ -25,7 +27,7 @@ import {
 const API_URL = "https://gitlab.example.com/api/v4";
 const TOKEN = "glpat-test-token";
 const WEBHOOK_SECRET = "test-webhook-secret";
-const SIGNING_KEY = Buffer.from("test-signing-key-bytes");
+const SIGNING_KEY = Buffer.alloc(32, 7);
 const SIGNING_TOKEN = `whsec_${SIGNING_KEY.toString("base64")}`;
 const PROJECT_ID = 42;
 const BOT_USER_ID = 999;
@@ -34,6 +36,9 @@ const INVALID_THREAD_ID = /Invalid GitLab thread ID/;
 const INVALID_CHANNEL_ID = /Invalid GitLab channel ID/;
 const WEBHOOK_REQUIRED = /Webhook verification is required/;
 const AUTH_REQUIRED = /Authentication is required/;
+const BLANK_NOTE_REASON = /\(400\): Note can't be blank$/;
+const FIELD_ERRORS_REASON = /\(422\): note is too long, contains spam$/;
+const ERROR_FIELD_REASON = /\(400\): body is missing$/;
 
 const ENV_KEYS = [
   "GITLAB_TOKEN",
@@ -316,6 +321,25 @@ describe("constructor", () => {
     ).toThrow(ValidationError);
   });
 
+  it("accepts a signing token without the whsec_ prefix", () => {
+    expect(
+      () =>
+        new GitLabAdapter({
+          token: TOKEN,
+          webhookSigningToken: SIGNING_KEY.toString("base64"),
+        })
+    ).not.toThrow();
+  });
+
+  it.each([
+    ["invalid characters", "whsec_abc!def"],
+    ["the wrong length", `whsec_${Buffer.alloc(16, 7).toString("base64")}`],
+  ])("rejects a signing token with %s", (_label, webhookSigningToken) => {
+    expect(
+      () => new GitLabAdapter({ token: TOKEN, webhookSigningToken })
+    ).toThrow(ValidationError);
+  });
+
   it("defaults the username to gitlab-bot", () => {
     const adapter = createAdapter({ userName: undefined });
     expect(adapter.userName).toBe("gitlab-bot");
@@ -347,6 +371,13 @@ describe("initialize", () => {
   it("skips detection when both identity values are configured", async () => {
     await setup();
     expect(calls).toHaveLength(0);
+  });
+
+  it("bounds the GET /user lookup with a timeout signal", async () => {
+    mockFetch([{ path: "/user", body: botUser }]);
+    await setup({ botUserId: undefined });
+    const init = vi.mocked(fetch).mock.calls[0][1];
+    expect(init?.signal).toBeInstanceOf(AbortSignal);
   });
 
   it("does not throw when detection fails", async () => {
@@ -469,19 +500,36 @@ describe("webhook verification", () => {
     const response = await adapter.handleWebhook(webhookRequest("{not json"));
     expect(response.status).toBe(400);
   });
+
+  it("returns 200 for a JSON null body without dispatching", async () => {
+    const { adapter, chat } = await setup();
+    const response = await adapter.handleWebhook(webhookRequest("null"));
+    expect(response.status).toBe(200);
+    expect(chat).not.toHaveDispatched("processMessage");
+    expect(chat.processReaction).not.toHaveBeenCalled();
+  });
+
+  it("returns 200 for a Note Hook without object_attributes", async () => {
+    const { adapter, chat } = await setup();
+    const response = await adapter.handleWebhook(
+      webhookRequest({ object_kind: "note", project_id: PROJECT_ID })
+    );
+    expect(response.status).toBe(200);
+    expect(chat).not.toHaveDispatched("processMessage");
+  });
 });
 
 describe("comment events", () => {
-  it("routes a top-level merge request comment to the merge request thread", async () => {
+  it("routes a top-level merge request comment to its discussion thread", async () => {
     const { adapter, chat } = await setup();
     await adapter.handleWebhook(webhookRequest(noteEvent()));
 
     expect(chat.processMessage).toHaveBeenCalledOnce();
     const [, threadId, message] = vi.mocked(chat.processMessage).mock.calls[0];
-    expect(threadId).toBe("gitlab:42:mr:3");
+    expect(threadId).toBe(`gitlab:42:mr:3:${DISCUSSION_ID}`);
     expect(message).toMatchObject({
       id: "1244",
-      threadId: "gitlab:42:mr:3",
+      threadId: `gitlab:42:mr:3:${DISCUSSION_ID}`,
       text: "@project_42_bot_abc123 please review",
       author: {
         userId: "1",
@@ -511,7 +559,7 @@ describe("comment events", () => {
     expect(threadId).toBe(`gitlab:42:mr:3:${DISCUSSION_ID}`);
   });
 
-  it("routes an issue comment to the issue thread", async () => {
+  it("routes an issue comment to its discussion thread", async () => {
     const { adapter, chat } = await setup();
     await adapter.handleWebhook(
       webhookRequest(
@@ -525,7 +573,68 @@ describe("comment events", () => {
       )
     );
     const [, threadId] = vi.mocked(chat.processMessage).mock.calls[0];
-    expect(threadId).toBe("gitlab:42:issue:17");
+    expect(threadId).toBe(`gitlab:42:issue:17:${DISCUSSION_ID}`);
+  });
+
+  it("routes a reply to the same thread as the top-level comment it answers", async () => {
+    const { adapter, chat } = await setup();
+    await adapter.handleWebhook(webhookRequest(noteEvent()));
+    await adapter.handleWebhook(
+      webhookRequest(
+        noteEvent({
+          attributes: {
+            id: 1245,
+            note: "a reply",
+            type: "DiscussionNote",
+            created_at: "2026-10-01T09:05:00.000Z",
+            updated_at: "2026-10-01T09:05:00.000Z",
+          },
+        })
+      )
+    );
+    expect(chat.processMessage).toHaveBeenCalledTimes(2);
+    const [first, second] = vi.mocked(chat.processMessage).mock.calls;
+    expect(first[1]).toBe(`gitlab:42:mr:3:${DISCUSSION_ID}`);
+    expect(second[1]).toBe(first[1]);
+  });
+
+  it("never marks a comment as edited", async () => {
+    const { adapter, chat } = await setup();
+    await adapter.handleWebhook(
+      webhookRequest(
+        noteEvent({ attributes: { updated_at: "2026-10-02T09:00:00.000Z" } })
+      )
+    );
+    const [, , message] = vi.mocked(chat.processMessage).mock.calls[0];
+    expect(message).toMatchObject({ metadata: { edited: false } });
+    expect(
+      (message as { metadata: { editedAt?: Date } }).metadata.editedAt
+    ).toBeUndefined();
+  });
+
+  it.each([
+    ["a plain mention", "@project_42_bot_abc123 please review", true],
+    ["a mention in inline code", "run `@project_42_bot_abc123 review`", false],
+    [
+      "a mention in a code block",
+      "```\n@project_42_bot_abc123 review\n```",
+      false,
+    ],
+    ["a mention in a block quote", "> @project_42_bot_abc123 review", false],
+    ["an email address", "mail jane@project_42_bot_abc123.com", false],
+    [
+      "a mention after a hard line break",
+      "Thanks  \n@project_42_bot_abc123",
+      true,
+    ],
+    ["a mention after inline HTML", "x<br>@project_42_bot_abc123", true],
+  ])("sets isMention for %s", async (_label, note, expected) => {
+    const { adapter, chat } = await setup();
+    await adapter.handleWebhook(
+      webhookRequest(noteEvent({ attributes: { note } }))
+    );
+    const [, , message] = vi.mocked(chat.processMessage).mock.calls[0];
+    expect(message.isMention).toBe(expected);
   });
 
   it("parses legacy webhook timestamps", async () => {
@@ -602,6 +711,111 @@ describe("comment events", () => {
   });
 });
 
+describe("self-detection without a known bot user ID", () => {
+  it("drops comments when GET /user fails and no username is configured", async () => {
+    mockFetch([{ path: "/user", status: 500 }]);
+    const logger = createMockLogger();
+    const { adapter, chat } = await setup({
+      botUserId: undefined,
+      userName: undefined,
+      logger,
+    });
+    const response = await adapter.handleWebhook(webhookRequest(noteEvent()));
+    expect(response.status).toBe(200);
+    expect(chat).not.toHaveDispatched("processMessage");
+    expect(logger.warn).toHaveBeenCalledWith(
+      expect.stringContaining("bot user is unknown"),
+      expect.anything()
+    );
+  });
+
+  it("falls back to the configured username", async () => {
+    mockFetch([{ path: "/user", status: 500 }]);
+    const { adapter, chat } = await setup({ botUserId: undefined });
+    expect(adapter.botUserId).toBeUndefined();
+
+    await adapter.handleWebhook(
+      webhookRequest(
+        noteEvent({
+          payload: {
+            user: {
+              ...botUser,
+              id: 12_345,
+              username: "Project_42_Bot_ABC123",
+            },
+          },
+        })
+      )
+    );
+    expect(chat).not.toHaveDispatched("processMessage");
+
+    await adapter.handleWebhook(webhookRequest(noteEvent()));
+    expect(chat.processMessage).toHaveBeenCalledOnce();
+    const [, , message] = vi.mocked(chat.processMessage).mock.calls[0];
+    expect(message).toMatchObject({ author: { userName: "ada", isMe: false } });
+  });
+
+  it("marks the bot's own notes as isMe by username", async () => {
+    mockFetch([
+      { path: "/user", status: 500 },
+      {
+        path: `/projects/${PROJECT_ID}/merge_requests/3/notes/500`,
+        body: restNote({ author: { ...botUser, id: 12_345 } }),
+      },
+    ]);
+    const { adapter } = await setup({ botUserId: undefined });
+    const message = await adapter.fetchMessage("gitlab:42:mr:3", "500");
+    expect(message?.author.isMe).toBe(true);
+  });
+
+  it("retries GET /user on a later webhook after the cooldown", async () => {
+    mockFetch([{ path: "/user", status: 500 }]);
+    const { adapter, chat } = await setup({
+      botUserId: undefined,
+      userName: undefined,
+    });
+
+    // Within the cooldown: no retry, so the comment is dropped.
+    mockFetch([{ path: "/user", body: botUser }]);
+    await adapter.handleWebhook(webhookRequest(noteEvent()));
+    expect(calls).toHaveLength(0);
+    expect(chat).not.toHaveDispatched("processMessage");
+
+    vi.useFakeTimers({ toFake: ["Date"] });
+    try {
+      vi.setSystemTime(Date.now() + 31_000);
+      await adapter.handleWebhook(webhookRequest(noteEvent()));
+    } finally {
+      vi.useRealTimers();
+    }
+    expect(calls.map((c) => c.url.pathname)).toEqual(["/api/v4/user"]);
+    expect(adapter.botUserId).toBe(String(BOT_USER_ID));
+    expect(chat.processMessage).toHaveBeenCalledOnce();
+  });
+
+  it("lets concurrent webhooks share one GET /user retry", async () => {
+    mockFetch([{ path: "/user", status: 500 }]);
+    const { adapter, chat } = await setup({
+      botUserId: undefined,
+      userName: undefined,
+    });
+
+    mockFetch([{ path: "/user", body: botUser }]);
+    vi.useFakeTimers({ toFake: ["Date"] });
+    try {
+      vi.setSystemTime(Date.now() + 31_000);
+      await Promise.all([
+        adapter.handleWebhook(webhookRequest(noteEvent())),
+        adapter.handleWebhook(webhookRequest(noteEvent())),
+      ]);
+    } finally {
+      vi.useRealTimers();
+    }
+    expect(calls.map((c) => c.url.pathname)).toEqual(["/api/v4/user"]);
+    expect(chat.processMessage).toHaveBeenCalledTimes(2);
+  });
+});
+
 describe("emoji events", () => {
   function emojiEvent(
     overrides: Partial<GitLabEmojiWebhookPayload> = {}
@@ -657,6 +871,41 @@ describe("emoji events", () => {
     expect(event.emoji.name).toBe("thumbs_up");
   });
 
+  it.each([
+    ["pencil", "memo"],
+    ["hugging", "hug"],
+    ["thumbsup", "thumbs_up"],
+  ])("normalizes the GitLab award %s to %s", async (gitlabName, normalized) => {
+    const { adapter, chat } = await setup();
+    await adapter.handleWebhook(
+      webhookRequest(
+        emojiEvent({
+          object_attributes: {
+            ...emojiEvent().object_attributes,
+            name: gitlabName,
+          },
+        }),
+        { "x-gitlab-event": "Emoji Hook" }
+      )
+    );
+    const [event] = vi.mocked(chat.processReaction).mock.calls[0];
+    expect(event.emoji).toBe(getEmoji(normalized));
+    expect(event.rawEmoji).toBe(gitlabName);
+  });
+
+  it("uses the note's discussion thread for reactions on top-level comments", async () => {
+    const { adapter, chat } = await setup();
+    const base = emojiEvent();
+    await adapter.handleWebhook(
+      webhookRequest(
+        emojiEvent({ note: base.note && { ...base.note, type: null } }),
+        { "x-gitlab-event": "Emoji Hook" }
+      )
+    );
+    const [event] = vi.mocked(chat.processReaction).mock.calls[0];
+    expect(event.threadId).toBe(`gitlab:42:mr:3:${DISCUSSION_ID}`);
+  });
+
   it("dispatches a removed reaction", async () => {
     const { adapter, chat } = await setup();
     await adapter.handleWebhook(
@@ -688,6 +937,19 @@ describe("emoji events", () => {
         { "x-gitlab-event": "Emoji Hook" }
       )
     );
+    expect(chat.processReaction).not.toHaveBeenCalled();
+  });
+
+  it("drops reactions when the bot user is unknown and no username is configured", async () => {
+    mockFetch([{ path: "/user", status: 500 }]);
+    const { adapter, chat } = await setup({
+      botUserId: undefined,
+      userName: undefined,
+    });
+    const response = await adapter.handleWebhook(
+      webhookRequest(emojiEvent(), { "x-gitlab-event": "Emoji Hook" })
+    );
+    expect(response.status).toBe(200);
     expect(chat.processReaction).not.toHaveBeenCalled();
   });
 
@@ -766,6 +1028,45 @@ describe("postMessage", () => {
     expect(result.raw.discussionId).toBe(DISCUSSION_ID);
   });
 
+  it("posts to the discussion notes endpoint for a merge request discussion thread", async () => {
+    const path = `/projects/${PROJECT_ID}/merge_requests/3/discussions/${DISCUSSION_ID}/notes`;
+    mockFetch([
+      {
+        method: "POST",
+        path,
+        status: 201,
+        body: restNote({ type: "DiscussionNote" }),
+      },
+    ]);
+    const { adapter } = await setup();
+    const result = await adapter.postMessage(
+      `gitlab:42:mr:3:${DISCUSSION_ID}`,
+      "On it"
+    );
+    expect(calls).toHaveLength(1);
+    expect(calls[0].method).toBe("POST");
+    expect(calls[0].url.pathname).toBe(`/api/v4${path}`);
+    expect(result.threadId).toBe(`gitlab:42:mr:3:${DISCUSSION_ID}`);
+  });
+
+  it("posts markdown with GitLab references unchanged", async () => {
+    mockFetch([
+      {
+        method: "POST",
+        path: `/projects/${PROJECT_ID}/merge_requests/3/notes`,
+        status: 201,
+        body: restNote(),
+      },
+    ]);
+    const { adapter } = await setup();
+    await adapter.postMessage("gitlab:42:mr:3", {
+      markdown: "Fixes ~bug, see !12 and snake_case",
+    });
+    expect(calls[0].body).toEqual({
+      body: "Fixes ~bug, see !12 and snake_case",
+    });
+  });
+
   it("renders cards as markdown and converts emoji placeholders", async () => {
     mockFetch([
       {
@@ -820,6 +1121,49 @@ describe("postMessage", () => {
     });
   });
 
+  it("keeps file references in order when uploads finish out of order", async () => {
+    calls = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: URL | string, init?: RequestInit) => {
+        const url = new URL(input.toString());
+        const method = init?.method ?? "GET";
+        const body =
+          typeof init?.body === "string" ? JSON.parse(init.body) : init?.body;
+        calls.push({ url, method, body, headers: new Headers(init?.headers) });
+        if (url.pathname.endsWith("/uploads")) {
+          const file = (body as FormData).get("file") as File;
+          // The first file finishes last.
+          if (file.name === "first.txt") {
+            await new Promise((resolve) => setTimeout(resolve, 20));
+          }
+          return new Response(
+            JSON.stringify({
+              markdown: `[${file.name}](/uploads/${file.name})`,
+            }),
+            { status: 201, headers: { "content-type": "application/json" } }
+          );
+        }
+        return new Response(JSON.stringify(restNote()), {
+          status: 201,
+          headers: { "content-type": "application/json" },
+        });
+      })
+    );
+    const { adapter } = await setup();
+    await adapter.postMessage("gitlab:42:mr:3", {
+      markdown: "Files",
+      files: [
+        { data: Buffer.from("1"), filename: "first.txt" },
+        { data: Buffer.from("2"), filename: "second.txt" },
+      ],
+    });
+    const notePost = calls.find((c) => c.url.pathname.endsWith("/notes"));
+    expect(notePost?.body).toEqual({
+      body: "Files\n\n[first.txt](/uploads/first.txt)\n\n[second.txt](/uploads/second.txt)",
+    });
+  });
+
   it("learns the bot user ID from its first posted comment", async () => {
     mockFetch([
       { path: "/user", status: 500 },
@@ -859,6 +1203,36 @@ describe("postMessage", () => {
     await expect(adapter.postMessage("gitlab:42:mr:3", "x")).rejects.toThrow(
       AdapterRateLimitError
     );
+
+    mockFetch([{ method: "POST", path, status: 500 }]);
+    await expect(adapter.postMessage("gitlab:42:mr:3", "x")).rejects.toThrow(
+      NetworkError
+    );
+  });
+
+  it.each([
+    [
+      "a message string",
+      400,
+      { message: "Note can't be blank" },
+      BLANK_NOTE_REASON,
+    ],
+    [
+      "field errors",
+      422,
+      { message: { note: ["is too long", "contains spam"] } },
+      FIELD_ERRORS_REASON,
+    ],
+    ["an error string", 400, { error: "body is missing" }, ERROR_FIELD_REASON],
+  ])("maps a %s validation response to ValidationError", async (_label, status, body, reason) => {
+    const path = `/projects/${PROJECT_ID}/merge_requests/3/notes`;
+    mockFetch([{ method: "POST", path, status, body }]);
+    const { adapter } = await setup();
+    const error = await adapter
+      .postMessage("gitlab:42:mr:3", "x")
+      .catch((e: unknown) => e);
+    expect(error).toBeInstanceOf(ValidationError);
+    expect((error as Error).message).toMatch(reason);
   });
 });
 
@@ -915,6 +1289,36 @@ describe("stream", () => {
     expect(calls).toHaveLength(1);
     expect(calls[0].body).toEqual({ body: "Hello world" });
   });
+
+  it("posts streamed markdown unchanged", async () => {
+    mockFetch([
+      {
+        method: "POST",
+        path: `/projects/${PROJECT_ID}/merge_requests/3/notes`,
+        status: 201,
+        body: restNote(),
+      },
+    ]);
+    const { adapter } = await setup();
+    async function* chunks() {
+      yield "Fixes ~bug, ";
+      yield "see !12";
+    }
+    await adapter.stream("gitlab:42:mr:3", chunks());
+    expect(calls[0].body).toEqual({ body: "Fixes ~bug, see !12" });
+  });
+
+  it("throws ValidationError for an empty stream without calling the API", async () => {
+    const { adapter } = await setup();
+    async function* chunks() {
+      yield "  ";
+      yield { type: "markdown_text" as const, text: "\n" };
+    }
+    await expect(adapter.stream("gitlab:42:mr:3", chunks())).rejects.toThrow(
+      ValidationError
+    );
+    expect(calls).toHaveLength(0);
+  });
 });
 
 describe("reactions", () => {
@@ -927,11 +1331,142 @@ describe("reactions", () => {
     expect(calls[0].body).toEqual({ name: "thumbsup" });
   });
 
+  it("maps Slack-style alias strings to GitLab canonical names", async () => {
+    mockFetch([{ method: "POST", path: awardPath, status: 201, body: {} }]);
+    const { adapter } = await setup();
+    await adapter.addReaction("gitlab:42:mr:3", "500", "thinking_face");
+    await adapter.addReaction("gitlab:42:mr:3", "500", "+1");
+    await adapter.addReaction("gitlab:42:mr:3", "500", "cry");
+    await adapter.addReaction("gitlab:42:mr:3", "500", "rocket");
+    expect(calls.map((c) => c.body)).toEqual([
+      { name: "thinking" },
+      { name: "thumbsup" },
+      { name: "sob" },
+      { name: "rocket" },
+    ]);
+  });
+
+  it("treats a reaction the bot already gave as success", async () => {
+    mockFetch([
+      { method: "POST", path: awardPath, status: 404, body: {} },
+      {
+        path: awardPath,
+        body: [{ id: 3, name: "thumbsup", user: botUser }],
+      },
+    ]);
+    const { adapter } = await setup();
+    await expect(
+      adapter.addReaction("gitlab:42:mr:3", "500", "thumbs_up")
+    ).resolves.toBeUndefined();
+  });
+
+  it("rethrows a 404 for an emoji the bot hasn't given", async () => {
+    mockFetch([
+      { method: "POST", path: awardPath, status: 404, body: {} },
+      { path: awardPath, body: [] },
+    ]);
+    const { adapter } = await setup();
+    await expect(
+      adapter.addReaction("gitlab:42:mr:3", "500", "not_an_emoji")
+    ).rejects.toThrow(ResourceNotFoundError);
+  });
+
   it("falls back to the shared shortcode for other emoji", async () => {
     mockFetch([{ method: "POST", path: awardPath, status: 201, body: {} }]);
     const { adapter } = await setup();
     await adapter.addReaction("gitlab:42:mr:3", "500", "party");
     expect(calls[0].body).toEqual({ name: "tada" });
+  });
+
+  it.each([
+    ["hug", "hugging"],
+    ["memo", "pencil"],
+    ["facepalm", "face_palm"],
+    ["email", "e-mail"],
+    ["medal", "first_place"],
+    ["green_circle", "green_circle"],
+    ["yellow_circle", "yellow_circle"],
+    ["rain", "cloud_rain"],
+    ["thumbs_up", "thumbsup"],
+  ])("maps %s to the GitLab award name %s", async (emoji, gitlabName) => {
+    mockFetch([{ method: "POST", path: awardPath, status: 201, body: {} }]);
+    const { adapter } = await setup();
+    await adapter.addReaction("gitlab:42:mr:3", "500", emoji);
+    expect(calls[0].body).toEqual({ name: gitlabName });
+  });
+
+  it("removes a reaction stored under GitLab's canonical name", async () => {
+    mockFetch([
+      {
+        path: awardPath,
+        body: [{ id: 4, name: "hugging", user: botUser }],
+      },
+      { method: "DELETE", path: `${awardPath}/4`, status: 204 },
+    ]);
+    const { adapter } = await setup();
+    await adapter.removeReaction("gitlab:42:mr:3", "500", "hug");
+    expect(calls.map((c) => `${c.method} ${c.url.pathname}`)).toEqual([
+      `GET /api/v4${awardPath}`,
+      `DELETE /api/v4${awardPath}/4`,
+    ]);
+  });
+
+  it("follows x-next-page when looking for the bot's award", async () => {
+    calls = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((input: URL | string, init?: RequestInit) => {
+        const url = new URL(input.toString());
+        const method = init?.method ?? "GET";
+        calls.push({
+          url,
+          method,
+          body: undefined,
+          headers: new Headers(init?.headers),
+        });
+        if (method === "DELETE") {
+          return Promise.resolve(new Response(null, { status: 204 }));
+        }
+        const page = url.searchParams.get("page");
+        const awards =
+          page === "1"
+            ? [
+                { id: 1, name: "thumbsup", user: humanUser },
+                { id: 2, name: "eyes", user: botUser },
+              ]
+            : [{ id: 3, name: "thumbsup", user: botUser }];
+        return Promise.resolve(
+          new Response(JSON.stringify(awards), {
+            headers: { "x-next-page": page === "1" ? "2" : "" },
+          })
+        );
+      })
+    );
+    const { adapter } = await setup();
+    await adapter.removeReaction("gitlab:42:mr:3", "500", "thumbs_up");
+    expect(
+      calls.map(
+        (c) =>
+          `${c.method} ${c.url.pathname} ${c.url.searchParams.get("page") ?? ""}`
+      )
+    ).toEqual([
+      `GET /api/v4${awardPath} 1`,
+      `GET /api/v4${awardPath} 2`,
+      `DELETE /api/v4${awardPath}/3 `,
+    ]);
+  });
+
+  it("throws when the bot user ID is still unknown", async () => {
+    mockFetch([{ path: "/user", status: 500 }]);
+    const { adapter } = await setup({ botUserId: undefined });
+    await expect(
+      adapter.removeReaction("gitlab:42:mr:3", "500", "thumbs_up")
+    ).rejects.toThrow(ValidationError);
+    // The retry is inside the cooldown that started at initialize, so only
+    // the initial lookup hits the API.
+    expect(calls.map((c) => `${c.method} ${c.url.pathname}`)).toEqual([
+      "GET /api/v4/user",
+    ]);
   });
 
   it("removes only the bot's matching reaction", async () => {
@@ -964,94 +1499,93 @@ describe("reactions", () => {
 
 describe("fetchMessages", () => {
   const discussionsPath = `/projects/${PROJECT_ID}/merge_requests/3/discussions`;
+  const notesPath = `/projects/${PROJECT_ID}/merge_requests/3/notes`;
+  const issueNotesPath = `/projects/${PROJECT_ID}/issues/17/notes`;
 
-  it("returns top-level comments for a merge request thread", async () => {
+  it("returns a page of comments for a merge request thread, oldest first", async () => {
     mockFetch([
       {
-        path: discussionsPath,
+        path: notesPath,
+        // GitLab returns newest first for sort=desc.
         body: [
-          {
-            id: "a1",
-            individual_note: true,
-            notes: [
-              restNote({
-                id: 2,
-                body: "second",
-                created_at: "2026-10-01T11:00:00.000Z",
-              }),
-            ],
-          },
-          {
-            id: "a2",
-            individual_note: true,
-            notes: [
-              restNote({
-                id: 1,
-                body: "first",
-                created_at: "2026-10-01T09:00:00.000Z",
-              }),
-            ],
-          },
-          {
-            id: "a3",
-            individual_note: true,
-            notes: [
-              restNote({ id: 3, body: "changed the title", system: true }),
-            ],
-          },
-          {
-            id: DISCUSSION_ID,
-            individual_note: false,
-            notes: [restNote({ id: 4, body: "threaded", type: "DiffNote" })],
-          },
+          restNote({
+            id: 4,
+            body: "reply",
+            type: "DiscussionNote",
+            created_at: "2026-10-01T12:00:00.000Z",
+          }),
+          restNote({
+            id: 3,
+            body: "changed the title",
+            system: true,
+            created_at: "2026-10-01T11:30:00.000Z",
+          }),
+          restNote({
+            id: 2,
+            body: "second",
+            created_at: "2026-10-01T11:00:00.000Z",
+          }),
+          restNote({
+            id: 1,
+            body: "first",
+            type: "DiffNote",
+            created_at: "2026-10-01T09:00:00.000Z",
+          }),
         ],
+        headers: { "x-next-page": "2" },
       },
     ]);
     const { adapter } = await setup();
-    const result = await adapter.fetchMessages("gitlab:42:mr:3");
-    expect(result.messages.map((m) => m.text)).toEqual(["first", "second"]);
+    const result = await adapter.fetchMessages("gitlab:42:mr:3", { limit: 4 });
+
+    expect(result.messages.map((m) => m.text)).toEqual([
+      "first",
+      "second",
+      "reply",
+    ]);
     expect(result.messages[0].threadId).toBe("gitlab:42:mr:3");
-    expect(calls[0].url.searchParams.get("per_page")).toBe("100");
+    expect(result.nextCursor).toBe("2");
+    expect(calls).toHaveLength(1);
+    const params = calls[0].url.searchParams;
+    expect(params.get("order_by")).toBe("created_at");
+    expect(params.get("sort")).toBe("desc");
+    expect(params.get("per_page")).toBe("4");
+    expect(params.has("page")).toBe(false);
   });
 
-  it("follows x-next-page pagination", async () => {
-    calls = [];
-    vi.stubGlobal(
-      "fetch",
-      vi.fn((input: URL | string) => {
-        const url = new URL(input.toString());
-        calls.push({
-          url,
-          method: "GET",
-          body: undefined,
-          headers: new Headers(),
-        });
-        const page = url.searchParams.get("page");
-        const id = page === "1" ? 1 : 2;
-        return Promise.resolve(
-          new Response(
-            JSON.stringify([
-              {
-                id: `d${id}`,
-                individual_note: true,
-                notes: [
-                  restNote({
-                    id,
-                    body: `note ${id}`,
-                    created_at: `2026-10-0${id}T00:00:00.000Z`,
-                  }),
-                ],
-              },
-            ]),
-            { headers: { "x-next-page": page === "1" ? "2" : "" } }
-          )
-        );
-      })
-    );
+  it("pages forward with the cursor and stops on the last page", async () => {
+    mockFetch([
+      {
+        path: issueNotesPath,
+        body: [
+          restNote({
+            id: 1,
+            body: "first",
+            created_at: "2026-10-01T09:00:00.000Z",
+          }),
+          restNote({
+            id: 2,
+            body: "second",
+            created_at: "2026-10-01T11:00:00.000Z",
+          }),
+        ],
+        headers: { "x-next-page": "" },
+      },
+    ]);
     const { adapter } = await setup();
-    const result = await adapter.fetchMessages("gitlab:42:mr:3");
-    expect(calls).toHaveLength(2);
-    expect(result.messages.map((m) => m.text)).toEqual(["note 1", "note 2"]);
+    const result = await adapter.fetchMessages("gitlab:42:issue:17", {
+      cursor: "3",
+      direction: "forward",
+      limit: 500,
+    });
+
+    expect(result.messages.map((m) => m.text)).toEqual(["first", "second"]);
+    expect(result.nextCursor).toBeUndefined();
+    const params = calls[0].url.searchParams;
+    expect(calls[0].url.pathname).toBe(`/api/v4${issueNotesPath}`);
+    expect(params.get("sort")).toBe("asc");
+    expect(params.get("per_page")).toBe("100");
+    expect(params.get("page")).toBe("3");
   });
 
   it("returns a discussion's comments for a discussion thread", async () => {
@@ -1130,6 +1664,28 @@ describe("fetchMessage", () => {
     ]);
     const { adapter } = await setup();
     expect(await adapter.fetchMessage("gitlab:42:mr:3", "500")).toBeNull();
+  });
+
+  it("returns null for a listThreads root message ID without an API call", async () => {
+    mockFetch([]);
+    const { adapter } = await setup();
+    expect(await adapter.fetchMessage("gitlab:42:mr:3", "mr-3")).toBeNull();
+    expect(calls).toHaveLength(0);
+  });
+
+  it("rejects note operations on a non-note ID", async () => {
+    mockFetch([]);
+    const { adapter } = await setup();
+    await expect(
+      adapter.addReaction("gitlab:42:mr:3", "mr-3", "thumbs_up")
+    ).rejects.toThrow(ValidationError);
+    await expect(
+      adapter.editMessage("gitlab:42:mr:3", "mr-3", "x")
+    ).rejects.toThrow(ValidationError);
+    await expect(
+      adapter.deleteMessage("gitlab:42:mr:3", "mr-3")
+    ).rejects.toThrow(ValidationError);
+    expect(calls).toHaveLength(0);
   });
 });
 
@@ -1214,6 +1770,7 @@ describe("thread, channel, and subject metadata", () => {
       {
         path: `/projects/${PROJECT_ID}/merge_requests`,
         body: [mergeRequest],
+        headers: { "x-next-page": "2" },
       },
     ]);
     const { adapter } = await setup();
@@ -1221,9 +1778,30 @@ describe("thread, channel, and subject metadata", () => {
     expect(calls[0].url.searchParams.get("state")).toBe("opened");
     expect(result.threads[0]).toMatchObject({
       id: "gitlab:42:mr:3",
-      rootMessage: { text: "Implements the feature" },
+      rootMessage: { id: "mr-3", text: "Implements the feature" },
     });
     expect(result.nextCursor).toBe("2");
+  });
+
+  it("caps the page size at 100 and stops on the last page", async () => {
+    mockFetch([
+      {
+        path: `/projects/${PROJECT_ID}/merge_requests`,
+        body: [mergeRequest],
+        headers: { "x-next-page": "" },
+      },
+    ]);
+    const { adapter } = await setup();
+    const result = await adapter.listThreads("gitlab:42", { limit: 200 });
+    expect(calls[0].url.searchParams.get("per_page")).toBe("100");
+    expect(result.nextCursor).toBeUndefined();
+  });
+
+  it("ignores a non-numeric cursor", async () => {
+    mockFetch([{ path: `/projects/${PROJECT_ID}/merge_requests`, body: [] }]);
+    const { adapter } = await setup();
+    await adapter.listThreads("gitlab:42", { cursor: "abc" });
+    expect(calls[0].url.searchParams.get("page")).toBe("1");
   });
 
   it("resolves the message subject", async () => {

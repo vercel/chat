@@ -128,6 +128,7 @@ export interface GitLabNote {
   author: GitLabUser;
   body: string;
   created_at: string;
+  /** Set on webhook notes. The REST Notes API doesn't return it. */
   discussion_id?: string;
   id: number;
   internal?: boolean;

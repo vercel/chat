@@ -15,6 +15,7 @@ import type {
   Author,
   ChannelInfo,
   ChatInstance,
+  Content,
   EmojiValue,
   FetchOptions,
   FetchResult,
@@ -25,6 +26,7 @@ import type {
   Logger,
   MessageSubject,
   RawMessage,
+  Root,
   StreamChunk,
   StreamOptions,
   ThreadInfo,
@@ -34,7 +36,9 @@ import type {
 import {
   ConsoleLogger,
   convertEmojiPlaceholders,
+  DEFAULT_EMOJI_MAP,
   defaultEmojiResolver,
+  getEmoji,
   Message,
 } from "chat";
 import { cardToGitLabMarkdown } from "./cards";
@@ -85,31 +89,67 @@ const LEGACY_DATE_PATTERN = /^(\d{4}-\d{2}-\d{2}) (\d{2}:\d{2}:\d{2}) UTC$/;
 const PROJECT_BOT_USERNAME_PATTERN = /^(project|group)_\d+_bot/;
 const TRAILING_SLASH_PATTERN = /\/+$/;
 const SIGNING_TOKEN_PREFIX = "whsec_";
+// GitLab signing tokens encode exactly 32 bytes: 43 base64 characters and `=`.
+const SIGNING_KEY_PATTERN = /^[A-Za-z0-9+/]{43}=$/;
 const SIGNATURE_TOLERANCE_SECONDS = 5 * 60;
 const MAX_PAGES = 20;
+const MAX_PER_PAGE = 100;
+const NOTE_ID_PATTERN = /^\d+$/;
+const PAGE_PATTERN = /^[1-9]\d*$/;
+const DETECT_RETRY_COOLDOWN_MS = 30_000;
+const DETECT_TIMEOUT_MS = 5000;
+const REGEX_SPECIAL_PATTERN = /[.*+?^${}()|[\]\\]/g;
+const INLINE_PARENT_TYPES = new Set([
+  "paragraph",
+  "heading",
+  "emphasis",
+  "strong",
+  "delete",
+  "link",
+  "linkReference",
+  "tableCell",
+]);
 
 /**
  * GitLab award emoji names for normalized emoji whose Slack-style shortcode
- * differs from GitLab's canonical name. Everything else falls back to the
- * Slack-style shortcode, which GitLab shares for most emoji.
+ * isn't GitLab's canonical name. GitLab stores and reports awards under the
+ * canonical name, so removing a reaction or reading one back needs it.
+ * Everything else falls back to the Slack-style shortcode.
  */
 const GITLAB_EMOJI_NAMES: Record<string, string> = {
   thumbs_up: "thumbsup",
   thumbs_down: "thumbsdown",
+  facepalm: "face_palm",
   thinking: "thinking",
+  hug: "hugging",
+  medal: "first_place",
+  memo: "pencil",
+  email: "e-mail",
+  green_circle: "green_circle",
+  yellow_circle: "yellow_circle",
+  rain: "cloud_rain",
 };
+
+const NORMALIZED_EMOJI_NAMES: Record<string, string> = Object.fromEntries(
+  Object.entries(GITLAB_EMOJI_NAMES).map(([normalized, gitlab]) => [
+    gitlab,
+    normalized,
+  ])
+);
 
 interface RequestOptions {
   body?: unknown;
   query?: Record<string, string | number | undefined>;
+  signal?: AbortSignal;
 }
 
 /**
  * GitLab adapter for Chat SDK.
  *
- * Handles comments on merge requests and issues. Top-level comments map to a
- * merge request or issue thread; replies, started threads, and diff comments
- * map to a discussion thread.
+ * Handles comments on merge requests and issues. Every comment maps to the
+ * thread for its GitLab discussion, so a reply to a top-level comment lands in
+ * the same thread as the comment. The merge request or issue itself is also a
+ * thread, used to post new top-level comments.
  *
  * @example
  * ```typescript
@@ -140,6 +180,8 @@ export class GitLabAdapter
   protected _botUserId: number | null;
   protected _userName: string;
   protected readonly hasExplicitUserName: boolean;
+  protected lastDetectAttempt = 0;
+  protected pendingDetection: Promise<void> | null = null;
 
   /** Bot username used for @-mention detection. */
   get userName(): string {
@@ -208,6 +250,7 @@ export class GitLabAdapter
   async initialize(chat: ChatInstance): Promise<void> {
     this.chat = chat;
     if (this._botUserId === null || !this.hasExplicitUserName) {
+      this.lastDetectAttempt = Date.now();
       await this.detectBotUser();
     }
   }
@@ -219,7 +262,11 @@ export class GitLabAdapter
    */
   protected async detectBotUser(): Promise<void> {
     try {
-      const user = await this.request<GitLabUser>("GET", "/user");
+      // Webhooks wait on this lookup while the bot ID is unknown, so bound it
+      // well under GitLab's webhook timeout.
+      const user = await this.request<GitLabUser>("GET", "/user", {
+        signal: AbortSignal.timeout(DETECT_TIMEOUT_MS),
+      });
       if (this._botUserId === null) {
         this._botUserId = user.id;
       }
@@ -233,6 +280,55 @@ export class GitLabAdapter
     } catch (error) {
       this.logger.warn("Could not auto-detect GitLab bot user", { error });
     }
+  }
+
+  /**
+   * Make sure the bot can recognize its own comments before dispatching one.
+   * When the user ID is still unknown, retry `GET /user` (at most once per
+   * cooldown window). Returns `false` when neither the user ID nor an explicit
+   * username is known, because dispatching then risks the bot answering itself.
+   */
+  protected async ensureBotIdentity(): Promise<boolean> {
+    await this.retryBotUserDetection();
+    return this._botUserId !== null || this.hasExplicitUserName;
+  }
+
+  /**
+   * Retry `GET /user` while the bot user ID is unknown, at most once per
+   * cooldown window.
+   */
+  protected async retryBotUserDetection(): Promise<void> {
+    if (this.pendingDetection) {
+      // Concurrent webhooks wait for the retry in flight instead of being
+      // dropped while it runs.
+      await this.pendingDetection;
+      return;
+    }
+    const now = Date.now();
+    if (
+      this._botUserId === null &&
+      now - this.lastDetectAttempt >= DETECT_RETRY_COOLDOWN_MS
+    ) {
+      this.lastDetectAttempt = now;
+      this.pendingDetection = this.detectBotUser().finally(() => {
+        this.pendingDetection = null;
+      });
+      await this.pendingDetection;
+    }
+  }
+
+  /**
+   * Whether a user is the bot. Compares the numeric ID when known, and falls
+   * back to the configured username otherwise.
+   */
+  protected isSelf(user: { id: number; username: string }): boolean {
+    if (this._botUserId !== null) {
+      return user.id === this._botUserId;
+    }
+    return (
+      this.hasExplicitUserName &&
+      user.username.toLowerCase() === this._userName.toLowerCase()
+    );
   }
 
   /**
@@ -292,7 +388,7 @@ export class GitLabAdapter
     let pages = 0;
     while (page && pages < MAX_PAGES) {
       const response = await this.rawRequest("GET", path, {
-        query: { ...query, per_page: 100, page },
+        query: { ...query, per_page: MAX_PER_PAGE, page },
       });
       results.push(...((await response.json()) as T[]));
       page = response.headers.get("x-next-page") || null;
@@ -327,7 +423,12 @@ export class GitLabAdapter
 
     let response: Response;
     try {
-      response = await fetch(url, { method, headers, body });
+      response = await fetch(url, {
+        method,
+        headers,
+        body,
+        signal: options.signal,
+      });
     } catch (error) {
       throw new NetworkError(
         "gitlab",
@@ -374,6 +475,14 @@ export class GitLabAdapter
           Number.isNaN(retryAfter) ? undefined : retryAfter
         );
       }
+      case 400:
+      case 422: {
+        const reason = parseGitLabErrorMessage(detail);
+        throw new ValidationError(
+          "gitlab",
+          `GitLab rejected ${method} ${path} (${response.status})${reason ? `: ${reason}` : ""}`
+        );
+      }
       default:
         throw new NetworkError(
           "gitlab",
@@ -391,6 +500,21 @@ export class GitLabAdapter
     const collection =
       noteableType === "merge_request" ? "merge_requests" : "issues";
     return `/projects/${projectId}/${collection}/${noteableIid}`;
+  }
+
+  /**
+   * REST path for a note. Note IDs are numeric; anything else (such as the
+   * `mr-{iid}` ID of a `listThreads` root message) isn't a note.
+   */
+  protected notePath(thread: GitLabThreadId, messageId: string): string {
+    if (!NOTE_ID_PATTERN.test(messageId)) {
+      throw new ValidationError(
+        "gitlab",
+        `${messageId} is not a GitLab comment ID`
+      );
+    }
+    const { projectId, noteableType, noteableIid } = thread;
+    return `${this.noteablePath(projectId, noteableType, noteableIid)}/notes/${messageId}`;
   }
 
   // ===========================================================================
@@ -412,7 +536,7 @@ export class GitLabAdapter
       return new Response("Invalid signature", { status: 401 });
     }
 
-    let payload: GitLabNoteWebhookPayload | GitLabEmojiWebhookPayload;
+    let payload: GitLabNoteWebhookPayload | GitLabEmojiWebhookPayload | null;
     try {
       payload = JSON.parse(body);
     } catch {
@@ -420,10 +544,17 @@ export class GitLabAdapter
       return new Response("Invalid JSON", { status: 400 });
     }
 
+    if (typeof payload !== "object" || payload === null) {
+      this.logger.debug("Ignoring GitLab webhook with non-object payload", {
+        eventType,
+      });
+      return new Response("ok", { status: 200 });
+    }
+
     if (eventType === "Note Hook" && payload.object_kind === "note") {
-      this.handleNoteEvent(payload, options);
+      await this.handleNoteEvent(payload, options);
     } else if (eventType === "Emoji Hook" && payload.object_kind === "emoji") {
-      this.handleEmojiEvent(payload, options);
+      await this.handleEmojiEvent(payload, options);
     } else {
       this.logger.debug("Ignoring GitLab webhook event", { eventType });
     }
@@ -524,16 +655,19 @@ export class GitLabAdapter
    * Handle a comment (`Note Hook`) event. Only newly created, public,
    * non-system comments on merge requests and issues are dispatched.
    */
-  protected handleNoteEvent(
+  protected async handleNoteEvent(
     payload: GitLabNoteWebhookPayload,
     options?: WebhookOptions
-  ): void {
+  ): Promise<void> {
     if (!this.chat) {
       this.logger.warn("Chat instance not initialized, ignoring comment");
       return;
     }
 
     const attrs = payload.object_attributes;
+    if (!attrs) {
+      return;
+    }
     if (attrs.action && attrs.action !== "create") {
       return;
     }
@@ -585,10 +719,17 @@ export class GitLabAdapter
       projectId: payload.project_id ?? payload.project.id,
       noteableType: noteable.type,
       noteableIid: noteable.iid,
-      discussionId: threadDiscussionId(note),
+      discussionId: note.discussion_id,
     };
 
-    if (payload.user.id === this._botUserId) {
+    if (!(await this.ensureBotIdentity())) {
+      this.logger.warn(
+        "Ignoring GitLab note because the bot user is unknown. Set GITLAB_BOT_USER_ID to prevent this.",
+        { noteId: note.id }
+      );
+      return;
+    }
+    if (this.isSelf(payload.user)) {
       this.logger.debug("Ignoring message from self", { noteId: note.id });
       return;
     }
@@ -600,10 +741,10 @@ export class GitLabAdapter
   /**
    * Handle an emoji (`Emoji Hook`) event on a merge request or issue comment.
    */
-  protected handleEmojiEvent(
+  protected async handleEmojiEvent(
     payload: GitLabEmojiWebhookPayload,
     options?: WebhookOptions
-  ): void {
+  ): Promise<void> {
     if (!this.chat) {
       this.logger.warn("Chat instance not initialized, ignoring reaction");
       return;
@@ -611,7 +752,7 @@ export class GitLabAdapter
 
     const attrs = payload.object_attributes;
     const note = payload.note;
-    if (attrs.awardable_type !== "Note" || !note) {
+    if (attrs?.awardable_type !== "Note" || !note) {
       return;
     }
     // Same rule as comments: never react to internal notes or confidential
@@ -629,7 +770,7 @@ export class GitLabAdapter
       return;
     }
 
-    if (payload.user.id === this._botUserId) {
+    if (!(await this.ensureBotIdentity()) || this.isSelf(payload.user)) {
       return;
     }
 
@@ -637,14 +778,14 @@ export class GitLabAdapter
       projectId: payload.project_id ?? payload.project.id,
       noteableType: noteable.type,
       noteableIid: noteable.iid,
-      discussionId: note.type ? note.discussion_id : undefined,
+      discussionId: note.discussion_id,
     });
 
-    const task = this.chat.processReaction(
+    this.chat.processReaction(
       {
         adapter: this,
         added: attrs.action === "award",
-        emoji: defaultEmojiResolver.fromSlack(attrs.name),
+        emoji: this.fromGitLabEmoji(attrs.name),
         messageId: String(note.id),
         raw: payload,
         rawEmoji: attrs.name,
@@ -653,9 +794,6 @@ export class GitLabAdapter
       },
       options
     );
-    // processReaction already logs handler errors; keep the returned promise
-    // from surfacing as an unhandled rejection.
-    Promise.resolve(task).catch(() => undefined);
   }
 
   protected resolveNoteable(
@@ -680,6 +818,13 @@ export class GitLabAdapter
    * Parse a raw GitLab message into a normalized Message.
    */
   parseMessage(raw: GitLabRawMessage): Message<GitLabRawMessage> {
+    return this.buildMessage(raw, raw.note.id.toString());
+  }
+
+  protected buildMessage(
+    raw: GitLabRawMessage,
+    id: string
+  ): Message<GitLabRawMessage> {
     const { note } = raw;
     const threadId = this.encodeThreadId({
       projectId: raw.projectId,
@@ -687,19 +832,23 @@ export class GitLabAdapter
       noteableIid: raw.noteableIid,
       discussionId: raw.discussionId,
     });
-    const edited = note.created_at !== note.updated_at;
+    const formatted = this.formatConverter.toAst(note.body);
 
     return new Message({
-      id: note.id.toString(),
+      id,
       threadId,
       text: this.formatConverter.extractPlainText(note.body),
-      formatted: this.formatConverter.toAst(note.body),
+      formatted,
       raw,
       author: this.parseAuthor(note.author),
+      isMention: mentionsUser(formatted, this._userName),
       metadata: {
         dateSent: parseGitLabDate(note.created_at),
-        edited,
-        editedAt: edited ? parseGitLabDate(note.updated_at) : undefined,
+        // Webhooks only dispatch newly created notes. For REST notes, GitLab
+        // bumps updated_at when a discussion is resolved or a reply turns a
+        // comment into a thread, and the REST API doesn't expose
+        // last_edited_at, so edits can't be told apart from those changes.
+        edited: false,
       },
       attachments: [],
     });
@@ -713,9 +862,8 @@ export class GitLabAdapter
       userId: user.id.toString(),
       userName: user.username,
       fullName: user.name || user.username,
-      isBot:
-        user.bot === true || PROJECT_BOT_USERNAME_PATTERN.test(user.username),
-      isMe: user.id === this._botUserId,
+      isBot: isBotUser(user),
+      isMe: this.isSelf(user),
     };
   }
 
@@ -754,29 +902,30 @@ export class GitLabAdapter
     projectId: number,
     files: FileUpload[]
   ): Promise<string[]> {
-    const references: string[] = [];
-    for (const file of files) {
-      const form = new FormData();
-      const blob =
-        file.data instanceof Blob
-          ? file.data
-          : new Blob([new Uint8Array(file.data)], {
-              type: file.mimeType ?? "application/octet-stream",
-            });
-      form.append("file", blob, file.filename);
-      const upload = await this.request<{ markdown: string }>(
-        "POST",
-        `/projects/${projectId}/uploads`,
-        { body: form }
-      );
-      references.push(upload.markdown);
-    }
-    return references;
+    return await Promise.all(
+      files.map(async (file) => {
+        const form = new FormData();
+        const blob =
+          file.data instanceof Blob
+            ? file.data
+            : new Blob([new Uint8Array(file.data)], {
+                type: file.mimeType ?? "application/octet-stream",
+              });
+        form.append("file", blob, file.filename);
+        const upload = await this.request<{ markdown: string }>(
+          "POST",
+          `/projects/${projectId}/uploads`,
+          { body: form }
+        );
+        return upload.markdown;
+      })
+    );
   }
 
   /**
-   * Post a message to a thread. Top-level threads get a new comment on the
-   * merge request or issue; discussion threads get a reply in the discussion.
+   * Post a message to a thread. Merge request and issue threads get a new
+   * top-level comment. Discussion threads get a reply in the discussion, which
+   * turns a top-level comment into a thread.
    */
   async postMessage(
     threadId: string,
@@ -820,7 +969,7 @@ export class GitLabAdapter
     const thread = this.decodeThreadId(threadId);
     const note = await this.request<GitLabNote>(
       "PUT",
-      `${this.noteablePath(thread.projectId, thread.noteableType, thread.noteableIid)}/notes/${messageId}`,
+      this.notePath(thread, messageId),
       { body: { body: this.renderBody(message) } }
     );
 
@@ -850,6 +999,12 @@ export class GitLabAdapter
         text += chunk.text;
       }
     }
+    if (!text.trim()) {
+      throw new ValidationError(
+        "gitlab",
+        "The stream produced no text to post. GitLab rejects empty comments."
+      );
+    }
     return this.postMessage(threadId, { markdown: text });
   }
 
@@ -857,11 +1012,9 @@ export class GitLabAdapter
    * Delete a comment.
    */
   async deleteMessage(threadId: string, messageId: string): Promise<void> {
-    const { projectId, noteableType, noteableIid } =
-      this.decodeThreadId(threadId);
     await this.request<void>(
       "DELETE",
-      `${this.noteablePath(projectId, noteableType, noteableIid)}/notes/${messageId}`
+      this.notePath(this.decodeThreadId(threadId), messageId)
     );
   }
 
@@ -873,13 +1026,26 @@ export class GitLabAdapter
     messageId: string,
     emoji: EmojiValue | string
   ): Promise<void> {
-    const { projectId, noteableType, noteableIid } =
-      this.decodeThreadId(threadId);
-    await this.request<GitLabAwardEmoji>(
-      "POST",
-      `${this.noteablePath(projectId, noteableType, noteableIid)}/notes/${messageId}/award_emoji`,
-      { body: { name: this.toGitLabEmoji(emoji) } }
-    );
+    const awardPath = `${this.notePath(this.decodeThreadId(threadId), messageId)}/award_emoji`;
+    const name = this.toGitLabEmoji(emoji);
+    try {
+      await this.request<GitLabAwardEmoji>("POST", awardPath, {
+        body: { name },
+      });
+    } catch (error) {
+      // GitLab answers 404 both for an unknown emoji and for an award the bot
+      // already gave. Treat the second as success so adding is idempotent.
+      if (
+        error instanceof ResourceNotFoundError &&
+        this._botUserId !== null &&
+        (await this.requestAll<GitLabAwardEmoji>(awardPath)).some(
+          (a) => a.name === name && a.user?.id === this._botUserId
+        )
+      ) {
+        return;
+      }
+      throw error;
+    }
   }
 
   /**
@@ -890,13 +1056,15 @@ export class GitLabAdapter
     messageId: string,
     emoji: EmojiValue | string
   ): Promise<void> {
-    const { projectId, noteableType, noteableIid } =
-      this.decodeThreadId(threadId);
     const name = this.toGitLabEmoji(emoji);
-    const awardPath = `${this.noteablePath(projectId, noteableType, noteableIid)}/notes/${messageId}/award_emoji`;
+    const awardPath = `${this.notePath(this.decodeThreadId(threadId), messageId)}/award_emoji`;
 
+    await this.retryBotUserDetection();
     if (this._botUserId === null) {
-      await this.detectBotUser();
+      throw new ValidationError(
+        "gitlab",
+        "Cannot remove a reaction because the bot user ID is unknown. Set GITLAB_BOT_USER_ID or botUserId in config."
+      );
     }
 
     const awards = await this.requestAll<GitLabAwardEmoji>(awardPath);
@@ -912,8 +1080,24 @@ export class GitLabAdapter
    * Convert an SDK emoji to a GitLab award emoji name.
    */
   protected toGitLabEmoji(emoji: EmojiValue | string): string {
-    const name = typeof emoji === "string" ? emoji : emoji.name;
+    // Resolve Slack-style aliases (`thinking_face`, `+1`) to the normalized
+    // name first, since GitLab stores awards under its canonical name. Skip
+    // normalized names: some, like `cry`, are also aliases of other emoji.
+    let name = typeof emoji === "string" ? emoji : emoji.name;
+    if (typeof emoji === "string" && !Object.hasOwn(DEFAULT_EMOJI_MAP, emoji)) {
+      name = defaultEmojiResolver.fromSlack(emoji).name;
+    }
     return GITLAB_EMOJI_NAMES[name] ?? defaultEmojiResolver.toSlack(name);
+  }
+
+  /**
+   * Convert a GitLab award emoji name to an SDK emoji.
+   */
+  protected fromGitLabEmoji(name: string): EmojiValue {
+    const normalized = NORMALIZED_EMOJI_NAMES[name];
+    return normalized
+      ? getEmoji(normalized)
+      : defaultEmojiResolver.fromSlack(name);
   }
 
   /**
@@ -924,9 +1108,10 @@ export class GitLabAdapter
   }
 
   /**
-   * Fetch comments in a thread, oldest first. Merge request and issue threads
-   * return top-level comments; discussion threads return the discussion's
-   * comments. System notes are excluded.
+   * Fetch comments in a thread, oldest first. Discussion threads return the
+   * discussion's comments. Merge request and issue threads return every
+   * comment on the merge request or issue, a page at a time. System notes are
+   * excluded.
    */
   async fetchMessages(
     threadId: string,
@@ -937,38 +1122,49 @@ export class GitLabAdapter
     const limit = options?.limit ?? 100;
     const direction = options?.direction ?? "backward";
     const basePath = this.noteablePath(projectId, noteableType, noteableIid);
+    const toMessages = (notes: GitLabNote[]) =>
+      notes
+        .filter((note) => !note.system)
+        .map((note) => this.parseMessage(this.toRawMessage(note, thread)));
 
-    let notes: GitLabNote[];
-    if (discussionId) {
-      const discussion = await this.request<GitLabDiscussion>(
-        "GET",
-        `${basePath}/discussions/${discussionId}`
-      );
-      notes = discussion.notes;
-    } else {
-      const discussions = await this.requestAll<GitLabDiscussion>(
-        `${basePath}/discussions`
-      );
-      notes = discussions
-        .filter((discussion) => discussion.individual_note)
-        .flatMap((discussion) => discussion.notes);
+    if (!discussionId) {
+      const response = await this.rawRequest("GET", `${basePath}/notes`, {
+        query: {
+          order_by: "created_at",
+          sort: direction === "backward" ? "desc" : "asc",
+          per_page: Math.min(Math.max(limit, 1), MAX_PER_PAGE),
+          page:
+            options?.cursor && PAGE_PATTERN.test(options.cursor)
+              ? options.cursor
+              : undefined,
+        },
+      });
+      const notes = (await response.json()) as GitLabNote[];
+      if (direction === "backward") {
+        notes.reverse();
+      }
+      return {
+        messages: toMessages(notes),
+        // GitLab filters notes after paginating, so a short page doesn't mean
+        // it's the last one. Trust the header instead of the item count.
+        nextCursor: response.headers.get("x-next-page") || undefined,
+      };
     }
 
-    let messages = notes
-      .filter((note) => !note.system)
-      .map((note) => this.parseMessage(this.toRawMessage(note, thread)));
-
+    const discussion = await this.request<GitLabDiscussion>(
+      "GET",
+      `${basePath}/discussions/${discussionId}`
+    );
+    let messages = toMessages(discussion.notes);
     messages.sort(
       (a, b) => a.metadata.dateSent.getTime() - b.metadata.dateSent.getTime()
     );
-
     if (messages.length > limit) {
       messages =
         direction === "backward"
           ? messages.slice(-limit)
           : messages.slice(0, limit);
     }
-
     return { messages, nextCursor: undefined };
   }
 
@@ -980,10 +1176,13 @@ export class GitLabAdapter
     messageId: string
   ): Promise<Message<GitLabRawMessage> | null> {
     const thread = this.decodeThreadId(threadId);
+    if (!NOTE_ID_PATTERN.test(messageId)) {
+      return null;
+    }
     try {
       const note = await this.request<GitLabNote>(
         "GET",
-        `${this.noteablePath(thread.projectId, thread.noteableType, thread.noteableIid)}/notes/${messageId}`
+        this.notePath(thread, messageId)
       );
       return this.parseMessage(this.toRawMessage(note, thread));
     } catch (error) {
@@ -1085,10 +1284,12 @@ export class GitLabAdapter
     options: ListThreadsOptions = {}
   ): Promise<ListThreadsResult<GitLabRawMessage>> {
     const projectId = this.decodeChannelId(channelId);
-    const limit = options.limit || 30;
-    const page = options.cursor ? Number.parseInt(options.cursor, 10) : 1;
+    // GitLab caps per_page at 100.
+    const limit = Math.min(Math.max(options.limit || 30, 1), MAX_PER_PAGE);
+    const page =
+      options.cursor && PAGE_PATTERN.test(options.cursor) ? options.cursor : 1;
 
-    const mergeRequests = await this.request<GitLabMergeRequest[]>(
+    const response = await this.rawRequest(
       "GET",
       `/projects/${projectId}/merge_requests`,
       {
@@ -1101,6 +1302,7 @@ export class GitLabAdapter
         },
       }
     );
+    const mergeRequests = (await response.json()) as GitLabMergeRequest[];
 
     const threads = mergeRequests.map((mr) => {
       const thread: GitLabThreadId = {
@@ -1108,7 +1310,9 @@ export class GitLabAdapter
         noteableType: "merge_request",
         noteableIid: mr.iid,
       };
-      const rootMessage = this.parseMessage(
+      // The description isn't a note, so the root message gets an ID that can't
+      // collide with a note ID. Note operations on it fail with a 404.
+      const rootMessage = this.buildMessage(
         this.toRawMessage(
           {
             id: mr.id,
@@ -1120,7 +1324,8 @@ export class GitLabAdapter
             type: null,
           },
           thread
-        )
+        ),
+        `mr-${mr.iid}`
       );
       return {
         id: this.encodeThreadId(thread),
@@ -1129,8 +1334,7 @@ export class GitLabAdapter
       };
     });
 
-    const nextCursor =
-      mergeRequests.length === limit ? String(page + 1) : undefined;
+    const nextCursor = response.headers.get("x-next-page") || undefined;
     return { threads, nextCursor };
   }
 
@@ -1176,8 +1380,7 @@ export class GitLabAdapter
         avatarUrl: user.avatar_url ?? undefined,
         email: user.public_email || undefined,
         fullName: user.name || user.username,
-        isBot:
-          user.bot === true || PROJECT_BOT_USERNAME_PATTERN.test(user.username),
+        isBot: isBotUser(user),
         userId: String(user.id),
         userName: user.username,
       };
@@ -1234,14 +1437,45 @@ function decodeSigningToken(token: string): Buffer {
   const encoded = token.startsWith(SIGNING_TOKEN_PREFIX)
     ? token.slice(SIGNING_TOKEN_PREFIX.length)
     : token;
-  const key = Buffer.from(encoded, "base64");
-  if (key.length === 0) {
+  // Buffer.from silently skips invalid base64 characters, so check the shape
+  // first: a mistyped token would otherwise decode to a wrong key.
+  if (!SIGNING_KEY_PATTERN.test(encoded)) {
     throw new ValidationError(
       "gitlab",
       "webhookSigningToken is not a valid GitLab signing token. Copy the whsec_ value shown when you generate the token."
     );
   }
-  return key;
+  return Buffer.from(encoded, "base64");
+}
+
+/**
+ * Pull a readable message out of a GitLab error body. GitLab returns
+ * `{ "message": "..." }`, `{ "message": { "field": ["..."] } }`, or
+ * `{ "error": "..." }`.
+ */
+function parseGitLabErrorMessage(detail: string): string | undefined {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(detail);
+  } catch {
+    return undefined;
+  }
+  if (typeof parsed !== "object" || parsed === null) {
+    return undefined;
+  }
+  const { message, error } = parsed as { error?: unknown; message?: unknown };
+  if (typeof message === "string") {
+    return message;
+  }
+  if (typeof message === "object" && message !== null) {
+    return Object.entries(message)
+      .map(
+        ([field, errors]) =>
+          `${field} ${Array.isArray(errors) ? errors.join(", ") : String(errors)}`
+      )
+      .join("; ");
+  }
+  return typeof error === "string" ? error : undefined;
 }
 
 /**
@@ -1254,11 +1488,49 @@ function parseGitLabDate(value: string): Date {
 }
 
 /**
- * The discussion a note's thread is keyed on. Top-level comments (note type
- * `null`) belong to the merge request or issue thread instead.
+ * Whether markdown mentions `@userName` outside code and block quotes, so
+ * code samples and quoted replies don't count as mentions.
  */
-function threadDiscussionId(note: GitLabNote): string | undefined {
-  return note.type ? note.discussion_id : undefined;
+function mentionsUser(ast: Root, userName: string): boolean {
+  const pattern = new RegExp(
+    `(?<!\\w)@${userName.replace(REGEX_SPECIAL_PATTERN, "\\$&")}(?![\\w-])`,
+    "i"
+  );
+  return pattern.test(mentionableText(ast));
+}
+
+function mentionableText(node: Content | Root): string {
+  // Excluded and opaque nodes still separate their neighbors, so
+  // `x<br>@bot` or a hard line break before `@bot` still reads as a mention.
+  if (
+    node.type === "code" ||
+    node.type === "inlineCode" ||
+    node.type === "blockquote" ||
+    node.type === "html"
+  ) {
+    return " ";
+  }
+  if (node.type === "break") {
+    return "\n";
+  }
+  if (node.type === "text") {
+    return node.value;
+  }
+  if (!("children" in node)) {
+    return " ";
+  }
+  const separator = INLINE_PARENT_TYPES.has(node.type) ? "" : "\n";
+  return node.children
+    .map((child) => mentionableText(child as Content))
+    .join(separator);
+}
+
+/**
+ * Whether a GitLab user is a bot: a user flagged `bot`, or a project or group
+ * access token user (webhook payloads don't carry the `bot` flag).
+ */
+function isBotUser(user: GitLabUser): boolean {
+  return user.bot === true || PROJECT_BOT_USERNAME_PATTERN.test(user.username);
 }
 
 function toGitLabUser(user: GitLabWebhookUser): GitLabUser {

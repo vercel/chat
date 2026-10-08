@@ -60,7 +60,7 @@ features:
 ## Quick start
 
 <Callout type="info">
-The adapter auto-detects credentials from `GITLAB_TOKEN` and either `GITLAB_WEBHOOK_SIGNING_TOKEN` or `GITLAB_WEBHOOK_SECRET`. It looks up the bot's username and user ID from the token during initialization.
+The adapter auto-detects credentials from `GITLAB_TOKEN` and either `GITLAB_WEBHOOK_SIGNING_TOKEN` or `GITLAB_WEBHOOK_SECRET`. Unless both are configured, it looks up the bot's username and user ID from the token during initialization.
 </Callout>
 
 ```typescript title="lib/bot.ts" lineNumbers
@@ -147,7 +147,7 @@ createGitLabAdapter({
     webhookSigningToken: {
       type: "string",
       description:
-        "Webhook signing token (`whsec_…`) used to verify the `webhook-signature` header. Auto-detected from `GITLAB_WEBHOOK_SIGNING_TOKEN`. Requires GitLab 19.0 or later.",
+        "Webhook signing token used to verify the `webhook-signature` header. Use the `whsec_` value GitLab shows (the prefix is optional); the adapter throws at construction if the token is malformed. Auto-detected from `GITLAB_WEBHOOK_SIGNING_TOKEN`. Requires GitLab 19.0 or later.",
     },
     webhookSecret: {
       type: "string",
@@ -167,7 +167,7 @@ createGitLabAdapter({
     botUserId: {
       type: "number",
       description:
-        "Numeric ID of the bot user, used to ignore the bot's own comments. Auto-detected from `GITLAB_BOT_USER_ID`, then from the token's user.",
+        "Numeric ID of the bot user, used to ignore the bot's own comments. Auto-detected from `GITLAB_BOT_USER_ID`, then from the token's user. Recommended on serverless platforms.",
     },
     apiUrl: {
       type: "string",
@@ -190,11 +190,11 @@ createGitLabAdapter({
 | Variable | Required | Description |
 |----------|----------|-------------|
 | `GITLAB_TOKEN` | Yes | Personal, project, or group access token with the `api` scope. |
-| `GITLAB_WEBHOOK_SIGNING_TOKEN` | One webhook token required | Webhook signing token for HMAC signature verification. |
-| `GITLAB_WEBHOOK_SECRET` | One webhook token required | Webhook secret token sent in the `X-Gitlab-Token` header. |
+| `GITLAB_WEBHOOK_SIGNING_TOKEN` | One webhook token required | Webhook signing token (`whsec_...`) for HMAC signature verification. GitLab 19.0 and later. |
+| `GITLAB_WEBHOOK_SECRET` | One webhook token required | Webhook secret token, compared against the `X-Gitlab-Token` header. |
 | `GITLAB_BOT_USERNAME` | No | Bot username for @mention detection. Defaults to the token user's username. |
-| `GITLAB_BOT_USER_ID` | No | Numeric bot user ID. Defaults to the token user's ID. |
-| `GITLAB_API_URL` | No | REST API base URL for GitLab Self-Managed or Dedicated. |
+| `GITLAB_BOT_USER_ID` | No | Numeric bot user ID for self-message detection. Defaults to the token user's ID; recommended on serverless to prevent reply loops. |
+| `GITLAB_API_URL` | No | REST API base URL for GitLab Self-Managed or Dedicated. Defaults to `https://gitlab.com/api/v4`. |
 
 ## Webhooks
 
@@ -202,29 +202,56 @@ Add a project or group webhook:
 
 1. Go to **Settings** then **Webhooks** and select **Add new webhook**.
 2. Set **URL** to `https://your-domain.com/api/webhooks/gitlab`.
-3. Under request authentication, select **Generate signing token** and set `GITLAB_WEBHOOK_SIGNING_TOKEN` to the token. On GitLab versions earlier than 19.0, enter a **Secret token** instead and set `GITLAB_WEBHOOK_SECRET` to the same value.
+3. Under request authentication, select **Generate signing token** and set `GITLAB_WEBHOOK_SIGNING_TOKEN` to the full token, including the `whsec_` prefix. On GitLab versions earlier than 19.0, enter a **Secret token** instead and set `GITLAB_WEBHOOK_SECRET` to the same value.
 4. Under **Trigger**, select **Comments**. Select **Emoji events** too if your bot handles reactions with `onReaction`.
 5. Select **Add webhook**.
 
-When both tokens are configured, the adapter verifies the `webhook-signature` header if GitLab sends one and falls back to the `X-Gitlab-Token` header otherwise. Signed requests with a `webhook-timestamp` more than five minutes old are rejected.
+When both tokens are configured, the adapter verifies the `webhook-signature` header if GitLab sends one and falls back to the `X-Gitlab-Token` header otherwise. Signed requests with a `webhook-timestamp` more than five minutes from the current time are rejected.
 
 The adapter dispatches newly created comments on merge requests and issues. It ignores comment edits, system notes, and comments on commits and snippets. It also ignores internal notes and comments on confidential issues, so a public reply can't expose their content.
 
+A comment counts as a mention when it contains `@` followed by the bot's username outside inline code, code blocks, and block quotes.
+
+### Ignoring the bot's own comments
+
+The adapter recognizes its own comments by the bot's numeric user ID, which comes from `botUserId`, `GITLAB_BOT_USER_ID`, or a `GET /user` call during initialization. If that call failed, the adapter retries it when a comment arrives, at most once every 30 seconds. While the ID is still unknown, the adapter compares usernames if the adapter's `userName` option or `GITLAB_BOT_USERNAME` is set. The `userName` passed to `Chat` doesn't count. If neither is known, it ignores the comment and logs a warning rather than risk replying to itself.
+
+On serverless platforms, set `GITLAB_BOT_USER_ID` so self-detection doesn't depend on the `GET /user` lookup.
+
 ## Thread IDs
 
-Top-level comments map to the merge request or issue thread. Diff comments, started threads, and replies to a comment map to their discussion thread, and the bot replies inside that discussion:
+Every comment belongs to a GitLab discussion, including top-level comments, so every incoming comment maps to its discussion thread. The bot replies inside that discussion. Replying to a top-level comment turns it into a thread in GitLab's UI, and the reply lands in the same Chat SDK thread as the comment.
 
-| Type | Context | Thread ID format |
-|------|---------|-----------------|
-| Merge request | Top-level comments | `gitlab:{projectId}:mr:{iid}` |
-| Issue | Top-level comments | `gitlab:{projectId}:issue:{iid}` |
-| Discussion | Threaded or diff comments | `gitlab:{projectId}:{mr\|issue}:{iid}:{discussionId}` |
+| Type | Thread ID format |
+|------|-----------------|
+| Discussion | `gitlab:{projectId}:{mr\|issue}:{iid}:{discussionId}` |
+| Merge request | `gitlab:{projectId}:mr:{iid}` |
+| Issue | `gitlab:{projectId}:issue:{iid}` |
 
-The channel ID for a project is `gitlab:{projectId}`. `listThreads` returns the project's open merge requests.
+Webhooks never produce merge request or issue thread IDs. You get them from `listThreads`, which returns the project's open merge requests, or by building one yourself. Posting to one creates a new top-level comment, and `fetchMessages` on it returns every non-system comment on the merge request or issue, paged with a cursor. On a discussion thread, `fetchMessages` returns that discussion's comments.
+
+This model has two consequences:
+
+- Subscribing to a thread started by a top-level comment doesn't catch other top-level comments on the same merge request. Each one starts its own thread.
+- When the bot posts to a merge request or issue thread and someone replies to that comment, the reply arrives in a new discussion thread, not the thread the bot posted to.
+
+The root message of a `listThreads` result is the merge request description (or its title when the description is empty), not a comment. Its ID is `mr-{iid}`, so reactions, edits, and deletes on it throw `ValidationError`, and `fetchMessage` returns `null`. `listThreads` pages through results with a cursor and returns at most 100 threads per page.
+
+The channel ID for a project is `gitlab:{projectId}`.
+
+## Messages
+
+Strings and markdown, including streamed text, are posted as written apart from emoji placeholders, so GitLab references such as `~label`, `!12`, and `#12` render as links. Card and AST content is converted to GitLab Flavored Markdown.
+
+Streaming is buffered: the adapter collects the whole stream and posts it as one comment. An empty stream throws a `ValidationError` because GitLab rejects empty comments.
+
+`message.metadata.edited` is always `false`. GitLab updates a comment's `updated_at` when its discussion is resolved or turned into a thread, and the API doesn't expose when a comment was last edited.
+
+GitLab API errors map to Chat SDK errors: 400 and 422 to `ValidationError` with GitLab's reason, 401 to `AuthenticationError`, 403 to `PermissionError`, 404 to `ResourceNotFoundError`, 429 to `AdapterRateLimitError`, and any other status to `NetworkError`.
 
 ## Reactions
 
-The adapter maps SDK emoji to GitLab emoji names. Most names match Slack-style shortcodes, such as `rocket`, `eyes`, and `tada` for `party`:
+The adapter maps SDK emoji to GitLab's canonical award emoji names. Most match Slack-style shortcodes, such as `rocket`, `eyes`, and `tada` for `party`. Incoming reactions are mapped back to SDK emoji the same way:
 
 | SDK emoji | GitLab emoji |
 |-----------|--------------|
