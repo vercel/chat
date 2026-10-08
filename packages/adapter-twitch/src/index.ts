@@ -42,6 +42,7 @@ import type {
   TwitchApiError,
   TwitchApiResponse,
   TwitchChatMessageEvent,
+  TwitchChatReply,
   TwitchEventSubPayload,
   TwitchEventSubSubscription,
   TwitchOauthTokenResult,
@@ -876,7 +877,37 @@ export class TwitchAdapter
       isMention: isMe ? undefined : this.mentionsBot(event) || undefined,
       metadata: { dateSent: parseTimestamp(raw.receivedAt), edited: false },
       raw,
+      replyTo: event.reply
+        ? this.buildReplyParent(event.reply, raw, threadId)
+        : undefined,
       text,
+      threadId,
+    });
+  }
+
+  /**
+   * Build the message a chat reply points at from the `reply` metadata. Twitch
+   * sends the parent's text and author but no timestamp or payload of its own,
+   * so it reuses the reply's received time and raw event.
+   */
+  protected buildReplyParent(
+    reply: TwitchChatReply,
+    raw: Extract<TwitchRawMessage, { kind: "chat" }>,
+    threadId: string
+  ): Message<TwitchRawMessage> {
+    return new Message<TwitchRawMessage>({
+      attachments: [],
+      author: this.buildAuthor(
+        reply.parent_user_id,
+        reply.parent_user_login,
+        reply.parent_user_name,
+        this.isBotUser(reply.parent_user_id)
+      ),
+      formatted: this.formatConverter.toAst(reply.parent_message_body),
+      id: reply.parent_message_id,
+      metadata: { dateSent: parseTimestamp(raw.receivedAt), edited: false },
+      raw,
+      text: reply.parent_message_body,
       threadId,
     });
   }
@@ -1343,12 +1374,19 @@ function isFresh(timestamp: string | null): boolean {
   return !Number.isNaN(ms) && Date.now() - ms <= MAX_MESSAGE_AGE_MS;
 }
 
+/**
+ * Cut `value` to `limit` characters with a trailing ellipsis, breaking at the
+ * last space when one falls in the back half so words aren't split.
+ */
 function truncate(value: string, limit: number): string {
   const chars = Array.from(value);
   if (chars.length <= limit) {
     return value;
   }
-  return `${chars.slice(0, limit - 1).join("")}…`;
+  const kept = chars.slice(0, limit - 1);
+  const lastSpace = kept.lastIndexOf(" ");
+  const cut = lastSpace >= limit / 2 ? kept.slice(0, lastSpace) : kept;
+  return `${cut.join("").trimEnd()}…`;
 }
 
 function retryAfterSeconds(response: Response): number | undefined {

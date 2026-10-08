@@ -64,7 +64,7 @@ When you call `createTwitchAdapter()` without arguments, it reads credentials fr
 
 ## Twitch setup
 
-1. Create a Twitch account for the bot and register an application in the [Twitch developer console](https://dev.twitch.tv/console/apps).
+1. Create a Twitch account for the bot and register an application in the [Twitch developer console](https://dev.twitch.tv/console/apps). Set the OAuth redirect URL to `http://localhost:3000`, which the Twitch CLI uses in the next step, and choose the Confidential client type.
 2. Sign in as the bot and authorize the application with `user:read:chat`, `user:write:chat`, and `user:bot`. Add `moderator:manage:chat_messages` to delete messages and `user:manage:whispers` for whispers. The [Twitch CLI](https://dev.twitch.tv/docs/cli/token-command/) can run this flow: `twitch token --user-token --scopes "user:read:chat user:write:chat user:bot"`.
 3. For each channel, have the broadcaster authorize the application with `channel:bot`, or make the bot a moderator.
 4. Deploy a webhook route that calls `bot.webhooks.twitch(request)`, then create the EventSub subscriptions once:
@@ -82,8 +82,8 @@ Chat uses an app access token that the adapter mints and refreshes with the clie
 
 - **Threads:** a broadcaster's chat room is one thread, `twitch:{broadcasterUserId}`. Whispers use `twitch:whisper:{userId}`.
 - **Mentions:** an `@mention` of the bot or a reply to one of its messages counts as a mention. The bot's own messages are ignored.
-- **Replies:** `thread.reply(message, ...)` sends a Twitch reply with `reply_parent_message_id`.
-- **Formatting:** messages are sent as one line of plain text, truncated to 500 characters.
+- **Replies:** `thread.reply(message, ...)` sends a Twitch reply with `reply_parent_message_id`. On incoming replies, `message.replyTo` holds the text and author of the message being replied to.
+- **Formatting:** messages are sent as one line of plain text. Card parts are joined with ` · `, and messages over 500 characters are cut at a word boundary.
 - **Streaming:** buffered and posted once, because Twitch chat messages can't be edited.
 - **Unsupported:** editing, reactions, typing indicators, file uploads, and interactive components.
 

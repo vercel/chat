@@ -586,6 +586,37 @@ describe("handleWebhook", () => {
     expect(dispatched(chat).message.isMention).toBe(true);
   });
 
+  it("exposes the replied-to message as replyTo", async () => {
+    const { adapter, chat } = await initialized();
+    await adapter.handleWebhook(
+      chatNotification({
+        message: { fragments: [], text: `@${BOT_LOGIN} how come?` },
+        reply: {
+          parent_message_body: "Celeste is a great pick",
+          parent_message_id: "parent-1",
+          parent_user_id: BOT_ID,
+          parent_user_login: BOT_LOGIN,
+          parent_user_name: BOT_LOGIN,
+          thread_message_id: "parent-1",
+          thread_user_id: BOT_ID,
+          thread_user_login: BOT_LOGIN,
+          thread_user_name: BOT_LOGIN,
+        },
+      })
+    );
+    const { replyTo } = dispatched(chat).message;
+    expect(replyTo?.id).toBe("parent-1");
+    expect(replyTo?.text).toBe("Celeste is a great pick");
+    expect(replyTo?.author.isMe).toBe(true);
+    expect(replyTo?.author.userName).toBe(BOT_LOGIN);
+  });
+
+  it("leaves replyTo unset on messages that aren't replies", async () => {
+    const { adapter, chat } = await initialized();
+    await adapter.handleWebhook(chatNotification());
+    expect(dispatched(chat).message.replyTo).toBeUndefined();
+  });
+
   it("does not flag mentions of other users", async () => {
     const { adapter, chat } = await initialized();
     await adapter.handleWebhook(
@@ -742,7 +773,7 @@ describe("postMessage", () => {
       },
     });
     expect(lastHelixCall().body.message).toBe(
-      "Poll Vote now Open: https://example.com"
+      "Poll · Vote now · Open: https://example.com"
     );
   });
 
@@ -760,6 +791,16 @@ describe("postMessage", () => {
     const message = String(lastHelixCall().body.message);
     expect(Array.from(message)).toHaveLength(500);
     expect(message.endsWith("…")).toBe(true);
+  });
+
+  it("truncates at the last word boundary", async () => {
+    const { adapter } = await initialized();
+    queue(json({ data: [{ is_sent: true, message_id: "sent-1" }] }));
+    const words = Array.from({ length: 100 }, (_, i) => `word${i + 1}`);
+    await adapter.postMessage(CHAT_THREAD, words.join(" "));
+    const message = String(lastHelixCall().body.message);
+    expect(Array.from(message).length).toBeLessThanOrEqual(500);
+    expect(message.endsWith(" word72…")).toBe(true);
   });
 
   it("throws when Twitch drops the message", async () => {

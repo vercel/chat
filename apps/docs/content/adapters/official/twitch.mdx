@@ -108,7 +108,7 @@ The adapter runs as a Twitch [cloud chatbot](https://dev.twitch.tv/docs/chat/aut
 
 ### 1. Register a Twitch application
 
-1. Create a Twitch account for the bot, then open the [Twitch developer console](https://dev.twitch.tv/console/apps) and register an application.
+1. Create a Twitch account for the bot, then open the [Twitch developer console](https://dev.twitch.tv/console/apps) and register an application. Set **OAuth Redirect URLs** to `http://localhost:3000`, the address the Twitch CLI listens on during the authorization in step 2. The adapter doesn't use a redirect at runtime. Choose **Confidential** as the client type so Twitch issues a client secret.
 2. Copy the **Client ID** to `TWITCH_CLIENT_ID`, generate a **Client Secret**, and copy it to `TWITCH_CLIENT_SECRET`.
 3. Set `TWITCH_BOT_USERNAME` to the bot account's login name.
 4. Generate a random string of 10 to 100 characters for `TWITCH_WEBHOOK_SECRET`, for example with `openssl rand -hex 32`.
@@ -245,11 +245,19 @@ A message counts as a mention when it contains an `@mention` fragment for the bo
 
 `thread.post()` sends a regular chat message. `thread.reply(message, ...)` sets `reply_parent_message_id`, so Twitch shows your message as a reply to the viewer's.
 
+When a viewer replies to a message, `message.replyTo` holds the message they replied to, with its text and author. Twitch has no history API, so this is the only context you get for a reply. Pass both messages to `toAiMessages` so an agent can see what the viewer is responding to:
+
+```typescript
+const prompt = await toAiMessages(
+  message.replyTo ? [message.replyTo, message] : [message]
+);
+```
+
 Chat SDK treats a chat room as one thread. After `thread.subscribe()`, `onSubscribedMessage` receives every message in that channel's chat, so filter in your handler on busy channels.
 
 ## Message formatting
 
-Twitch chat is plain text on a single line. The adapter renders markdown and cards as plain text, collapses line breaks into spaces, converts emoji placeholders to Unicode, and truncates messages to 500 characters. Twitch turns emote names it recognizes, such as `Kappa`, into emotes. File uploads aren't supported.
+Twitch chat is plain text on a single line. The adapter renders markdown as plain text, joins the parts of a card with ` · `, collapses line breaks into spaces, and converts emoji placeholders to Unicode. Messages longer than 500 characters are cut at the last word that fits and end with `…`. Twitch turns emote names it recognizes, such as `Kappa`, into emotes. File uploads aren't supported.
 
 When Twitch accepts a request but the message fails one of its checks, Send Chat Message reports `is_sent: false`. The adapter then throws a `ValidationError` that includes Twitch's `drop_reason`.
 

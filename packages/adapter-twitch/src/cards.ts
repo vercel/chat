@@ -2,11 +2,17 @@ import type { ActionsElement, CardChild, CardElement } from "chat";
 import { tableElementToAscii } from "chat";
 
 /**
+ * Twitch chat is one line, so card parts are joined with a visible separator
+ * instead of line breaks that would collapse into plain spaces.
+ */
+const PART_SEPARATOR = " · ";
+
+/**
  * Render a card as plain text for Twitch chat.
  *
  * Twitch chat has no interactive card surface, so cards degrade to readable
- * text: link buttons become `label: url` lines and callback buttons are
- * dropped (there is no way to receive the click).
+ * text: parts are joined with ` · `, link buttons become `label: url`, and
+ * callback buttons are dropped (there is no way to receive the click).
  */
 export function cardToTwitchText(card: CardElement): string {
   const parts: string[] = [];
@@ -25,7 +31,7 @@ export function cardToTwitchText(card: CardElement): string {
     }
   }
 
-  return parts.join("\n");
+  return parts.join(PART_SEPARATOR);
 }
 
 function childToText(child: CardChild): string | null {
@@ -42,7 +48,7 @@ function childToText(child: CardChild): string | null {
       const lines = child.children
         .map((sectionChild) => childToText(sectionChild))
         .filter(Boolean);
-      return lines.length > 0 ? lines.join("\n") : null;
+      return lines.length > 0 ? lines.join(PART_SEPARATOR) : null;
     }
     case "link":
       return child.label && child.label !== child.url
@@ -51,7 +57,7 @@ function childToText(child: CardChild): string | null {
     case "fields":
       return child.children
         .map((field) => `${field.label}: ${field.value}`)
-        .join("\n");
+        .join(PART_SEPARATOR);
     case "table":
       return tableElementToAscii(child.headers, child.rows);
     default:
@@ -70,5 +76,5 @@ function actionsToText(actions: ActionsElement): string | null {
       );
     }
   }
-  return lines.length > 0 ? lines.join("\n") : null;
+  return lines.length > 0 ? lines.join(PART_SEPARATOR) : null;
 }

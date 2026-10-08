@@ -42,11 +42,12 @@ describe("cardToTwitchText", () => {
         "Poll",
         "Community night",
         "Pick a game",
-        "Game: Celeste\nVotes: 42",
+        "Game: Celeste",
+        "Votes: 42",
         "Results: https://example.com/r",
         "Rules: https://example.com/rules",
         "https://example.com/banner.png",
-      ].join("\n")
+      ].join(" · ")
     );
   });
 
