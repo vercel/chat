@@ -136,6 +136,9 @@ export function createTempProject(codeBlocks: string[]): string {
       ],
       paths: {
         chat: [join(import.meta.dirname, "../../chat/src/index.ts")],
+        "@chat-adapter/catalog": [
+          join(import.meta.dirname, "../../catalog/src/index.ts"),
+        ],
         "@chat-adapter/slack": [
           join(import.meta.dirname, "../../adapter-slack/src/index.ts"),
         ],
