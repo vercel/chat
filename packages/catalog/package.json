@@ -36,7 +36,7 @@
     "url": "git+https://github.com/vercel/chat.git",
     "directory": "packages/catalog"
   },
-  "homepage": "https://chat-sdk.dev/docs/adapters",
+  "homepage": "https://chat-sdk.dev/docs/adapter-catalog",
   "bugs": {
     "url": "https://github.com/vercel/chat/issues"
   },

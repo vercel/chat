@@ -8,7 +8,7 @@ Static catalog of [Chat SDK](https://chat-sdk.dev) adapters: every official, ven
 
 The package has no dependencies and imports no adapter code, so you can use it in websites, build scripts, setup screens, and CLIs. chat-sdk.dev and [`create-chat-sdk`](https://chat-sdk.dev/docs/create-chat-sdk) both read from it.
 
-Documentation: [chat-sdk.dev/docs/adapters](https://chat-sdk.dev/docs/adapters#adapter-catalog) · Guides: [vercel.com/kb/chat-sdk](https://vercel.com/kb/chat-sdk)
+Documentation: [chat-sdk.dev/docs/adapter-catalog](https://chat-sdk.dev/docs/adapter-catalog) · Guides: [vercel.com/kb/chat-sdk](https://vercel.com/kb/chat-sdk)
 
 ## Installation
 

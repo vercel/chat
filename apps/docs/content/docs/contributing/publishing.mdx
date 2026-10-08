@@ -167,7 +167,7 @@ You should see your exported symbols (`createMatrixAdapter`, `MatrixAdapter`, et
 
 ## Listing on chat-sdk.dev
 
-Community adapters can be listed on the [Adapters](https://chat-sdk.dev/adapters) page by opening a PR against the [Chat SDK repo](https://github.com/vercel/chat) that adds a docs page under `apps/docs/content/adapters/community/` and an entry in [`@chat-adapter/catalog`](/docs/adapters#adapter-catalog). Add the entry as `packages/catalog/src/adapters/community/my-adapter.ts` and register it in `COMMUNITY_ADAPTERS` in `packages/catalog/src/adapters/index.ts`. Your adapter's README is fetched from GitHub at build time and rendered on its dedicated page.
+Community adapters can be listed on the [Adapters](https://chat-sdk.dev/adapters) page by opening a PR against the [Chat SDK repo](https://github.com/vercel/chat) that adds a docs page under `apps/docs/content/adapters/community/` and an entry in [`@chat-adapter/catalog`](/docs/adapter-catalog). Add the entry as `packages/catalog/src/adapters/community/my-adapter.ts` and register it in `COMMUNITY_ADAPTERS` in `packages/catalog/src/adapters/index.ts`. Your adapter's README is fetched from GitHub at build time and rendered on its dedicated page.
 
 <Callout type="info">
   Platform vendors should follow the [vendor-official guide](/docs/contributing/vendor-official) instead.

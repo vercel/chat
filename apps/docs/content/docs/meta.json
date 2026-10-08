@@ -18,6 +18,7 @@
     "adapters",
     "platform-adapters",
     "state-adapters",
+    "adapter-catalog",
     "---Messaging---",
     "streaming",
     "direct-messages",

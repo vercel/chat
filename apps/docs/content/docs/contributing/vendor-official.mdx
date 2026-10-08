@@ -15,7 +15,7 @@ related:
 A vendor-official adapter is built and maintained by the company behind the platform or by the primary maintainer of that platform's API. You implement the same `Adapter` interface as a [community adapter](/docs/contributing/building). After Vercel accepts your listing, your adapter appears in:
 
 - The [Adapters](/adapters) page under **Vendor Official**
-- The [`@chat-adapter/catalog`](/docs/adapters#adapter-catalog) setup metadata
+- The [`@chat-adapter/catalog`](/docs/adapter-catalog) setup metadata
 - [`create-chat-sdk`](/docs/create-chat-sdk)
 - [eve.dev/integrations](https://eve.dev/integrations)
 
@@ -91,7 +91,7 @@ Open a pull request against [vercel/chat](https://github.com/vercel/chat). Copy 
 Include all of the following in the PR:
 
 1. **Docs page.** Add an MDX page under `apps/docs/content/adapters/vendor-official/` and register the slug in that folder's `meta.json`. Mark the page as vendor-official, set your company as the author, render the feature matrix with `<FeatureSupport />`, and add install and quick-start examples that match your published package and README.
-2. **Catalog entry.** Add `packages/catalog/src/adapters/vendor-official/your-slug.ts` and register it in `ADAPTERS` in `packages/catalog/src/adapters/index.ts`. The entry drives the [Adapters](/adapters) listing, the feature matrix on your docs page, and setup UIs that read [`@chat-adapter/catalog`](/docs/adapters#adapter-catalog) without importing your package. Copy a similar vendor-official entry and fill in the package name, author, factory export, peer dependencies, environment variables, and `features` from your docs. Point `readme` at a pinned commit or tag, not a branch. See [Pin your README to a commit or tag](/docs/contributing/publishing#pin-your-readme-to-a-commit-or-tag).
+2. **Catalog entry.** Add `packages/catalog/src/adapters/vendor-official/your-slug.ts` and register it in `ADAPTERS` in `packages/catalog/src/adapters/index.ts`. The entry drives the [Adapters](/adapters) listing, the feature matrix on your docs page, and setup UIs that read [`@chat-adapter/catalog`](/docs/adapter-catalog) without importing your package. Copy a similar vendor-official entry and fill in the package name, author, factory export, peer dependencies, environment variables, and `features` from your docs. Point `readme` at a pinned commit or tag, not a branch. See [Pin your README to a commit or tag](/docs/contributing/publishing#pin-your-readme-to-a-commit-or-tag).
 3. **CLI scaffold.** Add a matching entry in `packages/create-chat-sdk/src/catalog/scaffold-spec.ts` so `create-chat-sdk` can generate a bot that uses your adapter. Match the factory call shape of a similar adapter. After merge, developers can pass `--adapter your_slug` or browse vendor-official adapters with `--vendor`.
 4. **Test allowlists.** Update the lists in `packages/integration-tests` so CI recognizes the new docs page and package imports.
 5. **Changeset.** Add a changeset that bumps `@chat-adapter/catalog` and `create-chat-sdk` (patch), with one line describing the addition.

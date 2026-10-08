@@ -56,7 +56,7 @@ export const getExpectedHomepage = (dirName: string, name: string): string => {
     return `${CHAT_SDK_HOMEPAGE}/docs/create-chat-sdk`;
   }
   if (name === "@chat-adapter/catalog") {
-    return `${CHAT_SDK_HOMEPAGE}/docs/adapters`;
+    return `${CHAT_SDK_HOMEPAGE}/docs/adapter-catalog`;
   }
   if (dirName.startsWith("state-")) {
     const slug =

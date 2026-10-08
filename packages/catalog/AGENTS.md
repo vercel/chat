@@ -34,6 +34,7 @@ It is consumed by:
 - For official adapters, derive peer dependencies from each package's `package.json` dependencies, excluding `workspace:*`, `chat`, and `@chat-adapter/shared`.
 - For vendor-official adapters, read the corresponding MDX file in `apps/docs/content/adapters/vendor-official/` and update env vars, credential modes, peer deps, and constructor-only config from that source. Keep peer deps that the MDX install command tells users to install, including `@chat-adapter/shared` when applicable.
 - Pin `readme` URLs for vendor-official and community adapters to a commit SHA or tag.
+- Update the public docs at `apps/docs/content/docs/adapter-catalog.mdx` when the public API or entry shape changes.
 - Preserve the API that `chat/adapters` re-exports: `ADAPTERS`, `ADAPTER_NAMES`, `AdapterSlug`, `CatalogAdapter`, `AdapterEnvSpec`, `EnvGroup`, `EnvVar`, `getAdapter`, `isAdapterSlug`, `listPlatformAdapters`, `listStateAdapters`, `listEnvVars`, and `getSecretEnvVars`.
 - Use readonly arrays and literal-friendly data (`as const satisfies CatalogAdapter`). Keep `AdapterSlug` derived from `keyof typeof ADAPTERS`; `create-chat-sdk` relies on it for its exhaustive scaffold spec.
 
