@@ -1,3 +1,4 @@
+import { getAdapter } from "@chat-adapter/catalog";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { ProjectConfig } from "../types.js";
 
@@ -28,19 +29,7 @@ const config: ProjectConfig = {
   platformAdapters: [],
   shouldInstall: false,
   shouldInitializeGit: true,
-  stateAdapter: {
-    description: "Memory",
-    env: {},
-    factoryExport: "createMemoryState",
-    features: {},
-    group: "official",
-    name: "Memory",
-    packageName: "@chat-adapter/state-memory",
-    peerDeps: [],
-    readme: "",
-    slug: "memory",
-    type: "state",
-  },
+  stateAdapter: getAdapter("memory"),
 };
 
 beforeEach(() => {

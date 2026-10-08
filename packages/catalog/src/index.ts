@@ -191,7 +191,7 @@ export const isAdapterSlug = (slug: string): slug is AdapterSlug =>
 export function getAdapter(slug: AdapterSlug): CatalogAdapter;
 export function getAdapter(slug: string): CatalogAdapter | undefined;
 export function getAdapter(slug: string): CatalogAdapter | undefined {
-  return (ADAPTERS as Record<string, CatalogAdapter>)[slug];
+  return isAdapterSlug(slug) ? ADAPTERS[slug] : undefined;
 }
 
 /**

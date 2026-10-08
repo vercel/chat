@@ -17,32 +17,12 @@ import {
   listPlatformAdapters,
   listStateAdapters,
   normalizeFeatureValue,
+  PLATFORM_FEATURE_CATEGORIES,
+  STATE_FEATURE_CATEGORIES,
 } from "./index";
 
 const REPO_ROOT = join(import.meta.dirname, "../../..");
 const PACKAGES_DIR = join(REPO_ROOT, "packages");
-
-const OFFICIAL_ENV_PACKAGE_DIRS = [
-  "adapter-discord",
-  "adapter-gchat",
-  "adapter-github",
-  "adapter-gmail",
-  "adapter-instagram",
-  "adapter-linear",
-  "adapter-messenger",
-  "adapter-notion",
-  "adapter-slack",
-  "adapter-teams",
-  "adapter-telegram",
-  "adapter-twilio",
-  "adapter-twitch",
-  "adapter-web",
-  "adapter-whatsapp",
-  "state-ioredis",
-  "state-memory",
-  "state-pg",
-  "state-redis",
-] as const;
 
 const IGNORED_RUNTIME_ENV_KEYS = new Set([
   "AWS_EXECUTION_ENV",
@@ -59,11 +39,12 @@ const PROCESS_ENV_PATTERN =
 const RESOLVE_TWILIO_CREDENTIAL_PATTERN =
   /resolveTwilioCredential\([\s\S]*?["']([A-Z][A-Z0-9_]*)["']\s*\)/g;
 const FACTORY_EXPORT_PATTERN = /^create\w+$/;
+const JS_EXTENSION = /\.js$/;
 const BLOCK_COMMENT_PATTERN = /\/\*[\s\S]*?\*\//g;
 const LINE_COMMENT_PATTERN = /(^|[^:])\/\/.*$/gm;
 const CHAT_ADAPTER_PACKAGE = /^@chat-adapter\//;
-const REPO_README_PATTERN =
-  /^https:\/\/github\.com\/vercel\/chat\/tree\/main\/packages\//;
+const ADAPTER_OR_STATE_PACKAGE_DIR = /^(adapter|state)-/;
+const NON_ADAPTER_PACKAGE_DIRS = new Set(["adapter-shared"]);
 const OFFICIAL_PEER_DEP_EXCLUSIONS = new Set(["chat", "@chat-adapter/shared"]);
 
 const allEnvNames = (vars: readonly EnvVar[]): Set<string> => {
@@ -120,21 +101,76 @@ const sourceEnvKeys = (packageDir: string): string[] => {
   return [...keys].sort();
 };
 
-const packageDependencies = (packageDir: string): Record<string, string> => {
-  const packageJson = JSON.parse(
-    readFileSync(join(PACKAGES_DIR, packageDir, "package.json"), "utf-8")
-  ) as { dependencies?: Record<string, string> };
-  return packageJson.dependencies ?? {};
+interface WorkspacePackage {
+  dependencies: Record<string, string>;
+  dir: string;
+  exports: Record<string, { import?: string }>;
+  name: string;
+  peerDependencies: Record<string, string>;
+}
+
+const WORKSPACE_PACKAGES: readonly WorkspacePackage[] = readdirSync(
+  PACKAGES_DIR
+)
+  .filter((dir) => existsSync(join(PACKAGES_DIR, dir, "package.json")))
+  .map((dir) => {
+    const packageJson = JSON.parse(
+      readFileSync(join(PACKAGES_DIR, dir, "package.json"), "utf-8")
+    ) as Omit<Partial<WorkspacePackage>, "dir"> & { name: string };
+    return {
+      dependencies: packageJson.dependencies ?? {},
+      dir,
+      exports: packageJson.exports ?? {},
+      name: packageJson.name,
+      peerDependencies: packageJson.peerDependencies ?? {},
+    };
+  });
+
+const ADAPTER_PACKAGES = WORKSPACE_PACKAGES.filter(
+  (pkg) =>
+    ADAPTER_OR_STATE_PACKAGE_DIR.test(pkg.dir) &&
+    !NON_ADAPTER_PACKAGE_DIRS.has(pkg.dir)
+);
+
+const OFFICIAL_ADAPTERS: readonly CatalogAdapter[] = Object.values(
+  ADAPTERS
+).filter((adapter) => adapter.group === "official");
+
+const workspacePackageFor = (adapter: CatalogAdapter): WorkspacePackage => {
+  const pkg = WORKSPACE_PACKAGES.find(
+    (candidate) => candidate.name === adapter.packageName
+  );
+  if (!pkg) {
+    throw new Error(
+      `${adapter.slug}: no workspace package named ${adapter.packageName}`
+    );
+  }
+  return pkg;
 };
 
-const packageDirToSlug = (dirName: string): string => {
-  if (dirName === "state-pg") {
-    return "postgres";
+const officialAdaptersIn = (pkg: WorkspacePackage): CatalogAdapter[] =>
+  OFFICIAL_ADAPTERS.filter((adapter) => adapter.packageName === pkg.name);
+
+/**
+ * Resolve the source file behind a package export, following the tsup
+ * convention that `./dist/<path>.js` is built from `src/<path>.ts`.
+ */
+const sourceEntryFor = (adapter: CatalogAdapter): string => {
+  const pkg = workspacePackageFor(adapter);
+  const subpath = adapter.importPath
+    ? `.${adapter.importPath.slice(adapter.packageName.length)}`
+    : ".";
+  const built = pkg.exports[subpath]?.import;
+  if (!built) {
+    throw new Error(
+      `${adapter.slug}: ${pkg.name} does not export "${subpath}"`
+    );
   }
-  if (dirName.startsWith("adapter-")) {
-    return dirName.slice("adapter-".length);
-  }
-  return dirName.slice("state-".length);
+  return join(
+    PACKAGES_DIR,
+    pkg.dir,
+    built.replace("./dist/", "src/").replace(JS_EXTENSION, ".ts")
+  );
 };
 
 describe("adapters catalog", () => {
@@ -145,7 +181,13 @@ describe("adapters catalog", () => {
   });
 
   test("ADAPTER_NAMES is sorted and complete", () => {
-    expect([...ADAPTER_NAMES]).toEqual(Object.keys(ADAPTERS).sort());
+    for (let index = 1; index < ADAPTER_NAMES.length; index++) {
+      expect(
+        ADAPTER_NAMES[index - 1] < ADAPTER_NAMES[index],
+        `${ADAPTER_NAMES[index - 1]} should sort before ${ADAPTER_NAMES[index]}`
+      ).toBe(true);
+    }
+    expect(new Set(ADAPTER_NAMES)).toEqual(new Set(Object.keys(ADAPTERS)));
   });
 
   test("listPlatformAdapters returns only platform entries", () => {
@@ -190,26 +232,54 @@ describe("adapters catalog", () => {
     }
   });
 
-  test("official adapters use @chat-adapter packages in this repo", () => {
-    for (const adapter of Object.values(ADAPTERS)) {
-      if (adapter.group !== "official") {
-        continue;
-      }
+  test("official adapters point at packages and READMEs in this repo", () => {
+    expect(OFFICIAL_ADAPTERS.length).toBeGreaterThan(0);
+    for (const adapter of OFFICIAL_ADAPTERS) {
+      const pkg = workspacePackageFor(adapter);
       expect(adapter.packageName).toMatch(CHAT_ADAPTER_PACKAGE);
-      expect(adapter.readme).toMatch(REPO_README_PATTERN);
+      expect(adapter.readme).toBe(
+        `https://github.com/vercel/chat/tree/main/packages/${pkg.dir}`
+      );
+      expect(
+        existsSync(join(PACKAGES_DIR, pkg.dir, "README.md")),
+        `${adapter.slug}: README.md missing in packages/${pkg.dir}`
+      ).toBe(true);
+    }
+  });
+
+  test("every adapter and state package in this repo is cataloged", () => {
+    expect(ADAPTER_PACKAGES.length).toBeGreaterThan(0);
+    for (const pkg of ADAPTER_PACKAGES) {
+      expect(
+        officialAdaptersIn(pkg).length,
+        `${pkg.name}: no official catalog entry`
+      ).toBeGreaterThan(0);
     }
   });
 
   test("vendor-official and community adapters declare an author", () => {
-    for (const adapter of listAdapters({
-      group: ["vendor-official", "community"],
-    })) {
+    const thirdParty = [
+      ...Object.values(ADAPTERS).filter(
+        (adapter) => adapter.group === "vendor-official"
+      ),
+      ...Object.values(COMMUNITY_ADAPTERS),
+    ];
+    expect(thirdParty.length).toBeGreaterThan(0);
+    for (const adapter of thirdParty) {
       expect(adapter.author, `${adapter.slug}: author`).toBeTruthy();
     }
   });
 
   test("features only use keys for the adapter type", () => {
-    for (const adapter of listAdapters()) {
+    const entries = [
+      ...Object.values(ADAPTERS),
+      ...Object.values(COMMUNITY_ADAPTERS),
+    ];
+    for (const adapter of entries) {
+      expect(
+        Object.keys(adapter.features).length,
+        `${adapter.slug}: no features declared`
+      ).toBeGreaterThan(0);
       const allowed = new Set(
         getFeatureCategories(adapter.type).flatMap((category) =>
           category.features.map((feature) => feature.key)
@@ -224,77 +294,99 @@ describe("adapters catalog", () => {
     }
   });
 
+  // A package can host several adapters (for example `x` and `xchat` in
+  // `@chat-adapter/x`), so env and dependency checks compare the package with
+  // the union of its catalog entries.
   test("official source process.env keys are declared", () => {
-    for (const packageDir of OFFICIAL_ENV_PACKAGE_DIRS) {
-      const slug = packageDirToSlug(packageDir);
-      const declared = allEnvNames(listEnvVars(slug));
-      for (const key of sourceEnvKeys(packageDir)) {
+    for (const pkg of ADAPTER_PACKAGES) {
+      const declared = new Set(
+        officialAdaptersIn(pkg).flatMap((adapter) => [
+          ...allEnvNames(listEnvVars(adapter.slug)),
+        ])
+      );
+      for (const key of sourceEnvKeys(pkg.dir)) {
         expect(
           declared.has(key),
-          `${slug}: expected ${key} from ${packageDir} source in env spec`
+          `${pkg.name}: expected ${key} from source in a catalog env spec`
         ).toBe(true);
       }
     }
   });
 
   test("official catalog env keys are backed by source reads", () => {
-    for (const packageDir of OFFICIAL_ENV_PACKAGE_DIRS) {
-      const slug = packageDirToSlug(packageDir);
-      const sourceKeys = new Set(sourceEnvKeys(packageDir));
-      for (const key of allEnvNames(listEnvVars(slug))) {
+    for (const adapter of OFFICIAL_ADAPTERS) {
+      const sourceKeys = new Set(
+        sourceEnvKeys(workspacePackageFor(adapter).dir)
+      );
+      for (const key of allEnvNames(listEnvVars(adapter.slug))) {
         expect(
           sourceKeys.has(key),
-          `${slug}: declared ${key} in env spec but did not find a source read`
+          `${adapter.slug}: declared ${key} in env spec but did not find a source read`
         ).toBe(true);
       }
     }
   });
 
-  test("official peer deps match package dependencies that consumers install", () => {
-    for (const packageDir of OFFICIAL_ENV_PACKAGE_DIRS) {
-      const slug = packageDirToSlug(packageDir);
-      const adapter = getAdapter(slug);
-      expect(adapter, `${slug}: missing catalog entry`).toBeDefined();
+  test("official peer deps cover the packages consumers install", () => {
+    for (const pkg of ADAPTER_PACKAGES) {
+      const runtimeDeps = Object.entries(pkg.dependencies)
+        .filter(
+          ([name, version]) =>
+            version !== "workspace:*" && !OFFICIAL_PEER_DEP_EXCLUSIONS.has(name)
+        )
+        .map(([name]) => name);
+      const installable = new Set([
+        ...runtimeDeps,
+        ...Object.keys(pkg.peerDependencies),
+      ]);
 
-      const expectedPeerDeps = Object.entries(packageDependencies(packageDir))
-        .filter(([name, version]) => {
-          if (version === "workspace:*") {
-            return false;
-          }
-          return !OFFICIAL_PEER_DEP_EXCLUSIONS.has(name);
-        })
-        .map(([name]) => name)
-        .sort();
-
-      expect(
-        [...(adapter?.peerDeps ?? [])].sort(),
-        `${slug}: peerDeps should match non-workspace runtime dependencies`
-      ).toEqual(expectedPeerDeps);
+      for (const adapter of officialAdaptersIn(pkg)) {
+        for (const dependency of runtimeDeps) {
+          expect(
+            adapter.peerDeps,
+            `${adapter.slug}: missing runtime dependency ${dependency}`
+          ).toContain(dependency);
+        }
+        for (const peerDep of adapter.peerDeps) {
+          expect(
+            installable.has(peerDep),
+            `${adapter.slug}: ${peerDep} is not a dependency or peer dependency of ${pkg.name}`
+          ).toBe(true);
+        }
+      }
     }
   });
 
-  test("official factory exports exist in package entry points", () => {
-    for (const packageDir of OFFICIAL_ENV_PACKAGE_DIRS) {
-      const slug = packageDirToSlug(packageDir);
-      const adapter = getAdapter(slug);
-      expect(adapter, `${slug}: missing catalog entry`).toBeDefined();
-
-      const entrypoint = readFileSync(
-        join(PACKAGES_DIR, packageDir, "src/index.ts"),
-        "utf-8"
-      );
+  test("official factory exports are functions at their import path", async () => {
+    for (const adapter of OFFICIAL_ADAPTERS) {
+      const entry = sourceEntryFor(adapter);
+      const module = (await import(entry)) as Record<string, unknown>;
       expect(
-        entrypoint.includes(`export function ${adapter?.factoryExport}`),
-        `${slug}: expected ${adapter?.factoryExport} export in ${packageDir}/src/index.ts`
-      ).toBe(true);
+        typeof module[adapter.factoryExport],
+        `${adapter.slug}: ${adapter.factoryExport} is not exported from ${
+          adapter.importPath ?? adapter.packageName
+        }`
+      ).toBe("function");
     }
-  });
+  }, 60_000);
 });
 
 describe("getAdapter", () => {
   test("returns the entry for a known slug", () => {
-    const slack: CatalogAdapter = getAdapter("slack");
-    expect(slack.slug).toBe("slack");
+    expect(getAdapter("slack")).toBe(ADAPTERS.slack);
+    expect(getAdapter("xchat")).toBe(ADAPTERS.xchat);
+  });
+
+  test("does not return community adapters", () => {
+    expect(COMMUNITY_ADAPTERS.mattermost).toBeDefined();
+    expect(getAdapter("mattermost")).toBeUndefined();
+  });
+
+  test("ignores inherited object keys", () => {
+    expect(getAdapter("toString")).toBeUndefined();
+    expect(isAdapterSlug("toString")).toBe(false);
+    expect(listEnvVars("toString")).toEqual([]);
+    expect(getCatalogEntry("toString")).toBeUndefined();
   });
 
   test("returns undefined for an unknown slug", () => {
@@ -303,8 +395,10 @@ describe("getAdapter", () => {
 });
 
 describe("isAdapterSlug", () => {
-  test("narrows known slugs", () => {
+  test("accepts official and vendor-official slugs only", () => {
     expect(isAdapterSlug("slack")).toBe(true);
+    expect(isAdapterSlug("kapso")).toBe(true);
+    expect(isAdapterSlug("mattermost")).toBe(false);
     expect(isAdapterSlug("not-real")).toBe(false);
   });
 });
@@ -314,11 +408,33 @@ describe("listEnvVars", () => {
     expect(listEnvVars("not-real")).toEqual([]);
   });
 
-  test("flattens and de-duplicates credential mode vars", () => {
-    const signingSecrets = listEnvVars("slack").filter(
-      (envVar) => envVar.key === "SLACK_SIGNING_SECRET"
+  test("flattens required, credential-mode, and optional vars in order", () => {
+    const { env } = ADAPTERS.slack;
+    const modeKeys = env.credentialModes.flatMap((mode) =>
+      mode.vars.map((envVar) => envVar.key)
     );
-    expect(signingSecrets).toHaveLength(1);
+    const optionalKeys = env.optional.map((envVar) => envVar.key);
+    // Precondition: Slack repeats the signing secret across credential modes,
+    // so this test exercises de-duplication.
+    expect(
+      modeKeys.filter((key) => key === "SLACK_SIGNING_SECRET")
+    ).toHaveLength(2);
+
+    const keys = listEnvVars("slack").map((envVar) => envVar.key);
+    expect(new Set(keys).size).toBe(keys.length);
+    expect(new Set(keys)).toEqual(new Set([...modeKeys, ...optionalKeys]));
+    const lastModeIndex = Math.max(...modeKeys.map((key) => keys.indexOf(key)));
+    const firstOptionalIndex = Math.min(
+      ...optionalKeys.map((key) => keys.indexOf(key))
+    );
+    expect(lastModeIndex).toBeLessThan(firstOptionalIndex);
+  });
+
+  test("lists required vars first", () => {
+    const required = ADAPTERS.linear.env.required.map((envVar) => envVar.key);
+    expect(required.length).toBeGreaterThan(0);
+    const keys = listEnvVars("linear").map((envVar) => envVar.key);
+    expect(keys.slice(0, required.length)).toEqual(required);
   });
 
   test("includes aliases", () => {
@@ -329,10 +445,18 @@ describe("listEnvVars", () => {
 });
 
 describe("getSecretEnvVars", () => {
-  test("returns only secret vars", () => {
-    const secrets = getSecretEnvVars("linear");
-    expect(secrets.length).toBeGreaterThan(0);
-    expect(secrets.every((envVar) => envVar.secret)).toBe(true);
+  test("returns exactly the secret vars", () => {
+    const all = listEnvVars("slack");
+    // Precondition: Slack declares both secret and non-secret vars.
+    expect(all.some((envVar) => envVar.secret)).toBe(true);
+    expect(all.some((envVar) => !envVar.secret)).toBe(true);
+
+    const secretKeys = getSecretEnvVars("slack").map((envVar) => envVar.key);
+    expect(secretKeys).toContain("SLACK_BOT_TOKEN");
+    expect(secretKeys).not.toContain("SLACK_CLIENT_ID");
+    expect(secretKeys).toEqual(
+      all.filter((envVar) => envVar.secret).map((envVar) => envVar.key)
+    );
   });
 
   test("returns an empty array when the adapter has no secrets", () => {
@@ -341,40 +465,74 @@ describe("getSecretEnvVars", () => {
 });
 
 describe("listAdapters", () => {
-  test("returns every entry in listing order", () => {
-    const slugs = listAdapters().map((adapter) => adapter.slug);
-    expect(slugs).toEqual([
-      ...Object.keys(ADAPTERS),
-      ...Object.keys(COMMUNITY_ADAPTERS),
-    ]);
-    expect(slugs[0]).toBe("slack");
+  test("returns every entry, official and vendor-official first", () => {
+    const entries = listAdapters();
+    const slugs = entries.map((adapter) => adapter.slug);
+    expect(slugs.slice(0, 3)).toEqual(["slack", "teams", "gchat"]);
+    expect(new Set(slugs).size).toBe(slugs.length);
+    expect(new Set(slugs)).toEqual(
+      new Set([...Object.keys(ADAPTERS), ...Object.keys(COMMUNITY_ADAPTERS)])
+    );
+    const firstCommunity = entries.findIndex(
+      (adapter) => adapter.group === "community"
+    );
+    expect(
+      entries
+        .slice(firstCommunity)
+        .every((adapter) => adapter.group === "community")
+    ).toBe(true);
   });
 
-  test("filters by group", () => {
-    const community = listAdapters({ group: "community" });
-    expect(community.length).toBe(Object.keys(COMMUNITY_ADAPTERS).length);
-    expect(community.every((adapter) => adapter.group === "community")).toBe(
-      true
+  test("returns the same objects as the keyed maps", () => {
+    const entries = listAdapters();
+    expect(entries.find((adapter) => adapter.slug === "slack")).toBe(
+      ADAPTERS.slack
+    );
+    expect(entries.find((adapter) => adapter.slug === "mattermost")).toBe(
+      COMMUNITY_ADAPTERS.mattermost
     );
   });
 
-  test("filters by several groups and type", () => {
-    const states = listAdapters({
+  test("filters by one group", () => {
+    const slugs = listAdapters({ group: "community" }).map(
+      (adapter) => adapter.slug
+    );
+    expect(new Set(slugs)).toEqual(new Set(Object.keys(COMMUNITY_ADAPTERS)));
+  });
+
+  test("filters by type", () => {
+    const slugs = listAdapters({ type: "state" }).map(
+      (adapter) => adapter.slug
+    );
+    expect(slugs).toEqual(
+      expect.arrayContaining(["redis", "cloudflare-agents", "mysql"])
+    );
+    expect(slugs).not.toContain("slack");
+  });
+
+  test("combines several groups with a type", () => {
+    const slugs = listAdapters({
       group: ["official", "community"],
       type: "state",
-    });
-    expect(states.length).toBeGreaterThan(0);
-    for (const adapter of states) {
-      expect(adapter.type).toBe("state");
-      expect(adapter.group).not.toBe("vendor-official");
-    }
+    }).map((adapter) => adapter.slug);
+    // Official and community state adapters are kept.
+    expect(slugs).toEqual(expect.arrayContaining(["redis", "mysql"]));
+    // Vendor-official state adapters and platform adapters are dropped.
+    expect(slugs).not.toContain("cloudflare-agents");
+    expect(slugs).not.toContain("slack");
+    expect(slugs).not.toContain("mattermost");
+  });
+
+  test("returns nothing for an empty group list", () => {
+    expect(listAdapters({ group: [] })).toEqual([]);
   });
 });
 
 describe("getCatalogEntry", () => {
-  test("returns official and community entries", () => {
-    expect(getCatalogEntry("slack")?.group).toBe("official");
-    expect(getCatalogEntry("mattermost")?.group).toBe("community");
+  test("returns official, vendor-official, and community entries", () => {
+    expect(getCatalogEntry("slack")).toBe(ADAPTERS.slack);
+    expect(getCatalogEntry("kapso")).toBe(ADAPTERS.kapso);
+    expect(getCatalogEntry("mattermost")).toBe(COMMUNITY_ADAPTERS.mattermost);
   });
 
   test("returns undefined for an unknown slug", () => {
@@ -383,20 +541,33 @@ describe("getCatalogEntry", () => {
 });
 
 describe("getFeatureSupport", () => {
-  test("normalizes labeled support", () => {
+  test("returns the declared value for a labeled feature", () => {
+    expect(ADAPTERS.slack.features.streaming).toEqual({
+      status: "yes",
+      label: "Native",
+    });
     expect(getFeatureSupport("slack", "streaming")).toEqual({
       status: "yes",
       label: "Native",
     });
   });
 
-  test("accepts a catalog entry", () => {
-    expect(getFeatureSupport(getAdapter("slack"), "postMessage")).toEqual({
+  test("normalizes a bare status", () => {
+    expect(ADAPTERS.slack.features.postMessage).toBe("yes");
+    expect(getFeatureSupport(ADAPTERS.slack, "postMessage")).toEqual({
       status: "yes",
     });
   });
 
+  test("looks up community adapters by slug", () => {
+    const declared = COMMUNITY_ADAPTERS.blooio.features.addReactions;
+    expect(declared).toEqual({ status: "yes", label: "Tapbacks" });
+    expect(getFeatureSupport("blooio", "addReactions")).toEqual(declared);
+  });
+
   test("treats undeclared features and unknown slugs as unsupported", () => {
+    // Precondition: the memory adapter does not declare cluster support.
+    expect(Object.hasOwn(ADAPTERS.memory.features, "cluster")).toBe(false);
     expect(getFeatureSupport("memory", "cluster")).toEqual({ status: "no" });
     expect(getFeatureSupport("not-real", "postMessage")).toEqual({
       status: "no",
@@ -415,8 +586,23 @@ describe("normalizeFeatureValue", () => {
   });
 });
 
+describe("getFeatureCategories", () => {
+  test("returns the categories for each adapter type", () => {
+    expect(getFeatureCategories("platform")).toBe(PLATFORM_FEATURE_CATEGORIES);
+    expect(getFeatureCategories("state")).toBe(STATE_FEATURE_CATEGORIES);
+  });
+
+  test("uses unique keys across platform and state categories", () => {
+    const keys = [...PLATFORM_FEATURE_CATEGORIES, ...STATE_FEATURE_CATEGORIES]
+      .flatMap((category) => category.features)
+      .map((feature) => feature.key);
+    expect(new Set(keys).size).toBe(keys.length);
+  });
+});
+
 describe("listEnvVars for community adapters", () => {
   test("returns an empty array", () => {
+    expect(COMMUNITY_ADAPTERS.mattermost).toBeDefined();
     expect(listEnvVars("mattermost")).toEqual([]);
   });
 });

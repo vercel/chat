@@ -257,8 +257,16 @@ describe("@chat-adapter/catalog parity", () => {
         expect(entry?.type).toBe(adapter.frontmatter.fields.type);
       });
 
-      it("author matches the catalog when declared in frontmatter", () => {
+      it("author matches the catalog", () => {
         const author = adapter.frontmatter.fields.author;
+        if (group === "official") {
+          expect(author).toBeUndefined();
+          expect(entry?.author).toBeUndefined();
+          return;
+        }
+        if (group === "vendor-official") {
+          expect(author, `${adapter.fileName}: missing author`).toBeTruthy();
+        }
         if (author) {
           expect(entry?.author).toBe(author);
         }
