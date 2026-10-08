@@ -3,7 +3,7 @@ import {
   type CatalogAdapter,
   getAdapter,
   listEnvVars,
-} from "chat/adapters";
+} from "@chat-adapter/catalog";
 import { describe, expect, it } from "vitest";
 import type { ProjectConfig } from "../types.js";
 import { generateBotTs } from "./bot.js";

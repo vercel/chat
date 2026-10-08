@@ -1,6 +1,6 @@
 # Architecture
 
-`create-chat-sdk` scaffolds webhook-only [Chat SDK](https://chat-sdk.dev) bot projects. It uses the `chat/adapters` catalog as the source of truth for adapter metadata and keeps CLI-only code-generation policy inside this package.
+`create-chat-sdk` scaffolds webhook-only [Chat SDK](https://chat-sdk.dev) bot projects. It uses `@chat-adapter/catalog` as the source of truth for adapter metadata and keeps CLI-only code-generation policy inside this package.
 
 ## Project structure
 
@@ -64,7 +64,7 @@ index.ts ──► cli/program.ts
                 │
                 ├── prompts/flow.ts
                 │      └── catalog/selection.ts
-                │             └── chat/adapters
+                │             └── @chat-adapter/catalog
                 │
                 ▼
            scaffold/run.ts
@@ -80,7 +80,7 @@ index.ts ──► cli/program.ts
 
 ## Catalog boundary
 
-`chat/adapters` owns adapter facts:
+`@chat-adapter/catalog` owns adapter facts:
 
 - slug
 - package name

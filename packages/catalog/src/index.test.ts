@@ -5,17 +5,22 @@ import type { CatalogAdapter, EnvVar } from "./index";
 import {
   ADAPTER_NAMES,
   ADAPTERS,
+  COMMUNITY_ADAPTERS,
   getAdapter,
+  getCatalogEntry,
+  getFeatureCategories,
+  getFeatureSupport,
   getSecretEnvVars,
   isAdapterSlug,
+  listAdapters,
   listEnvVars,
   listPlatformAdapters,
   listStateAdapters,
+  normalizeFeatureValue,
 } from "./index";
 
-const REPO_ROOT = join(import.meta.dirname, "../../../..");
+const REPO_ROOT = join(import.meta.dirname, "../../..");
 const PACKAGES_DIR = join(REPO_ROOT, "packages");
-const ADAPTERS_JSON_PATH = join(REPO_ROOT, "apps/docs/adapters.json");
 
 const OFFICIAL_ENV_PACKAGE_DIRS = [
   "adapter-discord",
@@ -56,25 +61,10 @@ const RESOLVE_TWILIO_CREDENTIAL_PATTERN =
 const FACTORY_EXPORT_PATTERN = /^create\w+$/;
 const BLOCK_COMMENT_PATTERN = /\/\*[\s\S]*?\*\//g;
 const LINE_COMMENT_PATTERN = /(^|[^:])\/\/.*$/gm;
+const CHAT_ADAPTER_PACKAGE = /^@chat-adapter\//;
+const REPO_README_PATTERN =
+  /^https:\/\/github\.com\/vercel\/chat\/tree\/main\/packages\//;
 const OFFICIAL_PEER_DEP_EXCLUSIONS = new Set(["chat", "@chat-adapter/shared"]);
-
-interface RegistryEntry {
-  community?: boolean;
-  description: string;
-  name: string;
-  packageName: string;
-  slug: string;
-  type: "platform" | "state";
-  vendorOfficial?: boolean;
-}
-
-const registry = JSON.parse(
-  readFileSync(ADAPTERS_JSON_PATH, "utf-8")
-) as RegistryEntry[];
-
-const catalogRegistryEntries = registry.filter(
-  (entry) => !entry.community || entry.vendorOfficial
-);
 
 const allEnvNames = (vars: readonly EnvVar[]): Set<string> => {
   const names = new Set<string>();
@@ -186,28 +176,51 @@ describe("adapters catalog", () => {
     }
   });
 
-  test("catalog slugs match official and vendor-official registry entries", () => {
-    expect([...ADAPTER_NAMES]).toEqual(
-      catalogRegistryEntries.map((entry) => entry.slug).sort()
-    );
+  test("slugs are unique across official, vendor-official, and community", () => {
+    const communitySlugs = Object.keys(COMMUNITY_ADAPTERS);
+    for (const slug of communitySlugs) {
+      expect(isAdapterSlug(slug), `${slug}: duplicated slug`).toBe(false);
+    }
   });
 
-  test("catalog metadata matches adapters.json", () => {
+  test("each community entry slug matches its key", () => {
+    for (const [key, adapter] of Object.entries(COMMUNITY_ADAPTERS)) {
+      expect(adapter.slug).toBe(key);
+      expect(adapter.group).toBe("community");
+    }
+  });
+
+  test("official adapters use @chat-adapter packages in this repo", () => {
     for (const adapter of Object.values(ADAPTERS)) {
-      const entry = registry.find(
-        (candidate) => candidate.slug === adapter.slug
+      if (adapter.group !== "official") {
+        continue;
+      }
+      expect(adapter.packageName).toMatch(CHAT_ADAPTER_PACKAGE);
+      expect(adapter.readme).toMatch(REPO_README_PATTERN);
+    }
+  });
+
+  test("vendor-official and community adapters declare an author", () => {
+    for (const adapter of listAdapters({
+      group: ["vendor-official", "community"],
+    })) {
+      expect(adapter.author, `${adapter.slug}: author`).toBeTruthy();
+    }
+  });
+
+  test("features only use keys for the adapter type", () => {
+    for (const adapter of listAdapters()) {
+      const allowed = new Set(
+        getFeatureCategories(adapter.type).flatMap((category) =>
+          category.features.map((feature) => feature.key)
+        )
       );
-      expect(
-        entry,
-        `${adapter.slug}: missing adapters.json entry`
-      ).toBeDefined();
-      expect(adapter.name).toBe(entry?.name);
-      expect(adapter.description).toBe(entry?.description);
-      expect(adapter.packageName).toBe(entry?.packageName);
-      expect(adapter.type).toBe(entry?.type);
-      expect(adapter.group).toBe(
-        entry?.vendorOfficial ? "vendor-official" : "official"
-      );
+      for (const key of Object.keys(adapter.features)) {
+        expect(
+          allowed.has(key),
+          `${adapter.slug}: unknown ${adapter.type} feature "${key}"`
+        ).toBe(true);
+      }
     }
   });
 
@@ -324,5 +337,86 @@ describe("getSecretEnvVars", () => {
 
   test("returns an empty array when the adapter has no secrets", () => {
     expect(getSecretEnvVars("memory")).toEqual([]);
+  });
+});
+
+describe("listAdapters", () => {
+  test("returns every entry in listing order", () => {
+    const slugs = listAdapters().map((adapter) => adapter.slug);
+    expect(slugs).toEqual([
+      ...Object.keys(ADAPTERS),
+      ...Object.keys(COMMUNITY_ADAPTERS),
+    ]);
+    expect(slugs[0]).toBe("slack");
+  });
+
+  test("filters by group", () => {
+    const community = listAdapters({ group: "community" });
+    expect(community.length).toBe(Object.keys(COMMUNITY_ADAPTERS).length);
+    expect(community.every((adapter) => adapter.group === "community")).toBe(
+      true
+    );
+  });
+
+  test("filters by several groups and type", () => {
+    const states = listAdapters({
+      group: ["official", "community"],
+      type: "state",
+    });
+    expect(states.length).toBeGreaterThan(0);
+    for (const adapter of states) {
+      expect(adapter.type).toBe("state");
+      expect(adapter.group).not.toBe("vendor-official");
+    }
+  });
+});
+
+describe("getCatalogEntry", () => {
+  test("returns official and community entries", () => {
+    expect(getCatalogEntry("slack")?.group).toBe("official");
+    expect(getCatalogEntry("mattermost")?.group).toBe("community");
+  });
+
+  test("returns undefined for an unknown slug", () => {
+    expect(getCatalogEntry("not-real")).toBeUndefined();
+  });
+});
+
+describe("getFeatureSupport", () => {
+  test("normalizes labeled support", () => {
+    expect(getFeatureSupport("slack", "streaming")).toEqual({
+      status: "yes",
+      label: "Native",
+    });
+  });
+
+  test("accepts a catalog entry", () => {
+    expect(getFeatureSupport(getAdapter("slack"), "postMessage")).toEqual({
+      status: "yes",
+    });
+  });
+
+  test("treats undeclared features and unknown slugs as unsupported", () => {
+    expect(getFeatureSupport("memory", "cluster")).toEqual({ status: "no" });
+    expect(getFeatureSupport("not-real", "postMessage")).toEqual({
+      status: "no",
+    });
+  });
+});
+
+describe("normalizeFeatureValue", () => {
+  test("handles every authored shape", () => {
+    expect(normalizeFeatureValue(undefined)).toEqual({ status: "no" });
+    expect(normalizeFeatureValue("partial")).toEqual({ status: "partial" });
+    expect(normalizeFeatureValue({ status: "yes", label: "TTL" })).toEqual({
+      status: "yes",
+      label: "TTL",
+    });
+  });
+});
+
+describe("listEnvVars for community adapters", () => {
+  test("returns an empty array", () => {
+    expect(listEnvVars("mattermost")).toEqual([]);
   });
 });

@@ -4,7 +4,7 @@ import {
   type AdapterSlug,
   type CatalogAdapter,
   isAdapterSlug,
-} from "chat/adapters";
+} from "@chat-adapter/catalog";
 import { AdapterSelectionError } from "../errors.js";
 import type { AdapterSelection } from "../types.js";
 import { cliIncompatibilityReason } from "./compatibility.js";

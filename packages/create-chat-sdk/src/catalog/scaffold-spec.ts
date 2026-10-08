@@ -1,4 +1,4 @@
-import { type AdapterSlug, isAdapterSlug } from "chat/adapters";
+import { type AdapterSlug, isAdapterSlug } from "@chat-adapter/catalog";
 import { AdapterSelectionError } from "../errors.js";
 
 /**

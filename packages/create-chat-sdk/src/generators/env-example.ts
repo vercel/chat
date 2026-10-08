@@ -3,7 +3,7 @@ import type {
   CatalogAdapter,
   EnvGroup,
   EnvVar,
-} from "chat/adapters";
+} from "@chat-adapter/catalog";
 import {
   type AdapterConnectSpec,
   getAdapterConnectSpec,

@@ -6,8 +6,8 @@ import { REPO_ROOT } from "./documentation-test-utils";
 describe("Chat SDK agent skill", () => {
   const skill = readFileSync(join(REPO_ROOT, "skills/chat/SKILL.md"), "utf-8");
 
-  it("documents the chat/adapters catalog subpath", () => {
-    expect(skill).toContain("chat/adapters");
+  it("documents the @chat-adapter/catalog package", () => {
+    expect(skill).toContain("@chat-adapter/catalog");
     expect(skill).toContain("getSecretEnvVars");
     expect(skill).toContain("chat-sdk.dev/llms.txt");
   });

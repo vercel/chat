@@ -23,35 +23,51 @@ Each kind of adapter has its own guide:
 - [Platform Adapters](/docs/platform-adapters) covers webhook verification, message parsing, feature support by platform, and bots that run on several platforms.
 - [State Adapters](/docs/state-adapters) covers subscriptions, distributed locking, and caching.
 
-## Adapter catalog (`chat/adapters`)
+## Adapter catalog
 
-The `chat/adapters` subpath is a static catalog of official and vendor-official adapters. It imports no adapter packages, so you can use it from setup screens, build scripts, or onboarding flows without pulling in Slack, Teams, Redis, or other platform SDKs.
+`@chat-adapter/catalog` is a static catalog of every adapter listed on chat-sdk.dev: official, vendor-official, and community. It imports no adapter packages, so you can use it from websites, setup screens, build scripts, or onboarding flows without pulling in Slack, Teams, Redis, or other platform SDKs. The [Adapters](/adapters) page and [`create-chat-sdk`](/docs/create-chat-sdk) both read from it.
+
+<PackageInstall package="@chat-adapter/catalog" />
+
+List adapters and check what each one supports:
 
 ```typescript title="scripts/list-adapters.ts" lineNumbers
-import { ADAPTER_NAMES, getAdapter } from "chat/adapters";
+import { getFeatureSupport, listAdapters } from "@chat-adapter/catalog";
 
-for (const slug of ADAPTER_NAMES) {
-  const adapter = getAdapter(slug);
-  console.log(adapter.name, adapter.packageName, adapter.peerDeps);
+for (const adapter of listAdapters({ type: "platform" })) {
+  const streaming = getFeatureSupport(adapter, "streaming");
+  console.log(adapter.name, adapter.group, adapter.packageName, streaming);
 }
 ```
 
-Use the env helpers when you need to show setup instructions or inject secrets for one adapter:
+`listAdapters()` returns official and vendor-official adapters in the order the Adapters page lists them, followed by community adapters. Pass `group` or `type` to filter the list.
+
+Official and vendor-official entries also describe setup. Use the env helpers when you need to show setup instructions or inject secrets for one adapter:
 
 ```typescript lineNumbers
-import { getAdapter, getSecretEnvVars } from "chat/adapters";
+import { getAdapter, getSecretEnvVars } from "@chat-adapter/catalog";
 
 const slack = getAdapter("slack");
 const secrets = getSecretEnvVars("slack").map((envVar) => envVar.key);
 
-console.log(slack.name, secrets);
+console.log(slack.name, slack.factoryExport, secrets);
 ```
 
-Community adapters aren't in the catalog. Find them on the [Adapters](/adapters) listing page.
+Community entries carry listing metadata and capabilities only, so `listEnvVars()` and `getSecretEnvVars()` return an empty array for them.
+
+<Callout type="info">
+  The `chat/adapters` subpath is deprecated. It re-exports the original official and vendor-official API from `@chat-adapter/catalog`, so existing imports keep working. Import from `@chat-adapter/catalog` in new code.
+</Callout>
+
+### Capabilities
+
+Each entry's `features` field records which Chat SDK capabilities the adapter supports. These are the same values the feature tables on each adapter page show. A value is either a status (`"yes"`, `"no"`, or `"partial"`) or an object with a `status` and a short `label`, such as `{ status: "yes", label: "Native" }`. Omitted keys mean `"no"`.
+
+`getFeatureSupport(adapterOrSlug, key)` always returns the object form. `PLATFORM_FEATURE_CATEGORIES` and `STATE_FEATURE_CATEGORIES` list every capability key with a display label, grouped the way the docs tables group them. `getFeatureCategories(type)` returns the categories for `"platform"` or `"state"`.
 
 ### Environment specs
 
-Each adapter entry includes an `env` spec:
+Each official and vendor-official entry includes an `env` spec:
 
 - `required` lists variables needed regardless of auth mode.
 - `credentialModes` groups mutually exclusive ways to authenticate, such as a bot token or OAuth client credentials.
@@ -60,13 +76,13 @@ Each adapter entry includes an `env` spec:
 
 ### Types
 
-Each catalog entry is a `CatalogAdapter`:
+Official and vendor-official entries are `CatalogAdapter` objects, and community entries are `CommunityAdapter` objects. `CatalogEntry` is the union of the two. Both share these fields:
 
 <TypeTable
   type={{
     slug: {
       type: "string",
-      description: "Stable catalog slug. Matches the key in `ADAPTERS`.",
+      description: "Stable catalog slug. Matches the key in `ADAPTERS` or `COMMUNITY_ADAPTERS`.",
     },
     name: {
       type: "string",
@@ -85,8 +101,43 @@ Each catalog entry is a `CatalogAdapter`:
       description: "Whether the adapter connects to a platform or stores Chat SDK state.",
     },
     group: {
-      type: '"official" | "vendor-official"',
-      description: "Catalog group used by the docs adapter listing.",
+      type: '"official" | "vendor-official" | "community"',
+      description: "Who maintains the adapter. `CatalogAdapter` entries are official or vendor-official.",
+    },
+    author: {
+      type: "string",
+      description: "Maintainer of a vendor-official or community adapter.",
+    },
+    readme: {
+      type: "string",
+      description: "GitHub URL of the adapter's README.",
+    },
+    features: {
+      type: "AdapterFeatures",
+      description: "Capability support keyed by capability. Omitted keys mean `\"no\"`.",
+    },
+    beta: {
+      type: "boolean",
+      description: "Whether the adapter is in beta.",
+    },
+    icon: {
+      type: "string",
+      description: "Logo identifier used by chat-sdk.dev.",
+    },
+  }}
+/>
+
+`CatalogAdapter` adds the fields setup tools need:
+
+<TypeTable
+  type={{
+    factoryExport: {
+      type: "string",
+      description: "Named factory export from `packageName`, such as `createSlackAdapter`.",
+    },
+    importPath: {
+      type: "string",
+      description: "Module specifier to import the factory from when it ships on a subpath of `packageName`. Defaults to `packageName`.",
     },
     peerDeps: {
       type: "readonly string[]",
@@ -166,7 +217,11 @@ Each catalog entry is a `CatalogAdapter`:
 
 ### Helpers
 
-- `getAdapter(slug)` returns one catalog entry, or `undefined` for unknown slugs.
-- `isAdapterSlug(slug)` narrows a string to `AdapterSlug`.
+- `listAdapters({ group, type })` returns every entry, including community adapters, with optional filters.
+- `getCatalogEntry(slug)` returns any entry, including community adapters, or `undefined` for unknown slugs.
+- `getAdapter(slug)` returns one official or vendor-official entry, or `undefined` for other slugs.
+- `isAdapterSlug(slug)` narrows a string to `AdapterSlug`, the official and vendor-official slugs.
+- `listPlatformAdapters()` and `listStateAdapters()` return official and vendor-official entries sorted by slug.
+- `getFeatureSupport(adapterOrSlug, key)` returns `{ status, label? }` for one capability.
 - `listEnvVars(slug)` flattens required, credential-mode, and optional env vars, de-duplicated by key.
 - `getSecretEnvVars(slug)` returns the subset of `listEnvVars(slug)` marked as secrets.

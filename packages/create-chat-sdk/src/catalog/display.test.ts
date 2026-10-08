@@ -1,4 +1,4 @@
-import { listPlatformAdapters, listStateAdapters } from "chat/adapters";
+import { listPlatformAdapters, listStateAdapters } from "@chat-adapter/catalog";
 import { describe, expect, it } from "vitest";
 import { listCliPlatformAdapters, listCliStateAdapters } from "./display.js";
 

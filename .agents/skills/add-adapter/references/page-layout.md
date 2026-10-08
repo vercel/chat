@@ -46,7 +46,7 @@ Don't add a catch-all `## Advanced` section. Give each topic its own named secti
 
 ## Frontmatter prose
 
-`tagline` and `description` render in the page header, the adapter listing, and search results. Describe what the adapter connects to and what it supports, without hype such as "seamless", "powerful", or "out of the box". For vendor-official adapters, `description` must match the catalog entry and `adapters.json` exactly.
+`tagline` and `description` render in the page header, the adapter listing, and search results. Describe what the adapter connects to and what it supports, without hype such as "seamless", "powerful", or "out of the box". For vendor-official adapters, `description` must match the `@chat-adapter/catalog` entry exactly.
 
 ## Writing
 

@@ -26,7 +26,7 @@ Use these instructions when an AI coding agent edits this app.
 | --- | --- |
 | Configure site title, logo, nav, GitHub links, AI prompt, suggestions, translations, `basePath`, `siteId`, or agent-readiness metadata | `geistdocs.tsx` |
 | Add or update documentation pages | `content/docs/**/*.mdx` |
-| Add or update adapter listing pages | `content/adapters/**/*.mdx` and `adapters.json` |
+| Add or update adapter listing pages | `content/adapters/**/*.mdx` and the matching entry in `packages/catalog/src/adapters/` (listing metadata and feature support) |
 | Control sidebar order, groups, and folder labels | `content/docs/meta.json`, `content/adapters/meta.json` |
 | Give a page a shorter navigation label | Set `navTitle` in the page's frontmatter |
 | Override MDX components | `components/geistdocs/mdx-components.tsx` |

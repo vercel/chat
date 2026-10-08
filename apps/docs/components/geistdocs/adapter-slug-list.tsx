@@ -3,7 +3,7 @@ import {
   listPlatformAdapters,
   listStateAdapters,
   type CatalogAdapter,
-} from "chat/adapters";
+} from "@chat-adapter/catalog";
 
 const adapterHref = (adapter: CatalogAdapter): string => {
   const group =
@@ -34,7 +34,7 @@ const getGroups = () => [
 ];
 
 /**
- * Collapsible adapter slug list sourced from the `chat/adapters` catalog.
+ * Collapsible adapter slug list sourced from `@chat-adapter/catalog`.
  */
 export const AdapterSlugList = () => {
   const groups = getGroups();

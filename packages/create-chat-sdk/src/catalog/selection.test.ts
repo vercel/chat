@@ -1,4 +1,4 @@
-import { ADAPTER_NAMES, getAdapter } from "chat/adapters";
+import { ADAPTER_NAMES, getAdapter } from "@chat-adapter/catalog";
 import { describe, expect, it } from "vitest";
 import { CLI_SCAFFOLD_SPEC, getCliScaffoldSpec } from "./scaffold-spec.js";
 import {

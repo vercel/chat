@@ -21,6 +21,7 @@
     "vitest": "^4.0.18"
   },
   "dependencies": {
+    "@chat-adapter/catalog": "workspace:*",
     "@chat-adapter/discord": "workspace:*",
     "@chat-adapter/gchat": "workspace:*",
     "@chat-adapter/github": "workspace:*",

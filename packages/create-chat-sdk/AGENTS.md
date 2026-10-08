@@ -15,7 +15,7 @@ pnpm validate                             # Full validation (build, typecheck, l
 
 ## Architecture
 
-- Adapter metadata comes from `chat/adapters`; do not add a second registry.
+- Adapter metadata comes from `@chat-adapter/catalog`; do not add a second registry. The package is a dev dependency bundled into the CLI by tsup.
 - CLI-only scaffold behavior belongs in `src/catalog/scaffold-spec.ts` and must remain exhaustive with `satisfies Record<AdapterSlug, CliScaffoldSpec>`.
 - The template is webhook-only. Do not add pages, layouts, or client UI.
 - `src/lib/bot.ts`, `.env.example`, `next.config.ts`, and README content are generated from selected adapters.

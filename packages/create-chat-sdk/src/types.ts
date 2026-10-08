@@ -1,4 +1,4 @@
-import type { AdapterSlug, CatalogAdapter } from "chat/adapters";
+import type { AdapterSlug, CatalogAdapter } from "@chat-adapter/catalog";
 
 /**
  * Package managers supported by generated install commands.

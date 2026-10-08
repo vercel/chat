@@ -1,12 +1,13 @@
 import {
-  type AdapterFeatureValue,
+  type AdapterFeatures,
+  type AdapterType,
   getFeatureCategories,
-} from "@/lib/adapter-features";
+} from "@chat-adapter/catalog";
 import { FeatureCell } from "./feature-cell";
 
 interface FeatureSupportProps {
-  features?: Record<string, AdapterFeatureValue>;
-  type: "platform" | "state";
+  features?: AdapterFeatures;
+  type: AdapterType;
 }
 
 export const FeatureSupport = ({

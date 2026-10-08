@@ -1,5 +1,6 @@
 "use client";
 
+import type { AdapterGroup } from "@chat-adapter/catalog";
 import { useState } from "react";
 import { AdapterCard } from "./adapter-card";
 import { AdaptersSearch } from "./adapters-search";
@@ -8,28 +9,20 @@ import { type FilterTab, FilterTabs } from "./filter-tabs";
 
 interface Adapter {
   beta?: boolean;
-  community?: boolean;
   description: string;
+  group: AdapterGroup;
   icon?: string;
   name: string;
   packageName?: string;
   slug: string;
   type: string;
-  vendorOfficial?: boolean;
 }
 
-const getAdapterHref = (adapter: Adapter): string => {
-  if (adapter.vendorOfficial) {
-    return `/adapters/vendor-official/${adapter.slug}`;
-  }
-  if (adapter.community) {
-    return `/adapters/community/${adapter.slug}`;
-  }
-  return `/adapters/official/${adapter.slug}`;
-};
+const getAdapterHref = (adapter: Adapter): string =>
+  `/adapters/${adapter.group}/${adapter.slug}`;
 
 interface AdaptersGridProps {
-  adapters: Adapter[];
+  adapters: readonly Adapter[];
 }
 
 export const AdaptersGrid = ({ adapters }: AdaptersGridProps) => {
@@ -53,20 +46,18 @@ export const AdaptersGrid = ({ adapters }: AdaptersGridProps) => {
 
   // Further categorize platform adapters
   const officialPlatform = platformAdapters.filter(
-    (a) => !(a.community || a.vendorOfficial)
+    (a) => a.group === "official"
   );
   const vendorOfficialPlatform = platformAdapters.filter(
-    (a) => a.vendorOfficial
+    (a) => a.group === "vendor-official"
   );
   const communityPlatform = platformAdapters.filter(
-    (a) => a.community && !a.vendorOfficial
+    (a) => a.group === "community"
   );
 
   // Categorize state adapters
-  const officialState = stateAdapters.filter(
-    (a) => !(a.community || a.vendorOfficial)
-  );
-  const communityState = stateAdapters.filter((a) => a.community);
+  const officialState = stateAdapters.filter((a) => a.group === "official");
+  const communityState = stateAdapters.filter((a) => a.group !== "official");
 
   const showPlatformSection =
     officialPlatform.length > 0 ||

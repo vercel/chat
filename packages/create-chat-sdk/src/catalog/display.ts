@@ -1,5 +1,5 @@
-import type { CatalogAdapter } from "chat/adapters";
-import { listPlatformAdapters, listStateAdapters } from "chat/adapters";
+import type { CatalogAdapter } from "@chat-adapter/catalog";
+import { listPlatformAdapters, listStateAdapters } from "@chat-adapter/catalog";
 import { isCliCompatibleAdapter } from "./compatibility.js";
 
 type PlatformAdapterGroup = CatalogAdapter["group"];
