@@ -400,6 +400,21 @@ describe("generateEnvExample", () => {
     expect(result).toContain("REDIS_URL=");
   });
 
+  it("omits the section for an adapter with nothing to configure", () => {
+    // No CLI-compatible catalog entry is empty today, so derive one from a real
+    // entry to keep the empty-spec branch covered for future adapters.
+    const emptyMemory: CatalogAdapter = { ...adapter("memory"), env: {} };
+    const result = generateEnvExample({
+      ...makeConfig(["slack"]),
+      stateAdapter: emptyMemory,
+    });
+    expect(result).toContain("SLACK_SIGNING_SECRET=");
+    expect(result).not.toContain("# Memory");
+
+    const withNotes = generateEnvExample(makeConfig(["slack"]));
+    expect(withNotes).toContain("# Memory");
+  });
+
   it("contains every selected adapter env key", () => {
     for (const slug of ADAPTER_NAMES) {
       const catalogAdapter = adapter(slug);
