@@ -42,7 +42,7 @@ pnpm + Turborepo monorepo. Packages are ESM (`"type": "module"`), TypeScript, bu
 | `apps/docs` | fumadocs site (chat-sdk.dev) |
 | `examples/*` | Example bots; `package.json` `name` must be `example-*` (private, no changeset) |
 
-When editing a specific package, read its **AGENTS.md** if present (most adapters, state packages, `create-chat-sdk`, and `packages/chat/src/adapters/` have one).
+When editing a specific package, read its **AGENTS.md** if present (most adapters, state packages, `create-chat-sdk`, and `packages/catalog` have one).
 
 ## Architecture
 
