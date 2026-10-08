@@ -88,6 +88,10 @@ const ALL_ENTRIES: readonly CatalogEntry[] = [
   ...Object.values(COMMUNITY_ADAPTERS),
 ];
 
+const ENTRIES_BY_SLUG: ReadonlyMap<string, CatalogEntry> = new Map(
+  ALL_ENTRIES.map((entry) => [entry.slug, entry])
+);
+
 /**
  * Filters for {@link listAdapters}.
  */
@@ -142,7 +146,12 @@ export const listAdapters = (
  * @returns The catalog entry, otherwise `undefined`.
  */
 export const getCatalogEntry = (slug: string): CatalogEntry | undefined =>
-  ALL_ENTRIES.find((entry) => entry.slug === slug);
+  ENTRIES_BY_SLUG.get(slug);
+
+const listByType = (type: AdapterType): readonly CatalogAdapter[] =>
+  ADAPTER_NAMES.map((slug) => ADAPTERS[slug]).filter(
+    (adapter) => adapter.type === type
+  );
 
 /**
  * Return every official and vendor-official platform adapter sorted by slug.
@@ -150,9 +159,7 @@ export const getCatalogEntry = (slug: string): CatalogEntry | undefined =>
  * @returns Catalog entries whose {@link CatalogAdapter.type} is `"platform"`.
  */
 export const listPlatformAdapters = (): readonly CatalogAdapter[] =>
-  ADAPTER_NAMES.map((slug) => ADAPTERS[slug]).filter(
-    (adapter) => adapter.type === "platform"
-  );
+  listByType("platform");
 
 /**
  * Return every official and vendor-official state adapter sorted by slug.
@@ -160,9 +167,7 @@ export const listPlatformAdapters = (): readonly CatalogAdapter[] =>
  * @returns Catalog entries whose {@link CatalogAdapter.type} is `"state"`.
  */
 export const listStateAdapters = (): readonly CatalogAdapter[] =>
-  ADAPTER_NAMES.map((slug) => ADAPTERS[slug]).filter(
-    (adapter) => adapter.type === "state"
-  );
+  listByType("state");
 
 /**
  * Check whether a string is an official or vendor-official adapter slug.

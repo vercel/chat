@@ -1,0 +1,17 @@
+{
+  "$schema": "https://turbo.build/schema.json",
+  "extends": ["//"],
+  "tasks": {
+    "test": {
+      "inputs": [
+        "$TURBO_DEFAULT$",
+        "$TURBO_ROOT$/packages/adapter-*/README.md",
+        "$TURBO_ROOT$/packages/adapter-*/package.json",
+        "$TURBO_ROOT$/packages/adapter-*/src/**",
+        "$TURBO_ROOT$/packages/state-*/README.md",
+        "$TURBO_ROOT$/packages/state-*/package.json",
+        "$TURBO_ROOT$/packages/state-*/src/**"
+      ]
+    }
+  }
+}

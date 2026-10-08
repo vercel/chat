@@ -39,6 +39,9 @@ const PROCESS_ENV_PATTERN =
 const RESOLVE_TWILIO_CREDENTIAL_PATTERN =
   /resolveTwilioCredential\([\s\S]*?["']([A-Z][A-Z0-9_]*)["']\s*\)/g;
 const FACTORY_EXPORT_PATTERN = /^create\w+$/;
+const GITHUB_TREE_REF_PATTERN =
+  /^https:\/\/github\.com\/[^/]+\/[^/]+\/tree\/([^/]+)/;
+const PINNED_REF_PATTERN = /^(?:[0-9a-f]{40}|v?\d+\.\d+\.\d+\S*)$/;
 const JS_EXTENSION = /\.js$/;
 const BLOCK_COMMENT_PATTERN = /\/\*[\s\S]*?\*\//g;
 const LINE_COMMENT_PATTERN = /(^|[^:])\/\/.*$/gm;
@@ -107,6 +110,7 @@ interface WorkspacePackage {
   exports: Record<string, { import?: string }>;
   name: string;
   peerDependencies: Record<string, string>;
+  peerDependenciesMeta: Record<string, { optional?: boolean }>;
 }
 
 const WORKSPACE_PACKAGES: readonly WorkspacePackage[] = readdirSync(
@@ -123,6 +127,7 @@ const WORKSPACE_PACKAGES: readonly WorkspacePackage[] = readdirSync(
       exports: packageJson.exports ?? {},
       name: packageJson.name,
       peerDependencies: packageJson.peerDependencies ?? {},
+      peerDependenciesMeta: packageJson.peerDependenciesMeta ?? {},
     };
   });
 
@@ -270,6 +275,23 @@ describe("adapters catalog", () => {
     }
   });
 
+  test("vendor-official and community READMEs are pinned to a commit or tag", () => {
+    const thirdParty = listAdapters({
+      group: ["vendor-official", "community"],
+    });
+    for (const adapter of thirdParty) {
+      const ref = adapter.readme.match(GITHUB_TREE_REF_PATTERN)?.[1];
+      expect(
+        ref,
+        `${adapter.slug}: readme must use a /tree/<ref> URL`
+      ).toBeDefined();
+      expect(
+        PINNED_REF_PATTERN.test(ref ?? ""),
+        `${adapter.slug}: readme ref "${ref}" is not a commit SHA or version tag`
+      ).toBe(true);
+    }
+  });
+
   test("features only use keys for the adapter type", () => {
     const entries = [
       ...Object.values(ADAPTERS),
@@ -294,20 +316,23 @@ describe("adapters catalog", () => {
     }
   });
 
-  // A package can host several adapters (for example `x` and `xchat` in
-  // `@chat-adapter/x`), so env and dependency checks compare the package with
-  // the union of its catalog entries.
   test("official source process.env keys are declared", () => {
     for (const pkg of ADAPTER_PACKAGES) {
+      const adapters = officialAdaptersIn(pkg);
+      // A package that hosts several adapters (for example `x` and `xchat` in
+      // `@chat-adapter/x`) shares one source tree, so its source keys are
+      // checked against the union of those adapters' env specs.
       const declared = new Set(
-        officialAdaptersIn(pkg).flatMap((adapter) => [
+        adapters.flatMap((adapter) => [
           ...allEnvNames(listEnvVars(adapter.slug)),
         ])
       );
+      const owner =
+        adapters.length === 1 ? adapters[0].slug : `${pkg.name} adapters`;
       for (const key of sourceEnvKeys(pkg.dir)) {
         expect(
           declared.has(key),
-          `${pkg.name}: expected ${key} from source in a catalog env spec`
+          `${owner}: expected ${key} from source in a catalog env spec`
         ).toBe(true);
       }
     }
@@ -327,33 +352,28 @@ describe("adapters catalog", () => {
     }
   });
 
-  test("official peer deps cover the packages consumers install", () => {
-    for (const pkg of ADAPTER_PACKAGES) {
+  // Optional peer dependencies back subpath exports (for example
+  // `@chat-adapter/x/chat`), so only entries with an `importPath` list them.
+  test("official peer deps match the packages consumers install", () => {
+    for (const adapter of OFFICIAL_ADAPTERS) {
+      const pkg = workspacePackageFor(adapter);
       const runtimeDeps = Object.entries(pkg.dependencies)
         .filter(
           ([name, version]) =>
             version !== "workspace:*" && !OFFICIAL_PEER_DEP_EXCLUSIONS.has(name)
         )
         .map(([name]) => name);
-      const installable = new Set([
-        ...runtimeDeps,
-        ...Object.keys(pkg.peerDependencies),
-      ]);
-
-      for (const adapter of officialAdaptersIn(pkg)) {
-        for (const dependency of runtimeDeps) {
-          expect(
-            adapter.peerDeps,
-            `${adapter.slug}: missing runtime dependency ${dependency}`
-          ).toContain(dependency);
-        }
-        for (const peerDep of adapter.peerDeps) {
-          expect(
-            installable.has(peerDep),
-            `${adapter.slug}: ${peerDep} is not a dependency or peer dependency of ${pkg.name}`
-          ).toBe(true);
-        }
-      }
+      const optionalPeerDeps = adapter.importPath
+        ? Object.keys(pkg.peerDependencies).filter(
+            (name) => pkg.peerDependenciesMeta[name]?.optional
+          )
+        : [];
+      expect(
+        [...adapter.peerDeps].sort(),
+        `${adapter.slug}: peerDeps should match ${pkg.name} runtime dependencies${
+          adapter.importPath ? " and optional peer dependencies" : ""
+        }`
+      ).toEqual([...new Set([...runtimeDeps, ...optionalPeerDeps])].sort());
     }
   });
 
