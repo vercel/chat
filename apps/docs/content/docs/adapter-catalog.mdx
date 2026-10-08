@@ -52,6 +52,65 @@ console.log(slack.name, slack.factoryExport, secrets);
 
 Community entries carry listing metadata and capabilities only, so `listEnvVars()` and `getSecretEnvVars()` return an empty array for them.
 
+## Example: build a setup checklist
+
+This script combines the helpers above into a setup checklist for a set of adapters, which is the core of what [`create-chat-sdk`](/docs/create-chat-sdk) does. Given the adapter slugs a user picked and the capabilities the bot depends on, it prints an install command, a `.env.example` template, and a warning for each platform adapter that doesn't fully support a required capability.
+
+```typescript title="scripts/setup-checklist.ts" lineNumbers
+import {
+  type FeatureKey,
+  getAdapter,
+  getFeatureSupport,
+  isAdapterSlug,
+  listEnvVars,
+} from "@chat-adapter/catalog";
+
+// Adapters the user picked, and capabilities the bot depends on.
+const selected = ["slack", "teams", "redis"];
+const requiredFeatures: FeatureKey[] = ["streaming", "modals"];
+
+const packages = new Set(["chat"]);
+const envLines: string[] = [];
+const warnings: string[] = [];
+
+for (const slug of selected) {
+  if (!isAdapterSlug(slug)) {
+    throw new Error(`Unknown adapter: ${slug}`);
+  }
+  const adapter = getAdapter(slug);
+
+  packages.add(adapter.packageName);
+  for (const dependency of adapter.peerDeps) {
+    packages.add(dependency);
+  }
+
+  envLines.push(`# ${adapter.name}`);
+  for (const envVar of listEnvVars(slug)) {
+    const secret = envVar.secret ? " (secret)" : "";
+    envLines.push(`# ${envVar.description}${secret}`, `${envVar.key}=`);
+  }
+
+  if (adapter.type === "platform") {
+    for (const feature of requiredFeatures) {
+      const { status } = getFeatureSupport(adapter, feature);
+      if (status !== "yes") {
+        warnings.push(`${adapter.name}: ${feature} is ${status}`);
+      }
+    }
+  }
+}
+
+console.log(`npm install ${[...packages].join(" ")}\n`);
+console.log(envLines.join("\n"));
+for (const warning of warnings) {
+  console.warn(`Warning: ${warning}`);
+}
+```
+
+For Slack, Microsoft Teams, and Redis, the install command includes each adapter's peer dependencies, such as `@slack/web-api` and `redis`, and the script warns that Microsoft Teams streaming is `partial`.
+
+`listEnvVars()` returns every variable an adapter reads, including optional ones and the variables for every credential mode. To show only what a user must set, read `adapter.env.required`, let the user choose one entry from `adapter.env.credentialModes`, and list `adapter.env.optional` separately.
+
 ## Capabilities
 
 Each entry's `features` field records which Chat SDK capabilities the adapter supports. These are the same values the feature tables on each adapter page show. A value is either a status (`"yes"`, `"no"`, or `"partial"`) or an object with a `status` and a short `label`, such as `{ status: "yes", label: "Native" }`. Omitted keys mean `"no"`.
