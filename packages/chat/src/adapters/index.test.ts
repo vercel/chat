@@ -4,10 +4,14 @@ import { describe, expect, test } from "vitest";
 // export, not just the ones named here.
 const catalog: Record<string, unknown> = await import("@chat-adapter/catalog");
 const legacy: Record<string, unknown> = await import("./index");
-const { ADAPTERS, getSecretEnvVars } = await import("@chat-adapter/catalog");
-const { getAdapter, getSecretEnvVars: legacyGetSecretEnvVars } = await import(
-  "./index"
+const { ADAPTER_NAMES, ADAPTERS, getSecretEnvVars } = await import(
+  "@chat-adapter/catalog"
 );
+const {
+  ADAPTERS: legacyAdapters,
+  getAdapter,
+  getSecretEnvVars: legacyGetSecretEnvVars,
+} = await import("./index");
 
 describe("chat/adapters (deprecated)", () => {
   test("keeps exactly the original runtime exports", () => {
@@ -25,7 +29,17 @@ describe("chat/adapters (deprecated)", () => {
 
   test("re-exports the catalog package rather than a copy", () => {
     for (const [name, value] of Object.entries(legacy)) {
+      if (name === "ADAPTERS") {
+        continue;
+      }
       expect(value, name).toBe(catalog[name]);
+    }
+  });
+
+  test("keeps ADAPTERS in alphabetical key order with catalog entries", () => {
+    expect(Object.keys(legacyAdapters)).toEqual(ADAPTER_NAMES);
+    for (const slug of ADAPTER_NAMES) {
+      expect(legacyAdapters[slug], slug).toBe(ADAPTERS[slug]);
     }
   });
 
