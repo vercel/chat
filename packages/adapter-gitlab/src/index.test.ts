@@ -284,6 +284,13 @@ selfMessageContract({
 });
 
 describe("constructor", () => {
+  it("strips trailing slashes from the API URL", async () => {
+    mockFetch([{ path: "/projects/42", body: { id: 42 } }]);
+    const adapter = createAdapter({ apiUrl: `${API_URL}///` });
+    await adapter.request("GET", "/projects/42");
+    expect(calls[0].url.toString()).toBe(`${API_URL}/projects/42`);
+  });
+
   it("reads configuration from environment variables", () => {
     vi.stubEnv("GITLAB_TOKEN", TOKEN);
     vi.stubEnv("GITLAB_WEBHOOK_SECRET", WEBHOOK_SECRET);

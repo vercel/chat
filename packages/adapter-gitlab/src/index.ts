@@ -87,7 +87,6 @@ const THREAD_ID_PATTERN = /^gitlab:(\d+):(mr|issue):(\d+)(?::([0-9a-f]+))?$/;
 const CHANNEL_ID_PATTERN = /^gitlab:(\d+)$/;
 const LEGACY_DATE_PATTERN = /^(\d{4}-\d{2}-\d{2}) (\d{2}:\d{2}:\d{2}) UTC$/;
 const PROJECT_BOT_USERNAME_PATTERN = /^(project|group)_\d+_bot/;
-const TRAILING_SLASH_PATTERN = /\/+$/;
 const SIGNING_TOKEN_PREFIX = "whsec_";
 // GitLab signing tokens encode exactly 32 bytes: 43 base64 characters and `=`.
 const SIGNING_KEY_PATTERN = /^[A-Za-z0-9+/]{43}=$/;
@@ -226,11 +225,9 @@ export class GitLabAdapter
       ? decodeSigningToken(webhookSigningToken)
       : undefined;
     this.webhookVerifier = webhookVerifier;
-    this.apiUrl = (
-      config.apiUrl ??
-      process.env.GITLAB_API_URL ??
-      DEFAULT_API_URL
-    ).replace(TRAILING_SLASH_PATTERN, "");
+    this.apiUrl = trimTrailingSlashes(
+      config.apiUrl ?? process.env.GITLAB_API_URL ?? DEFAULT_API_URL
+    );
     this.logger = config.logger ?? new ConsoleLogger("info").child("gitlab");
 
     const userName = config.userName ?? process.env.GITLAB_BOT_USERNAME;
@@ -1476,6 +1473,18 @@ function parseGitLabErrorMessage(detail: string): string | undefined {
       .join("; ");
   }
   return typeof error === "string" ? error : undefined;
+}
+
+/**
+ * Remove trailing slashes from a URL. A loop rather than a `/\/+$/` regex,
+ * which backtracks quadratically on long runs of slashes.
+ */
+function trimTrailingSlashes(url: string): string {
+  let end = url.length;
+  while (end > 0 && url[end - 1] === "/") {
+    end -= 1;
+  }
+  return url.slice(0, end);
 }
 
 /**
