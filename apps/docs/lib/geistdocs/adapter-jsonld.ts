@@ -10,7 +10,6 @@ export const ADAPTERS_LISTING_DESCRIPTION =
 export const ADAPTERS_LISTING_JSON_LD_DESCRIPTION =
   "Official Chat SDK platform and state adapters for Slack, Teams, Google Chat, Discord, WhatsApp, and more.";
 
-
 const VERCEL_AUTHOR = {
   "@type": "Organization",
   name: "Vercel",

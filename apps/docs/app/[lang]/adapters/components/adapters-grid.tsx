@@ -57,14 +57,19 @@ export const AdaptersGrid = ({ adapters }: AdaptersGridProps) => {
 
   // Categorize state adapters
   const officialState = stateAdapters.filter((a) => a.group === "official");
-  const communityState = stateAdapters.filter((a) => a.group !== "official");
+  const vendorOfficialState = stateAdapters.filter(
+    (a) => a.group === "vendor-official"
+  );
+  const communityState = stateAdapters.filter((a) => a.group === "community");
 
   const showPlatformSection =
     officialPlatform.length > 0 ||
     vendorOfficialPlatform.length > 0 ||
     communityPlatform.length > 0;
   const showStateSection =
-    officialState.length > 0 || communityState.length > 0;
+    officialState.length > 0 ||
+    vendorOfficialState.length > 0 ||
+    communityState.length > 0;
 
   return (
     <>
@@ -187,6 +192,31 @@ export const AdaptersGrid = ({ adapters }: AdaptersGridProps) => {
                     {...adapter}
                   />
                 ))}
+              </div>
+            </section>
+          ) : null}
+
+          {vendorOfficialState.length > 0 ? (
+            <section className="grid gap-5">
+              <div className="grid gap-1">
+                <h3 className="text-heading-16">Vendor Official</h3>
+                <p className="text-[13px] text-muted-foreground">
+                  Built and maintained by the platform vendor.
+                </p>
+              </div>
+              <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+                {vendorOfficialState.map((adapter) => (
+                  <AdapterCard
+                    badge="vendor-official"
+                    href={getAdapterHref(adapter)}
+                    key={adapter.slug}
+                    {...adapter}
+                  />
+                ))}
+                <BuildYourOwnCard
+                  href="/docs/contributing/vendor-official"
+                  label="List a vendor-official adapter"
+                />
               </div>
             </section>
           ) : null}

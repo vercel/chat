@@ -11,7 +11,6 @@ import { cn } from "@/lib/utils";
 import { FeatureCell } from "./feature-cell";
 
 interface AdapterFrontmatter {
-  community?: boolean;
   slug: string;
   title: string;
   type: "platform" | "state";
@@ -29,7 +28,7 @@ const collectAdapters = (type: "platform" | "state"): AdapterEntry[] => {
   return pages
     .map((page) => ({ url: page.url, data: page.data as AdapterFrontmatter }))
     .filter(({ data }) => data.type === type)
-    .filter(({ data }) => !data.community)
+    .filter(({ data }) => getCatalogEntry(data.slug)?.group === "official")
     .map(({ url, data }) => ({
       name: data.title,
       slug: data.slug,
