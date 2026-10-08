@@ -58,6 +58,7 @@ interface SlackButtonElement {
   text: SlackTextObject;
   type: "button";
   value?: string;
+  visible_to_user_ids?: string[];
 }
 
 interface SlackLinkButtonElement {
@@ -66,6 +67,7 @@ interface SlackLinkButtonElement {
   text: SlackTextObject;
   type: "button";
   url: string;
+  visible_to_user_ids?: string[];
 }
 
 interface SlackOptionObject {
@@ -274,6 +276,10 @@ function convertButtonToElement(button: ButtonElement): SlackButtonElement {
     element.style = style as "primary" | "danger";
   }
 
+  if (button.visibleTo?.length) {
+    element.visible_to_user_ids = button.visibleTo;
+  }
+
   return element;
 }
 
@@ -294,6 +300,10 @@ function convertLinkButtonToElement(
   const style = mapButtonStyle(button.style, "slack");
   if (style) {
     element.style = style as "primary" | "danger";
+  }
+
+  if (button.visibleTo?.length) {
+    element.visible_to_user_ids = button.visibleTo;
   }
 
   return element;

@@ -227,6 +227,32 @@ describe("cardToBlockKit", () => {
     expect(elements[0].action_id).toBe("agent_slack_auth_signin");
   });
 
+  it("sets visible_to_user_ids from visibleTo", () => {
+    const card = Card({
+      children: [
+        Actions([
+          Button({ id: "approve", label: "Approve", visibleTo: ["U123"] }),
+          LinkButton({
+            url: "https://example.com",
+            label: "Open",
+            visibleTo: ["U123", "U456"],
+          }),
+          Button({ id: "everyone", label: "Everyone" }),
+          Button({ id: "empty", label: "Empty", visibleTo: [] }),
+        ]),
+      ],
+    });
+    const blocks = cardToBlockKit(card);
+
+    const elements = blocks[0].elements as Array<{
+      visible_to_user_ids?: string[];
+    }>;
+    expect(elements[0].visible_to_user_ids).toEqual(["U123"]);
+    expect(elements[1].visible_to_user_ids).toEqual(["U123", "U456"]);
+    expect(elements[2]).not.toHaveProperty("visible_to_user_ids");
+    expect(elements[3]).not.toHaveProperty("visible_to_user_ids");
+  });
+
   it("converts fields", () => {
     const card = Card({
       children: [

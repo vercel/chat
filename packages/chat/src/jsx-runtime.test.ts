@@ -224,6 +224,25 @@ describe("toCardElement", () => {
     });
   });
 
+  it("converts visibleTo on Button and LinkButton", () => {
+    const button = jsx(Button, { id: "ok", label: "OK", visibleTo: ["U123"] });
+    const linkButton = jsx(LinkButton, {
+      url: "https://example.com",
+      label: "Visit Site",
+      visibleTo: ["U456"],
+    });
+    const actions = jsxs(Actions, { children: [button, linkButton] });
+    const card = toCardElement(jsxs(Card, { children: [actions] }));
+
+    expect(card?.children[0]).toMatchObject({
+      type: "actions",
+      children: [
+        { type: "button", visibleTo: ["U123"] },
+        { type: "link-button", visibleTo: ["U456"] },
+      ],
+    });
+  });
+
   it("converts Card width", () => {
     const card = toCardElement(jsxs(Card, { children: [], width: "full" }));
     expect(card?.width).toBe("full");
