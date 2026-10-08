@@ -7,6 +7,7 @@ export default defineConfig({
       "packages/adapter-discord",
       "packages/adapter-gchat",
       "packages/adapter-github",
+      "packages/adapter-gitlab",
       "packages/adapter-gmail",
       "packages/adapter-instagram",
       "packages/adapter-linear",

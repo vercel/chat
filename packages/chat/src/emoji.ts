@@ -342,6 +342,7 @@ export function convertEmojiPlaceholders(
     | "discord"
     | "messenger"
     | "github"
+    | "gitlab"
     | "linear"
     | "notion"
     | "whatsapp"
@@ -365,6 +366,9 @@ export function convertEmojiPlaceholders(
         return resolver.toGChat(emojiName);
       case "github":
         // GitHub uses unicode emoji
+        return resolver.toGChat(emojiName);
+      case "gitlab":
+        // GitLab uses unicode emoji
         return resolver.toGChat(emojiName);
       case "linear":
         // Linear uses unicode emoji

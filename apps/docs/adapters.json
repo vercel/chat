@@ -60,6 +60,16 @@
     "readme": "https://github.com/vercel/chat/tree/main/packages/adapter-github"
   },
   {
+    "name": "GitLab",
+    "slug": "gitlab",
+    "type": "platform",
+    "description": "Build bots that respond to merge request and issue comment threads on GitLab.com or GitLab Self-Managed.",
+    "packageName": "@chat-adapter/gitlab",
+    "icon": "gitlab",
+    "beta": true,
+    "readme": "https://github.com/vercel/chat/tree/main/packages/adapter-gitlab"
+  },
+  {
     "name": "Linear",
     "slug": "linear",
     "type": "platform",
