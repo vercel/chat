@@ -41,7 +41,8 @@ export const weixin = {
   group: "community",
   name: "Weixin",
   packageName: "chat-adapter-weixin",
-  readme: "https://github.com/wong2/weixin-chat-adapter",
+  readme:
+    "https://github.com/wong2/weixin-chat-adapter/tree/62a2b42a26b48f731ef585114017669fccf95ca5",
   slug: "weixin",
   type: "platform",
 } as const satisfies CommunityAdapter;

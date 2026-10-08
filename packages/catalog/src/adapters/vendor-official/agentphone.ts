@@ -57,7 +57,8 @@ export const agentphone = {
   name: "AgentPhone",
   packageName: "@agentphone/chat-sdk-adapter",
   peerDeps: [],
-  readme: "https://github.com/AgentPhone-AI/chat-sdk-adapter",
+  readme:
+    "https://github.com/AgentPhone-AI/chat-sdk-adapter/tree/e9b858573e68d799905991026fc7888ccf4e7732",
   slug: "agentphone",
   type: "platform",
 } as const satisfies CatalogAdapter;

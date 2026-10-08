@@ -41,7 +41,8 @@ export const zaileys = {
   group: "community",
   name: "Zaileys WhatsApp",
   packageName: "chat-adapter-zaileys",
-  readme: "https://github.com/zeative/chat-adapter-zaileys",
+  readme:
+    "https://github.com/zeative/chat-adapter-zaileys/tree/104a2a631422e60972b8f63ec115bc7a399a2494",
   slug: "zaileys",
   type: "platform",
 } as const satisfies CommunityAdapter;

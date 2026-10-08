@@ -79,7 +79,8 @@ export const dial = {
   name: "Dial",
   packageName: "@getdial/chat-sdk-adapter",
   peerDeps: [],
-  readme: "https://github.com/GetDial-AI/chat-sdk-adapter",
+  readme:
+    "https://github.com/GetDial-AI/chat-sdk-adapter/tree/9977b5e97291d7edc26bdf6f65e94cc478cb024c",
   slug: "dial",
   type: "platform",
 } as const satisfies CatalogAdapter;

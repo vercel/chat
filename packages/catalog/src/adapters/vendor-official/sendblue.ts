@@ -62,7 +62,8 @@ export const sendblue = {
   name: "Sendblue",
   packageName: "chat-adapter-sendblue",
   peerDeps: [],
-  readme: "https://github.com/sendblue-api/chat-adapter-sendblue",
+  readme:
+    "https://github.com/sendblue-api/chat-adapter-sendblue/tree/79650a74393eb43b83d84d7c468bb36f0e0d7c65",
   slug: "sendblue",
   type: "platform",
 } as const satisfies CatalogAdapter;

@@ -41,7 +41,8 @@ export const line = {
   group: "community",
   name: "LINE",
   packageName: "chat-adapter-line",
-  readme: "https://github.com/PunGrumpy/chat-adapter-line",
+  readme:
+    "https://github.com/PunGrumpy/chat-adapter-line/tree/6f0d2a283f2c14d207dea19adf456c6df255b045",
   slug: "line",
   type: "platform",
 } as const satisfies CommunityAdapter;

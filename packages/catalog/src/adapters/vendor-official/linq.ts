@@ -55,7 +55,7 @@ export const linq = {
   packageName: "@linqapp/chat-sdk-adapter",
   peerDeps: [],
   readme:
-    "https://github.com/linq-team/linq-chat-sdk/tree/main/packages/adapter-linq",
+    "https://github.com/linq-team/linq-chat-sdk/tree/caa798044551ca9c8e509ca305ed7ec384b32635/packages/adapter-linq",
   slug: "linq",
   type: "platform",
 } as const satisfies CatalogAdapter;

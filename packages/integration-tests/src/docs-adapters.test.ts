@@ -1,6 +1,11 @@
 import { readFileSync } from "node:fs";
 import { basename, join } from "node:path";
-import { ADAPTERS, getCatalogEntry, listAdapters } from "@chat-adapter/catalog";
+import {
+  ADAPTERS,
+  type CatalogAdapter,
+  getCatalogEntry,
+  listAdapters,
+} from "@chat-adapter/catalog";
 import { describe, expect, it } from "vitest";
 import { DOCS_CONTENT_DIR, findDocsMdxFiles } from "./documentation-test-utils";
 
@@ -17,6 +22,10 @@ const CHAT_STATE_ADAPTER_PACKAGE = /^@chat-adapter\/state-/;
 const PACKAGE_INSTALL_PATTERN = /<PackageInstall package="([^"]+)" \/>/g;
 const PACKAGE_INSTALL_PACKAGE_SEPARATOR = /\s+/;
 const FEATURES_FIELD = /^features:/m;
+const NAMED_IMPORT_PATTERN = /import\s*\{([^}]*)\}\s*from\s*["']([^"']+)["']/g;
+const IMPORT_SPECIFIER_SEPARATOR = /\s*,\s*/;
+const TYPE_IMPORT_PREFIX = /^type\s+/;
+const IMPORT_ALIAS = /\s+as\s+.*$/;
 
 interface Frontmatter {
   fields: Record<string, string>;
@@ -132,6 +141,24 @@ describe("Adapter MDX frontmatter", () => {
   }
 });
 
+const factoryImportSources = (
+  adapter: AdapterFile,
+  factoryExport: string
+): string[] => {
+  const sources: string[] = [];
+  for (const match of adapter.body.matchAll(NAMED_IMPORT_PATTERN)) {
+    const names = match[1]
+      .split(IMPORT_SPECIFIER_SEPARATOR)
+      .map((name) =>
+        name.trim().replace(TYPE_IMPORT_PREFIX, "").replace(IMPORT_ALIAS, "")
+      );
+    if (names.includes(factoryExport)) {
+      sources.push(match[2]);
+    }
+  }
+  return sources;
+};
+
 describe("Vendor-Official adapter MDX", () => {
   const vendorAdapters = loadAdapterMdx(VENDOR_DIR, "vendor-official");
 
@@ -152,6 +179,32 @@ describe("Vendor-Official adapter MDX", () => {
 
       it("renders the FeatureSupport matrix", () => {
         expect(adapter.body).toContain("<FeatureSupport />");
+      });
+
+      it("imports factoryExport from the catalog import specifier", () => {
+        const catalogEntry = getCatalogEntry(adapter.slug) as
+          | CatalogAdapter
+          | undefined;
+        expect(
+          catalogEntry,
+          `${adapter.fileName}: missing @chat-adapter/catalog entry`
+        ).toBeDefined();
+        if (!catalogEntry) {
+          return;
+        }
+        const sources = factoryImportSources(
+          adapter,
+          catalogEntry.factoryExport
+        );
+        expect(
+          sources.length,
+          `${adapter.fileName}: no import of ${catalogEntry.factoryExport}`
+        ).toBeGreaterThan(0);
+        for (const source of sources) {
+          expect(source).toBe(
+            catalogEntry.importPath ?? catalogEntry.packageName
+          );
+        }
       });
 
       it("keeps catalog peerDeps aligned with PackageInstall extras", () => {

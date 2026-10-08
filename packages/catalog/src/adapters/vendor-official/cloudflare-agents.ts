@@ -24,10 +24,12 @@ export const cloudflareAgents = {
     keyPrefix: { status: "yes", label: "shardKey" },
   },
   group: "vendor-official",
+  importPath: "agents/chat-sdk",
   name: "Cloudflare Agents",
   packageName: "agents",
   peerDeps: [],
-  readme: "https://github.com/cloudflare/agents",
+  readme:
+    "https://github.com/cloudflare/agents/tree/68490acd1b2ca43f273722207855dbc9dc35efcb",
   slug: "cloudflare-agents",
   type: "state",
 } as const satisfies CatalogAdapter;

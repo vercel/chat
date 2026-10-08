@@ -68,7 +68,7 @@ export const novu = {
   packageName: "@novu/chat-sdk-adapter",
   peerDeps: [],
   readme:
-    "https://github.com/novuhq/novu/blob/24d8855c294bcf27450c91d2e2a0f9db9ffb8f73/packages/chat-adapter",
+    "https://github.com/novuhq/novu/tree/24d8855c294bcf27450c91d2e2a0f9db9ffb8f73/packages/chat-adapter",
   slug: "novu",
   type: "platform",
 } as const satisfies CatalogAdapter;

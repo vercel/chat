@@ -83,7 +83,8 @@ export const photon = {
   name: "Photon",
   packageName: "@photon-ai/chat-adapter-imessage",
   peerDeps: [],
-  readme: "https://github.com/photon-hq/vercel-chat-adapter-imessage",
+  readme:
+    "https://github.com/photon-hq/vercel-chat-adapter-imessage/tree/d0dcf8837a031b50873df7d7771d6def25d55bb0",
   slug: "photon",
   type: "platform",
 } as const satisfies CatalogAdapter;
