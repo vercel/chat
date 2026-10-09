@@ -1,5 +1,22 @@
 # chat
 
+## 4.42.0
+
+### Minor Changes
+
+- daaa0ac: Add `@chat-adapter/catalog`, a zero-dependency catalog of every adapter on chat-sdk.dev. It lists official, vendor-official, and community adapters with their npm package, maintainer, README, and capability support, plus the factory export, peer dependencies, and environment variables for official and vendor-official adapters. New helpers include `listAdapters()`, `getCatalogEntry()`, and `getFeatureSupport()`.
+  
+  The `chat/adapters` subpath is now deprecated. It re-exports the original API from `@chat-adapter/catalog`, so existing imports keep working. Its `ADAPTERS` keeps alphabetical key order, and its `CatalogAdapter` type accepts objects without the new `features` and `readme` fields. In `@chat-adapter/catalog`, `ADAPTERS` follows chat-sdk.dev listing order and `CatalogAdapter` requires both fields. `create-chat-sdk` reads adapter metadata from `@chat-adapter/catalog`.
+  
+  `getAdapter()` and `listEnvVars()` now return `undefined` and `[]` for inherited object keys such as `"toString"`, instead of returning `Object.prototype` members.
+- f635dbe: Add a Twitch adapter. It reads channel chat through EventSub webhooks, replies with the Helix Chat API as a bot account, deletes messages as a moderator, and sends and receives whispers. The `chat/adapters` catalog and `create-chat-sdk` now include Twitch.
+
+### Patch Changes
+
+- 80e7bae: Stop describing the ioredis state adapter as supporting Redis Cluster. Its `client` option accepts an ioredis `Redis` instance, which a `Cluster` doesn't satisfy; Sentinel is still supported.
+- Updated dependencies [daaa0ac]
+  - @chat-adapter/catalog@4.42.0
+
 ## 4.41.1
 
 ### Patch Changes
