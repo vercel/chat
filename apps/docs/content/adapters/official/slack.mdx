@@ -791,7 +791,7 @@ Standalone `@chat-adapter/slack/api` functions have their own `options.fetch` pa
 
 [Slack returns thread replies oldest-first](https://docs.slack.dev/reference/methods/conversations.replies/#pagination), so a backward read follows every Slack API page in the thread before it returns the newest messages in chronological order. Each read makes one `conversations.replies` call per page, even when `limit` is small. Pass `nextCursor` to fetch the preceding messages; each of those reads also starts from the beginning of the thread. See the [History API reference](/docs/api/history#bothistorythread).
 
-Slack limits [commercially distributed apps outside the Slack Marketplace](https://docs.slack.dev/changelog/2025/05/29/rate-limit-changes-for-non-marketplace-apps/) to one `conversations.replies` request per minute and 15 messages per page. For these apps, a backward read of a 400-message thread takes about 30 minutes, because `@slack/web-api` waits out each rate limit by default. To fail fast instead, pass `webClientOptions: { rejectRateLimitedCalls: true }`; the adapter then throws `AdapterRateLimitError`. Use `direction: "forward"` to read incrementally through Slack's native pagination, or store messages from incoming events instead of reading history.
+Slack limits [commercially distributed apps outside the Slack Marketplace](https://docs.slack.dev/changelog/2025/05/29/rate-limit-changes-for-non-marketplace-apps/) to one `conversations.replies` request per minute and 15 messages per page. For these apps, a backward read of a 400-message thread takes about 30 minutes, because `@slack/web-api` waits out each rate limit by default. Use `direction: "forward"` to read incrementally through Slack's native pagination.
 
 ## Direct API client
 

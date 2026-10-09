@@ -6680,7 +6680,6 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
 
     let slackMessages: SlackEvent[] = [];
     let slackCursor: string | undefined;
-    const seenCursors = new Set<string>();
     let threadParentSeen = false;
     do {
       const result = await this._client.conversations.replies(
@@ -6717,21 +6716,6 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
           hasMore: result.has_more,
         }
       );
-
-      if (result.has_more && !slackCursor) {
-        this.logger.warn(
-          "Slack API: conversations.replies reported more messages without a cursor; backward history may be incomplete",
-          { channel, threadTs }
-        );
-      }
-      if (slackCursor) {
-        if (seenCursors.has(slackCursor)) {
-          throw new Error(
-            `Slack conversations.replies returned a repeated cursor for thread ${threadTs} in channel ${channel}`
-          );
-        }
-        seenCursors.add(slackCursor);
-      }
     } while (slackCursor);
 
     // If we have more messages than requested, take the last `limit`
@@ -7510,9 +7494,8 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
     const slackError = error as { data?: { error?: string }; code?: string };
 
     if (
-      slackError.code === "slack_webapi_rate_limited_error" ||
-      (slackError.code === "slack_webapi_platform_error" &&
-        slackError.data?.error === "ratelimited")
+      slackError.code === "slack_webapi_platform_error" &&
+      slackError.data?.error === "ratelimited"
     ) {
       throw new AdapterRateLimitError("slack");
     }
