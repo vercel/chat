@@ -1608,6 +1608,18 @@ describe("postMessage", () => {
     expect(result.id).toBe("wamid.sent123");
   });
 
+  it("sends a reply from the phone number that received the thread", async () => {
+    const adapter = createTestAdapter();
+    const result = await adapter.postMessage(
+      "whatsapp:222222222222:5519999999999",
+      { markdown: "Hi" }
+    );
+
+    const [url] = fetchSpy.mock.calls[0];
+    expect(String(url)).toContain("/222222222222/messages");
+    expect(result.raw.phoneNumberId).toBe("222222222222");
+  });
+
   it.each([
     "US.13491208655302741918",
     "US.ENT.11815799212886844830",
@@ -2842,6 +2854,19 @@ describe("markAsRead", () => {
       status: "read",
       message_id: "wamid.inbound",
     });
+  });
+
+  it("marks a message read on the phone number that received the thread", async () => {
+    const adapter = createTestAdapter();
+
+    await adapter.markAsRead(
+      "whatsapp:222222222222:5519999999999",
+      "wamid.inbound"
+    );
+
+    expect(String(fetchSpy.mock.calls[0][0])).toContain(
+      "/222222222222/messages"
+    );
   });
 
   it("preserves the adapter-level message id signature", async () => {

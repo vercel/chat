@@ -128,7 +128,7 @@ Deploy the GET and POST route shown above to a public HTTPS URL first, then:
 | --- | --- | --- |
 | `WHATSAPP_ACCESS_TOKEN` | Yes | Meta access token, ideally a System User Token in production |
 | `WHATSAPP_APP_SECRET` | Yes | App secret used to verify webhook signatures |
-| `WHATSAPP_PHONE_NUMBER_ID` | Yes | Phone number ID the bot sends from |
+| `WHATSAPP_PHONE_NUMBER_ID` | Yes | Default phone number ID. Thread replies use the number in the thread id |
 | `WHATSAPP_VERIFY_TOKEN` | Yes | Your chosen secret for the webhook verification handshake |
 | `WHATSAPP_BOT_USERNAME` | No | Bot username. Defaults to `whatsapp-bot` |
 | `WHATSAPP_API_URL` | No | Meta Graph API base URL override |
@@ -306,6 +306,8 @@ whatsapp:{phoneNumberId}:{userWaId}
 Example: `whatsapp:1234567890:15551234567`.
 
 `phoneNumberId` is the bot's phone number ID. The final segment is the adapter's canonical user identifier. It may contain a phone number, a BSUID such as `US.13491208655302741918`, or a previously observed identifier retained for thread continuity.
+
+Replies, reactions, read receipts, typing indicators, and media uploads for a thread go out from that `phoneNumberId`. `openDM` still uses the configured number, because that call has no inbound thread yet.
 
 ## Limitations
 
