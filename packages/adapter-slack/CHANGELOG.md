@@ -1,5 +1,20 @@
 # @chat-adapter/slack
 
+## 4.42.0
+
+### Minor Changes
+
+- f923b1c: Add a `blocks` option to `uploadSlackFiles` so the message that shares the uploaded files can carry Block Kit blocks. Slack renders the files below the blocks. Passing both `blocks` and `initialComment` throws a `TypeError`, since Slack would silently ignore `blocks`.
+
+### Patch Changes
+
+- b37a550: Preserve literal text and code formatting in incoming Slack messages and correctly parse email and phone links
+- Updated dependencies [daaa0ac]
+- Updated dependencies [80e7bae]
+- Updated dependencies [f635dbe]
+  - chat@4.42.0
+  - @chat-adapter/shared@4.42.0
+
 ## 4.41.1
 
 ### Patch Changes

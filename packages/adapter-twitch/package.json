@@ -1,6 +1,6 @@
 {
   "name": "@chat-adapter/twitch",
-  "version": "4.41.1",
+  "version": "4.42.0",
   "description": "Twitch adapter for Chat SDK: read and reply in Twitch channel chat with EventSub webhooks and the Helix Chat API, plus whispers",
   "type": "module",
   "engines": {

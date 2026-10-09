@@ -1,5 +1,15 @@
 # @chat-adapter/state-ioredis
 
+## 4.42.0
+
+### Patch Changes
+
+- 80e7bae: Stop describing the ioredis state adapter as supporting Redis Cluster. Its `client` option accepts an ioredis `Redis` instance, which a `Cluster` doesn't satisfy; Sentinel is still supported.
+- Updated dependencies [daaa0ac]
+- Updated dependencies [80e7bae]
+- Updated dependencies [f635dbe]
+  - chat@4.42.0
+
 ## 4.41.1
 
 ### Patch Changes
