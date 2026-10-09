@@ -787,6 +787,10 @@ Socket Mode receives `agent`, `tls`, and `apiUrl`, but only `agent` reaches the 
 
 Standalone `@chat-adapter/slack/api` functions have their own `options.fetch` parameter and do not inherit adapter configuration. Application callbacks, token resolvers, installation providers, and state adapters also own their network configuration. Proxy authentication, CA trust, WebSocket support, and destination policy must be configured for your deployment.
 
+## Thread history
+
+Backward thread history reads return the newest messages in chronological order. Pass `nextCursor` to fetch the preceding messages. Because [Slack returns replies oldest-first](https://docs.slack.dev/reference/methods/conversations.replies/#pagination), each backward read follows all Slack API pages before selecting the requested messages. Long threads can require multiple API calls even when `limit` is small. Use `direction: "forward"` for incremental reads through Slack's native pagination. See the [History API reference](/docs/api/history#bothistorythread).
+
 ## Direct API client
 
 Access the underlying [WebClient](https://github.com/slackapi/node-slack-sdk/tree/main/packages/web-api) from `@slack/web-api` via `.webClient`:
