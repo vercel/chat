@@ -6678,19 +6678,17 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
       latest,
     });
 
-    // Fetch a larger batch to ensure we can return the last `limit` messages
-    // Slack API max is 1000 messages per request
-    const fetchLimit = Math.min(1000, Math.max(limit * 2, 200));
-
     let slackMessages: SlackEvent[] = [];
     let slackCursor: string | undefined;
+    const seenCursors = new Set<string>();
     let threadParentSeen = false;
     do {
       const result = await this._client.conversations.replies(
         await this.withToken({
           channel,
           ts: threadTs,
-          limit: fetchLimit,
+          // Every page is read, so use Slack's maximum page size to minimize calls.
+          limit: 1000,
           latest,
           cursor: slackCursor,
           inclusive: false, // Don't include the cursor message itself
@@ -6719,6 +6717,21 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
           hasMore: result.has_more,
         }
       );
+
+      if (result.has_more && !slackCursor) {
+        this.logger.warn(
+          "Slack API: conversations.replies reported more messages without a cursor; backward history may be incomplete",
+          { channel, threadTs }
+        );
+      }
+      if (slackCursor) {
+        if (seenCursors.has(slackCursor)) {
+          throw new Error(
+            `Slack conversations.replies returned a repeated cursor for thread ${threadTs} in channel ${channel}`
+          );
+        }
+        seenCursors.add(slackCursor);
+      }
     } while (slackCursor);
 
     // If we have more messages than requested, take the last `limit`
@@ -6730,12 +6743,9 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
       selectedMessages.map((msg) => this.parseSlackMessage(msg, threadId))
     );
 
-    // For backward pagination, nextCursor points to older messages
-    // Exclude the oldest returned message on the next call.
+    // Older messages remain, so the next call reads before the oldest returned one.
     let nextCursor: string | undefined;
     if (startIndex > 0) {
-      // There are more (older) messages available
-      // Use the timestamp of the oldest message in our selection as the cursor
       const oldestSelected = selectedMessages[0];
       if (oldestSelected?.ts) {
         nextCursor = oldestSelected.ts;
@@ -7500,8 +7510,9 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
     const slackError = error as { data?: { error?: string }; code?: string };
 
     if (
-      slackError.code === "slack_webapi_platform_error" &&
-      slackError.data?.error === "ratelimited"
+      slackError.code === "slack_webapi_rate_limited_error" ||
+      (slackError.code === "slack_webapi_platform_error" &&
+        slackError.data?.error === "ratelimited")
     ) {
       throw new AdapterRateLimitError("slack");
     }

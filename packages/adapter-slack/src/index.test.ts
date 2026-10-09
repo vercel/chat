@@ -6788,10 +6788,17 @@ describe("fetchMessages", () => {
       history.slice(-50).map((message) => message.ts)
     );
     expect(newest.nextCursor).toBe(history[count - 50].ts);
+    expect(mockReplies).toHaveBeenCalledTimes(Math.ceil(count / pageSize));
     expect(mockReplies).toHaveBeenCalledWith(
-      expect.objectContaining({ cursor: String(pageSize), latest: undefined })
+      expect.objectContaining({
+        cursor: String(pageSize),
+        inclusive: false,
+        latest: undefined,
+        limit: 1000,
+      })
     );
 
+    mockReplies.mockClear();
     const older = await adapter.fetchMessages("slack:C123:1000.000000", {
       limit: 50,
       cursor: newest.nextCursor,
@@ -6800,7 +6807,11 @@ describe("fetchMessages", () => {
       history.slice(-100, -50).map((message) => message.ts)
     );
     expect(older.nextCursor).toBe(history[count - 100].ts);
+    expect(mockReplies).toHaveBeenCalledTimes(
+      Math.ceil((count - 50) / pageSize)
+    );
 
+    mockReplies.mockClear();
     const oldest = await adapter.fetchMessages("slack:C123:1000.000000", {
       limit: 50,
       cursor: history[25].ts,
@@ -6809,6 +6820,57 @@ describe("fetchMessages", () => {
       history.slice(0, 25).map((message) => message.ts)
     );
     expect(oldest.nextCursor).toBeUndefined();
+    expect(mockReplies).toHaveBeenCalledTimes(Math.ceil(25 / pageSize));
+  });
+
+  it.each([
+    { count: 5, limit: 1, ids: ["1004.000000"], nextCursor: "1004.000000" },
+    {
+      count: 3,
+      limit: 3,
+      ids: ["1000.000000", "1001.000000", "1002.000000"],
+      nextCursor: undefined,
+    },
+  ])("returns $limit of $count messages with the expected cursor", async ({
+    count,
+    limit,
+    ids,
+    nextCursor,
+  }) => {
+    const adapter = createSlackAdapter({
+      botToken: "xoxb-test-token",
+      signingSecret: secret,
+      logger: mockLogger,
+      botUserId: "U_BOT",
+    });
+    mockClientMethod(
+      adapter,
+      "conversations.replies",
+      vi.fn().mockResolvedValue({
+        ok: true,
+        messages: Array.from({ length: count }, (_, index) => ({
+          type: "message",
+          user: "U1",
+          text: `message ${index}`,
+          ts: `${1000 + index}.000000`,
+        })),
+        response_metadata: { next_cursor: "" },
+      })
+    );
+    mockClientMethod(
+      adapter,
+      "users.info",
+      vi.fn().mockResolvedValue({ ok: true, user: { name: "user1" } })
+    );
+    await adapter.initialize(
+      createMockChatInstance({ state: createMockState() })
+    );
+
+    const result = await adapter.fetchMessages("slack:C123:1000.000000", {
+      limit,
+    });
+    expect(result.messages.map((message) => message.id)).toEqual(ids);
+    expect(result.nextCursor).toBe(nextCursor);
   });
 
   it.each([
@@ -6940,10 +7002,128 @@ describe("fetchMessages", () => {
         })
         .mockRejectedValueOnce(new Error("history unavailable"))
     );
+    mockClientMethod(
+      adapter,
+      "users.info",
+      vi.fn().mockResolvedValue({ ok: true, user: { name: "user1" } })
+    );
+    await adapter.initialize(
+      createMockChatInstance({ state: createMockState() })
+    );
 
     await expect(
       adapter.fetchMessages("slack:C123:1000.000000")
     ).rejects.toThrow("history unavailable");
+  });
+
+  it.each([
+    {
+      code: "slack_webapi_platform_error",
+      data: { error: "ratelimited" },
+    },
+    { code: "slack_webapi_rate_limited_error", retryAfter: 60 },
+  ])("throws AdapterRateLimitError when a later page is rate limited ($code)", async (rateLimitError) => {
+    const { AdapterRateLimitError } = await import("@chat-adapter/shared");
+    const adapter = createSlackAdapter({
+      botToken: "xoxb-test-token",
+      signingSecret: secret,
+      logger: mockLogger,
+      botUserId: "U_BOT",
+    });
+    mockClientMethod(
+      adapter,
+      "conversations.replies",
+      vi
+        .fn()
+        .mockResolvedValueOnce({
+          ok: true,
+          messages: [
+            { type: "message", user: "U1", text: "old", ts: "1000.000000" },
+          ],
+          response_metadata: { next_cursor: "next-page" },
+        })
+        .mockRejectedValueOnce(rateLimitError)
+    );
+    mockClientMethod(
+      adapter,
+      "users.info",
+      vi.fn().mockResolvedValue({ ok: true, user: { name: "user1" } })
+    );
+    await adapter.initialize(
+      createMockChatInstance({ state: createMockState() })
+    );
+
+    await expect(
+      adapter.fetchMessages("slack:C123:1000.000000")
+    ).rejects.toBeInstanceOf(AdapterRateLimitError);
+  });
+
+  it("throws when Slack repeats a pagination cursor", async () => {
+    const adapter = createSlackAdapter({
+      botToken: "xoxb-test-token",
+      signingSecret: secret,
+      logger: mockLogger,
+      botUserId: "U_BOT",
+    });
+    const mockReplies = vi.fn().mockResolvedValue({
+      ok: true,
+      messages: [
+        { type: "message", user: "U1", text: "old", ts: "1000.000000" },
+      ],
+      response_metadata: { next_cursor: "same-page" },
+    });
+    mockClientMethod(adapter, "conversations.replies", mockReplies);
+    mockClientMethod(
+      adapter,
+      "users.info",
+      vi.fn().mockResolvedValue({ ok: true, user: { name: "user1" } })
+    );
+    await adapter.initialize(
+      createMockChatInstance({ state: createMockState() })
+    );
+
+    await expect(
+      adapter.fetchMessages("slack:C123:1000.000000")
+    ).rejects.toThrow("repeated cursor");
+    expect(mockReplies).toHaveBeenCalledTimes(2);
+  });
+
+  it("warns when Slack reports more messages without a cursor", async () => {
+    const adapter = createSlackAdapter({
+      botToken: "xoxb-test-token",
+      signingSecret: secret,
+      logger: mockLogger,
+      botUserId: "U_BOT",
+    });
+    mockClientMethod(
+      adapter,
+      "conversations.replies",
+      vi.fn().mockResolvedValue({
+        ok: true,
+        messages: [
+          { type: "message", user: "U1", text: "old", ts: "1000.000000" },
+        ],
+        has_more: true,
+        response_metadata: { next_cursor: "" },
+      })
+    );
+    mockClientMethod(
+      adapter,
+      "users.info",
+      vi.fn().mockResolvedValue({ ok: true, user: { name: "user1" } })
+    );
+    await adapter.initialize(
+      createMockChatInstance({ state: createMockState() })
+    );
+    const result = await adapter.fetchMessages("slack:C123:1000.000000");
+    expect(result.messages.map((message) => message.id)).toEqual([
+      "1000.000000",
+    ]);
+    expect(result.nextCursor).toBeUndefined();
+    expect(mockLogger.warn).toHaveBeenCalledWith(
+      expect.stringContaining("without a cursor"),
+      expect.objectContaining({ channel: "C123", threadTs: "1000.000000" })
+    );
   });
 
   it("fetches messages in forward direction using cursor pagination", async () => {
@@ -7046,7 +7226,11 @@ describe("fetchMessages", () => {
 
     const result = await adapter.fetchMessages("slack:C123:1234567890.000000");
 
-    expect(result.messages.length).toBeGreaterThan(0);
+    expect(result.messages.map((message) => message.id)).toEqual([
+      "1000.000",
+      "1001.000",
+    ]);
+    expect(result.nextCursor).toBeUndefined();
   });
 
   it("passes cursor for backward pagination", async () => {
