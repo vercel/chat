@@ -6732,6 +6732,229 @@ describe("openDM", () => {
 describe("fetchMessages", () => {
   const secret = "test-signing-secret";
 
+  it.each([
+    { count: 425, pageSize: 200 },
+    { count: 1205, pageSize: 200 },
+    { count: 425, pageSize: 15 },
+  ])("fetches the newest replies in a $count-message thread with $pageSize-message API pages", async ({
+    count,
+    pageSize,
+  }) => {
+    const adapter = createSlackAdapter({
+      botToken: "xoxb-test-token",
+      signingSecret: secret,
+      logger: mockLogger,
+      botUserId: "U_BOT",
+    });
+    const history = Array.from({ length: count }, (_, index) => ({
+      type: "message",
+      user: "U1",
+      text: `message ${index}`,
+      ts: `${1000 + index}.000000`,
+      channel: "C123",
+    }));
+    // Slack replies are oldest-first, including when `latest` is supplied.
+    const mockReplies = vi.fn(
+      async (options: { latest?: string; cursor?: string; limit: number }) => {
+        const eligible = history.filter(
+          (message) => !options.latest || message.ts < options.latest
+        );
+        const offset = Number(options.cursor ?? 0);
+        const end = offset + Math.min(options.limit, pageSize);
+        return {
+          ok: true,
+          messages: eligible.slice(offset, end),
+          has_more: end < eligible.length,
+          response_metadata: {
+            next_cursor: end < eligible.length ? String(end) : "",
+          },
+        };
+      }
+    );
+    mockClientMethod(adapter, "conversations.replies", mockReplies);
+    mockClientMethod(
+      adapter,
+      "users.info",
+      vi.fn().mockResolvedValue({ ok: true, user: { name: "user1" } })
+    );
+    await adapter.initialize(
+      createMockChatInstance({ state: createMockState() })
+    );
+
+    const newest = await adapter.fetchMessages("slack:C123:1000.000000", {
+      limit: 50,
+    });
+    expect(newest.messages.map((message) => message.id)).toEqual(
+      history.slice(-50).map((message) => message.ts)
+    );
+    expect(newest.nextCursor).toBe(history[count - 50].ts);
+    expect(mockReplies).toHaveBeenCalledTimes(Math.ceil(count / pageSize));
+    expect(mockReplies).toHaveBeenCalledWith(
+      expect.objectContaining({
+        cursor: String(pageSize),
+        latest: undefined,
+        limit: 1000,
+      })
+    );
+
+    mockReplies.mockClear();
+    const older = await adapter.fetchMessages("slack:C123:1000.000000", {
+      limit: 50,
+      cursor: newest.nextCursor,
+    });
+    expect(older.messages.map((message) => message.id)).toEqual(
+      history.slice(-100, -50).map((message) => message.ts)
+    );
+    expect(older.nextCursor).toBe(history[count - 100].ts);
+    expect(mockReplies).toHaveBeenCalledTimes(
+      Math.ceil((count - 50) / pageSize)
+    );
+
+    const oldest = await adapter.fetchMessages("slack:C123:1000.000000", {
+      limit: 50,
+      cursor: history[25].ts,
+    });
+    expect(oldest.messages.map((message) => message.id)).toEqual(
+      history.slice(0, 25).map((message) => message.ts)
+    );
+    expect(oldest.nextCursor).toBeUndefined();
+  });
+
+  it.each([
+    3, 5,
+  ])("keeps repeated thread parents unique and ordered with limit %i", async (limit) => {
+    const adapter = createSlackAdapter({
+      botToken: "xoxb-test-token",
+      signingSecret: secret,
+      logger: mockLogger,
+      botUserId: "U_BOT",
+    });
+    const history = Array.from({ length: 4 }, (_, index) => ({
+      type: "message",
+      user: "U1",
+      text: `message ${index}`,
+      ts: `${1000 + index}.000000`,
+    }));
+    const parent = history[0];
+    mockClientMethod(
+      adapter,
+      "conversations.replies",
+      vi.fn(async (options: { latest?: string; cursor?: string }) => {
+        const replies = history
+          .slice(1)
+          .filter((message) => !options.latest || message.ts < options.latest);
+        const offset = Number(options.cursor ?? 0);
+        const end = offset + 2;
+        return {
+          ok: true,
+          messages: [parent, ...replies.slice(offset, end)],
+          response_metadata: {
+            next_cursor: end < replies.length ? String(end) : "",
+          },
+        };
+      })
+    );
+    mockClientMethod(
+      adapter,
+      "users.info",
+      vi.fn().mockResolvedValue({ ok: true, user: { name: "user1" } })
+    );
+    await adapter.initialize(
+      createMockChatInstance({ state: createMockState() })
+    );
+
+    const newest = await adapter.fetchMessages("slack:C123:1000.000000", {
+      limit,
+    });
+    expect(newest.messages.map((message) => message.id)).toEqual(
+      history.slice(-limit).map((message) => message.ts)
+    );
+    expect(newest.nextCursor).toBe(limit === 3 ? history[1].ts : undefined);
+
+    const oldest = await adapter.fetchMessages("slack:C123:1000.000000", {
+      limit,
+      cursor: history[1].ts,
+    });
+    expect(oldest.messages.map((message) => message.id)).toEqual([parent.ts]);
+    expect(oldest.nextCursor).toBeUndefined();
+
+    const exhausted = await adapter.fetchMessages("slack:C123:1000.000000", {
+      limit,
+      cursor: parent.ts,
+    });
+    expect(exhausted.messages).toEqual([]);
+    expect(exhausted.nextCursor).toBeUndefined();
+  });
+
+  it("continues through an empty Slack page with a next cursor", async () => {
+    const adapter = createSlackAdapter({
+      botToken: "xoxb-test-token",
+      signingSecret: secret,
+      logger: mockLogger,
+      botUserId: "U_BOT",
+    });
+    const mockReplies = vi
+      .fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        messages: [],
+        response_metadata: { next_cursor: "next-page" },
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        messages: [
+          { type: "message", user: "U1", text: "newest", ts: "1000.000000" },
+        ],
+        response_metadata: { next_cursor: "" },
+      });
+    mockClientMethod(adapter, "conversations.replies", mockReplies);
+    mockClientMethod(
+      adapter,
+      "users.info",
+      vi.fn().mockResolvedValue({ ok: true, user: { name: "user1" } })
+    );
+    await adapter.initialize(
+      createMockChatInstance({ state: createMockState() })
+    );
+
+    const result = await adapter.fetchMessages("slack:C123:1000.000000");
+    expect(result.messages.map((message) => message.id)).toEqual([
+      "1000.000000",
+    ]);
+    expect(result.nextCursor).toBeUndefined();
+    expect(mockReplies).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({ cursor: "next-page" })
+    );
+  });
+
+  it("rejects a failed later page instead of returning stale history", async () => {
+    const adapter = createSlackAdapter({
+      botToken: "xoxb-test-token",
+      signingSecret: secret,
+      logger: mockLogger,
+      botUserId: "U_BOT",
+    });
+    mockClientMethod(
+      adapter,
+      "conversations.replies",
+      vi
+        .fn()
+        .mockResolvedValueOnce({
+          ok: true,
+          messages: [
+            { type: "message", user: "U1", text: "old", ts: "1000.000000" },
+          ],
+          response_metadata: { next_cursor: "next-page" },
+        })
+        .mockRejectedValueOnce(new Error("history unavailable"))
+    );
+
+    await expect(
+      adapter.fetchMessages("slack:C123:1000.000000")
+    ).rejects.toThrow("history unavailable");
+  });
+
   it("fetches messages in forward direction using cursor pagination", async () => {
     const adapter = createSlackAdapter({
       botToken: "xoxb-test-token",
