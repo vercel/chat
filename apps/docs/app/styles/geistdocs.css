@@ -88,7 +88,10 @@
   --sidebar-ring: oklch(0.708 0 0);
 }
 
-.dark {
+/* The Geistdocs provider marks dark mode with `.dark-theme`; keep `.dark` for
+   compatibility, matching the package's own selectors. */
+.dark,
+.dark-theme {
   --background: oklch(0.145 0 0);
   --foreground: oklch(0.985 0 0);
   --card: oklch(0.205 0 0);
@@ -129,7 +132,8 @@
  * code-showcase tab become indistinguishable from the page. chat-sdk.dev
  * uses an elevated background-100 over a pure-black background-200.
  */
-.dark {
+.dark,
+.dark-theme {
   --ds-background-100: oklch(0.145 0 0);
   --ds-background-200: oklch(0 0 0);
 }
