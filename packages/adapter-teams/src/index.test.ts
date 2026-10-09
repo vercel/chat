@@ -718,6 +718,32 @@ describe("TeamsAdapter", () => {
       expect(message.author.isMe).toBe(false);
     });
 
+    it.each([
+      { id: "other-bot", role: "bot", isBot: true, isMe: false },
+      { id: "28:other-bot", isBot: true, isMe: false },
+      { id: "28:test-app", isBot: true, isMe: true },
+      { id: "test-app", isBot: true, isMe: true },
+      { id: "29:human", role: "user", isBot: false, isMe: false },
+      { id: "29:human", isBot: false, isMe: false },
+    ])("classifies sender $id with role $role", ({ id, role, isBot, isMe }) => {
+      const adapter = createTeamsAdapter({
+        appId: "test-app",
+        appPassword: "test",
+        logger,
+      });
+      const message = adapter.parseMessage({
+        type: "message",
+        id: "reply-100",
+        text: "Reply in a subscribed thread",
+        from: { id, name: "Sender", role },
+        conversation: { id: "19:channel@thread.tacv2;messageid=root-100" },
+        serviceUrl: TEST_SERVICE_URL,
+      });
+
+      expect(message.author.isBot).toBe(isBot);
+      expect(message.author.isMe).toBe(isMe);
+    });
+
     it("should handle missing text gracefully", () => {
       const adapter = createTeamsAdapter({
         appId: "test-app",
@@ -1784,6 +1810,28 @@ describe("TeamsAdapter", () => {
       await adapter.initialize(chat);
       return { adapter, chat, getMemberById, mockApp, state };
     };
+
+    it("preserves bot authors when hydrating sender email", async () => {
+      const { adapter, chat, getMemberById } = await setup({
+        email: "bot@example.com",
+        name: "Other bot",
+      });
+      const botActivity = {
+        ...activity("activity-aad-id"),
+        from: {
+          id: "28:other-bot",
+          name: "Other bot",
+          aadObjectId: "activity-aad-id",
+        },
+      };
+
+      await adapter.handleIncoming(botActivity, getMemberById);
+
+      const message = vi.mocked(chat.processMessage).mock.calls[0]?.[2];
+      expect(message?.author.email).toBe("bot@example.com");
+      expect(message?.author.isBot).toBe(true);
+      expect(message?.author.isMe).toBe(false);
+    });
 
     it("hydrates email from the conversation member without Graph", async () => {
       const { adapter, chat, getMemberById, mockApp, state } = await setup({

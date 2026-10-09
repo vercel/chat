@@ -1028,7 +1028,10 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
         userId: activity.from?.id || "unknown",
         userName: activity.from?.name || "unknown",
         fullName: activity.from?.name || "unknown",
-        isBot: false, // TeamsSDK doesn't expose role directly; we check isMe instead
+        isBot:
+          isMe ||
+          activity.from?.role === "bot" ||
+          activity.from?.id?.startsWith("28:") === true,
         isMe,
       },
       metadata: {
