@@ -6811,6 +6811,72 @@ describe("fetchMessages", () => {
     expect(oldest.nextCursor).toBeUndefined();
   });
 
+  it.each([
+    3, 5,
+  ])("keeps repeated thread parents unique and ordered with limit %i", async (limit) => {
+    const adapter = createSlackAdapter({
+      botToken: "xoxb-test-token",
+      signingSecret: secret,
+      logger: mockLogger,
+      botUserId: "U_BOT",
+    });
+    const history = Array.from({ length: 4 }, (_, index) => ({
+      type: "message",
+      user: "U1",
+      text: `message ${index}`,
+      ts: `${1000 + index}.000000`,
+    }));
+    const parent = history[0];
+    mockClientMethod(
+      adapter,
+      "conversations.replies",
+      vi.fn(async (options: { latest?: string; cursor?: string }) => {
+        const replies = history
+          .slice(1)
+          .filter((message) => !options.latest || message.ts < options.latest);
+        const offset = Number(options.cursor ?? 0);
+        const end = offset + 2;
+        return {
+          ok: true,
+          messages: [parent, ...replies.slice(offset, end)],
+          response_metadata: {
+            next_cursor: end < replies.length ? String(end) : "",
+          },
+        };
+      })
+    );
+    mockClientMethod(
+      adapter,
+      "users.info",
+      vi.fn().mockResolvedValue({ ok: true, user: { name: "user1" } })
+    );
+    await adapter.initialize(
+      createMockChatInstance({ state: createMockState() })
+    );
+
+    const newest = await adapter.fetchMessages("slack:C123:1000.000000", {
+      limit,
+    });
+    expect(newest.messages.map((message) => message.id)).toEqual(
+      history.slice(-limit).map((message) => message.ts)
+    );
+    expect(newest.nextCursor).toBe(limit === 3 ? history[1].ts : undefined);
+
+    const oldest = await adapter.fetchMessages("slack:C123:1000.000000", {
+      limit,
+      cursor: history[1].ts,
+    });
+    expect(oldest.messages.map((message) => message.id)).toEqual([parent.ts]);
+    expect(oldest.nextCursor).toBeUndefined();
+
+    const exhausted = await adapter.fetchMessages("slack:C123:1000.000000", {
+      limit,
+      cursor: parent.ts,
+    });
+    expect(exhausted.messages).toEqual([]);
+    expect(exhausted.nextCursor).toBeUndefined();
+  });
+
   it("continues through an empty Slack page with a next cursor", async () => {
     const adapter = createSlackAdapter({
       botToken: "xoxb-test-token",

@@ -6684,6 +6684,7 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
 
     let slackMessages: SlackEvent[] = [];
     let slackCursor: string | undefined;
+    let threadParentSeen = false;
     do {
       const result = await this._client.conversations.replies(
         await this.withToken({
@@ -6696,8 +6697,18 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
         })
       );
       const page = (result.messages || []) as SlackEvent[];
+      // Keep the parent once, even if earlier pages were empty.
+      const pageMessages = page.filter((message) => {
+        if (message.ts === threadTs) {
+          if (threadParentSeen) {
+            return false;
+          }
+          threadParentSeen = true;
+        }
+        return !latest || (message.ts !== undefined && message.ts < latest);
+      });
       // One extra older message tells us whether a backward page remains.
-      slackMessages = [...slackMessages, ...page].slice(-(limit + 1));
+      slackMessages = [...slackMessages, ...pageMessages].slice(-(limit + 1));
       slackCursor = result.response_metadata?.next_cursor || undefined;
 
       this.logger.debug(
