@@ -322,6 +322,70 @@ describe("cardToFallbackText", () => {
   });
 });
 
+describe("cardToBlockKit Slack length limits", () => {
+  it("cuts a long header, section, and button label", () => {
+    const card = Card({
+      title: "q".repeat(400),
+      children: [
+        CardText("b".repeat(5000)),
+        Actions([Button({ id: "ask", label: "c".repeat(80) })]),
+      ],
+    });
+    const blocks = cardToBlockKit(card);
+
+    expect(blocks[0]).toEqual({
+      type: "header",
+      text: {
+        type: "plain_text",
+        text: `${"q".repeat(149)}…`,
+        emoji: true,
+      },
+    });
+    expect(blocks[1]).toEqual({
+      type: "section",
+      text: { type: "mrkdwn", text: `${"b".repeat(2999)}…` },
+    });
+    expect(blocks[2]).toEqual({
+      type: "actions",
+      elements: [
+        {
+          type: "button",
+          text: {
+            type: "plain_text",
+            text: `${"c".repeat(74)}…`,
+            emoji: true,
+          },
+          action_id: "ask",
+        },
+      ],
+    });
+  });
+
+  it("leaves a header that already fits", () => {
+    const title = "q".repeat(150);
+    const blocks = cardToBlockKit(Card({ title }));
+
+    expect(blocks[0]).toEqual({
+      type: "header",
+      text: { type: "plain_text", text: title, emoji: true },
+    });
+  });
+
+  it("backs up one unit when the cut would split an emoji", () => {
+    const title = `${"q".repeat(148)}🙂tail`;
+    const blocks = cardToBlockKit(Card({ title }));
+
+    expect(blocks[0]).toEqual({
+      type: "header",
+      text: {
+        type: "plain_text",
+        text: `${"q".repeat(148)}…`,
+        emoji: true,
+      },
+    });
+  });
+});
+
 describe("cardToBlockKit with select elements", () => {
   it("converts actions with select element", () => {
     const card = Card({
