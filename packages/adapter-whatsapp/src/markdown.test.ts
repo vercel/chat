@@ -102,11 +102,10 @@ describe("WhatsAppFormatConverter", () => {
       expect(result).not.toContain("~~strikethrough~~");
     });
 
-    it("should preserve escaped asterisks and tildes as literals", () => {
+    it("should write escaped asterisks and tildes without backslashes", () => {
       const ast = converter.toAst("a \\* b and c \\~ d");
       const result = converter.fromAst(ast);
-      expect(result).toContain("\\*");
-      expect(result).toContain("\\~");
+      expect(result).toBe("a * b and c ~ d");
     });
 
     it("should convert standard italic to WhatsApp underscore italic", () => {
@@ -165,6 +164,39 @@ describe("WhatsAppFormatConverter", () => {
   });
 
   describe("renderPostable", () => {
+    it.each([
+      ["(~80 % easy)", "(~80 % easy)"],
+      ["~45 min, Pace ~6:29/km", "~45 min, Pace ~6:29/km"],
+      ["5 * 3 = 15 and #hashtag", "5 * 3 = 15 and #hashtag"],
+      [String.raw`C:\Users\foo_bar`, String.raw`C:\Users\foo_bar`],
+      ["`~80 **literal** ~~literal~~`", "`~80 **literal** ~~literal~~`"],
+      [
+        "```\n~80 **literal** ~~literal~~\n```",
+        "```\n~80 **literal** ~~literal~~\n```",
+      ],
+      ["line one  \nline two", "line one\nline two"],
+      ["**bold _italic_ ~~strike~~**", "*bold _italic_ ~strike~*"],
+      [
+        "- **Monday**: Rest\n- _Tuesday_: ~~Tempo~~",
+        "- *Monday*: Rest\n- _Tuesday_: ~Tempo~",
+      ],
+    ])("should render %j as %j", (markdown, expected) => {
+      expect(converter.renderPostable({ markdown })).toBe(expected);
+    });
+
+    it("should render deeply nested formatting in linear time", () => {
+      let markdown = "end";
+      let expected = "end";
+      for (let depth = 0; depth < 24; depth++) {
+        const marker = depth % 2 === 0 ? "*" : "~";
+        markdown = `a ${marker}${marker}${markdown} b${marker}${marker}`;
+        expected = `a ${marker}${expected} b${marker}`;
+      }
+      const start = performance.now();
+      expect(converter.renderPostable({ markdown })).toBe(expected);
+      expect(performance.now() - start).toBeLessThan(1000);
+    });
+
     it("should render a plain string", () => {
       const result = converter.renderPostable("Hello world");
       expect(result).toBe("Hello world");
