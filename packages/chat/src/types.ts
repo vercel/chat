@@ -251,8 +251,12 @@ export interface Adapter<TThreadId = unknown, TRawMessage = unknown> {
     messageId: string,
     emoji: EmojiValue | string
   ): Promise<void>;
-  /** Bot user ID for platforms that use IDs in mentions (e.g., Slack's <@U123>) */
-  readonly botUserId?: string;
+  /**
+   * Bot user ID for platforms that use IDs in mentions (e.g., Slack's <@U123>).
+   * `| undefined` keeps a getter that returns `string | undefined` assignable
+   * under `exactOptionalPropertyTypes`.
+   */
+  readonly botUserId?: string | undefined;
 
   /**
    * Derive channel ID from a thread ID.

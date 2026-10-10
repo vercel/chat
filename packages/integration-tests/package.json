@@ -7,7 +7,7 @@
   "scripts": {
     "test": "vitest run --coverage",
     "test:watch": "vitest",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit && tsc -p tsconfig.exact-optional.json --noEmit"
   },
   "devDependencies": {
     "@changesets/config": "^3.1.2",
