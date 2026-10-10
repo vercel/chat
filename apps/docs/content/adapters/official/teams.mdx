@@ -238,6 +238,11 @@ Incoming Teams mentions are supported. Outgoing `@name` text, including multi-wo
 
 Fetching message history requires `TEAMS_APP_TENANT_ID` and the right permissions depending on the conversation type:
 
+Channel history is returned in creation order. Pass the returned `nextCursor`
+unchanged to the next request to continue in the same direction. The cursor
+also retains the message ID, so messages created at the same time are not
+skipped.
+
 | Context | Permission | Type | Admin consent? |
 |---------|-----------|------|---------------|
 | Channel | `ChannelMessage.Read.Group` | RSC | No |
