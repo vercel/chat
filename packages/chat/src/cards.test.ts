@@ -132,6 +132,12 @@ describe("Card Builder Functions", () => {
       expect(btn.tooltip).toBe("Confirm the order");
       expect(Button({ id: "ok", label: "OK" }).tooltip).toBeUndefined();
     });
+
+    it("creates a button with visibleTo", () => {
+      const btn = Button({ id: "ok", label: "OK", visibleTo: ["U123"] });
+      expect(btn.visibleTo).toEqual(["U123"]);
+      expect(Button({ id: "ok", label: "OK" }).visibleTo).toBeUndefined();
+    });
   });
 
   describe("LinkButton", () => {
@@ -162,6 +168,15 @@ describe("Card Builder Functions", () => {
         tooltip: "Opens example.com",
       });
       expect(btn.tooltip).toBe("Opens example.com");
+    });
+
+    it("creates a link button with visibleTo", () => {
+      const btn = LinkButton({
+        url: "https://example.com",
+        label: "Visit Site",
+        visibleTo: ["U123"],
+      });
+      expect(btn.visibleTo).toEqual(["U123"]);
     });
   });
 
