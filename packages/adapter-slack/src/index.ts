@@ -324,6 +324,10 @@ const STREAM_EXPIRED_ERROR = "message_not_in_streaming_state";
 const FENCE_LINE_PATTERN = /^ {0,3}(`{3,}|~{3,})(.*)$/;
 const TABLE_ROW_PATTERN = /^\|.*\|$/;
 const TABLE_SEPARATOR_PATTERN = /^\|[\s:]*-+[\s:]*(?:\|[\s:]*-+[\s:]*)*\|$/;
+/** A labeled user, channel, or user group token: `<!subteam^S1|@devs>`. */
+const LABELED_SLACK_TOKEN = /<([@#][A-Z0-9_]+|!subteam\^[A-Z0-9_]+)\|[^<>]*>/g;
+const UNLABELED_SLACK_TOKEN = /<(?:[@#][A-Z0-9_]+|!subteam\^[A-Z0-9_]+)>/g;
+const TRAILING_NEWLINES_PATTERN = /\n+$/;
 
 interface OpenFence {
   /** The fence run that opened the block, e.g. "```" or "~~~~". */
@@ -548,8 +552,13 @@ export interface SlackThreadId {
 export interface SlackMessageBlock extends SlackBlock {
   elements?: SlackMessageBlock[];
   rows?: unknown;
-  /** `{ code: true }` marks an inline-code text element. */
-  style?: { code?: boolean };
+  /**
+   * Text styling on a rich text element (`{ code: true }` marks inline code),
+   * or `"bullet"` / `"ordered"` on a `rich_text_list`.
+   */
+  style?:
+    | { bold?: boolean; code?: boolean; italic?: boolean; strike?: boolean }
+    | string;
   text?: string;
   url?: string;
   user_id?: string;
@@ -792,6 +801,172 @@ function blocktext(value: unknown): string {
   const separator =
     value.type === "rich_text" || value.type === "rich_text_list" ? "\n" : "";
   return value.elements.map(blocktext).join(separator);
+}
+
+/**
+ * Render the message body from its `rich_text` blocks when they contain a
+ * list. Slack flattens composer lists in `event.text` to lines starting with
+ * `•` or `◦`, which are not markdown list syntax, so the body is rebuilt from
+ * the blocks as mrkdwn with markdown list markers. Returns `undefined` for
+ * every other message, which keeps using `event.text`.
+ *
+ * Only messages whose non-table blocks are all `rich_text` qualify: other
+ * block types (such as an app's `section` blocks) carry content that
+ * `event.text` summarizes and this renderer would drop.
+ */
+function richTextBody(event: SlackEvent): string | undefined {
+  const blocks = (event.blocks ?? []).filter(
+    (block) => !TABLE_BLOCK_TYPES.has(block.type)
+  );
+  if (
+    blocks.length === 0 ||
+    !blocks.every((block) => block.type === "rich_text") ||
+    !blocks.some((block) =>
+      block.elements?.some((element) => element.type === "rich_text_list")
+    )
+  ) {
+    return;
+  }
+  const body = blocks.map((block) => richTextBlockMrkdwn(block)).join("\n");
+
+  // Block elements carry only IDs. `event.text` labels the same tokens
+  // (`<!subteam^S…|@handle>`, `<#C…|name>`), so reuse those labels.
+  const labeled = new Map<string, string>();
+  for (const match of (event.text ?? "").matchAll(LABELED_SLACK_TOKEN)) {
+    labeled.set(`<${match[1]}>`, match[0]);
+  }
+  return body.replace(
+    UNLABELED_SLACK_TOKEN,
+    (token) => labeled.get(token) ?? token
+  );
+}
+
+/**
+ * Render one `rich_text` block to mrkdwn. Lists and quotes are separated
+ * from the following text by a blank line so it does not become a lazy
+ * continuation of the last list item or quote line.
+ */
+function richTextBlockMrkdwn(block: SlackMessageBlock): string {
+  let result = "";
+  let previous: SlackMessageBlock | undefined;
+  // Content column of the most recent item at each list nesting level.
+  let columns: number[] = [];
+
+  for (const element of block.elements ?? []) {
+    const isList = element.type === "rich_text_list";
+    let chunk: string;
+    if (isList) {
+      chunk = richTextListMrkdwn(element, columns);
+    } else {
+      columns = [];
+      chunk = richTextElementMrkdwn(element);
+    }
+
+    if (previous) {
+      const previousIsList = previous.type === "rich_text_list";
+      const required =
+        isList !== previousIsList || previous.type === "rich_text_quote"
+          ? 2
+          : 1;
+      const newlines =
+        result.length - result.replace(TRAILING_NEWLINES_PATTERN, "").length;
+      result += "\n".repeat(Math.max(0, required - newlines));
+    }
+    result += chunk;
+    previous = element;
+  }
+  return result.replace(TRAILING_NEWLINES_PATTERN, "");
+}
+
+/**
+ * Render one `rich_text_list` element. Nested lists arrive as sibling
+ * elements with a higher `indent`, so each item is indented to the content
+ * column of its parent item, tracked across siblings in `columns`.
+ */
+function richTextListMrkdwn(
+  list: SlackMessageBlock,
+  columns: number[]
+): string {
+  const indent = Math.min(
+    typeof list.indent === "number" ? list.indent : 0,
+    columns.length
+  );
+  const base = indent === 0 ? 0 : (columns[indent - 1] ?? 0);
+  const offset = typeof list.offset === "number" ? list.offset : 0;
+  const lines: string[] = [];
+
+  for (const [index, item] of (list.elements ?? []).entries()) {
+    const marker = list.style === "ordered" ? `${offset + index + 1}. ` : "- ";
+    const column = base + marker.length;
+    columns.length = indent;
+    columns.push(column);
+    const [first = "", ...rest] = richTextElementMrkdwn(item)
+      .replace(TRAILING_NEWLINES_PATTERN, "")
+      .split("\n");
+    lines.push(`${" ".repeat(base)}${marker}${first}`);
+    for (const line of rest) {
+      lines.push(`${" ".repeat(column)}${line}`);
+    }
+  }
+  return lines.join("\n");
+}
+
+/** Render a section, quote, or preformatted rich text element to mrkdwn. */
+function richTextElementMrkdwn(element: SlackMessageBlock): string {
+  const inline = (element.elements ?? []).map(richTextInlineMrkdwn).join("");
+  switch (element.type) {
+    case "rich_text_preformatted": {
+      const code = (element.elements ?? [])
+        .map((child) =>
+          child.type === "text"
+            ? escapeSlackText(child.text ?? "")
+            : blocktext(child)
+        )
+        .join("");
+      return `\`\`\`\n${code}\n\`\`\``;
+    }
+    case "rich_text_quote":
+      return inline
+        .replace(TRAILING_NEWLINES_PATTERN, "")
+        .split("\n")
+        .map((line) => `&gt; ${line}`)
+        .join("\n");
+    default:
+      return inline;
+  }
+}
+
+/**
+ * Render an inline rich text element to mrkdwn. Text is entity-escaped the
+ * way Slack escapes `event.text`, and text styles become mrkdwn markers with
+ * surrounding whitespace kept outside them.
+ */
+function richTextInlineMrkdwn(element: SlackMessageBlock): string {
+  if (element.type !== "text") {
+    return blocktext(element);
+  }
+  const text = escapeSlackText(element.text ?? "");
+  const style = element.style;
+  if (!(isRecord(style) && text.trim())) {
+    return text;
+  }
+  const leading = text.length - text.trimStart().length;
+  const trailing = text.length - text.trimEnd().length;
+  let core = text.trim();
+  if (style.code) {
+    core = `\`${core}\``;
+  } else {
+    if (style.strike) {
+      core = `~${core}~`;
+    }
+    if (style.italic) {
+      core = `_${core}_`;
+    }
+    if (style.bold) {
+      core = `*${core}*`;
+    }
+  }
+  return text.slice(0, leading) + core + text.slice(text.length - trailing);
 }
 
 function hasBoldText(value: unknown): boolean {
@@ -4646,8 +4821,11 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
     const attachments = authorAttachments(event).map(attachmentContent);
     const isMention = this.detectSelfMention(event, rawText, attachments);
 
-    // Resolve inline @mentions to display names.
-    const text = await this.resolveInlineMentions(rawText);
+    // Resolve inline @mentions to display names. Composer lists are only
+    // structured in the blocks, so render the body from them when present.
+    const text = await this.resolveInlineMentions(
+      richTextBody(event) ?? rawText
+    );
     const formatted = await this.resolvedContent(event, text, attachments);
 
     return new Message({
@@ -6923,7 +7101,11 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
     // Classify the mention the same way the async path does, so an edit's
     // pre-edit snapshot cannot disagree with the edited message about it.
     const isMention = this.detectSelfMention(event, text, attachments);
-    const formatted = this.content(event, text, attachments);
+    const formatted = this.content(
+      event,
+      richTextBody(event) ?? text,
+      attachments
+    );
     // Without async lookup, fall back to user ID for human users
     const userName = event.username || event.user || "unknown";
     const fullName = event.username || event.user || "unknown";
