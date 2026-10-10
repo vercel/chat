@@ -32,6 +32,16 @@ export const getIssuesUrl = (
   return match ? `${match[1]}/issues` : undefined;
 };
 
+export const getRepositoryUrl = (
+  readmeUrl: string | undefined
+): string | undefined => {
+  if (!readmeUrl) {
+    return;
+  }
+  const match = readmeUrl.match(GITHUB_REPO_ROOT_PATTERN);
+  return match ? match[1] : undefined;
+};
+
 const warnUnpinned = (adapter: Adapter, ref: string | undefined) => {
   if (ref && !UNPINNED_REF_PATTERN.test(ref)) {
     return;
