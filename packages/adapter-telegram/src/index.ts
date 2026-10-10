@@ -3638,6 +3638,9 @@ export class TelegramAdapter
     //   topic-creation service message (its message_id equals
     //   message_thread_id), authored by whoever created the topic — the bot,
     //   when it did. Only an explicit reply to a different message counts.
+    //   This applies to topic messages only: in a regular supergroup a reply
+    //   also carries message_thread_id equal to the replied-to message's id
+    //   (a reply thread), and that reply does address the bot.
     // - The Bot API echoes the bot's own outbound replies back in send
     //   responses; the bot replying to itself is not a user addressing it.
     if (
@@ -3645,7 +3648,10 @@ export class TelegramAdapter
       this._botUserId &&
       message.reply_to_message?.from &&
       String(message.reply_to_message.from.id) === this._botUserId &&
-      message.reply_to_message.message_id !== message.message_thread_id &&
+      !(
+        message.is_topic_message &&
+        message.reply_to_message.message_id === message.message_thread_id
+      ) &&
       !(message.from && String(message.from.id) === this._botUserId)
     ) {
       return true;
