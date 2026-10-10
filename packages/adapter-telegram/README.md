@@ -51,7 +51,7 @@ bot.onNewMention(async (thread, message) => {
 
 ## Configuration
 
-Most options are auto-detected from environment variables when not provided. `nativeStreaming` and `streamingEditIntervalMs` are config only and have no environment variables.
+Most options are auto-detected from environment variables when not provided. `nativeStreaming`, `streamingEditIntervalMs`, and `longMessages` are config only and have no environment variables.
 
 | Option | Required | Description |
 |--------|----------|-------------|
@@ -66,6 +66,7 @@ Most options are auto-detected from environment variables when not provided. `na
 | `mentionOnReply` | No | Treat a reply to one of the bot's own messages as a mention, so it routes to `onNewMention`. Defaults to `false`. Auto-detected from `TELEGRAM_MENTION_ON_REPLY=true`. Implicit forum-topic replies and the bot's own messages never count |
 | `nativeStreaming` | No | Stream with Telegram's native draft previews in private chats. Defaults to `false`, which uses post-and-edit in every chat type |
 | `streamingEditIntervalMs` | No | Minimum interval between edits on the post-and-edit streaming path. Defaults to `1100` in private chats and `3100` in other chats, and acts as a floor for the Chat-level `streamingUpdateIntervalMs` |
+| `longMessages` | No | How text posts longer than Telegram's message limit are sent: `truncate` (default) cuts them with an ellipsis, `split` sends the full text as consecutive messages. See [Long messages](#long-messages) |
 | `apiUrl` | No | Telegram API base URL. Auto-detected from `TELEGRAM_API_BASE_URL`. Use `apiUrl` for cross-adapter consistency; the legacy `apiBaseUrl` alias is still accepted |
 | `logger` | No | Logger instance (defaults to `ConsoleLogger("info")`) |
 
@@ -312,6 +313,18 @@ On Telegram Bot API 10.1 and newer, explicit `{ markdown }` and `{ ast }` messag
 Plain strings, raw messages, cards, and media captions retain their existing lightweight message paths. Cards and captions use Telegram's `MarkdownV2` parse mode with context-aware escaping. If an older or custom Bot API server does not support rich message methods, the adapter automatically falls back to the existing MarkdownV2 path.
 
 Behavior change in 4.27.0: previous versions used Telegram's legacy `Markdown` parse mode, which used different syntax (`*bold*` instead of `**bold**`) and silently rejected any text containing unescaped `.`, `!`, `(`, `)`, `-`, `_`. If you were emitting raw legacy-Markdown strings or hand-escaping characters yourself, drop the manual escaping. The renderer does it for you. Pass `{ raw: "..." }` only if you need to ship a fully pre-escaped MarkdownV2 string.
+
+## Long messages
+
+Telegram limits a message to 4,096 characters, or 32,768 for rich messages. By default, the adapter truncates longer text posts and ends them with an ellipsis. MarkdownV2 escaping counts toward the limit, so heavily punctuated markdown is cut earlier than its source length suggests.
+
+Set `longMessages: "split"` to send the full text as consecutive messages, each within the limit:
+
+```typescript
+const telegram = createTelegramAdapter({ longMessages: "split" });
+```
+
+The adapter splits between blocks where possible, then at line breaks or spaces, and reopens formatting in the next message. Only the first message replies to the original message, and `post()` returns the last message. Cards, media captions, edits, and the message edited during post-and-edit streaming still truncate.
 
 ## Notes
 

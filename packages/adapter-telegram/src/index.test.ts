@@ -8025,3 +8025,197 @@ describe("Telegram Business mode", () => {
     ]);
   });
 });
+
+// These tests parse and render the issue's ~10k character sample several
+// times per post. That takes well under a second locally but can pass the
+// default 5s timeout under CI coverage instrumentation.
+describe("longMessages: split", { timeout: 20_000 }, () => {
+  const ISSUE_MARKDOWN = Array.from(
+    { length: 200 },
+    (_, index) =>
+      `## Section ${index + 1}\n\n- Result with punctuation: value_${index}.`
+  ).join("\n\n");
+
+  interface SentCall {
+    body: {
+      parse_mode?: string;
+      reply_parameters?: { message_id: number };
+      rich_message?: { markdown: string };
+      text?: string;
+    };
+    method: string;
+  }
+
+  let sent: SentCall[];
+
+  function mockTelegram(options: { rich?: boolean } = {}): void {
+    sent = [];
+    let nextMessageId = 100;
+    mockFetch.mockImplementation(async (input, init) => {
+      const method = String(input).split("/").pop() ?? "";
+      if (method === "getMe") {
+        return telegramOk({
+          id: 999,
+          is_bot: true,
+          first_name: "Bot",
+          username: "mybot",
+        });
+      }
+      const body = JSON.parse(String(init?.body)) as SentCall["body"];
+      sent.push({ method, body });
+      if (method === "sendRichMessage" && !options.rich) {
+        return telegramError(404, 404, "Not Found: method not found");
+      }
+      nextMessageId += 1;
+      return telegramOk(
+        sampleMessage({ message_id: nextMessageId, text: body.text ?? "" })
+      );
+    });
+  }
+
+  async function createSplitAdapter(): Promise<TelegramAdapter> {
+    const adapter = createTelegramAdapter({
+      botToken: "token",
+      longMessages: "split",
+      mode: "webhook",
+      logger: mockLogger,
+      userName: "mybot",
+    });
+    await adapter.initialize(createMockChat());
+    return adapter;
+  }
+
+  function sentMessages(): SentCall[] {
+    return sent.filter((call) => call.method === "sendMessage");
+  }
+
+  it("rejects an unknown strategy", () => {
+    expect(() =>
+      createTelegramAdapter({
+        botToken: "token",
+        // @ts-expect-error invalid on purpose
+        longMessages: "drop",
+      })
+    ).toThrow(ValidationError);
+  });
+
+  it("sends a long markdown post as ordered MarkdownV2 messages without losing content", async () => {
+    mockTelegram();
+    const adapter = await createSplitAdapter();
+
+    const result = await adapter.postMessage("telegram:123", {
+      markdown: ISSUE_MARKDOWN,
+    });
+
+    const messages = sentMessages();
+    expect(messages.length).toBeGreaterThan(1);
+    for (const { body } of messages) {
+      const text = body.text ?? "";
+      expect(body.parse_mode).toBe("MarkdownV2");
+      expect(text.length).toBeLessThanOrEqual(TELEGRAM_MESSAGE_LIMIT);
+      expect(text.endsWith("\\.\\.\\.")).toBe(false);
+      expect(trimToMarkdownV2SafeBoundary(text)).toBe(text);
+    }
+
+    const combined = messages.map(({ body }) => body.text).join("\n\n");
+    expect(combined).toBe(
+      new TelegramFormatConverter().fromMarkdown(ISSUE_MARKDOWN)
+    );
+    expect(result.id).toBe(`123:${100 + sent.length - 1}`);
+  });
+
+  it("still truncates by default", async () => {
+    mockTelegram();
+    const adapter = createTelegramAdapter({
+      botToken: "token",
+      mode: "webhook",
+      logger: mockLogger,
+      userName: "mybot",
+    });
+    await adapter.initialize(createMockChat());
+
+    await adapter.postMessage("telegram:123", { markdown: ISSUE_MARKDOWN });
+
+    expect(sentMessages()).toHaveLength(1);
+    expect(sentMessages()[0]?.body.text?.endsWith("\\.\\.\\.")).toBe(true);
+  });
+
+  it("sends a short post as one message", async () => {
+    mockTelegram({ rich: true });
+    const adapter = await createSplitAdapter();
+
+    await adapter.postMessage("telegram:123", { markdown: "**hello**" });
+
+    expect(sent).toHaveLength(1);
+    expect(sent[0]?.body.rich_message?.markdown).toBe("**hello**");
+  });
+
+  it("splits rich messages at the rich message limit", async () => {
+    mockTelegram({ rich: true });
+    const adapter = await createSplitAdapter();
+    const markdown = Array.from(
+      { length: 1200 },
+      (_, index) => `Paragraph ${index} with some filler text to pad it out.`
+    ).join("\n\n");
+
+    await adapter.postMessage("telegram:123", { markdown });
+
+    expect(sent.length).toBeGreaterThan(1);
+    const parts = sent.map(({ body, method }) => {
+      expect(method).toBe("sendRichMessage");
+      return body.rich_message?.markdown ?? "";
+    });
+    for (const part of parts) {
+      expect(Array.from(part).length).toBeLessThanOrEqual(32_768);
+    }
+    expect(parts.join("\n\n")).toContain("Paragraph 0 with");
+    expect(parts.at(-1)).toContain("Paragraph 1199 with");
+    expect(parts.join("\n\n").includes("...")).toBe(false);
+  });
+
+  it("splits again for regular messages when a rich send falls back", async () => {
+    mockTelegram();
+    const adapter = await createSplitAdapter();
+
+    await adapter.postMessage("telegram:123", { markdown: ISSUE_MARKDOWN });
+
+    expect(sent[0]?.method).toBe("sendRichMessage");
+    const messages = sentMessages();
+    expect(messages.length).toBeGreaterThan(1);
+    for (const { body } of messages) {
+      expect(body.text?.length).toBeLessThanOrEqual(TELEGRAM_MESSAGE_LIMIT);
+    }
+    expect(messages.at(-1)?.body.text).toContain("Section 200");
+  });
+
+  it("replies with the first part only", async () => {
+    mockTelegram();
+    const adapter = await createSplitAdapter();
+
+    await adapter.reply("telegram:123", "123:7", { markdown: ISSUE_MARKDOWN });
+
+    const messages = sentMessages();
+    expect(messages[0]?.body.reply_parameters?.message_id).toBe(7);
+    for (const { body } of messages.slice(1)) {
+      expect(body.reply_parameters).toBeUndefined();
+    }
+  });
+
+  it("splits plain strings at word boundaries", async () => {
+    mockTelegram();
+    const adapter = await createSplitAdapter();
+    const words = Array.from({ length: 2000 }, (_, index) => `w${index}`);
+
+    await adapter.postMessage("telegram:123", words.join(" "));
+
+    const messages = sentMessages();
+    expect(messages.length).toBeGreaterThan(1);
+    for (const { body } of messages) {
+      expect(body.parse_mode).toBeUndefined();
+      expect(body.text?.length).toBeLessThanOrEqual(TELEGRAM_MESSAGE_LIMIT);
+    }
+    expect(messages.map(({ body }) => body.text).join(" ")).toBe(
+      words.join(" ")
+    );
+  });
+});

@@ -33,6 +33,8 @@ packages/adapter-telegram/
 │   ├── cards.test.ts
 │   ├── markdown.ts          # TelegramFormatConverter (mdast ↔ MarkdownV2)
 │   ├── markdown.test.ts
+│   ├── split.ts             # Split long messages into parts that fit
+│   ├── split.test.ts
 │   └── types.ts             # Bot API typings
 ├── sample-messages.md       # captured Telegram updates
 ├── package.json
