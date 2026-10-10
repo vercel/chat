@@ -61,6 +61,7 @@ import {
   createTeamsAttachment,
   rehydrateTeamsAttachment,
   type TeamsActivityAttachment,
+  type TeamsAttachmentFetchers,
 } from "./attachments";
 import { BridgeHttpAdapter } from "./bridge-adapter";
 import { AUTO_SUBMIT_ACTION_ID, cardToAdaptiveCard } from "./cards";
@@ -189,6 +190,7 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
       skipAuth: Boolean(this.config.webhookVerifier),
     });
     const graphReader = new TeamsGraphReader({
+      attachmentFetchers: this.attachmentFetchers,
       botId: app.id ?? "",
       graph: app.graph,
       logger: this.logger,
@@ -1051,14 +1053,37 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
     att: TeamsActivityAttachment,
     serviceUrl?: string
   ): Attachment {
-    return createTeamsAttachment(att, serviceUrl, {
-      createAnonymousFetchData: (url) => this.createFetchDataFn(url),
-      fetchAuthenticated: (url) => this.fetchAuthenticatedAttachment(url),
-    });
+    return createTeamsAttachment(att, serviceUrl, this.attachmentFetchers);
   }
+
+  private readonly attachmentFetchers: TeamsAttachmentFetchers = {
+    createAnonymousFetchData: (url) => this.createFetchDataFn(url),
+    fetchAuthenticated: (url) => this.fetchAuthenticatedAttachment(url),
+    fetchGraphFile: (url) => this.fetchGraphFile(url),
+  };
 
   protected createFetchDataFn(url: string): () => Promise<Buffer> {
     return createAnonymousAttachmentFetchData(url);
+  }
+
+  /**
+   * Download a SharePoint or OneDrive file reference from a Graph message.
+   * Graph resolves the file to a pre-authenticated URL, which is then
+   * downloaded through `createFetchDataFn()` so the anonymous download
+   * limits and overrides still apply.
+   */
+  private async fetchGraphFile(url: string): Promise<Buffer> {
+    let downloadUrl: string;
+    try {
+      downloadUrl = await this.graphReader.resolveFileDownloadUrl(url);
+    } catch (error) {
+      throw new NetworkError(
+        "teams",
+        "Failed to resolve shared file through Microsoft Graph",
+        error instanceof Error ? error : undefined
+      );
+    }
+    return this.createFetchDataFn(downloadUrl)();
   }
 
   private async fetchAuthenticatedAttachment(url: string): Promise<Buffer> {
@@ -1088,10 +1113,7 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
   }
 
   rehydrateAttachment(attachment: Attachment): Attachment {
-    return rehydrateTeamsAttachment(attachment, {
-      createAnonymousFetchData: (url) => this.createFetchDataFn(url),
-      fetchAuthenticated: (url) => this.fetchAuthenticatedAttachment(url),
-    });
+    return rehydrateTeamsAttachment(attachment, this.attachmentFetchers);
   }
 
   protected normalizeMentions(text: string): string {

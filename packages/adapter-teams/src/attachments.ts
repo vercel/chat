@@ -3,16 +3,22 @@ import type { Attachment } from "chat";
 
 const FILE_DOWNLOAD_INFO_CONTENT_TYPE =
   "application/vnd.microsoft.teams.file.download.info";
+const GRAPH_FILE_REFERENCE_CONTENT_TYPE = "reference";
 const FILE_TYPE_PREFIX_PATTERN = /^\./;
 const LOOPBACK_HOST_PATTERN = /^(?:localhost|127(?:\.\d{1,3}){3}|\[::1\])$/i;
 const FILE_MIME_TYPES: Record<string, string> = {
   apng: "image/apng",
   avif: "image/avif",
+  csv: "text/csv",
+  doc: "application/msword",
+  docx: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
   gif: "image/gif",
   jpeg: "image/jpeg",
   jpg: "image/jpeg",
   pdf: "application/pdf",
   png: "image/png",
+  ppt: "application/vnd.ms-powerpoint",
+  pptx: "application/vnd.openxmlformats-officedocument.presentationml.presentation",
   svg: "image/svg+xml",
   txt: "text/plain",
   webp: "image/webp",
@@ -31,6 +37,10 @@ type AttachmentRetrieval =
       url: string;
     }
   | {
+      mode: "graph";
+      url: string;
+    }
+  | {
       mode: "rejected";
       url: string;
     };
@@ -38,6 +48,8 @@ type AttachmentRetrieval =
 export interface TeamsAttachmentFetchers {
   createAnonymousFetchData: (url: string) => () => Promise<Buffer>;
   fetchAuthenticated: (url: string) => Promise<Buffer>;
+  /** Download a SharePoint or OneDrive file reference through Microsoft Graph. */
+  fetchGraphFile: (url: string) => Promise<Buffer>;
 }
 
 export interface TeamsActivityAttachment {
@@ -45,6 +57,13 @@ export interface TeamsActivityAttachment {
   contentType?: string;
   contentUrl?: string;
   name?: string;
+}
+
+/** Attachment shape returned on Microsoft Graph chatMessage resources. */
+export interface TeamsGraphMessageAttachment {
+  contentType?: string | null;
+  contentUrl?: string | null;
+  name?: string | null;
 }
 
 function inferFileMimeType(name?: string, fileType?: string): string {
@@ -91,6 +110,9 @@ function createFetchDataFn(
 ): () => Promise<Buffer> {
   if (retrieval.mode === "anonymous") {
     return fetchers.createAnonymousFetchData(retrieval.url);
+  }
+  if (retrieval.mode === "graph") {
+    return () => fetchers.fetchGraphFile(retrieval.url);
   }
 
   return async () => {
@@ -203,6 +225,43 @@ export function createTeamsAttachment(
   };
 }
 
+/**
+ * Map an attachment from a Microsoft Graph chatMessage. Files shared in group
+ * chats and channels arrive as `reference` attachments that point at
+ * SharePoint or OneDrive, so they are downloaded through Graph instead of
+ * anonymously.
+ */
+export function createTeamsGraphAttachment(
+  att: TeamsGraphMessageAttachment,
+  fetchers: TeamsAttachmentFetchers
+): Attachment {
+  const name = att.name ?? undefined;
+  const url = att.contentUrl ?? undefined;
+
+  if (att.contentType !== GRAPH_FILE_REFERENCE_CONTENT_TYPE) {
+    return {
+      type: att.contentType?.includes("image") ? "image" : "file",
+      name,
+      url,
+      mimeType: att.contentType ?? undefined,
+    };
+  }
+
+  const mimeType = inferFileMimeType(name);
+  const retrieval: AttachmentRetrieval | undefined = url
+    ? { mode: "graph", url }
+    : undefined;
+
+  return {
+    type: classifyAttachmentType(mimeType),
+    name,
+    url,
+    mimeType,
+    fetchMetadata: url ? { url, auth: "graph" } : undefined,
+    fetchData: retrieval ? createFetchDataFn(retrieval, fetchers) : undefined,
+  };
+}
+
 export function rehydrateTeamsAttachment(
   attachment: Attachment,
   fetchers: TeamsAttachmentFetchers
@@ -218,6 +277,8 @@ export function rehydrateTeamsAttachment(
     retrieval = connectorOrigin
       ? { mode: "bot", url, connectorOrigin }
       : { mode: "rejected", url };
+  } else if (attachment.fetchMetadata?.auth === "graph") {
+    retrieval = { mode: "graph", url };
   }
 
   return {
