@@ -1,3 +1,4 @@
+import { ArrowUpRight } from "lucide-react";
 import {
   discord,
   gchat,
@@ -55,12 +56,19 @@ interface AdapterHeroProps {
   logo?: string;
   name: string;
   packageName?: string;
+  sourceUrl?: string;
   tagline: string;
   vendorOfficial?: boolean;
 }
 
-export const AdapterHero = ({ logo, name, tagline }: AdapterHeroProps) => {
+export const AdapterHero = ({
+  logo,
+  name,
+  sourceUrl,
+  tagline,
+}: AdapterHeroProps) => {
   const Icon = logo ? ICON_MAP[logo] : undefined;
+  const GithubIcon = github;
 
   return (
     <header className="not-prose mb-10 flex flex-col gap-4 border-b pb-8">
@@ -75,6 +83,20 @@ export const AdapterHero = ({ logo, name, tagline }: AdapterHeroProps) => {
       <p className="max-w-3xl text-balance text-[17px] text-muted-foreground leading-[1.6]">
         {tagline}
       </p>
+      {sourceUrl ? (
+        <div className="flex flex-wrap items-center gap-2">
+          <a
+            className="inline-flex h-8 items-center gap-1.5 rounded-md border bg-background px-3 py-5 text-sm font-medium shadow-xs transition-all hover:bg-accent hover:text-accent-foreground"
+            href={sourceUrl}
+            rel="noopener noreferrer"
+            target="_blank"
+          >
+            <GithubIcon className="size-4" />
+            Source code
+            <ArrowUpRight className="size-4" />
+          </a>
+        </div>
+      ) : null}
     </header>
   );
 };
