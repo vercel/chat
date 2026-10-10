@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { decodeCallbackValue } from "./callback-url";
 import { Actions, Button, Card, Text } from "./cards";
 import { jsx, jsxs } from "./jsx-runtime";
@@ -3655,6 +3655,40 @@ describe("ThreadImpl", () => {
         )
       ).toBe(false);
       expect(postedCard.children[0].children[0].value).toBe("keep");
+    });
+  });
+
+  describe("Workflow VM compatibility", () => {
+    afterEach(() => {
+      vi.unstubAllGlobals();
+      vi.resetModules();
+    });
+
+    it("loads and constructs without a global AbortController", async () => {
+      vi.stubGlobal("AbortController", undefined);
+      vi.resetModules();
+
+      const { ThreadImpl: IsolatedThreadImpl } = await import("./thread");
+      const thread = new IsolatedThreadImpl({
+        id: "slack:C123:1234.5678",
+        adapterName: "slack",
+        channelId: "slack:C123",
+      });
+
+      expect(thread.signal.aborted).toBe(false);
+      expect(() => thread.signal.throwIfAborted()).not.toThrow();
+    });
+
+    it("defaults to a real never-aborted AbortSignal when available", () => {
+      const thread = new ThreadImpl({
+        id: "slack:C123:1234.5678",
+        adapter: createMockAdapter(),
+        channelId: "slack:C123",
+        stateAdapter: createMockState(),
+      });
+
+      expect(thread.signal).toBeInstanceOf(AbortSignal);
+      expect(thread.signal.aborted).toBe(false);
     });
   });
 });

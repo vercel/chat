@@ -115,7 +115,37 @@ function isAsyncIterable(
   );
 }
 
-const NEVER_ABORTED_SIGNAL = new AbortController().signal;
+let neverAbortedSignal: AbortSignal | undefined;
+
+/**
+ * Returns a shared signal that never aborts.
+ *
+ * Created lazily because Workflow DevKit evaluates this module inside a VM
+ * that has no `AbortController`. Threads revived there get an inert stand-in.
+ */
+function getNeverAbortedSignal(): AbortSignal {
+  if (!neverAbortedSignal) {
+    neverAbortedSignal =
+      typeof AbortController === "function"
+        ? new AbortController().signal
+        : ({
+            aborted: false,
+            reason: undefined,
+            onabort: null,
+            throwIfAborted() {
+              // Never aborts.
+            },
+            addEventListener() {
+              // Never aborts, so listeners never fire.
+            },
+            removeEventListener() {
+              // Nothing to remove.
+            },
+            dispatchEvent: () => false,
+          } as unknown as AbortSignal);
+  }
+  return neverAbortedSignal;
+}
 
 async function* takeUntilAborted<T>(
   source: AsyncIterable<T>,
@@ -189,7 +219,7 @@ export class ThreadImpl<TState = Record<string, unknown>>
     this.channelId = config.channelId;
     this.isDM = config.isDM ?? false;
     this.channelVisibility = config.channelVisibility ?? "unknown";
-    this.signal = config.signal ?? NEVER_ABORTED_SIGNAL;
+    this.signal = config.signal ?? getNeverAbortedSignal();
     this._isSubscribedContext = config.isSubscribedContext ?? false;
     this._currentMessage = config.currentMessage;
     this._logger = config.logger;
