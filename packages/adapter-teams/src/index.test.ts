@@ -1236,6 +1236,156 @@ describe("TeamsAdapter", () => {
     });
   });
 
+  describe("postChannelMessage", () => {
+    it.each([
+      "text",
+      "card",
+    ] as const)("should return a replyable thread ID for a %s channel post", async (kind) => {
+      const adapter = createTeamsAdapter({
+        appId: "test-app-id",
+        appPassword: "test",
+        logger,
+      });
+      const mockApp = (
+        adapter as unknown as { app: { sendTo: ReturnType<typeof vi.fn> } }
+      ).app;
+      const rootMessageId = "1767297849909";
+      mockApp.sendTo = vi.fn(async () => ({ id: rootMessageId }));
+      const channel = {
+        conversationId: "19:abc@thread.tacv2",
+        serviceUrl: TEST_SERVICE_URL,
+      };
+      const message =
+        kind === "card"
+          ? { card: { type: "card" as const, title: "Root", children: [] } }
+          : { markdown: "Root" };
+
+      const sent = await adapter.postChannelMessage(
+        adapter.encodeThreadId(channel),
+        message
+      );
+      const thread = {
+        ...channel,
+        conversationId: `${channel.conversationId};messageid=${rootMessageId}`,
+      };
+      expect(sent.id).toBe(rootMessageId);
+      expect(adapter.decodeThreadId(sent.threadId)).toEqual(thread);
+
+      await adapter.postMessage(sent.threadId, { markdown: "Follow-up" });
+      expect(mockApp.sendTo).toHaveBeenNthCalledWith(
+        1,
+        channel,
+        expect.anything()
+      );
+      expect(mockApp.sendTo).toHaveBeenNthCalledWith(
+        2,
+        thread,
+        expect.anything()
+      );
+
+      await adapter.postChannelMessage(sent.threadId, message);
+      expect(mockApp.sendTo).toHaveBeenNthCalledWith(
+        3,
+        channel,
+        expect.anything()
+      );
+    });
+
+    it.each([
+      "text",
+      "card",
+    ] as const)("should preserve group chat and personal IDs for a %s post", async (kind) => {
+      const adapter = createTeamsAdapter({
+        appId: "test-app-id",
+        appPassword: "test",
+        logger,
+      });
+      const mockApp = (
+        adapter as unknown as { app: { sendTo: ReturnType<typeof vi.fn> } }
+      ).app;
+      mockApp.sendTo = vi.fn(async () => ({ id: "1767297849909" }));
+      const message =
+        kind === "card"
+          ? { card: { type: "card" as const, title: "Root", children: [] } }
+          : { markdown: "Root" };
+
+      for (const conversationId of [
+        "19:group@thread.v2",
+        "a:personal-conversation",
+      ]) {
+        const channelId = adapter.encodeThreadId({
+          conversationId,
+          serviceUrl: TEST_SERVICE_URL,
+        });
+        const sent = await adapter.postChannelMessage(channelId, message);
+        expect(sent.threadId).toBe(channelId);
+      }
+    });
+
+    it("uses the explicit conversation type for channel receipt IDs", async () => {
+      const adapter = createTeamsAdapter({
+        appId: "test-app-id",
+        appPassword: "test",
+        logger,
+      });
+      const mockApp = (
+        adapter as unknown as { app: { sendTo: ReturnType<typeof vi.fn> } }
+      ).app;
+      mockApp.sendTo = vi.fn(async () => ({ id: "root-100" }));
+
+      const personalId = adapter.encodeThreadId({
+        conversationId: "19:personal@thread.tacv2",
+        conversationType: "personal",
+        serviceUrl: TEST_SERVICE_URL,
+      });
+      const channelId = adapter.encodeThreadId({
+        conversationId: "a:channel",
+        conversationType: "channel",
+        serviceUrl: TEST_SERVICE_URL,
+      });
+
+      await expect(
+        adapter.postChannelMessage(personalId, { markdown: "Personal" })
+      ).resolves.toMatchObject({ threadId: personalId });
+      await expect(
+        adapter.postChannelMessage(channelId, { markdown: "Channel" })
+      ).resolves.toMatchObject({
+        threadId: adapter.encodeThreadId({
+          conversationId: "a:channel;messageid=root-100",
+          conversationType: "channel",
+          serviceUrl: TEST_SERVICE_URL,
+        }),
+      });
+    });
+
+    it.each([
+      "text",
+      "card",
+    ] as const)("should preserve the channel ID when a %s post has no message ID", async (kind) => {
+      const adapter = createTeamsAdapter({
+        appId: "test-app-id",
+        appPassword: "test",
+        logger,
+      });
+      const mockApp = (
+        adapter as unknown as { app: { sendTo: ReturnType<typeof vi.fn> } }
+      ).app;
+      mockApp.sendTo = vi.fn(async () => ({}));
+      const channelId = adapter.encodeThreadId({
+        conversationId: "19:abc@thread.tacv2",
+        serviceUrl: TEST_SERVICE_URL,
+      });
+      const message =
+        kind === "card"
+          ? { card: { type: "card" as const, title: "Root", children: [] } }
+          : { markdown: "Root" };
+
+      const sent = await adapter.postChannelMessage(channelId, message);
+      expect(sent.id).toBe("");
+      expect(sent.threadId).toBe(channelId);
+    });
+  });
+
   describe("postEphemeral", () => {
     it("should send a targeted text message to the requested user", async () => {
       const adapter = createTeamsAdapter({

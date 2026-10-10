@@ -361,6 +361,17 @@ selected-channel metadata remain in `event.raw`.
 
 See Microsoft's [installation update documentation](https://learn.microsoft.com/en-us/microsoftteams/platform/bots/how-to/conversations/subscribe-to-conversation-events#installation-update-event).
 
+## Starting channel threads
+
+A channel post starts a new Teams thread. Use the returned `threadId` to post follow-ups to that thread:
+
+```typescript
+const root = await bot.channel(channelId).post("New support request");
+await bot.thread(root.threadId).post("Follow-up for this request");
+```
+
+Both text and Adaptive Card posts return the created thread's ID. Group chats and personal conversations retain their existing conversation IDs.
+
 ## Targeted / ephemeral messages
 
 Teams targeted messages are available in public preview. Use `thread.postEphemeral()` or `channel.postEphemeral()` to send a native Teams message that only the selected conversation member can see:

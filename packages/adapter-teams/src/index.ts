@@ -1982,6 +1982,18 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
       ""
     );
 
+    const isChannel =
+      target.conversationType === "channel" ||
+      (target.conversationType === undefined &&
+        baseConversationId.endsWith("@thread.tacv2"));
+    const getThreadId = (messageId?: string): string =>
+      messageId && isChannel
+        ? this.encodeThreadId({
+            ...target,
+            conversationId: `${baseConversationId};messageid=${messageId}`,
+          })
+        : channelId;
+
     const files = extractFiles(message);
     const fileAttachments =
       files.length > 0 ? await this.filesToAttachments(files) : [];
@@ -2004,7 +2016,11 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
           { ...target, conversationId: baseConversationId },
           activity
         );
-        return { id: sent.id || "", threadId: channelId, raw: activity };
+        return {
+          id: sent.id || "",
+          threadId: getThreadId(sent.id),
+          raw: activity,
+        };
       } catch (error) {
         this.logger.error("Teams API: postChannelMessage failed", {
           conversationId: baseConversationId,
@@ -2032,7 +2048,11 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
       this.logger.debug("Teams API: postChannelMessage response", {
         messageId: sent.id,
       });
-      return { id: sent.id || "", threadId: channelId, raw: activity };
+      return {
+        id: sent.id || "",
+        threadId: getThreadId(sent.id),
+        raw: activity,
+      };
     } catch (error) {
       this.logger.error("Teams API: postChannelMessage failed", {
         conversationId: baseConversationId,
