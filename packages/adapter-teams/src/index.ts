@@ -89,7 +89,12 @@ import type {
   TeamsThreadId,
 } from "./types";
 
-/** Data payload from an Action.Submit button click. */
+/**
+ * Data payload from an Action.Submit button click. Teams merges the card's own
+ * input values into the same flat object, so it carries more keys than this
+ * names; `cardInputValues` reads those. Kept free of an index signature so a
+ * misspelled member read stays a compile error rather than `unknown`.
+ */
 interface ActionSubmitData {
   actionId?: string;
   value?: string;
@@ -124,6 +129,51 @@ function resolveTeamsReactionType(
 ): MessageReactionType {
   const name = typeof emoji === "string" ? emoji : emoji.name;
   return TEAMS_REACTION_ALIASES[name] ?? name;
+}
+
+/**
+ * Keys this adapter itself puts on a card's `Action.Submit`: `actionId` and
+ * `value` come from the button (see `cards.ts`), `msteams` is the task/fetch
+ * hint on dialog buttons. Teams merges the card's own inputs into the same flat
+ * object, so every reader of that payload has to skip these — and they must all
+ * skip the same set, or an input is reported down one path and dropped down
+ * another. An input whose id collides with one of these is indistinguishable
+ * from the adapter's own key and is skipped.
+ */
+const RESERVED_SUBMIT_KEYS: ReadonlySet<string> = new Set([
+  "actionId",
+  "msteams",
+  "value",
+]);
+
+/**
+ * The card's input values out of an Action.Submit payload, keyed by input id,
+ * or `undefined` when the card carried none.
+ *
+ * Takes `object` so the callers' typed payloads need no cast. Numbers are
+ * stringified the way `parseDialogSubmitValues` does, so a card action and a
+ * dialog submit report the same shape.
+ */
+function cardInputValues(
+  data: object | undefined
+): Record<string, string> | undefined {
+  if (!data) {
+    return undefined;
+  }
+
+  const values: Record<string, string> = {};
+  for (const [key, value] of Object.entries(data) as [string, unknown][]) {
+    if (RESERVED_SUBMIT_KEYS.has(key)) {
+      continue;
+    }
+    if (typeof value === "string") {
+      values[key] = value;
+    } else if (typeof value === "number") {
+      values[key] = String(value);
+    }
+  }
+
+  return Object.keys(values).length > 0 ? values : undefined;
 }
 
 export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
@@ -630,11 +680,7 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
 
     // Auto-submit fan-out: fire onAction for each input value
     if (actionValue.actionId === AUTO_SUBMIT_ACTION_ID) {
-      this.fanOutAutoSubmit(
-        actionValue as unknown as Record<string, unknown>,
-        activity,
-        threadId
-      );
+      this.fanOutAutoSubmit(actionValue, activity, threadId);
       return;
     }
 
@@ -643,6 +689,7 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
     } = {
       actionId: actionValue.actionId,
       value: actionValue.value,
+      values: cardInputValues(actionValue),
       user: {
         userId: activity.from?.id || "unknown",
         userName: activity.from?.name || "unknown",
@@ -693,8 +740,7 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
 
     // Auto-submit fan-out: fire onAction for each input value
     if (actionData.actionId === AUTO_SUBMIT_ACTION_ID) {
-      const rawPayload = activity.value.action.data as Record<string, unknown>;
-      this.fanOutAutoSubmit(rawPayload, activity, threadId);
+      this.fanOutAutoSubmit(actionData, activity, threadId);
       return;
     }
 
@@ -703,6 +749,7 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
     } = {
       actionId: actionData.actionId,
       value: actionData.value,
+      values: cardInputValues(actionData),
       user: {
         userId: activity.from?.id || "unknown",
         userName: activity.from?.name || "unknown",
@@ -735,7 +782,7 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
    * Each input key/value pair is dispatched as a separate action in parallel.
    */
   protected fanOutAutoSubmit(
-    payload: Record<string, unknown>,
+    payload: object,
     activity: Activity,
     threadId: string
   ): void {
@@ -744,8 +791,8 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
     }
 
     const webhookOptions = this.bridgeAdapter.getWebhookOptions(activity.id);
-    const entries = Object.entries(payload).filter(
-      ([key]) => key !== "actionId" && key !== "msteams"
+    const entries = (Object.entries(payload) as [string, unknown][]).filter(
+      ([key]) => !RESERVED_SUBMIT_KEYS.has(key)
     );
 
     this.logger.debug("Auto-submit fan-out", {
@@ -765,6 +812,8 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
       threadId,
       adapter: this as TeamsAdapter,
       raw: activity,
+      // Every fanned-out action reports the whole form, not just its own input.
+      values: cardInputValues(payload),
     };
 
     for (const [key, val] of entries) {
@@ -811,6 +860,7 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
     } = {
       actionId: actionData.actionId || "dialog.open",
       value: actionData.value,
+      values: cardInputValues(actionData),
       user: {
         userId: activity.from?.id || "unknown",
         userName: activity.from?.name || "unknown",

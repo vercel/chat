@@ -6,6 +6,7 @@ import {
   CardLink,
   Chart,
   cardChildToFallbackText,
+  cardToFallbackText,
   Divider,
   Field,
   Fields,
@@ -16,7 +17,7 @@ import {
   Table,
   Text,
 } from "./cards";
-import { RadioSelect, Select, SelectOption } from "./modals";
+import { RadioSelect, Select, SelectOption, TextInput } from "./modals";
 
 describe("Card Builder Functions", () => {
   describe("Card", () => {
@@ -332,6 +333,58 @@ describe("Card Builder Functions", () => {
           },
         ],
       });
+    });
+  });
+
+  describe("TextInput as a card child", () => {
+    it("sits directly in a card's children", () => {
+      const card = Card({
+        title: "Feedback",
+        children: [
+          Text("What should change?"),
+          TextInput({ id: "notes", label: "Notes", multiline: true }),
+        ],
+      });
+
+      expect(card.children[1]).toEqual({
+        type: "text_input",
+        id: "notes",
+        label: "Notes",
+        multiline: true,
+        placeholder: undefined,
+        initialValue: undefined,
+        optional: undefined,
+        maxLength: undefined,
+      });
+    });
+
+    it("sits inside a section", () => {
+      const section = Section([TextInput({ id: "notes", label: "Notes" })]);
+      expect(section.children[0].type).toBe("text_input");
+    });
+
+    it("falls back to its label", () => {
+      expect(
+        cardChildToFallbackText(TextInput({ id: "notes", label: "Notes" }))
+      ).toBe("Notes");
+    });
+
+    it("contributes its label to the card fallback text", () => {
+      const text = cardToFallbackText(
+        Card({
+          title: "Feedback",
+          children: [TextInput({ id: "notes", label: "Notes" })],
+        })
+      );
+      expect(text).toBe("**Feedback**\nNotes");
+    });
+
+    it("falls back to its label from inside a section", () => {
+      expect(
+        cardChildToFallbackText(
+          Section([TextInput({ id: "notes", label: "Notes" })])
+        )
+      ).toBe("Notes");
     });
   });
 

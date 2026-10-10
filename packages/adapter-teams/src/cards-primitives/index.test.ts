@@ -413,4 +413,57 @@ describe("Teams card primitives tables", () => {
       columns: [{ width: 1 }, { width: 1 }, { width: 1 }, { width: 2 }],
     });
   });
+  it("renders a text input as a required single-line Input.Text by default", () => {
+    const card = cardToAdaptiveCard({
+      children: [{ id: "notes", label: "Notes", type: "text_input" }],
+      type: "card",
+    });
+
+    expect(card.body[0]).toEqual({
+      id: "notes",
+      isMultiline: false,
+      isRequired: true,
+      label: "Notes",
+      type: "Input.Text",
+    });
+  });
+
+  it("carries multiline, placeholder, maxLength and the initial value", () => {
+    const card = cardToAdaptiveCard({
+      children: [
+        {
+          id: "notes",
+          initialValue: "draft",
+          label: "Notes",
+          maxLength: 500,
+          multiline: true,
+          optional: true,
+          placeholder: "Type...",
+          type: "text_input",
+        },
+      ],
+      type: "card",
+    });
+
+    expect(card.body[0]).toEqual({
+      id: "notes",
+      isMultiline: true,
+      isRequired: false,
+      label: "Notes",
+      maxLength: 500,
+      placeholder: "Type...",
+      type: "Input.Text",
+      value: "draft",
+    });
+  });
+
+  it("falls back to the text input label", () => {
+    expect(
+      cardToTeamsFallbackText({
+        children: [{ id: "notes", label: "Notes", type: "text_input" }],
+        title: "Feedback",
+        type: "card",
+      })
+    ).toBe("Feedback\n\nNotes");
+  });
 });

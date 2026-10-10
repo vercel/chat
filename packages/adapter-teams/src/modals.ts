@@ -12,7 +12,6 @@ import type {
   ChoiceSetInputOptions,
   DateInputOptions,
   NumberInputOptions,
-  TextInputOptions,
 } from "@microsoft/teams.cards";
 import {
   AdaptiveCard,
@@ -24,7 +23,6 @@ import {
   NumberInput,
   SubmitAction,
   TextBlock,
-  TextInput,
 } from "@microsoft/teams.cards";
 import type {
   DateInputElement,
@@ -36,8 +34,8 @@ import type {
   RadioSelectElement,
   SelectElement,
   TextElement,
-  TextInputElement,
 } from "chat";
+import { textInputToAdaptive } from "./cards";
 
 const convertEmoji = createEmojiConverter("teams");
 
@@ -117,20 +115,6 @@ function modalChildToAdaptiveElements(child: ModalChild): CardElementArray {
     default:
       return [];
   }
-}
-
-function textInputToAdaptive(input: TextInputElement): TextInput {
-  const options: TextInputOptions = {
-    id: input.id,
-    label: convertEmoji(input.label),
-    isMultiline: input.multiline ?? false,
-    isRequired: !(input.optional ?? false),
-    placeholder: input.placeholder,
-    value: input.initialValue,
-    maxLength: input.maxLength,
-  };
-
-  return new TextInput(options);
 }
 
 function dateInputToAdaptive(input: DateInputElement): DateInput {

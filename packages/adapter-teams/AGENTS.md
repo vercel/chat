@@ -242,6 +242,10 @@ Adaptive Card v1.5 JSON. Notable mappings:
   options).
 - `<Divider>` → `Container` with a top border.
 - `<Table>` → `Table` (Adaptive Card 1.5+).
+- `<TextInput>` → `Input.Text` (required unless `optional`; Teams validates
+  every input on the card before it lets any `Action.Submit` through). Its
+  value comes back merged into the submit payload, so `cardInputValues`
+  skips `RESERVED_SUBMIT_KEYS` to tell inputs from the adapter's own keys.
 
 `modals.ts` handles Task Modules: `Modal.title` / `submitLabel` map to
 `title` / `value` of the surrounding `task/fetch` response. Submit

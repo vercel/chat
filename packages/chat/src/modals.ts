@@ -3,6 +3,15 @@
  */
 
 import type { FieldsElement, TextElement } from "./cards";
+// `TextInput` lives in its own leaf module so cards.ts can use it without
+// pulling this one in, but it stays part of this module's public surface.
+import { TextInput, type TextInputElement } from "./text-input";
+
+export {
+  TextInput,
+  type TextInputElement,
+  type TextInputOptions,
+} from "./text-input";
 
 // ============================================================================
 // Modal Element Types
@@ -41,17 +50,6 @@ export interface ModalElement {
   submitLabel?: string;
   title: string;
   type: "modal";
-}
-
-export interface TextInputElement {
-  id: string;
-  initialValue?: string;
-  label: string;
-  maxLength?: number;
-  multiline?: boolean;
-  optional?: boolean;
-  placeholder?: string;
-  type: "text_input";
 }
 
 export interface DateInputElement {
@@ -169,29 +167,6 @@ export function Modal(options: ModalOptions): ModalElement {
     notifyOnClose: options.notifyOnClose,
     privateMetadata: options.privateMetadata,
     children: options.children ?? [],
-  };
-}
-
-export interface TextInputOptions {
-  id: string;
-  initialValue?: string;
-  label: string;
-  maxLength?: number;
-  multiline?: boolean;
-  optional?: boolean;
-  placeholder?: string;
-}
-
-export function TextInput(options: TextInputOptions): TextInputElement {
-  return {
-    type: "text_input",
-    id: options.id,
-    label: options.label,
-    placeholder: options.placeholder,
-    initialValue: options.initialValue,
-    multiline: options.multiline,
-    optional: options.optional,
-    maxLength: options.maxLength,
   };
 }
 
