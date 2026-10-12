@@ -655,6 +655,8 @@ export interface PlanUpdateChunk {
  * Platform-specific options are passed through to the adapter.
  */
 export interface StreamOptions {
+  /** Mark the streamed message as AI-generated. Adapters with a native AI label (currently Teams) show it. */
+  aiGenerated?: boolean;
   /** Placeholder text when explicitly configured for fallback streaming. */
   fallbackStreamingPlaceholderText?: string | null;
   /** Slack: The team/workspace ID */
@@ -1815,7 +1817,7 @@ export type StreamEvent =
   | { type: string };
 
 export interface PostableRaw {
-  /** Teams: Show the "AI generated" label on this message. Ignored by other adapters. */
+  /** Mark the message as AI-generated. Adapters with a native AI label (currently Teams) show it; others ignore it. */
   aiGenerated?: boolean;
   /** File/image attachments */
   attachments?: Attachment[];
@@ -1826,7 +1828,7 @@ export interface PostableRaw {
 }
 
 export interface PostableMarkdown {
-  /** Teams: Show the "AI generated" label on this message. Ignored by other adapters. */
+  /** Mark the message as AI-generated. Adapters with a native AI label (currently Teams) show it; others ignore it. */
   aiGenerated?: boolean;
   /** File/image attachments */
   attachments?: Attachment[];
@@ -1837,7 +1839,7 @@ export interface PostableMarkdown {
 }
 
 export interface PostableAst {
-  /** Teams: Show the "AI generated" label on this message. Ignored by other adapters. */
+  /** Mark the message as AI-generated. Adapters with a native AI label (currently Teams) show it; others ignore it. */
   aiGenerated?: boolean;
   /** mdast AST, converted to platform format */
   ast: Root;
@@ -1848,7 +1850,7 @@ export interface PostableAst {
 }
 
 export interface PostableCard {
-  /** Teams: Show the "AI generated" label on this message. Ignored by other adapters. */
+  /** Mark the message as AI-generated. Adapters with a native AI label (currently Teams) show it; others ignore it. */
   aiGenerated?: boolean;
   /** Rich card element */
   card: CardElement;

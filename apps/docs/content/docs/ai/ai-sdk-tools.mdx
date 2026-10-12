@@ -304,6 +304,8 @@ Thread and channel ids use the full Chat SDK form: `slack:C123ABC:1234567890.123
 | `unsubscribeThread` | Stop receiving non-mention messages in a thread | required |
 | `startTyping` | Show a typing indicator in a scoped thread | no approval |
 
+`postMessage`, `postChannelMessage`, `sendDirectMessage`, and `editMessage` mark `markdown` and `raw` bodies with `aiGenerated: true`, so adapters with a native AI label, such as Teams, show it. Plain-string bodies are sent unchanged and unlabeled, so an `editMessage` call with a string body removes an existing label.
+
 ## API
 
 ### `createChatTools(options)`

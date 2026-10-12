@@ -20,7 +20,11 @@ import type {
   SentActivity,
   TaskModuleResponse,
 } from "@microsoft/teams.api";
-import { MessageActivity, TypingActivity } from "@microsoft/teams.api";
+import {
+  MessageActivity,
+  MessageActivityInput,
+  TypingActivity,
+} from "@microsoft/teams.api";
 import type { IActivityContext, IStreamer } from "@microsoft/teams.apps";
 import { StreamCancelledError } from "@microsoft/teams.apps";
 import { users } from "@microsoft/teams.graph-endpoints";
@@ -55,6 +59,7 @@ import {
   defaultEmojiResolver,
   Message,
 } from "chat";
+import { applyAiGeneratedLabel } from "./ai-generated";
 import { TeamsApp } from "./app";
 import {
   createAnonymousAttachmentFetchData,
@@ -124,14 +129,6 @@ function resolveTeamsReactionType(
 ): MessageReactionType {
   const name = typeof emoji === "string" ? emoji : emoji.name;
   return TEAMS_REACTION_ALIASES[name] ?? name;
-}
-
-function isAiGenerated(message: AdapterPostableMessage): boolean {
-  return (
-    typeof message === "object" &&
-    "aiGenerated" in message &&
-    message.aiGenerated === true
-  );
 }
 
 export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
@@ -1298,9 +1295,7 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
         },
         ...fileAttachments,
       ];
-      if (isAiGenerated(message)) {
-        activity.addAiGenerated();
-      }
+      applyAiGeneratedLabel(activity, message);
 
       this.logger.debug("Teams API: send (adaptive card)", {
         conversationId,
@@ -1332,9 +1327,7 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
     if (fileAttachments.length > 0) {
       activity.attachments = fileAttachments;
     }
-    if (isAiGenerated(message)) {
-      activity.addAiGenerated();
-    }
+    applyAiGeneratedLabel(activity, message);
 
     this.logger.debug("Teams API: send (message)", {
       conversationId,
@@ -1393,9 +1386,7 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
         },
         ...fileAttachments,
       ];
-      if (isAiGenerated(message)) {
-        activity.addAiGenerated();
-      }
+      applyAiGeneratedLabel(activity, message);
 
       this.logger.debug("Teams API: send (targeted adaptive card)", {
         conversationId,
@@ -1433,9 +1424,7 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
     if (fileAttachments.length > 0) {
       activity.attachments = fileAttachments;
     }
-    if (isAiGenerated(message)) {
-      activity.addAiGenerated();
-    }
+    applyAiGeneratedLabel(activity, message);
 
     this.logger.debug("Teams API: send (targeted message)", {
       conversationId,
@@ -1594,9 +1583,7 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
           content: adaptiveCard,
         },
       ];
-      if (isAiGenerated(message)) {
-        activity.addAiGenerated();
-      }
+      applyAiGeneratedLabel(activity, message);
 
       const targeted = await this.isTargetedActivity(conversationId, messageId);
 
@@ -1632,9 +1619,7 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
 
     const activity = new MessageActivity(text);
     activity.textFormat = "markdown";
-    if (isAiGenerated(message)) {
-      activity.addAiGenerated();
-    }
+    applyAiGeneratedLabel(activity, message);
 
     const targeted = await this.isTargetedActivity(conversationId, messageId);
 
@@ -1798,7 +1783,8 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
         threadId,
         textStream,
         activeStream,
-        options?.fallbackStreamingPlaceholderText
+        options?.fallbackStreamingPlaceholderText,
+        options?.aiGenerated
       );
     }
 
@@ -1822,7 +1808,10 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
     if (!accumulated) {
       return { id: "", threadId, raw: { text: "" } };
     }
-    return this.postMessage(threadId, { markdown: accumulated });
+    return this.postMessage(threadId, {
+      markdown: accumulated,
+      aiGenerated: options?.aiGenerated,
+    });
   }
 
   /**
@@ -1837,7 +1826,8 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
     threadId: string,
     textStream: AsyncIterable<string | StreamChunk>,
     stream: IStreamer,
-    placeholderText?: string | null
+    placeholderText?: string | null,
+    aiGenerated?: boolean
   ): Promise<RawMessage<unknown>> {
     let accumulated = "";
     let messageId = "";
@@ -1869,7 +1859,11 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
           continue;
         }
 
-        stream.emit(text);
+        // The streamer builds the final message from the last emitted
+        // activity's entities, so every chunk carries the label.
+        stream.emit(
+          aiGenerated ? new MessageActivityInput(text).addAiGenerated() : text
+        );
         accumulated += text;
       }
     } catch (error) {
@@ -2024,9 +2018,7 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
         },
         ...fileAttachments,
       ];
-      if (isAiGenerated(message)) {
-        activity.addAiGenerated();
-      }
+      applyAiGeneratedLabel(activity, message);
 
       try {
         const sent = await this.app.sendTo(
@@ -2052,9 +2044,7 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
     if (fileAttachments.length > 0) {
       activity.attachments = fileAttachments;
     }
-    if (isAiGenerated(message)) {
-      activity.addAiGenerated();
-    }
+    applyAiGeneratedLabel(activity, message);
 
     try {
       const sent = await this.app.sendTo(

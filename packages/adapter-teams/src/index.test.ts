@@ -1528,6 +1528,136 @@ describe("TeamsAdapter", () => {
       await adapter.postMessage(threadId, message);
       expect(sentEntities()).not.toEqual(AI_LABEL);
     });
+
+    it("does not label a postChannelMessage without the flag", async () => {
+      const { adapter, threadId, sentEntities } = setUp();
+      await adapter.postChannelMessage(threadId, {
+        markdown: "Here's how to get started.",
+      });
+      expect(sentEntities()).not.toEqual(AI_LABEL);
+    });
+
+    it("does not label an editMessage without the flag", async () => {
+      const { adapter, threadId, updatedEntities } = setUp();
+      await adapter.editMessage(threadId, "edit-msg-1", {
+        markdown: "Here's how to get started.",
+      });
+      expect(updatedEntities()).not.toEqual(AI_LABEL);
+    });
+
+    it("does not carry the label over to an edit that omits the flag", async () => {
+      const { adapter, threadId, sentEntities, updatedEntities } = setUp();
+      await adapter.postMessage(threadId, {
+        markdown: "Usage rose 12% this week.",
+        aiGenerated: true,
+      });
+      await adapter.editMessage(threadId, "sent-msg-1", "Usage rose 15%.");
+      expect(sentEntities()).toEqual(AI_LABEL);
+      expect(updatedEntities()).not.toEqual(AI_LABEL);
+    });
+
+    it("labels an edit of a targeted message", async () => {
+      const adapter = createTeamsAdapter({
+        appId: "test-app-id",
+        appPassword: "test",
+        logger,
+      });
+      await adapter.initialize(createMockChatInstance());
+      const calls = {
+        update: vi.fn(async () => ({ id: "targeted-msg-1" })),
+        updateTargeted: vi.fn(async () => ({ id: "targeted-msg-1" })),
+        delete: vi.fn(),
+        deleteTargeted: vi.fn(),
+      };
+      const mockApp = (
+        adapter as unknown as { app: { api: unknown; sendTo: unknown } }
+      ).app;
+      mockApp.sendTo = vi.fn(async () => ({
+        id: "targeted-msg-1",
+        type: "message",
+      }));
+      mockApp.api = {
+        conversations: { activities: () => calls },
+        reactions: { add: vi.fn(), remove: vi.fn() },
+        serviceUrl: SERVICE_URL,
+      };
+      const threadId = adapter.encodeThreadId({
+        conversationId: "19:abc@thread.tacv2",
+        serviceUrl: SERVICE_URL,
+      });
+      await adapter.postEphemeral(threadId, "29:target-user", {
+        markdown: "Only you can see this",
+      });
+
+      await adapter.editMessage(threadId, "targeted-msg-1", {
+        markdown: "Updated",
+        aiGenerated: true,
+      });
+
+      expect(calls.update).not.toHaveBeenCalled();
+      expect(calls.updateTargeted).toHaveBeenCalledTimes(1);
+      const activity = calls.updateTargeted.mock.calls[0]?.[1] as
+        | { entities?: unknown[] }
+        | undefined;
+      expect(activity?.entities).toEqual(AI_LABEL);
+    });
+
+    describe("stream", () => {
+      async function* chunks(parts: string[]) {
+        yield* parts;
+      }
+
+      it("labels a buffered stream when aiGenerated is set", async () => {
+        const { adapter, threadId, sentEntities } = setUp();
+        await adapter.stream(threadId, chunks(["Usage ", "rose."]), {
+          aiGenerated: true,
+        });
+        expect(sentEntities()).toEqual(AI_LABEL);
+      });
+
+      it("does not label a buffered stream without the flag", async () => {
+        const { adapter, threadId, sentEntities } = setUp();
+        await adapter.stream(threadId, chunks(["Usage ", "rose."]));
+        expect(sentEntities()).not.toEqual(AI_LABEL);
+      });
+
+      function setUpNativeStream() {
+        const { adapter, threadId } = setUp();
+        let onChunk: ((activity: { id: string }) => void) | undefined;
+        const streamer = {
+          canceled: false,
+          close: vi.fn(),
+          emit: vi.fn(() => onChunk?.({ id: "answer-id" })),
+          events: {
+            once: vi.fn((_event, listener) => {
+              onChunk = listener;
+            }),
+          },
+          update: vi.fn(),
+        };
+        (
+          adapter as unknown as { activeStreams: Map<string, unknown> }
+        ).activeStreams.set(threadId, streamer);
+        return { adapter, threadId, emit: streamer.emit };
+      }
+
+      it("labels every chunk emitted to an active streamer", async () => {
+        const { adapter, threadId, emit } = setUpNativeStream();
+        await adapter.stream(threadId, chunks(["Usage ", "rose."]), {
+          aiGenerated: true,
+        });
+        expect(emit).toHaveBeenCalledTimes(2);
+        for (const [arg] of emit.mock.calls as unknown[][]) {
+          expect(arg).toEqual(expect.objectContaining({ entities: AI_LABEL }));
+        }
+      });
+
+      it("emits plain strings to an active streamer without the flag", async () => {
+        const { adapter, threadId, emit } = setUpNativeStream();
+        await adapter.stream(threadId, chunks(["Usage ", "rose."]));
+        expect(emit.mock.calls).toEqual([["Usage "], ["rose."]]);
+      });
+    });
   });
 
   describe("deleteMessage", () => {
