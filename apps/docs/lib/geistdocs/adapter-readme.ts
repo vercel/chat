@@ -1,7 +1,7 @@
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
+import { type CatalogEntry, getCatalogEntry } from "@chat-adapter/catalog";
 import { cacheLife } from "next/cache";
-import adaptersJson from "@/adapters.json";
 
 const LOCAL_PACKAGE_PATTERN = /github\.com\/vercel\/chat\/tree\/[^/]+\/(.+)/;
 const GITHUB_SUBPATH_PATTERN =
@@ -14,13 +14,13 @@ const UNPINNED_REF_PATTERN = /^(main|master|head|dev|develop|trunk|default)$/i;
 
 const MAX_README_BYTES = 500_000;
 
-export type Adapter = (typeof adaptersJson)[number];
+export type Adapter = CatalogEntry;
 
 export const getAdapter = (slug: string): Adapter | undefined =>
-  adaptersJson.find((a) => a.slug === slug);
+  getCatalogEntry(slug);
 
 export const getAuthor = (adapter: Adapter): string | undefined =>
-  "author" in adapter ? adapter.author : undefined;
+  adapter.author;
 
 export const getIssuesUrl = (
   readmeUrl: string | undefined
@@ -39,7 +39,7 @@ const warnUnpinned = (adapter: Adapter, ref: string | undefined) => {
   console.warn(
     `[adapters] Community adapter "${adapter.name}" uses an unpinned README ref "${
       ref ?? "<default branch>"
-    }". Pin to a commit SHA or tag in adapters.json to freeze content at review time.`
+    }". Pin to a commit SHA or tag in its @chat-adapter/catalog entry to freeze content at review time.`
   );
 };
 

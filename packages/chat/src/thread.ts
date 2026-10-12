@@ -26,6 +26,7 @@ import type {
   Channel,
   ChannelVisibility,
   EphemeralMessage,
+  PostableMarkdown,
   PostableMessage,
   PostableObject,
   PostEphemeralOptions,
@@ -113,6 +114,13 @@ function isAsyncIterable(
   return (
     value !== null && typeof value === "object" && Symbol.asyncIterator in value
   );
+}
+
+function withAiGenerated(
+  postable: PostableMarkdown,
+  options: StreamOptions | undefined
+): PostableMarkdown {
+  return options?.aiGenerated ? { ...postable, aiGenerated: true } : postable;
 }
 
 const NEVER_ABORTED_SIGNAL = new AbortController().signal;
@@ -464,6 +472,7 @@ export class ThreadImpl<TState = Record<string, unknown>>
         const data = message.getPostData() as {
           stream: AsyncIterable<string | StreamChunk | StreamEvent>;
           options: {
+            aiGenerated?: boolean;
             groupTasks?: "plan" | "timeline";
             endWith?: unknown[];
             sessionStatus?: StreamOptions["sessionStatus"];
@@ -471,6 +480,7 @@ export class ThreadImpl<TState = Record<string, unknown>>
           };
         };
         const streamOptions: StreamOptions = {
+          ...(data.options.aiGenerated ? { aiGenerated: true } : {}),
           ...(data.options.updateIntervalMs !== undefined
             ? { updateIntervalMs: data.options.updateIntervalMs }
             : {}),
@@ -809,7 +819,7 @@ export class ThreadImpl<TState = Record<string, unknown>>
         this._typingStarted = false;
         const sent = this.createSentMessage(
           raw.id,
-          { markdown: accumulated },
+          withAiGenerated({ markdown: accumulated }, options),
           raw.threadId
         );
 
@@ -997,9 +1007,11 @@ export class ThreadImpl<TState = Record<string, unknown>>
       const content = renderer.render();
       if (content.trim() && content !== lastEditContent) {
         try {
-          await this.adapter.editMessage(threadIdForEdits, msg.id, {
-            markdown: content,
-          });
+          await this.adapter.editMessage(
+            threadIdForEdits,
+            msg.id,
+            withAiGenerated({ markdown: content }, options)
+          );
           lastEditContent = content;
         } catch (error) {
           this._logger?.warn("fallbackStream edit failed", error);
@@ -1022,9 +1034,10 @@ export class ThreadImpl<TState = Record<string, unknown>>
         if (!msg) {
           const content = renderer.render();
           if (content.trim()) {
-            msg = await this.adapter.postMessage(this.id, {
-              markdown: content,
-            });
+            msg = await this.adapter.postMessage(
+              this.id,
+              withAiGenerated({ markdown: content }, options)
+            );
             threadIdForEdits = msg.threadId || this.id;
             lastEditContent = content;
             scheduleNextEdit();
@@ -1048,22 +1061,28 @@ export class ThreadImpl<TState = Record<string, unknown>>
     const finalContent = renderer.finish();
 
     if (!msg) {
-      msg = await this.adapter.postMessage(this.id, {
-        markdown: accumulated.trim() ? accumulated : " ",
-      });
+      msg = await this.adapter.postMessage(
+        this.id,
+        withAiGenerated(
+          { markdown: accumulated.trim() ? accumulated : " " },
+          options
+        )
+      );
       threadIdForEdits = msg.threadId || this.id;
       lastEditContent = accumulated;
     }
 
     if (finalContent.trim() && finalContent !== lastEditContent) {
-      await this.adapter.editMessage(threadIdForEdits, msg.id, {
-        markdown: accumulated,
-      });
+      await this.adapter.editMessage(
+        threadIdForEdits,
+        msg.id,
+        withAiGenerated({ markdown: accumulated }, options)
+      );
     }
 
     const sent = this.createSentMessage(
       msg.id,
-      { markdown: accumulated },
+      withAiGenerated({ markdown: accumulated }, options),
       threadIdForEdits
     );
 

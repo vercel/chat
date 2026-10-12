@@ -15,6 +15,7 @@ import {
   teams,
   telegram,
   twilio,
+  twitch,
   web,
   whatsapp,
   x,
@@ -43,6 +44,7 @@ const ICON_MAP: Record<
   whatsapp,
   twilio,
   messenger,
+  twitch,
   x,
   xchat,
 };

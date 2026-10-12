@@ -1,0 +1,58 @@
+import { secretEnv } from "../../env";
+import type { CatalogAdapter } from "../../types";
+
+export const resend = {
+  author: "Resend",
+  description:
+    "Bidirectional email adapter for Chat SDK with threading, rich HTML emails, and attachment support via Resend.",
+  env: {
+    config: ["fromAddress", "fromName"],
+    required: [
+      secretEnv("RESEND_API_KEY", "Resend API key."),
+      secretEnv("RESEND_WEBHOOK_SECRET", "Resend webhook signing secret."),
+    ],
+  },
+  factoryExport: "createResendAdapter",
+  features: {
+    postMessage: "yes",
+    editMessage: "no",
+    deleteMessage: "no",
+    fileUploads: "no",
+    streaming: "no",
+    scheduledMessages: "no",
+    cardFormat: { status: "yes", label: "HTML email via react-email" },
+    buttons: "no",
+    linkButtons: "yes",
+    selectMenus: "no",
+    tables: "yes",
+    fields: "yes",
+    imagesInCards: "yes",
+    modals: "no",
+    slashCommands: "no",
+    mentions: "no",
+    addReactions: "no",
+    removeReactions: "no",
+    typingIndicator: "no",
+    messageUpdatedEvents: "no",
+    messageDeletedEvents: "no",
+    directMessages: "yes",
+    ephemeralMessages: "no",
+    userLookup: "no",
+    customApiEndpoint: "no",
+    fetchMessages: "no",
+    fetchSingleMessage: "no",
+    fetchThreadInfo: "no",
+    fetchChannelMessages: "no",
+    listThreads: "no",
+    fetchChannelInfo: "no",
+    postChannelMessage: "no",
+  },
+  group: "vendor-official",
+  name: "Resend",
+  packageName: "@resend/chat-sdk-adapter",
+  peerDeps: ["@chat-adapter/shared"],
+  readme:
+    "https://github.com/resend/resend-chat-sdk/tree/6b66fc12eabdf2529422fc0c0cf946392f1b5a76",
+  slug: "resend",
+  type: "platform",
+} as const satisfies CatalogAdapter;

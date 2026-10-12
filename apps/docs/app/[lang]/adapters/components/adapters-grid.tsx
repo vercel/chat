@@ -1,5 +1,6 @@
 "use client";
 
+import type { AdapterGroup } from "@chat-adapter/catalog";
 import { useState } from "react";
 import { AdapterCard } from "./adapter-card";
 import { AdaptersSearch } from "./adapters-search";
@@ -8,28 +9,20 @@ import { type FilterTab, FilterTabs } from "./filter-tabs";
 
 interface Adapter {
   beta?: boolean;
-  community?: boolean;
   description: string;
+  group: AdapterGroup;
   icon?: string;
   name: string;
   packageName?: string;
   slug: string;
   type: string;
-  vendorOfficial?: boolean;
 }
 
-const getAdapterHref = (adapter: Adapter): string => {
-  if (adapter.vendorOfficial) {
-    return `/adapters/vendor-official/${adapter.slug}`;
-  }
-  if (adapter.community) {
-    return `/adapters/community/${adapter.slug}`;
-  }
-  return `/adapters/official/${adapter.slug}`;
-};
+const getAdapterHref = (adapter: Adapter): string =>
+  `/adapters/${adapter.group}/${adapter.slug}`;
 
 interface AdaptersGridProps {
-  adapters: Adapter[];
+  adapters: readonly Adapter[];
 }
 
 export const AdaptersGrid = ({ adapters }: AdaptersGridProps) => {
@@ -53,27 +46,30 @@ export const AdaptersGrid = ({ adapters }: AdaptersGridProps) => {
 
   // Further categorize platform adapters
   const officialPlatform = platformAdapters.filter(
-    (a) => !(a.community || a.vendorOfficial)
+    (a) => a.group === "official"
   );
   const vendorOfficialPlatform = platformAdapters.filter(
-    (a) => a.vendorOfficial
+    (a) => a.group === "vendor-official"
   );
   const communityPlatform = platformAdapters.filter(
-    (a) => a.community && !a.vendorOfficial
+    (a) => a.group === "community"
   );
 
   // Categorize state adapters
-  const officialState = stateAdapters.filter(
-    (a) => !(a.community || a.vendorOfficial)
+  const officialState = stateAdapters.filter((a) => a.group === "official");
+  const vendorOfficialState = stateAdapters.filter(
+    (a) => a.group === "vendor-official"
   );
-  const communityState = stateAdapters.filter((a) => a.community);
+  const communityState = stateAdapters.filter((a) => a.group === "community");
 
   const showPlatformSection =
     officialPlatform.length > 0 ||
     vendorOfficialPlatform.length > 0 ||
     communityPlatform.length > 0;
   const showStateSection =
-    officialState.length > 0 || communityState.length > 0;
+    officialState.length > 0 ||
+    vendorOfficialState.length > 0 ||
+    communityState.length > 0;
 
   return (
     <>
@@ -196,6 +192,31 @@ export const AdaptersGrid = ({ adapters }: AdaptersGridProps) => {
                     {...adapter}
                   />
                 ))}
+              </div>
+            </section>
+          ) : null}
+
+          {vendorOfficialState.length > 0 ? (
+            <section className="grid gap-5">
+              <div className="grid gap-1">
+                <h3 className="text-heading-16">Vendor Official</h3>
+                <p className="text-[13px] text-muted-foreground">
+                  Built and maintained by the platform vendor.
+                </p>
+              </div>
+              <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+                {vendorOfficialState.map((adapter) => (
+                  <AdapterCard
+                    badge="vendor-official"
+                    href={getAdapterHref(adapter)}
+                    key={adapter.slug}
+                    {...adapter}
+                  />
+                ))}
+                <BuildYourOwnCard
+                  href="/docs/contributing/vendor-official"
+                  label="List a vendor-official adapter"
+                />
               </div>
             </section>
           ) : null}

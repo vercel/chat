@@ -693,7 +693,7 @@ const dm = await bot.openDM(message.author);
 
 Look up user information by user ID. Returns a `UserInfo` object with name, email, avatar, and bot status, or `null` if the user was not found.
 
-`bot.getUser` picks the adapter from the format of the user ID, so it only works for platforms whose IDs it can recognize: Slack (`U...` or `W...`), Microsoft Teams (`29:...`), Google Chat (`users/...`), Linear (UUID), and Discord, Telegram, and GitHub (numeric). For other adapters that implement `getUser`, such as X and Twilio, call the adapter directly with `bot.getAdapter("x").getUser(userId)`.
+`bot.getUser` picks the adapter from the format of the user ID, so it only works for platforms whose IDs it can recognize: Slack (`U...` or `W...`), Microsoft Teams (`29:...`), Google Chat (`users/...`), Linear (UUID), and Discord, Telegram, and GitHub (numeric). For other adapters that implement `getUser`, such as X, Twilio, and Twitch, call the adapter directly with `bot.getAdapter("x").getUser(userId)`.
 
 ```typescript
 const user = await bot.getUser("U123456");
@@ -746,6 +746,7 @@ const user = await bot.getUser(message.author);
 | GitHub | `email` is only returned if the user made it public or you authenticated with the `user:email` scope. |
 | Linear | Returns the full profile, including email and avatar, for any active workspace member. |
 | X | Returns the name, username, and avatar. `email` is not returned. Call through the adapter, because X's numeric IDs aren't inferred. |
+| Twitch | Returns the display name, login, and avatar from Get Users. `email` is not returned. Call through the adapter, because Twitch's numeric IDs aren't inferred. |
 | Twilio | Doesn't call Twilio. Returns a profile built from the phone number, with the number as `userId`, `userName`, and `fullName`. |
 
 Fields that aren't available return `undefined`.

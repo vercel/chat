@@ -7,57 +7,6 @@ type: platform
 logo: teams
 tagline: Deploy bots to Microsoft Teams with Adaptive Cards, mentions, and conversation threading.
 beta: true
-features:
-  postMessage: yes
-  editMessage: yes
-  deleteMessage: yes
-  fileUploads: yes
-  streaming:
-    status: partial
-    label: Native (DMs) / Buffered
-  scheduledMessages: no
-  cardFormat:
-    status: yes
-    label: Adaptive Cards
-  buttons: yes
-  linkButtons: yes
-  selectMenus: no
-  tables:
-    status: yes
-    label: Adaptive Card Table
-  fields: yes
-  imagesInCards: yes
-  modals: yes
-  slashCommands: no
-  mentions: yes
-  addReactions: yes
-  removeReactions: yes
-  typingIndicator: yes
-  messageUpdatedEvents: no
-  messageDeletedEvents: no
-  directMessages: yes
-  ephemeralMessages:
-    status: yes
-    label: Targeted messages
-  userLookup:
-    status: partial
-    label: Cached
-  customApiEndpoint: yes
-  fetchMessages:
-    status: yes
-    label: Requires Graph permissions
-  fetchSingleMessage: no
-  fetchThreadInfo: yes
-  fetchChannelMessages:
-    status: yes
-    label: Requires Graph permissions
-  listThreads:
-    status: yes
-    label: Requires Graph permissions
-  fetchChannelInfo:
-    status: yes
-    label: Requires Graph permissions
-  postChannelMessage: yes
 ---
 
 ## Install
@@ -423,6 +372,39 @@ await thread.postEphemeral(message.author, "Only you can see this.", {
 ```
 
 The result has `usedFallback: false` when Teams accepts the targeted message.
+
+## AI-generated content labels
+
+Set `aiGenerated: true` on a message object to show Teams' "AI generated" label on the bot's message. The label works on new, edited, channel, and targeted messages:
+
+```typescript
+await thread.post({ markdown: answer, aiGenerated: true });
+```
+
+The flag works with `markdown`, `raw`, `ast`, and `card` messages. A plain string, a bare card element, or a JSX `<Card>` is sent without the label, so static messages such as help text and errors stay unlabeled. To label a card, pass it as `{ card, aiGenerated: true }`, where `card` is a `CardElement`. Convert a JSX card with `toCardElement()` from `chat` first.
+
+To label a streamed response, wrap the stream in a `StreamingPlan`:
+
+```typescript
+import { StreamingPlan } from "chat";
+
+await thread.post(
+  new StreamingPlan(result.fullStream, { aiGenerated: true })
+);
+```
+
+The label applies to native streaming in DMs, to the buffered message in group chats and channels, and to every edit after the placeholder when you configure post-and-edit fallback streaming. Passing a stream to `thread.post()` without a `StreamingPlan` posts it unlabeled.
+
+An edit replaces the whole Teams activity, including its entities. Pass `aiGenerated: true` again on every edit, or the label is removed:
+
+```typescript
+const sent = await thread.post({ markdown: draft, aiGenerated: true });
+await sent.edit({ markdown: finalAnswer, aiGenerated: true });
+```
+
+Messages posted through the built-in [AI tools](/docs/ai/ai-sdk-tools) are labeled when the model sends a `markdown` or `raw` body. A plain-string body is sent unlabeled.
+
+See Microsoft's [AI content labels documentation](https://learn.microsoft.com/en-us/microsoftteams/platform/agents-in-teams/integrate-ai/ai-content-labels).
 
 ## User lookup
 

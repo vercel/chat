@@ -82,6 +82,12 @@ export interface SlackFileUpload {
 }
 
 export interface SlackUploadOptions extends SlackApiOptions {
+  /**
+   * Block Kit blocks for the message that shares the files. Slack renders the
+   * files below the blocks. Cannot be combined with `initialComment`, which
+   * Slack would otherwise use while silently ignoring `blocks`.
+   */
+  blocks?: unknown[];
   channelId?: string;
   initialComment?: string;
   threadTs?: string;
@@ -253,6 +259,9 @@ export async function uploadSlackFiles(
   files: readonly SlackFileUpload[],
   options: SlackUploadOptions
 ): Promise<SlackUploadResult> {
+  if (options.blocks !== undefined && options.initialComment !== undefined) {
+    throw new TypeError("blocks cannot be used with initialComment");
+  }
   if (files.length === 0) {
     return { fileIds: [], raw: { ok: true } };
   }
@@ -305,6 +314,7 @@ export async function uploadSlackFiles(
   const raw = await callSlackApi(
     "files.completeUploadExternal",
     {
+      blocks: options.blocks,
       channel_id: options.channelId,
       files: files.map((file, index) => ({
         id: fileIds[index],

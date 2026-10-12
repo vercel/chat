@@ -755,13 +755,21 @@ export class WhatsAppAdapter
     inbound: WhatsAppInboundMessage,
     contact?: WhatsAppContact
   ): WhatsAppIdentity | null {
-    const phone = inbound.system?.wa_id ?? inbound.from ?? contact?.wa_id;
+    // `||` rather than `??`: Meta can send an absent identifier as an
+    // empty string, e.g. `from` and `wa_id` for a username user who hides
+    // their phone number.
+    const phone =
+      inbound.system?.wa_id || inbound.from || contact?.wa_id || undefined;
     const bsuid =
-      inbound.system?.user_id ?? inbound.from_user_id ?? contact?.user_id;
+      inbound.system?.user_id ||
+      inbound.from_user_id ||
+      contact?.user_id ||
+      undefined;
     const parent =
-      inbound.system?.parent_user_id ??
-      inbound.from_parent_user_id ??
-      contact?.parent_user_id;
+      inbound.system?.parent_user_id ||
+      inbound.from_parent_user_id ||
+      contact?.parent_user_id ||
+      undefined;
     const userId = phone ?? bsuid ?? parent;
 
     return userId ? { bsuid, parent, phone, userId } : null;
@@ -782,7 +790,7 @@ export class WhatsAppAdapter
     // A system message's `from` carries the pre-change identifier, so
     // prefer it as the canonical fallback — a thread that predates any
     // alias state keeps its original key that way.
-    const source = changed ? inbound.from : undefined;
+    const source = changed ? inbound.from || undefined : undefined;
     const fallback = source ?? identity.userId;
 
     if (!this.chat) {

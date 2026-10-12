@@ -1,4 +1,4 @@
-import { listEnvVars } from "chat/adapters";
+import { listEnvVars } from "@chat-adapter/catalog";
 import { describe, expect, it } from "vitest";
 import { CLI_SCAFFOLD_SPEC } from "./scaffold-spec.js";
 
@@ -30,7 +30,7 @@ describe("CLI_SCAFFOLD_SPEC", () => {
         }
         expect(
           documented.has(property.value.name),
-          `${slug}: generated bot.ts reads ${property.value.name}, which the chat/adapters catalog does not document for this adapter — update the spec or the catalog`
+          `${slug}: generated bot.ts reads ${property.value.name}, which the @chat-adapter/catalog entry does not document for this adapter — update the spec or the catalog`
         ).toBe(true);
       }
     }

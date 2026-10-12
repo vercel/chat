@@ -1,7 +1,7 @@
-import type { AdapterSlug } from "chat/adapters";
+import type { AdapterSlug } from "@chat-adapter/catalog";
 
 /**
- * Adapters present in the public `chat/adapters` catalog that the webhook-only
+ * Adapters present in the public `@chat-adapter/catalog` that the webhook-only
  * Next.js scaffold cannot host, mapped to the reason shown when one is
  * requested.
  *

@@ -21,17 +21,6 @@ export const docs = defineDocs({
   },
 });
 
-const adapterFeatureStatusSchema = z.enum(["yes", "no", "partial"]);
-
-const adapterFeatureValueSchema = z.union([
-  adapterFeatureStatusSchema,
-  z.string(),
-  z.object({
-    status: adapterFeatureStatusSchema,
-    label: z.string().optional(),
-  }),
-]);
-
 // Extends the base fumadocs schema rather than `geistdocsFrontmatterSchema`:
 // extending the (already extended) geistdocs schema trips TypeScript's type
 // instantiation depth limit, and adapter pages don't use the extra
@@ -49,7 +38,6 @@ export const adapters = defineDocs({
       community: z.boolean().optional(),
       vendorOfficial: z.boolean().optional(),
       author: z.string().optional(),
-      features: z.record(z.string(), adapterFeatureValueSchema).optional(),
       mdxBody: z.boolean().optional(),
     }),
     postprocess: {

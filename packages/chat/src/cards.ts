@@ -79,6 +79,8 @@ export interface ButtonElement {
   type: "button";
   /** Optional payload value sent with action callback */
   value?: string;
+  /** User IDs that can see the button. Rendered by Slack only; other adapters show the button to everyone. Hides the button but does not restrict who can trigger its action */
+  visibleTo?: string[];
 }
 
 /** Link button element that opens a URL */
@@ -94,6 +96,8 @@ export interface LinkButtonElement {
   type: "link-button";
   /** URL to open when clicked */
   url: string;
+  /** User IDs that can see the button. Rendered by Slack only; other adapters show the button to everyone. Hides the button but does not restrict who can trigger its action */
+  visibleTo?: string[];
 }
 
 /** Text content element */
@@ -452,6 +456,8 @@ export interface ButtonOptions {
   tooltip?: string;
   /** Optional payload value sent with action callback */
   value?: string;
+  /** User IDs that can see the button. Rendered by Slack only; other adapters show the button to everyone. Hides the button but does not restrict who can trigger its action */
+  visibleTo?: string[];
 }
 
 /**
@@ -474,6 +480,7 @@ export function Button(options: ButtonOptions): ButtonElement {
     actionType: options.actionType,
     callbackUrl: options.callbackUrl,
     tooltip: options.tooltip,
+    visibleTo: options.visibleTo,
   };
 }
 
@@ -489,6 +496,8 @@ export interface LinkButtonOptions {
   tooltip?: string;
   /** URL to open when clicked */
   url: string;
+  /** User IDs that can see the button. Rendered by Slack only; other adapters show the button to everyone. Hides the button but does not restrict who can trigger its action */
+  visibleTo?: string[];
 }
 
 /**
@@ -508,6 +517,7 @@ export function LinkButton(options: LinkButtonOptions): LinkButtonElement {
     label: options.label,
     style: options.style,
     tooltip: options.tooltip,
+    visibleTo: options.visibleTo,
   };
 }
 
@@ -849,6 +859,7 @@ export function fromReactElement(element: unknown): AnyCardElement | null {
         actionType: props.actionType as "action" | "modal" | undefined,
         disabled: props.disabled as boolean | undefined,
         tooltip: props.tooltip as string | undefined,
+        visibleTo: props.visibleTo as string[] | undefined,
       });
     }
 
@@ -860,6 +871,7 @@ export function fromReactElement(element: unknown): AnyCardElement | null {
         label: (props.label as string | undefined) ?? label,
         style: props.style as ButtonStyle | undefined,
         tooltip: props.tooltip as string | undefined,
+        visibleTo: props.visibleTo as string[] | undefined,
       });
     }
 

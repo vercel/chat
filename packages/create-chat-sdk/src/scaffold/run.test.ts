@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { getAdapter } from "@chat-adapter/catalog";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ProjectConfig } from "../types.js";
 
@@ -28,17 +29,7 @@ const makeConfig = (overrides: Partial<ProjectConfig> = {}): ProjectConfig => ({
   platformAdapters: [],
   shouldInstall: false,
   shouldInitializeGit: true,
-  stateAdapter: {
-    description: "Memory",
-    env: {},
-    factoryExport: "createMemoryState",
-    group: "official",
-    name: "Memory",
-    packageName: "@chat-adapter/state-memory",
-    peerDeps: [],
-    slug: "memory",
-    type: "state",
-  },
+  stateAdapter: getAdapter("memory"),
   ...overrides,
 });
 
@@ -201,19 +192,7 @@ describe("scaffold", () => {
   it("writes conditional web route files", async () => {
     await scaffold(
       makeConfig({
-        platformAdapters: [
-          {
-            description: "Web",
-            env: {},
-            factoryExport: "createWebAdapter",
-            group: "official",
-            name: "Web",
-            packageName: "@chat-adapter/web",
-            peerDeps: [],
-            slug: "web",
-            type: "platform",
-          },
-        ],
+        platformAdapters: [getAdapter("web")],
       }),
       { force: false, quiet: true, yes: true }
     );
@@ -229,19 +208,7 @@ describe("scaffold", () => {
   it("writes the Discord Gateway route and vercel.json crons", async () => {
     await scaffold(
       makeConfig({
-        platformAdapters: [
-          {
-            description: "Discord",
-            env: {},
-            factoryExport: "createDiscordAdapter",
-            group: "official",
-            name: "Discord",
-            packageName: "@chat-adapter/discord",
-            peerDeps: [],
-            slug: "discord",
-            type: "platform",
-          },
-        ],
+        platformAdapters: [getAdapter("discord")],
       }),
       { force: false, quiet: true, yes: true }
     );
@@ -261,19 +228,7 @@ describe("scaffold", () => {
 
   it("removes stale conditional files on a --force re-run", async () => {
     const webConfig = makeConfig({
-      platformAdapters: [
-        {
-          description: "Web",
-          env: {},
-          factoryExport: "createWebAdapter",
-          group: "official",
-          name: "Web",
-          packageName: "@chat-adapter/web",
-          peerDeps: [],
-          slug: "web",
-          type: "platform",
-        },
-      ],
+      platformAdapters: [getAdapter("web")],
     });
     await scaffold(webConfig, { force: false, quiet: true, yes: true });
     const projectDir = path.join(tmpDir, "test-project");
@@ -304,19 +259,7 @@ describe("scaffold", () => {
 
   it("removes a stale vercel.json and Discord gateway on a --force re-run", async () => {
     const discordConfig = makeConfig({
-      platformAdapters: [
-        {
-          description: "Discord",
-          env: {},
-          factoryExport: "createDiscordAdapter",
-          group: "official",
-          name: "Discord",
-          packageName: "@chat-adapter/discord",
-          peerDeps: [],
-          slug: "discord",
-          type: "platform",
-        },
-      ],
+      platformAdapters: [getAdapter("discord")],
     });
     await scaffold(discordConfig, { force: false, quiet: true, yes: true });
     const projectDir = path.join(tmpDir, "test-project");

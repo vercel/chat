@@ -137,6 +137,18 @@ Optional `tooltip` is hover text for the button. Teams renders it; other adapter
 <Button id="approve" tooltip="Approve the request">Approve</Button>
 ```
 
+Optional `visibleTo` lists the user IDs that can see the button. Slack renders it with `visible_to_user_ids`, and everyone else in the conversation won't see the button. Other adapters ignore it and show the button to everyone:
+
+```tsx title="lib/bot.tsx"
+<Button id="approve" style="primary" visibleTo={[event.user.userId]}>
+  Approve
+</Button>
+```
+
+<Callout type="warn">
+`visibleTo` only controls who sees the button. It doesn't stop other users from triggering the action, so check `event.user` in your `onAction` handler before you act on it.
+</Callout>
+
 ### CardLink
 
 Inline hyperlink rendered as text. `LinkButton` must be inside `Actions`, but you can place `CardLink` directly in a card alongside other content.
@@ -178,6 +190,8 @@ Optional `tooltip` is hover text for the button. Teams renders it; other adapter
   View Order
 </LinkButton>
 ```
+
+`LinkButton` also accepts `visibleTo`, which works the same way as on `Button`.
 
 ### Actions
 

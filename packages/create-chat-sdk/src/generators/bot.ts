@@ -1,4 +1,4 @@
-import type { CatalogAdapter } from "chat/adapters";
+import type { CatalogAdapter } from "@chat-adapter/catalog";
 import {
   type AdapterConnectSpec,
   CONNECT_CHAT_IMPORT,

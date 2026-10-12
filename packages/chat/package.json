@@ -57,6 +57,7 @@
     "clean": "rm -rf dist docs"
   },
   "dependencies": {
+    "@chat-adapter/catalog": "workspace:*",
     "@workflow/serde": "4.1.0-beta.2",
     "mdast-util-to-string": "^4.0.0",
     "remark-gfm": "^4.0.0",

@@ -13,6 +13,8 @@ related:
   - /docs/actions
 ---
 
+Build your adapter as its own npm package. It implements the `Adapter` interface for your platform, converts messages between Chat SDK's Markdown AST and the platform's format, and exports a factory function such as `createMatrixAdapter`.
+
 ## What adapters are
 
 An adapter connects Chat SDK to one messaging platform. It handles webhook verification, message parsing, and API calls for that platform so your handler code stays platform-agnostic.

@@ -1,5 +1,5 @@
+import { listAdapters } from "@chat-adapter/catalog";
 import type { Metadata } from "next";
-import adapters from "@/adapters.json";
 import {
   ADAPTERS_LISTING_DESCRIPTION,
   getAdaptersListingJsonLd,
@@ -17,6 +17,17 @@ export const metadata: Metadata = {
     card: "summary_large_image",
   },
 };
+
+const adapters = listAdapters().map((adapter) => ({
+  beta: adapter.beta,
+  description: adapter.description,
+  group: adapter.group,
+  icon: adapter.icon,
+  name: adapter.name,
+  packageName: adapter.packageName,
+  slug: adapter.slug,
+  type: adapter.type,
+}));
 
 const jsonLd = getAdaptersListingJsonLd(adapters);
 

@@ -1,6 +1,11 @@
 import { readFileSync } from "node:fs";
 import { basename, join } from "node:path";
-import { ADAPTERS } from "chat/adapters";
+import {
+  ADAPTERS,
+  type CatalogAdapter,
+  getCatalogEntry,
+  listAdapters,
+} from "@chat-adapter/catalog";
 import { describe, expect, it } from "vitest";
 import { DOCS_CONTENT_DIR, findDocsMdxFiles } from "./documentation-test-utils";
 
@@ -16,6 +21,11 @@ const CHAT_ADAPTER_PACKAGE = /^@chat-adapter\//;
 const CHAT_STATE_ADAPTER_PACKAGE = /^@chat-adapter\/state-/;
 const PACKAGE_INSTALL_PATTERN = /<PackageInstall package="([^"]+)" \/>/g;
 const PACKAGE_INSTALL_PACKAGE_SEPARATOR = /\s+/;
+const FEATURES_FIELD = /^features:/m;
+const NAMED_IMPORT_PATTERN = /import\s*\{([^}]*)\}\s*from\s*["']([^"']+)["']/g;
+const IMPORT_SPECIFIER_SEPARATOR = /\s*,\s*/;
+const TYPE_IMPORT_PREFIX = /^type\s+/;
+const IMPORT_ALIAS = /\s+as\s+.*$/;
 
 interface Frontmatter {
   fields: Record<string, string>;
@@ -131,6 +141,24 @@ describe("Adapter MDX frontmatter", () => {
   }
 });
 
+const factoryImportSources = (
+  adapter: AdapterFile,
+  factoryExport: string
+): string[] => {
+  const sources: string[] = [];
+  for (const match of adapter.body.matchAll(NAMED_IMPORT_PATTERN)) {
+    const names = match[1]
+      .split(IMPORT_SPECIFIER_SEPARATOR)
+      .map((name) =>
+        name.trim().replace(TYPE_IMPORT_PREFIX, "").replace(IMPORT_ALIAS, "")
+      );
+    if (names.includes(factoryExport)) {
+      sources.push(match[2]);
+    }
+  }
+  return sources;
+};
+
 describe("Vendor-Official adapter MDX", () => {
   const vendorAdapters = loadAdapterMdx(VENDOR_DIR, "vendor-official");
 
@@ -153,11 +181,37 @@ describe("Vendor-Official adapter MDX", () => {
         expect(adapter.body).toContain("<FeatureSupport />");
       });
 
+      it("imports factoryExport from the catalog import specifier", () => {
+        const catalogEntry = getCatalogEntry(adapter.slug) as
+          | CatalogAdapter
+          | undefined;
+        expect(
+          catalogEntry,
+          `${adapter.fileName}: missing @chat-adapter/catalog entry`
+        ).toBeDefined();
+        if (!catalogEntry) {
+          return;
+        }
+        const sources = factoryImportSources(
+          adapter,
+          catalogEntry.factoryExport
+        );
+        expect(
+          sources.length,
+          `${adapter.fileName}: no import of ${catalogEntry.factoryExport}`
+        ).toBeGreaterThan(0);
+        for (const source of sources) {
+          expect(source).toBe(
+            catalogEntry.importPath ?? catalogEntry.packageName
+          );
+        }
+      });
+
       it("keeps catalog peerDeps aligned with PackageInstall extras", () => {
         const catalogEntry = ADAPTERS[adapter.slug as keyof typeof ADAPTERS];
         expect(
           catalogEntry,
-          `${adapter.fileName}: missing chat/adapters catalog entry`
+          `${adapter.fileName}: missing @chat-adapter/catalog entry`
         ).toBeDefined();
         expect([...(catalogEntry?.peerDeps ?? [])].sort()).toEqual(
           packageInstallDeps(adapter)
@@ -212,52 +266,67 @@ describe("Official adapter MDX", () => {
   }
 });
 
-describe("adapters.json registry", () => {
-  const registry = JSON.parse(
-    readFileSync(join(DOCS_CONTENT_DIR, "..", "adapters.json"), "utf-8")
-  ) as Array<{
-    description: string;
-    name: string;
-    slug: string;
-    type: "platform" | "state";
-    packageName: string;
-    community?: boolean;
-    vendorOfficial?: boolean;
-    author?: string;
-  }>;
+describe("@chat-adapter/catalog parity", () => {
+  const adapterFiles = [
+    ...loadAdapterMdx(OFFICIAL_DIR, "official").map((adapter) => ({
+      adapter,
+      group: "official",
+    })),
+    ...loadAdapterMdx(VENDOR_DIR, "vendor-official").map((adapter) => ({
+      adapter,
+      group: "vendor-official",
+    })),
+    ...loadAdapterMdx(COMMUNITY_DIR, "community").map((adapter) => ({
+      adapter,
+      group: "community",
+    })),
+  ];
 
-  const vendorAdapters = loadAdapterMdx(VENDOR_DIR, "vendor-official");
-  const communityAdapters = loadAdapterMdx(COMMUNITY_DIR, "community");
+  it("lists exactly the adapters that have docs pages", () => {
+    expect(
+      listAdapters()
+        .map((entry) => entry.slug)
+        .sort()
+    ).toEqual(adapterFiles.map(({ adapter }) => adapter.slug).sort());
+  });
 
-  for (const adapter of [...vendorAdapters, ...communityAdapters]) {
+  for (const { adapter, group } of adapterFiles) {
     describe(adapter.fileName, () => {
-      const entry = registry.find((e) => e.slug === adapter.slug);
+      const entry = getCatalogEntry(adapter.slug);
 
-      it("has a matching adapters.json entry", () => {
+      it("has a catalog entry in the matching group", () => {
         expect(
           entry,
-          `${adapter.fileName}: no entry in adapters.json for slug "${adapter.slug}"`
+          `${adapter.fileName}: no @chat-adapter/catalog entry for slug "${adapter.slug}"`
         ).toBeDefined();
+        expect(entry?.group).toBe(group);
       });
 
-      it("packageName matches adapters.json", () => {
+      it("packageName matches the catalog", () => {
         expect(entry?.packageName).toBe(adapter.frontmatter.fields.packageName);
       });
 
-      it("type matches adapters.json", () => {
+      it("type matches the catalog", () => {
         expect(entry?.type).toBe(adapter.frontmatter.fields.type);
       });
 
-      it("vendorOfficial flag matches adapters.json", () => {
-        const inMdx = adapter.frontmatter.fields.vendorOfficial === "true";
-        const inRegistry = entry?.vendorOfficial === true;
-        expect(inMdx).toBe(inRegistry);
+      it("author matches the catalog", () => {
+        const author = adapter.frontmatter.fields.author;
+        if (group === "official") {
+          expect(author).toBeUndefined();
+          expect(entry?.author).toBeUndefined();
+          return;
+        }
+        if (group === "vendor-official") {
+          expect(author, `${adapter.fileName}: missing author`).toBeTruthy();
+        }
+        if (author) {
+          expect(entry?.author).toBe(author);
+        }
       });
 
-      it("community flag matches adapters.json", () => {
-        const inMdx = adapter.frontmatter.fields.community === "true";
-        const inRegistry = entry?.community === true;
-        expect(inMdx).toBe(inRegistry);
+      it("reads capabilities from the catalog, not frontmatter", () => {
+        expect(adapter.frontmatter.raw).not.toMatch(FEATURES_FIELD);
       });
     });
   }

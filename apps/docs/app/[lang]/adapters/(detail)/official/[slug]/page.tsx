@@ -1,3 +1,4 @@
+import type { AdapterFeatures, AdapterType } from "@chat-adapter/catalog";
 import { createRelativeLink } from "fumadocs-ui/mdx";
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
@@ -6,7 +7,6 @@ import { DocsBody, DocsPage } from "@/components/geistdocs/docs-page";
 import { FeatureSupport } from "@/components/geistdocs/feature-support";
 import { getMDXComponents } from "@/components/geistdocs/mdx-components";
 import { Upsell } from "@/components/geistdocs/upsell";
-import type { AdapterFeatureValue } from "@/lib/adapter-features";
 import { getAdapterJsonLd } from "@/lib/geistdocs/adapter-jsonld";
 import { getAdapter } from "@/lib/geistdocs/adapter-readme";
 import { adaptersSource } from "@/lib/geistdocs/adapters-source";
@@ -15,7 +15,6 @@ import { MoreAdapters } from "../../../components/more-adapters";
 interface AdapterFrontmatter {
   beta?: boolean;
   description: string;
-  features?: Record<string, AdapterFeatureValue>;
   logo?: string;
   packageName: string;
   slug: string;
@@ -30,8 +29,8 @@ interface PageParams {
 }
 
 const renderBoundFeatureSupport = (
-  features: Record<string, AdapterFeatureValue> | undefined,
-  type: "platform" | "state"
+  features: AdapterFeatures | undefined,
+  type: AdapterType
 ) => {
   const Bound = () => <FeatureSupport features={features} type={type} />;
   Bound.displayName = "BoundFeatureSupport";
@@ -48,9 +47,10 @@ const Page = async ({ params }: { params: Promise<PageParams> }) => {
 
   const data = page.data as unknown as AdapterFrontmatter;
   const MDX = page.data.body;
+  const adapter = getAdapter(slug);
   const markdownPath = `/adapters/official/${slug}.md`;
   const jsonLd = getAdapterJsonLd({
-    adapter: getAdapter(slug),
+    adapter,
     group: "official",
     packageName: data.packageName,
     slug,
@@ -58,7 +58,7 @@ const Page = async ({ params }: { params: Promise<PageParams> }) => {
     title: data.title,
   });
   const BoundFeatureSupport = renderBoundFeatureSupport(
-    data.features,
+    adapter?.features,
     data.type
   );
 

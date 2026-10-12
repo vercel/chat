@@ -182,7 +182,8 @@
 
 Username-enabled users carry a BSUID (`user_id`/`from_user_id`) and
 optionally a parent BSUID. Phone-based fields (`from`, `wa_id`) are
-omitted when the user has not shared their phone number.
+omitted, or sent as empty strings, when the user has not shared their
+phone number.
 
 ```json
 {

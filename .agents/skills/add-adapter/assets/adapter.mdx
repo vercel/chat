@@ -10,42 +10,7 @@ community: true
 vendorOfficial: true
 author: Foo
 mdxBody: true
-# Feature matrix. Use `yes` / `no`, or `{ status: partial|yes, label: "…" }`.
-# PLATFORM adapters use these keys:
-features:
-  postMessage: yes
-  editMessage: no
-  deleteMessage: no
-  fileUploads: no
-  streaming: no
-  scheduledMessages: no
-  cardFormat: no
-  buttons: no
-  linkButtons: no
-  selectMenus: no
-  tables: no
-  fields: no
-  imagesInCards: no
-  modals: no
-  slashCommands: no
-  mentions: no
-  addReactions: no
-  removeReactions: no
-  typingIndicator: no
-  directMessages: yes
-  ephemeralMessages: no
-  userLookup: no
-  customApiEndpoint: no
-  fetchMessages: no
-  fetchSingleMessage: no
-  fetchThreadInfo: no
-  fetchChannelMessages: no
-  listThreads: no
-  fetchChannelInfo: no
-  postChannelMessage: no
-# STATE adapters (type: state) use these keys instead of the platform set above:
-#   persistence, multiInstance, subscriptions, distributedLocking, keyValueCache,
-#   lists, queues, automaticReconnect, cluster, sentinel, keyPrefix
+# Capabilities live in the catalog entry's `features` field, not here.
 ---
 
 {/* Section order and naming follow ../references/page-layout.md. Delete the

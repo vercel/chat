@@ -1133,6 +1133,75 @@ describe("handleWebhook - business-scoped user IDs", () => {
     }
   });
 
+  it("treats empty phone fields as absent for username users", async () => {
+    const adapter = createTestAdapter();
+    const chat = createMockChatInstance();
+    await adapter.initialize(chat);
+    const fetchSpy = vi.spyOn(global, "fetch").mockResolvedValue(
+      new Response(JSON.stringify({ messages: [{ id: "wamid.reply" }] }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      })
+    );
+
+    // Meta can send `from` and `wa_id` as empty strings, instead of omitting
+    // them, when a username user does not share their phone number.
+    const response = await adapter.handleWebhook(
+      webhook(
+        notification(
+          [inbound({ from: "", from_user_id: "US.13491208655302741918" })],
+          [
+            {
+              profile: { name: "User", username: "@exampleuser" },
+              wa_id: "",
+              user_id: "US.13491208655302741918",
+            },
+          ]
+        )
+      )
+    );
+
+    expect(response.status).toBe(200);
+    expect(chat.processMessage).toHaveBeenCalledOnce();
+    const [, threadId] = vi.mocked(chat.processMessage).mock.calls[0];
+    expect(threadId).toBe("whatsapp:123456789:US.13491208655302741918");
+
+    await adapter.postMessage(threadId, { markdown: "Reply" });
+    const body = JSON.parse(fetchSpy.mock.calls[0][1]?.body as string);
+    expect(body.recipient).toBe("US.13491208655302741918");
+    expect(body).not.toHaveProperty("to");
+    fetchSpy.mockRestore();
+  });
+
+  it("treats an empty system message sender as absent", async () => {
+    const adapter = createTestAdapter();
+    const chat = createMockChatInstance();
+    await adapter.initialize(chat);
+
+    await adapter.handleWebhook(
+      webhook(
+        notification([
+          {
+            from: "",
+            id: "wamid.system",
+            timestamp: "1700000001",
+            type: "system",
+            system: {
+              body: "User A changed their business-scoped user ID",
+              wa_id: "",
+              user_id: "US.NEW",
+              type: "user_changed_number",
+            },
+          },
+        ])
+      )
+    );
+
+    await expect(
+      chat.getState().get("whatsapp:identity:alias:123456789:US.NEW")
+    ).resolves.toBe("US.NEW");
+  });
+
   it("sends both known identifiers from a preserved phone thread", async () => {
     const adapter = createTestAdapter();
     const chat = createMockChatInstance();

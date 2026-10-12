@@ -1,11 +1,11 @@
 import { Check, Cross, Warn } from "@/components/custom/status-icons";
 import {
-  type AdapterFeatureStatus,
-  type AdapterFeatureValue,
+  type FeatureStatus,
+  type FeatureValue,
   normalizeFeatureValue,
-} from "@/lib/adapter-features";
+} from "@chat-adapter/catalog";
 
-const StatusIcon = ({ status }: { status: AdapterFeatureStatus }) => {
+const StatusIcon = ({ status }: { status: FeatureStatus }) => {
   if (status === "yes") {
     return <Check />;
   }
@@ -18,7 +18,7 @@ const StatusIcon = ({ status }: { status: AdapterFeatureStatus }) => {
 export const FeatureCell = ({
   value,
 }: {
-  value: AdapterFeatureValue | undefined;
+  value: FeatureValue | undefined;
 }) => {
   const { status, label } = normalizeFeatureValue(value);
   if (!label) {

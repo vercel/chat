@@ -1,3 +1,4 @@
+import type { AdapterGroup } from "@chat-adapter/catalog";
 import { type Adapter, getAuthor } from "./adapter-readme";
 
 const BASE_URL = "https://chat-sdk.dev";
@@ -8,8 +9,6 @@ export const ADAPTERS_LISTING_DESCRIPTION =
 /** Matches the official-only `ItemList` in adapters listing JSON-LD. */
 export const ADAPTERS_LISTING_JSON_LD_DESCRIPTION =
   "Official Chat SDK platform and state adapters for Slack, Teams, Google Chat, Discord, WhatsApp, and more.";
-
-type AdapterGroup = "official" | "community" | "vendor-official";
 
 const VERCEL_AUTHOR = {
   "@type": "Organization",
@@ -86,8 +85,8 @@ export const getAdapterJsonLd = ({
 };
 
 interface ListingAdapter {
-  community?: boolean;
   description: string;
+  group: AdapterGroup;
   name: string;
   slug: string;
 }
@@ -96,8 +95,12 @@ interface ListingAdapter {
  * Build JSON-LD for the adapters listing page: a `CollectionPage` with an
  * `ItemList` of official (Vercel-maintained) adapters and state packages.
  */
-export const getAdaptersListingJsonLd = (adapters: ListingAdapter[]) => {
-  const officialAdapters = adapters.filter((adapter) => !adapter.community);
+export const getAdaptersListingJsonLd = (
+  adapters: readonly ListingAdapter[]
+) => {
+  const officialAdapters = adapters.filter(
+    (adapter) => adapter.group === "official"
+  );
   const adaptersUrl = `${BASE_URL}/adapters`;
 
   const collectionPage = {
