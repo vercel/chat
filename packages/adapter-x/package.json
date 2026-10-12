@@ -41,7 +41,7 @@
     "juicebox-sdk": "^0.3.6",
     "tsup": "^8.3.5",
     "typescript": "^5.7.2",
-    "vitest": "^5.0.4"
+    "vitest": "^5.0.3"
   },
   "repository": {
     "type": "git",
