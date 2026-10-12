@@ -373,6 +373,18 @@ await thread.postEphemeral(message.author, "Only you can see this.", {
 
 The result has `usedFallback: false` when Teams accepts the targeted message.
 
+## AI-generated content labels
+
+Set `aiGenerated: true` on a message object to show Teams' "AI generated" label on the bot's message. The adapter adds the label to new, edited, channel, and targeted messages:
+
+```typescript
+await thread.post({ markdown: answer, aiGenerated: true });
+```
+
+The flag works with `markdown`, `raw`, `ast`, and `card` messages. A plain string or a bare card element is sent without the label, so static messages such as help text and errors stay unlabeled.
+
+See Microsoft's [AI content labels documentation](https://learn.microsoft.com/en-us/microsoftteams/platform/agents-in-teams/integrate-ai/ai-content-labels).
+
 ## User lookup
 
 `bot.getUser()` looks up user profiles through the Microsoft Graph API. To enable it:

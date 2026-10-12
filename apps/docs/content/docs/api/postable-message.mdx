@@ -49,6 +49,10 @@ await thread.post({ raw: "Hello world" });
       description: 'Files to upload.',
       type: 'FileUpload[]',
     },
+    aiGenerated: {
+      description: 'Teams: show the "AI generated" label on the message. Other adapters ignore it.',
+      type: 'boolean | undefined',
+    },
   }}
 />
 
@@ -73,6 +77,10 @@ await thread.post({ markdown: "**Bold** and _italic_" });
     files: {
       description: 'Files to upload.',
       type: 'FileUpload[]',
+    },
+    aiGenerated: {
+      description: 'Teams: show the "AI generated" label on the message. Other adapters ignore it.',
+      type: 'boolean | undefined',
     },
   }}
 />
@@ -102,6 +110,10 @@ await thread.post({
     files: {
       description: 'Files to upload.',
       type: 'FileUpload[]',
+    },
+    aiGenerated: {
+      description: 'Teams: show the "AI generated" label on the message. Other adapters ignore it.',
+      type: 'boolean | undefined',
     },
   }}
 />
@@ -138,6 +150,10 @@ await thread.post({
     files: {
       description: 'Files to upload.',
       type: 'FileUpload[]',
+    },
+    aiGenerated: {
+      description: 'Teams: show the "AI generated" label on the message. Other adapters ignore it.',
+      type: 'boolean | undefined',
     },
   }}
 />

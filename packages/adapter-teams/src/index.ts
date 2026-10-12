@@ -126,6 +126,14 @@ function resolveTeamsReactionType(
   return TEAMS_REACTION_ALIASES[name] ?? name;
 }
 
+function isAiGenerated(message: AdapterPostableMessage): boolean {
+  return (
+    typeof message === "object" &&
+    "aiGenerated" in message &&
+    message.aiGenerated === true
+  );
+}
+
 export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
   readonly name = "teams";
   readonly userName: string;
@@ -1290,6 +1298,9 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
         },
         ...fileAttachments,
       ];
+      if (isAiGenerated(message)) {
+        activity.addAiGenerated();
+      }
 
       this.logger.debug("Teams API: send (adaptive card)", {
         conversationId,
@@ -1320,6 +1331,9 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
     activity.textFormat = "markdown";
     if (fileAttachments.length > 0) {
       activity.attachments = fileAttachments;
+    }
+    if (isAiGenerated(message)) {
+      activity.addAiGenerated();
     }
 
     this.logger.debug("Teams API: send (message)", {
@@ -1379,6 +1393,9 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
         },
         ...fileAttachments,
       ];
+      if (isAiGenerated(message)) {
+        activity.addAiGenerated();
+      }
 
       this.logger.debug("Teams API: send (targeted adaptive card)", {
         conversationId,
@@ -1415,6 +1432,9 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
     activity.textFormat = "markdown";
     if (fileAttachments.length > 0) {
       activity.attachments = fileAttachments;
+    }
+    if (isAiGenerated(message)) {
+      activity.addAiGenerated();
     }
 
     this.logger.debug("Teams API: send (targeted message)", {
@@ -1574,6 +1594,9 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
           content: adaptiveCard,
         },
       ];
+      if (isAiGenerated(message)) {
+        activity.addAiGenerated();
+      }
 
       const targeted = await this.isTargetedActivity(conversationId, messageId);
 
@@ -1609,6 +1632,9 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
 
     const activity = new MessageActivity(text);
     activity.textFormat = "markdown";
+    if (isAiGenerated(message)) {
+      activity.addAiGenerated();
+    }
 
     const targeted = await this.isTargetedActivity(conversationId, messageId);
 
@@ -1998,6 +2024,9 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
         },
         ...fileAttachments,
       ];
+      if (isAiGenerated(message)) {
+        activity.addAiGenerated();
+      }
 
       try {
         const sent = await this.app.sendTo(
@@ -2022,6 +2051,9 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
     activity.textFormat = "markdown";
     if (fileAttachments.length > 0) {
       activity.attachments = fileAttachments;
+    }
+    if (isAiGenerated(message)) {
+      activity.addAiGenerated();
     }
 
     try {

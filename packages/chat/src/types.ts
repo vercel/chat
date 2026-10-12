@@ -1815,6 +1815,8 @@ export type StreamEvent =
   | { type: string };
 
 export interface PostableRaw {
+  /** Teams: Show the "AI generated" label on this message. Ignored by other adapters. */
+  aiGenerated?: boolean;
   /** File/image attachments */
   attachments?: Attachment[];
   /** Files to upload */
@@ -1824,6 +1826,8 @@ export interface PostableRaw {
 }
 
 export interface PostableMarkdown {
+  /** Teams: Show the "AI generated" label on this message. Ignored by other adapters. */
+  aiGenerated?: boolean;
   /** File/image attachments */
   attachments?: Attachment[];
   /** Files to upload */
@@ -1833,6 +1837,8 @@ export interface PostableMarkdown {
 }
 
 export interface PostableAst {
+  /** Teams: Show the "AI generated" label on this message. Ignored by other adapters. */
+  aiGenerated?: boolean;
   /** mdast AST, converted to platform format */
   ast: Root;
   /** File/image attachments */
@@ -1842,6 +1848,8 @@ export interface PostableAst {
 }
 
 export interface PostableCard {
+  /** Teams: Show the "AI generated" label on this message. Ignored by other adapters. */
+  aiGenerated?: boolean;
   /** Rich card element */
   card: CardElement;
   /** Fallback text for platforms/clients that can't render cards */
