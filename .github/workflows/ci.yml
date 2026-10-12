@@ -229,19 +229,19 @@ jobs:
         if: ${{ contains(needs.*.result, 'failure') }}
         run: exit 1
 
-  # Lists every app under examples/ so the matrix below picks up new examples
+  # Finds every app under examples/ so the matrix below picks up new examples
   # without editing this file.
-  examples-list:
+  examples-discover:
     runs-on: ubuntu-latest
-    name: examples (List)
+    name: examples (Discover)
     outputs:
-      examples: ${{ steps.list.outputs.examples }}
+      examples: ${{ steps.discover.outputs.examples }}
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v6.0.0
 
-      - name: List examples
-        id: list
+      - name: Discover examples
+        id: discover
         run: |
           examples=$(find examples -mindepth 2 -maxdepth 2 -name package.json -printf '%h\n' | xargs -n1 basename | sort | jq -R . | jq -sc .)
           echo "Found examples: $examples"
@@ -252,11 +252,11 @@ jobs:
   # Scripts an example does not define are skipped.
   examples:
     runs-on: ubuntu-latest
-    needs: examples-list
+    needs: examples-discover
     strategy:
       fail-fast: false
       matrix:
-        example: ${{ fromJSON(needs.examples-list.outputs.examples) }}
+        example: ${{ fromJSON(needs.examples-discover.outputs.examples) }}
     name: examples / ${{ matrix.example }}
     env:
       SLACK_BOT_TOKEN: xoxb-mock
