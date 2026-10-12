@@ -29,7 +29,7 @@ export const cloudflareAgents = {
   packageName: "agents",
   peerDeps: [],
   readme:
-    "https://github.com/cloudflare/agents/tree/68490acd1b2ca43f273722207855dbc9dc35efcb",
+    "https://github.com/cloudflare/agents/tree/68490acd1b2ca43f273722207855dbc9dc35efcb/packages/agents",
   slug: "cloudflare-agents",
   type: "state",
 } as const satisfies CatalogAdapter;

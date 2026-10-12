@@ -1,3 +1,5 @@
+import { ArrowUpRight } from "lucide-react";
+import { Button } from "@/components/ui/button";
 import {
   discord,
   gchat,
@@ -49,17 +51,25 @@ const ICON_MAP: Record<
   xchat,
 };
 
+const GithubIcon = github;
+
 interface AdapterHeroProps {
   beta?: boolean;
   community?: boolean;
   logo?: string;
   name: string;
   packageName?: string;
+  sourceUrl?: string;
   tagline: string;
   vendorOfficial?: boolean;
 }
 
-export const AdapterHero = ({ logo, name, tagline }: AdapterHeroProps) => {
+export const AdapterHero = ({
+  logo,
+  name,
+  sourceUrl,
+  tagline,
+}: AdapterHeroProps) => {
   const Icon = logo ? ICON_MAP[logo] : undefined;
 
   return (
@@ -75,6 +85,18 @@ export const AdapterHero = ({ logo, name, tagline }: AdapterHeroProps) => {
       <p className="max-w-3xl text-balance text-[17px] text-muted-foreground leading-[1.6]">
         {tagline}
       </p>
+      {sourceUrl ? (
+        <div className="flex flex-wrap items-center gap-2">
+          <Button asChild size="sm" variant="outline">
+            <a href={sourceUrl} rel="noopener noreferrer" target="_blank">
+              <GithubIcon aria-hidden="true" className="size-4" />
+              View source
+              <ArrowUpRight aria-hidden="true" className="size-4" />
+              <span className="sr-only">(opens in a new tab)</span>
+            </a>
+          </Button>
+        </div>
+      ) : null}
     </header>
   );
 };

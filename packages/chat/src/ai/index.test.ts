@@ -273,6 +273,7 @@ describe("createChatTools", () => {
     );
     expect(mockAdapter.postChannelMessage).toHaveBeenCalledWith("slack:C123", {
       markdown: "**hi**",
+      aiGenerated: true,
     });
   });
 
@@ -910,12 +911,12 @@ describe("createChatTools", () => {
     expect(mockAdapter.editMessage).toHaveBeenCalledWith(
       "slack:C123:1234.5678",
       "msg-1",
-      { markdown: "**updated**" }
+      { markdown: "**updated**", aiGenerated: true }
     );
     expect(result).toMatchObject({ messageId: "msg-1" });
   });
 
-  it("postMessage forwards a `raw` PostableInput unchanged", async () => {
+  it("postMessage forwards a `raw` PostableInput marked as AI-generated", async () => {
     const tools = createChatTools({
       chat,
       requireApproval: false,
@@ -929,7 +930,7 @@ describe("createChatTools", () => {
     );
     expect(mockAdapter.postMessage).toHaveBeenCalledWith(
       "slack:C123:1234.5678",
-      { raw: "<blocks>...</blocks>" }
+      { raw: "<blocks>...</blocks>", aiGenerated: true }
     );
   });
 

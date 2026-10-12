@@ -40,7 +40,7 @@ Choose the `slug` (kebab-case) and confirm it is not already taken: `ls apps/doc
 
 1. **`apps/docs/content/adapters/<tier>/<slug>.mdx`**: the docs page. Start from [assets/adapter.mdx](assets/adapter.mdx) for a platform adapter or [assets/adapter-state.mdx](assets/adapter-state.mdx) for a state adapter, and follow the section order and names in [references/page-layout.md](references/page-layout.md). The filename basename must equal the `slug` frontmatter field, and the page must render `<FeatureSupport />`.
 2. **`apps/docs/content/adapters/<tier>/meta.json`** — add `"<slug>"` to the `pages` array.
-3. **`packages/catalog/src/adapters/<tier>/<slug>.ts`** — the catalog entry: `name`, `slug`, `type`, `group`, `description`, `packageName`, `author`, `readme` (the GitHub URL, pinned to a commit or tag), and `features` (the capability matrix the docs page renders). Copy a neighbor in the same folder. Then register it in `packages/catalog/src/adapters/index.ts`: `COMMUNITY_ADAPTERS` for community, `ADAPTERS` for vendor-official. See `packages/catalog/AGENTS.md`.
+3. **`packages/catalog/src/adapters/<tier>/<slug>.ts`** — the catalog entry: `name`, `slug`, `type`, `group`, `description`, `packageName`, `author`, `readme` (the GitHub tree URL of the adapter's source folder, pinned to a commit or tag; the docs page fetches the README from it and links to it as "View source"), and `features` (the capability matrix the docs page renders). Copy a neighbor in the same folder. Then register it in `packages/catalog/src/adapters/index.ts`: `COMMUNITY_ADAPTERS` for community, `ADAPTERS` for vendor-official. See `packages/catalog/AGENTS.md`.
 
 **Vendor-official also:**
 

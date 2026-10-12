@@ -1,4 +1,5 @@
 import { z } from "zod";
+import type { PostableMarkdown, PostableRaw } from "../../types";
 import type { ChatBinding, ToolOptions } from "../types";
 import type { ChatToolSpec } from "./spec";
 
@@ -167,14 +168,16 @@ export const deleteMessageSpec = (
   },
 });
 
+// Plain strings stay unlabeled: wrapping them in an object would change how
+// some adapters render them.
 function toPostable(
   input: PostableInput
-): string | { markdown: string } | { raw: string } {
+): string | PostableMarkdown | PostableRaw {
   if (typeof input === "string") {
     return input;
   }
   if ("markdown" in input) {
-    return { markdown: input.markdown };
+    return { markdown: input.markdown, aiGenerated: true };
   }
-  return { raw: input.raw };
+  return { raw: input.raw, aiGenerated: true };
 }

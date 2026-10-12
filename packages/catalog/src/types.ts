@@ -119,7 +119,9 @@ export interface AdapterListing {
    */
   packageName: string;
   /**
-   * GitHub URL of the adapter's README.
+   * GitHub tree URL of the adapter's source folder, pinned to a commit or
+   * tag for third-party adapters. The docs read the README from this folder
+   * and link to it as the adapter's source.
    */
   readme: string;
   /**

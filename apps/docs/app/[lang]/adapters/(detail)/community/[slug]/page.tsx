@@ -186,6 +186,7 @@ const Page = async ({ params }: { params: Promise<PageParams> }) => {
           logo={data.logo}
           name={data.title}
           packageName={data.packageName}
+          sourceUrl={adapter?.readme}
           tagline={data.tagline}
         />
         {adapter ? <CommunityNotice adapter={adapter} /> : null}

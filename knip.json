@@ -11,6 +11,9 @@
     "packages/chat": {
       "entry": ["fixtures/workflow-serialization.ts"]
     },
+    "packages/integration-tests": {
+      "entry": ["src/exact-optional-adapters.ts"]
+    },
     "examples/nuxt-chat": {
       "nuxt": {
         "entry": [

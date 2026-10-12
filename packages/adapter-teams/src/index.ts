@@ -20,7 +20,11 @@ import type {
   SentActivity,
   TaskModuleResponse,
 } from "@microsoft/teams.api";
-import { MessageActivity, TypingActivity } from "@microsoft/teams.api";
+import {
+  MessageActivity,
+  MessageActivityInput,
+  TypingActivity,
+} from "@microsoft/teams.api";
 import type { IActivityContext, IStreamer } from "@microsoft/teams.apps";
 import { StreamCancelledError } from "@microsoft/teams.apps";
 import { users } from "@microsoft/teams.graph-endpoints";
@@ -55,6 +59,7 @@ import {
   defaultEmojiResolver,
   Message,
 } from "chat";
+import { applyAiGeneratedLabel } from "./ai-generated";
 import { TeamsApp } from "./app";
 import {
   createAnonymousAttachmentFetchData,
@@ -1290,6 +1295,7 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
         },
         ...fileAttachments,
       ];
+      applyAiGeneratedLabel(activity, message);
 
       this.logger.debug("Teams API: send (adaptive card)", {
         conversationId,
@@ -1321,6 +1327,7 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
     if (fileAttachments.length > 0) {
       activity.attachments = fileAttachments;
     }
+    applyAiGeneratedLabel(activity, message);
 
     this.logger.debug("Teams API: send (message)", {
       conversationId,
@@ -1379,6 +1386,7 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
         },
         ...fileAttachments,
       ];
+      applyAiGeneratedLabel(activity, message);
 
       this.logger.debug("Teams API: send (targeted adaptive card)", {
         conversationId,
@@ -1416,6 +1424,7 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
     if (fileAttachments.length > 0) {
       activity.attachments = fileAttachments;
     }
+    applyAiGeneratedLabel(activity, message);
 
     this.logger.debug("Teams API: send (targeted message)", {
       conversationId,
@@ -1574,6 +1583,7 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
           content: adaptiveCard,
         },
       ];
+      applyAiGeneratedLabel(activity, message);
 
       const targeted = await this.isTargetedActivity(conversationId, messageId);
 
@@ -1609,6 +1619,7 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
 
     const activity = new MessageActivity(text);
     activity.textFormat = "markdown";
+    applyAiGeneratedLabel(activity, message);
 
     const targeted = await this.isTargetedActivity(conversationId, messageId);
 
@@ -1772,7 +1783,8 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
         threadId,
         textStream,
         activeStream,
-        options?.fallbackStreamingPlaceholderText
+        options?.fallbackStreamingPlaceholderText,
+        options?.aiGenerated
       );
     }
 
@@ -1796,7 +1808,10 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
     if (!accumulated) {
       return { id: "", threadId, raw: { text: "" } };
     }
-    return this.postMessage(threadId, { markdown: accumulated });
+    return this.postMessage(threadId, {
+      markdown: accumulated,
+      aiGenerated: options?.aiGenerated,
+    });
   }
 
   /**
@@ -1811,7 +1826,8 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
     threadId: string,
     textStream: AsyncIterable<string | StreamChunk>,
     stream: IStreamer,
-    placeholderText?: string | null
+    placeholderText?: string | null,
+    aiGenerated?: boolean
   ): Promise<RawMessage<unknown>> {
     let accumulated = "";
     let messageId = "";
@@ -1843,7 +1859,11 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
           continue;
         }
 
-        stream.emit(text);
+        // The streamer builds the final message from the last emitted
+        // activity's entities, so every chunk carries the label.
+        stream.emit(
+          aiGenerated ? new MessageActivityInput(text).addAiGenerated() : text
+        );
         accumulated += text;
       }
     } catch (error) {
@@ -1998,6 +2018,7 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
         },
         ...fileAttachments,
       ];
+      applyAiGeneratedLabel(activity, message);
 
       try {
         const sent = await this.app.sendTo(
@@ -2023,6 +2044,7 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
     if (fileAttachments.length > 0) {
       activity.attachments = fileAttachments;
     }
+    applyAiGeneratedLabel(activity, message);
 
     try {
       const sent = await this.app.sendTo(
