@@ -20,7 +20,12 @@ export {
   toBuffer,
   toBufferSync,
 } from "./buffer-utils";
-
+// Button and quick-reply callback payloads ("chat:{json}")
+export {
+  type DecodedCallbackData,
+  decodeCallbackData,
+  encodeCallbackData,
+} from "./callback-data";
 // Card conversion utilities
 export {
   BUTTON_STYLE_MAPPINGS,
@@ -28,9 +33,11 @@ export {
   createEmojiConverter,
   escapeTableCell,
   type FallbackTextOptions,
+  findCardActions,
   mapButtonStyle,
   type PlatformName,
   renderGfmTable,
+  truncateWithEllipsis,
 } from "./card-utils";
 
 // Slack-style ``` fence normalization for CommonMark parsing
@@ -72,3 +79,21 @@ export {
   maskCodeSpans,
   replaceBareMentions,
 } from "./mentions";
+
+// In-memory message history for platforms without a history API
+export {
+  compareMessagesByTime,
+  messageSequence,
+  paginateMessages,
+  upsertMessage,
+} from "./message-cache";
+
+// Meta (Messenger, Instagram, WhatsApp) webhook and Graph API helpers
+export {
+  type MetaGraphApiErrorOptions,
+  type MetaGraphError,
+  parseRetryAfter,
+  throwMetaGraphApiError,
+  verifyMetaSignature,
+  verifyMetaWebhookChallenge,
+} from "./meta";

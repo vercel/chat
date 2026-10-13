@@ -11,6 +11,12 @@
  * @see https://developers.facebook.com/docs/messenger-platform/send-messages/buttons/
  */
 
+import {
+  decodeCallbackData,
+  encodeCallbackData,
+  findCardActions as findActions,
+  truncateWithEllipsis as truncate,
+} from "@chat-adapter/shared";
 import type {
   ActionsElement,
   ButtonElement,
@@ -21,13 +27,6 @@ import type {
   TextElement,
 } from "chat";
 import type { MessengerButton, MessengerTemplatePayload } from "./types";
-
-const CALLBACK_DATA_PREFIX = "chat:";
-
-interface MessengerCardActionPayload {
-  a: string;
-  v?: string;
-}
 
 /** Maximum number of buttons Messenger allows per template */
 const MAX_BUTTONS = 3;
@@ -60,11 +59,7 @@ export function encodeMessengerCallbackData(
   actionId: string,
   value?: string
 ): string {
-  const payload: MessengerCardActionPayload = { a: actionId };
-  if (typeof value === "string") {
-    payload.v = value;
-  }
-  return `${CALLBACK_DATA_PREFIX}${JSON.stringify(payload)}`;
+  return encodeCallbackData(actionId, value);
 }
 
 /**
@@ -75,33 +70,7 @@ export function decodeMessengerCallbackData(data?: string): {
   actionId: string;
   value: string | undefined;
 } {
-  if (!data) {
-    return { actionId: "messenger_callback", value: undefined };
-  }
-
-  // Passthrough for legacy or externally-generated payloads that don't
-  // use the chat: prefix — treat the raw string as both actionId and value.
-  if (!data.startsWith(CALLBACK_DATA_PREFIX)) {
-    return { actionId: data, value: data };
-  }
-
-  try {
-    const decoded = JSON.parse(
-      data.slice(CALLBACK_DATA_PREFIX.length)
-    ) as MessengerCardActionPayload;
-
-    if (typeof decoded.a === "string" && decoded.a) {
-      return {
-        actionId: decoded.a,
-        value: typeof decoded.v === "string" ? decoded.v : undefined,
-      };
-    }
-  } catch {
-    // Malformed JSON after prefix — fall back to passthrough.
-  }
-
-  // Same passthrough as non-prefixed data: treat raw string as both fields.
-  return { actionId: data, value: data };
+  return decodeCallbackData(data, "messenger_callback");
 }
 
 /**
@@ -254,24 +223,6 @@ function hasUnsupportedElements(children: CardChild[]): boolean {
     }
   }
   return false;
-}
-
-/**
- * Find the first ActionsElement in a list of card children.
- */
-function findActions(children: CardChild[]): ActionsElement | null {
-  for (const child of children) {
-    if (child.type === "actions") {
-      return child;
-    }
-    if (child.type === "section") {
-      const nested = findActions(child.children);
-      if (nested) {
-        return nested;
-      }
-    }
-  }
-  return null;
 }
 
 /**
@@ -446,14 +397,4 @@ function childToPlainText(child: CardChild): string | null {
     default:
       return null;
   }
-}
-
-/**
- * Truncate text to a maximum length, adding ellipsis if needed.
- */
-function truncate(text: string, maxLength: number): string {
-  if (text.length <= maxLength) {
-    return text;
-  }
-  return `${text.slice(0, maxLength - 1)}\u2026`;
 }
