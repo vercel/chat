@@ -223,6 +223,12 @@ await slackAdapter.withBotToken(
 
 `withBotToken` uses `AsyncLocalStorage`, so concurrent calls with different tokens stay isolated. In multi-workspace deployments, pass `installationId` so per-user caches are scoped to that installation and don't bleed across tenants. `installationId` is the key the installation was stored under: the `team_id`, or the `enterprise_id` for org-wide installs.
 
+Message deduplication, locks, queues, concurrency limits, and turn cancellation are scoped to the resolved installation and workspace. Two installations in the same Slack Connect channel use separate queues and cannot cancel each other's turns. Public thread IDs stay unchanged, and channel members still include external users. This does not establish that recipients are trusted or isolate subscription, thread state, or history keys.
+
+To call `bot.abortTurn(threadId)` outside webhook handling, use `withBotToken` with the same `installationId`. For an org-wide installation, also pass the target workspace's `teamId` in the options. Multi-workspace message dispatch and cancellation throw `AuthenticationError` when authentication context is unavailable. Token-only `withBotToken` calls use a hashed token scope, which does not match installation-scoped webhook turns and changes when the token rotates.
+
+Upgrade `chat` and `@chat-adapter/slack` together and restart all workers. Previously queued multi-workspace messages use unscoped keys and are not migrated into installation-scoped queues. Replay pending messages that you need to retain.
+
 #### Token encryption
 
 Pass a base64-encoded 32-byte key as `encryptionKey` to encrypt bot tokens at rest using AES-256-GCM:
