@@ -1,0 +1,29 @@
+{
+  "name": "example-nextjs-managed-agents",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.133.0",
+    "@chat-adapter/managed-agents": "workspace:*",
+    "@chat-adapter/slack": "workspace:*",
+    "@chat-adapter/state-redis": "workspace:*",
+    "@cursor/sdk": "^1.0.37",
+    "chat": "workspace:*",
+    "next": "^16.3.6",
+    "openai": "^7.32.0",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^25.9.2",
+    "@types/react": "^19.2.7",
+    "typescript": "^5.9.3"
+  }
+}

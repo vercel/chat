@@ -58,6 +58,9 @@ export const getExpectedHomepage = (dirName: string, name: string): string => {
   if (name === "@chat-adapter/catalog") {
     return `${CHAT_SDK_HOMEPAGE}/docs/adapter-catalog`;
   }
+  if (name === "@chat-adapter/managed-agents") {
+    return `${CHAT_SDK_HOMEPAGE}/docs/ai/managed-agents`;
+  }
   if (dirName.startsWith("state-")) {
     const slug =
       dirName === "state-pg" ? "postgres" : dirName.slice("state-".length);

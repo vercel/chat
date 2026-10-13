@@ -1,4 +1,11 @@
 {
   "title": "AI",
-  "pages": ["index", "ai-sdk-tools", "to-ai-messages", "tanstack-ai", "types"]
+  "pages": [
+    "index",
+    "ai-sdk-tools",
+    "to-ai-messages",
+    "tanstack-ai",
+    "managed-agents",
+    "types"
+  ]
 }

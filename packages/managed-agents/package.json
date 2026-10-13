@@ -1,0 +1,97 @@
+{
+  "name": "@chat-adapter/managed-agents",
+  "version": "4.41.1",
+  "description": "Managed agents for Chat SDK. Connect Claude Managed Agents, Cursor agents, the OpenAI Agents API, and other hosted agent sessions to any chat thread",
+  "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
+  "main": "./dist/index.js",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./claude": {
+      "types": "./dist/claude/index.d.ts",
+      "import": "./dist/claude/index.js"
+    },
+    "./cursor": {
+      "types": "./dist/cursor/index.d.ts",
+      "import": "./dist/cursor/index.js"
+    },
+    "./openai": {
+      "types": "./dist/openai/index.d.ts",
+      "import": "./dist/openai/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsup",
+    "dev": "tsup --watch",
+    "test": "vitest run --coverage",
+    "test:watch": "vitest",
+    "typecheck": "tsc --noEmit",
+    "clean": "rm -rf dist"
+  },
+  "dependencies": {
+    "chat": "workspace:*"
+  },
+  "peerDependencies": {
+    "@anthropic-ai/sdk": ">=0.120.0 <1",
+    "@cursor/sdk": "^1.0.0",
+    "openai": "^7.32.0"
+  },
+  "peerDependenciesMeta": {
+    "@anthropic-ai/sdk": {
+      "optional": true
+    },
+    "@cursor/sdk": {
+      "optional": true
+    },
+    "openai": {
+      "optional": true
+    }
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/vercel/chat.git",
+    "directory": "packages/managed-agents"
+  },
+  "homepage": "https://chat-sdk.dev/docs/ai/managed-agents",
+  "bugs": {
+    "url": "https://github.com/vercel/chat/issues"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "keywords": [
+    "chat",
+    "chat-sdk",
+    "ai",
+    "agents",
+    "managed-agents",
+    "claude",
+    "anthropic",
+    "cursor",
+    "openai",
+    "slack",
+    "typescript",
+    "vercel"
+  ],
+  "license": "MIT",
+  "devDependencies": {
+    "@anthropic-ai/sdk": "^0.133.0",
+    "@chat-adapter/tests": "workspace:*",
+    "@cursor/sdk": "^1.0.37",
+    "@types/node": "^25.9.2",
+    "openai": "^7.32.0",
+    "tsup": "^8.5.1",
+    "typescript": "^5.9.3",
+    "vitest": "^5.0.3"
+  }
+}
