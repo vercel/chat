@@ -1,6 +1,6 @@
 import type { App } from "@microsoft/teams.apps";
 import type { Client as GraphClient } from "@microsoft/teams.graph";
-import { chats, teams } from "@microsoft/teams.graph-endpoints";
+import { chats, shares, teams } from "@microsoft/teams.graph-endpoints";
 import type {
   Attachment,
   ChannelInfo,
@@ -13,6 +13,10 @@ import type {
   ThreadSummary,
 } from "chat";
 import { Message, NotImplementedError } from "chat";
+import {
+  createTeamsGraphAttachment,
+  type TeamsAttachmentFetchers,
+} from "./attachments";
 import type { TeamsFormatConverter } from "./markdown";
 import { decodeThreadId, encodeThreadId, isDM } from "./thread-id";
 import type {
@@ -35,6 +39,8 @@ type ChatMessageListResponse = Awaited<
 type GraphMessage = NonNullable<ChatMessageListResponse["value"]>[number];
 
 export interface TeamsGraphReaderDeps {
+  /** Fetchers used by attachments on messages read through Graph. */
+  attachmentFetchers: TeamsAttachmentFetchers;
   botId: string;
   formatConverter: TeamsFormatConverter;
   getGraphContext: (
@@ -697,6 +703,24 @@ export class TeamsGraphReader {
     return res.data;
   }
 
+  /**
+   * Resolve a SharePoint or OneDrive file URL from a Graph `reference`
+   * attachment to a short-lived, pre-authenticated download URL.
+   */
+  async resolveFileDownloadUrl(fileUrl: string): Promise<string> {
+    const shareId = `u!${Buffer.from(fileUrl).toString("base64url")}`;
+    const item = (await this.deps.graph.call(shares.driveItem.get, {
+      "sharedDriveItem-id": shareId,
+    })) as Record<string, unknown>;
+    const downloadUrl = item["@microsoft.graph.downloadUrl"];
+    if (typeof downloadUrl !== "string" || !downloadUrl) {
+      throw new Error(
+        "Microsoft Graph did not return a download URL for the shared file"
+      );
+    }
+    return downloadUrl;
+  }
+
   extractTextFromGraphMessage(msg: GraphMessage): string {
     if (msg.body?.contentType === "text") {
       return msg.body.content || "";
@@ -792,12 +816,7 @@ export class TeamsGraphReader {
         contentType?: string | null;
         contentUrl?: string | null;
         name?: string | null;
-      }) => ({
-        type: att.contentType?.includes("image") ? "image" : "file",
-        name: att.name ?? undefined,
-        url: att.contentUrl ?? undefined,
-        mimeType: att.contentType ?? undefined,
-      })
+      }) => createTeamsGraphAttachment(att, this.deps.attachmentFetchers)
     );
   }
 

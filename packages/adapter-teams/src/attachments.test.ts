@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import {
   createAnonymousAttachmentFetchData,
   createTeamsAttachment,
+  createTeamsGraphAttachment,
   rehydrateTeamsAttachment,
   type TeamsAttachmentFetchers,
 } from "./attachments";
@@ -10,17 +11,79 @@ const CONNECTOR_URL = "https://smba.trafficmanager.net/teams/";
 
 function createFetchers(
   fetchAuthenticated: TeamsAttachmentFetchers["fetchAuthenticated"],
-  transfer?: (url: string) => Promise<Buffer>
+  transfer?: (url: string) => Promise<Buffer>,
+  fetchGraphFile: TeamsAttachmentFetchers["fetchGraphFile"] = vi.fn()
 ): TeamsAttachmentFetchers {
   return {
     createAnonymousFetchData: transfer
       ? (url) => () => transfer(url)
       : createAnonymousAttachmentFetchData,
     fetchAuthenticated,
+    fetchGraphFile,
   };
 }
 
 describe("Teams attachments", () => {
+  it("downloads Graph file references through Graph and survives rehydration", async () => {
+    const fetchAuthenticated = vi.fn();
+    const transfer = vi.fn();
+    const fetchGraphFile = vi.fn(async () => Buffer.from("pdf bytes"));
+    const fetchers = createFetchers(
+      fetchAuthenticated,
+      transfer,
+      fetchGraphFile
+    );
+    const url =
+      "https://contoso-my.sharepoint.com/personal/user/Documents/Microsoft Teams Chat Files/report.pdf";
+
+    const attachment = createTeamsGraphAttachment(
+      { contentType: "reference", contentUrl: url, name: "report.pdf" },
+      fetchers
+    );
+
+    expect(attachment).toMatchObject({
+      type: "file",
+      url,
+      name: "report.pdf",
+      mimeType: "application/pdf",
+      fetchMetadata: { url, auth: "graph" },
+    });
+    await expect(attachment.fetchData?.()).resolves.toEqual(
+      Buffer.from("pdf bytes")
+    );
+
+    const { fetchData: _fetchData, ...serialized } = attachment;
+    const rehydrated = rehydrateTeamsAttachment(
+      JSON.parse(JSON.stringify(serialized)) as typeof serialized,
+      fetchers
+    );
+    await expect(rehydrated.fetchData?.()).resolves.toEqual(
+      Buffer.from("pdf bytes")
+    );
+
+    expect(fetchGraphFile).toHaveBeenCalledTimes(2);
+    expect(fetchGraphFile).toHaveBeenCalledWith(url);
+    expect(transfer).not.toHaveBeenCalled();
+    expect(fetchAuthenticated).not.toHaveBeenCalled();
+  });
+
+  it("keeps non-file Graph attachments as metadata only", () => {
+    const attachment = createTeamsGraphAttachment(
+      {
+        contentType: "application/vnd.microsoft.card.adaptive",
+        name: null,
+      },
+      createFetchers(vi.fn())
+    );
+
+    expect(attachment).toEqual({
+      type: "file",
+      name: undefined,
+      url: undefined,
+      mimeType: "application/vnd.microsoft.card.adaptive",
+    });
+  });
+
   it("downloads file cards anonymously and infers their MIME type", async () => {
     const fetchAuthenticated = vi.fn();
     const transfer = vi.fn(async () => Buffer.from("file contents"));

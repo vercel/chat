@@ -1,6 +1,6 @@
 import { createMockChatInstance, createMockState } from "@chat-adapter/tests";
 import { Client as GraphClient } from "@microsoft/teams.graph";
-import { chats } from "@microsoft/teams.graph-endpoints";
+import { chats, shares } from "@microsoft/teams.graph-endpoints";
 import { ConsoleLogger } from "chat";
 import { describe, expect, it, vi } from "vitest";
 import type { TeamsApp } from "./app";
@@ -11,6 +11,11 @@ import { decodeThreadId, encodeThreadId, isDM } from "./thread-id";
 
 function createTestReader(): TeamsGraphReader {
   return new TeamsGraphReader({
+    attachmentFetchers: {
+      createAnonymousFetchData: vi.fn(),
+      fetchAuthenticated: vi.fn(),
+      fetchGraphFile: vi.fn(),
+    },
     botId: "test-app",
     graph: new GraphClient(),
     formatConverter: new TeamsFormatConverter(),
@@ -206,6 +211,73 @@ describe("TeamsAdapter.fetchMessages Graph routing", () => {
     );
     expect(result.messages).toMatchObject([{ id: "message-1", text: "Hello" }]);
   });
+
+  it("downloads group chat file references through Microsoft Graph", async () => {
+    const fileUrl =
+      "https://contoso-my.sharepoint.com/personal/user/Documents/report.pdf";
+    const downloadUrl = "https://contoso-my.sharepoint.com/download?token=abc";
+    const adapter = createTeamsAdapter({
+      appId: "bot-id",
+      appPassword: "test",
+      logger: new ConsoleLogger("error"),
+    });
+    const app = (adapter as unknown as { app: TeamsApp }).app;
+    vi.spyOn(app, "initialize").mockResolvedValue(undefined);
+    const call = vi
+      .spyOn(app.graph, "call")
+      .mockResolvedValueOnce({
+        value: [
+          {
+            id: "1747634491000",
+            body: { content: "summarize this", contentType: "html" },
+            attachments: [
+              {
+                contentType: "reference",
+                contentUrl: fileUrl,
+                name: "report.pdf",
+              },
+            ],
+          },
+        ],
+      })
+      .mockResolvedValueOnce({
+        "@microsoft.graph.downloadUrl": downloadUrl,
+      });
+    const download = vi.fn(async () => Buffer.from("pdf bytes"));
+    const createFetchDataFn = vi
+      .spyOn(
+        adapter as unknown as {
+          createFetchDataFn: (url: string) => () => Promise<Buffer>;
+        },
+        "createFetchDataFn"
+      )
+      .mockReturnValue(download);
+    await adapter.initialize(
+      createMockChatInstance({ state: createMockState() })
+    );
+
+    const result = await adapter.fetchMessages(
+      adapter.encodeThreadId({
+        conversationId: "19:group-chat@thread.v2",
+        conversationType: "groupChat",
+        serviceUrl: "https://smba.trafficmanager.net/teams/",
+      })
+    );
+    const attachment = result.messages[0]?.attachments[0];
+
+    expect(attachment).toMatchObject({
+      type: "file",
+      name: "report.pdf",
+      mimeType: "application/pdf",
+    });
+    await expect(attachment?.fetchData?.()).resolves.toEqual(
+      Buffer.from("pdf bytes")
+    );
+    expect(call).toHaveBeenLastCalledWith(shares.driveItem.get, {
+      "sharedDriveItem-id": `u!${Buffer.from(fileUrl).toString("base64url")}`,
+    });
+    expect(createFetchDataFn).toHaveBeenCalledWith(downloadUrl);
+  });
 });
 
 describe("listThreads", () => {
@@ -221,6 +293,11 @@ describe("listThreads", () => {
       })),
     };
     const reader = new TeamsGraphReader({
+      attachmentFetchers: {
+        createAnonymousFetchData: vi.fn(),
+        fetchAuthenticated: vi.fn(),
+        fetchGraphFile: vi.fn(),
+      },
       botId: "test-app",
       graph: graph as unknown as GraphClient,
       formatConverter: new TeamsFormatConverter(),
