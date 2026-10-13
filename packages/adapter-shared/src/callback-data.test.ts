@@ -1,5 +1,16 @@
 import { describe, expect, it } from "vitest";
-import { decodeCallbackData, encodeCallbackData } from "./callback-data";
+import {
+  decodeCallbackData,
+  encodeCallbackData,
+  isChatCallbackData,
+} from "./callback-data";
+
+describe("isChatCallbackData", () => {
+  it("detects the chat: prefix", () => {
+    expect(isChatCallbackData(encodeCallbackData("go"))).toBe(true);
+    expect(isChatCallbackData("LEGACY")).toBe(false);
+  });
+});
 
 describe("encodeCallbackData", () => {
   it("encodes an action ID", () => {

@@ -43,6 +43,9 @@ pnpm add @chat-adapter/shared
 
 - `encodeCallbackData(actionId, value?)` - encode a button or quick-reply payload as `chat:{json}`
 - `decodeCallbackData(data, fallbackActionId)` - decode it, passing legacy and third-party payloads through unchanged
+- `isChatCallbackData(data)` - check for the `chat:` prefix
+
+These are also exported from `@chat-adapter/shared/callback-data`, which has no dependencies, for runtime-light entry points such as webhook parsers.
 
 ### Message history
 

@@ -2,6 +2,10 @@
  * Encoding for button and quick-reply callback payloads.
  *
  * Format: `chat:{json}` where json is `{ a: actionId, v?: value }`.
+ *
+ * This module has no imports so runtime-light entry points (such as webhook
+ * parsers) can use it through `@chat-adapter/shared/callback-data` without
+ * loading the `chat` package.
  */
 
 const CALLBACK_DATA_PREFIX = "chat:";
@@ -15,6 +19,14 @@ interface CallbackDataPayload {
 export interface DecodedCallbackData {
   actionId: string;
   value: string | undefined;
+}
+
+/**
+ * Whether `data` uses the `chat:` callback data prefix produced by
+ * {@link encodeCallbackData}.
+ */
+export function isChatCallbackData(data: string): boolean {
+  return data.startsWith(CALLBACK_DATA_PREFIX);
 }
 
 /**
@@ -42,7 +54,7 @@ export function decodeCallbackData(
   if (!data) {
     return { actionId: fallbackActionId, value: undefined };
   }
-  if (!data.startsWith(CALLBACK_DATA_PREFIX)) {
+  if (!isChatCallbackData(data)) {
     return { actionId: data, value: data };
   }
   try {

@@ -25,6 +25,7 @@ export {
   type DecodedCallbackData,
   decodeCallbackData,
   encodeCallbackData,
+  isChatCallbackData,
 } from "./callback-data";
 // Card conversion utilities
 export {
