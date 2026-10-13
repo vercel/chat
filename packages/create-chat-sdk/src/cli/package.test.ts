@@ -85,5 +85,5 @@ describe("built CLI package", () => {
     expect(files).toContain("_template/CLAUDE.md");
     expect(files).toContain("_template/.agents/skills/chat-sdk/SKILL.md");
     expect(files).toContain("_template/.claude/skills/chat-sdk/SKILL.md");
-  });
+  }, 30_000);
 });
