@@ -1482,7 +1482,16 @@ export class Chat<
   }
 
   async abortTurn(threadId: string): Promise<void> {
-    const localControllers = this.activeTurnControllers.get(threadId);
+    const name = threadId.split(":")[0] ?? "";
+    const adapter = this.adapters.get(name);
+    if (!adapter) {
+      throw new ChatError(
+        `Adapter "${name}" not found for thread ID "${threadId}"`,
+        "ADAPTER_NOT_FOUND"
+      );
+    }
+    const key = this.concurrencyKey(adapter, threadId);
+    const localControllers = this.activeTurnControllers.get(key);
     if (localControllers) {
       for (const controller of localControllers.values()) {
         controller.abort();
@@ -1490,11 +1499,11 @@ export class Chat<
     }
 
     const activeTurnId = await this._stateAdapter.get<string>(
-      this.activeTurnKey(threadId)
+      this.activeTurnKey(key)
     );
     if (activeTurnId) {
       await this._stateAdapter.set(
-        this.abortTurnKey(threadId),
+        this.abortTurnKey(key),
         activeTurnId,
         ACTIVE_TURN_TTL_MS
       );
@@ -2394,8 +2403,9 @@ export class Chat<
 
   /**
    * Resolve the lock key for a message based on lock scope.
-   * With 'thread' scope, returns threadId. With 'channel' scope,
-   * returns channelId (derived via adapter.channelIdFromThreadId).
+   * With 'thread' scope, uses threadId. With 'channel' scope,
+   * uses channelId (derived via adapter.channelIdFromThreadId).
+   * Adapters can namespace the key with their authenticated tenant scope.
    */
   private async getLockKey(
     adapter: Adapter,
@@ -2416,7 +2426,17 @@ export class Chat<
       scope = this._lockScope ?? adapter.lockScope ?? "thread";
     }
 
-    return scope === "channel" ? channelId : threadId;
+    return this.concurrencyKey(
+      adapter,
+      scope === "channel" ? channelId : threadId
+    );
+  }
+
+  private concurrencyKey(adapter: Adapter, key: string): string {
+    const scope = adapter.getConcurrencyScope?.();
+    return scope === undefined
+      ? key
+      : `concurrency:${JSON.stringify([adapter.name, scope, key])}`;
   }
 
   /**
@@ -2472,7 +2492,10 @@ export class Chat<
 
     // Deduplicate messages atomically - same message can arrive via multiple paths
     // (e.g., Slack message + app_mention events, GChat direct webhook + Pub/Sub)
-    const dedupeKey = `dedupe:${adapter.name}:${message.id}`;
+    const dedupeKey = this.concurrencyKey(
+      adapter,
+      `dedupe:${adapter.name}:${message.id}`
+    );
     const isFirstProcess = await this._stateAdapter.setIfNotExists(
       dedupeKey,
       true,
@@ -3077,11 +3100,12 @@ export class Chat<
       return;
     }
 
-    await this.acquireConcurrentSlot(threadId, maxConcurrent);
+    const key = this.concurrencyKey(adapter, threadId);
+    await this.acquireConcurrentSlot(key, maxConcurrent);
     try {
       await this.dispatchToHandlers(adapter, threadId, message);
     } finally {
-      this.releaseConcurrentSlot(threadId);
+      this.releaseConcurrentSlot(key);
     }
   }
 
@@ -3132,17 +3156,18 @@ export class Chat<
   ): Promise<void> {
     const turnId = randomUUID();
     const controller = new AbortController();
-    let controllers = this.activeTurnControllers.get(threadId);
+    const key = this.concurrencyKey(adapter, threadId);
+    let controllers = this.activeTurnControllers.get(key);
     if (!controllers) {
       controllers = new Map();
-      this.activeTurnControllers.set(threadId, controllers);
+      this.activeTurnControllers.set(key, controllers);
     }
     controllers.set(turnId, controller);
 
     if (adapter.supportsTurnCancellation) {
       try {
         await this._stateAdapter.set(
-          this.activeTurnKey(threadId),
+          this.activeTurnKey(key),
           turnId,
           ACTIVE_TURN_TTL_MS
         );
@@ -3156,7 +3181,7 @@ export class Chat<
 
     const monitorStop = new AbortController();
     const monitor = adapter.supportsTurnCancellation
-      ? this.monitorTurnAbort(threadId, turnId, controller, monitorStop.signal)
+      ? this.monitorTurnAbort(key, turnId, controller, monitorStop.signal)
       : Promise.resolve();
     try {
       await this.dispatchToHandlersWithSignal(
@@ -3171,10 +3196,10 @@ export class Chat<
       await monitor;
       controllers.delete(turnId);
       if (controllers.size === 0) {
-        this.activeTurnControllers.delete(threadId);
+        this.activeTurnControllers.delete(key);
       }
       if (adapter.supportsTurnCancellation) {
-        await this.clearTurnMarkers(threadId, turnId);
+        await this.clearTurnMarkers(key, turnId);
       }
     }
   }

@@ -388,6 +388,7 @@ export interface Adapter<TThreadId = unknown, TRawMessage = unknown> {
    * @returns The channel visibility scope
    */
   getChannelVisibility?(threadId: string): ChannelVisibility;
+  getConcurrencyScope?(): string | undefined;
 
   /**
    * Look up user information by user ID.

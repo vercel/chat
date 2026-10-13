@@ -1,5 +1,5 @@
 import { AsyncLocalStorage } from "node:async_hooks";
-import { timingSafeEqual } from "node:crypto";
+import { createHash, timingSafeEqual } from "node:crypto";
 import {
   AdapterRateLimitError,
   type AttachmentTransport,
@@ -1650,6 +1650,30 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
     );
   }
 
+  getConcurrencyScope(): string | undefined {
+    const context = this.requestContext.getStore();
+    if (context?.installationId) {
+      return JSON.stringify([
+        "installation",
+        context.installationId,
+        context.teamId ?? context.installationId,
+      ]);
+    }
+    if (context?.token) {
+      return JSON.stringify([
+        "token",
+        createHash("sha256").update(context.token).digest("hex"),
+      ]);
+    }
+    if (this.defaultBotTokenProvider) {
+      return undefined;
+    }
+    throw new AuthenticationError(
+      "slack",
+      "No installation context available. Process a verified webhook or use withBotToken with installationId before handling messages or cancelling turns."
+    );
+  }
+
   /**
    * Add the current token to API call options.
    * Workaround for Slack WebClient types not including `token` in per-method args.
@@ -1910,10 +1934,14 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
   withBotToken<T>(
     token: string,
     fn: () => T,
-    options?: { installationId?: string }
+    options?: { installationId?: string; teamId?: string }
   ): T {
     return this.requestContext.run(
-      { token, installationId: options?.installationId },
+      {
+        token,
+        installationId: options?.installationId,
+        teamId: options?.teamId,
+      },
       fn
     );
   }
