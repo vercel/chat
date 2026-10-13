@@ -179,9 +179,9 @@ export interface ChatToolsBaseOptions {
    * a handler and still acts on a user's behalf, or pass a channel id to
    * operate channel-wide.
    *
-   * Pass `false` to reach every conversation the bot can see. When no
-   * scope resolves (outside a handler, no explicit scope), tools run
-   * workspace-wide and a warning is logged.
+   * Pass `false` to reach every conversation the bot can see. When no scope
+   * resolves, calls reject before accessing the platform. Background jobs and
+   * handlers without a conversation must pass an explicit scope or `false`.
    *
    * @example
    * ```ts

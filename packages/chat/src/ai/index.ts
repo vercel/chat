@@ -73,7 +73,7 @@ type ChatToolMap = {
  *
  * const result = await generateText({
  *   model: yourModel,
- *   tools: createChatTools({ chat, preset: 'messenger' }),
+ *   tools: createChatTools({ chat, preset: 'messenger', scope: 'slack:C123:1234.5678' }),
  *   prompt: 'Reply in thread slack:C123:1234.5678 with the daily summary.',
  * })
  * ```
