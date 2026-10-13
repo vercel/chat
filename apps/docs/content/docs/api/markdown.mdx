@@ -179,6 +179,14 @@ Convert an mdast AST back to a markdown string.
 const md = stringifyMarkdown(ast); // "**Hello** world"
 ```
 
+Pass `handlers` to replace the serializer for specific mdast node types, for example to render a platform's own formatting syntax. A handler is responsible for any escaping its output needs.
+
+```typescript
+const md = stringifyMarkdown(ast, {
+  handlers: { text: (node) => node.value },
+});
+```
+
 ### toPlainText
 
 Strip all formatting and return plain text.
