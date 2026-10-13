@@ -161,6 +161,12 @@ Create a bot via [BotFather](https://t.me/BotFather) and provide its token direc
       description:
         "Minimum interval between edits on the post-and-edit streaming path. Acts as a floor, so a lower Chat-level `streamingUpdateIntervalMs` is raised to this value. Config only, no env var.",
     },
+    longMessages: {
+      type: '"truncate" | "split"',
+      default: '"truncate"',
+      description:
+        "How text posts longer than Telegram's message limit are sent. `truncate` cuts them with an ellipsis; `split` sends the full text as consecutive messages. See [Long messages](#long-messages). Config only, no env var.",
+    },
     apiUrl: {
       type: "string",
       description:
@@ -254,6 +260,20 @@ Plain strings, raw messages, cards, and media captions retain their existing lig
 MarkdownV2 fallback messages and captions that fit the length limit ship exactly as rendered, including backticks and other special characters inside link destinations. When a length limit cuts through a link, code span, or underline, the incomplete entity is removed before the ellipsis.
 
 Pass `{ raw: "..." }` only if you need to ship a fully pre-escaped MarkdownV2 string.
+
+## Long messages
+
+Telegram limits a message to 4,096 characters, or 32,768 for rich messages. By default, the adapter truncates longer text posts and ends them with an ellipsis. MarkdownV2 escaping counts toward the limit, so heavily punctuated markdown is cut earlier than its source length suggests.
+
+To send the full text instead, set `longMessages: "split"`:
+
+```typescript
+const telegram = createTelegramAdapter({ longMessages: "split" });
+```
+
+Posts that fit the limit are still sent as one message. Longer posts are sent as consecutive messages in order, each within the limit. The adapter splits between paragraphs and other blocks where possible, then at line breaks or spaces, and reopens formatting such as bold text and code blocks in the next message. Ordered lists keep their numbering.
+
+With `split`, only the first message replies to the original message, and `post()` returns the last message, so edits, reactions, and deletes apply to that message only. Splitting applies to text posts. Cards, media captions, edits, and the message edited during post-and-edit streaming still truncate.
 
 ## Slash commands
 

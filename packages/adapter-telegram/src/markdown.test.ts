@@ -193,6 +193,11 @@ describe("TelegramFormatConverter", () => {
       expect(output).toContain("2\\. second");
     });
 
+    it("keeps the start number of ordered lists", () => {
+      const output = converter.fromAst(converter.toAst("3. third\n4. fourth"));
+      expect(output).toBe("3\\. third\n4\\. fourth");
+    });
+
     it("renders blockquotes with > prefix per line", () => {
       expect(converter.fromAst(converter.toAst("> quoted text"))).toContain(
         ">quoted text"
