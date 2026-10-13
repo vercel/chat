@@ -61,11 +61,7 @@ vercel integration add redis
   </CodeBlockTab>
 </CodeBlockTabs>
 
-`createRedisState()` reads `REDIS_URL`. Run `vercel env ls` to see the variable names the integration added. If it stores the Redis connection URL under another name, such as `KV_URL`, pass that variable as `url`:
-
-```typescript title="lib/bot.ts"
-state: createRedisState({ url: process.env.KV_URL }),
-```
+Upstash Redis adds `REDIS_URL` to your project, and `createRedisState()` reads it with no extra configuration. If your provider stores the connection URL under another name, pass that variable as `url`.
 
 ## Configuration
 
