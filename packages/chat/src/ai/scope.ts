@@ -31,8 +31,8 @@ function channelOf(chat: ChatBinding, id: string): string {
  * rejecting sibling threads and the parent channel; a channel scope is
  * unaffected and still allows any thread within it.
  *
- * When no scope resolves (no explicit scope and no conversation being handled,
- * e.g. a cron job or queued work), tools run workspace-wide but warn once.
+ * When no scope resolves, tools reject the call. Background jobs and handlers
+ * without a conversation must pass an explicit scope or opt out with `false`.
  */
 export function createScopeGuard(
   chat: ChatBinding,
@@ -48,20 +48,12 @@ export function createScopeGuard(
     explicit = typeof scope === "string" ? scope : scope.id;
   }
 
-  let warnedUnscoped = false;
-
   return (id: string) => {
     const active = explicit ?? activeConversation();
     if (!active) {
-      if (!warnedUnscoped) {
-        warnedUnscoped = true;
-        chat
-          .getLogger()
-          .warn(
-            `Agent tool ran unscoped: "${id}" was accessed workspace-wide because no conversation is being handled and no \`scope\` was set. Pass \`scope\` to createChatTools to confine tools.`
-          );
-      }
-      return;
+      throw new Error(
+        "Tool call blocked: no conversation scope is available. Set `scope` to a thread or channel, or `scope: false` to allow workspace-wide access."
+      );
     }
 
     const activeChannel = channelOf(chat, active);

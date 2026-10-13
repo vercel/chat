@@ -15,6 +15,7 @@ const NO_LIST_THREADS_REGEX = /does not implement listThreads/;
 const NO_FETCH_CHANNEL_MESSAGES_REGEX =
   /does not support fetching channel messages/;
 const OUT_OF_SCOPE_REGEX = /tools are scoped to/;
+const MISSING_SCOPE_REGEX = /Tool call blocked: no conversation scope/;
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 // Minimal tool execution options stub used by every test below. Derived from
@@ -199,6 +200,7 @@ describe("createChatTools", () => {
     const metadata = { source: "chat-sdk" };
     const tools = createChatTools({
       chat,
+      scope: "slack:C123",
       requireApproval: false,
       overrides: {
         postMessage: {
@@ -246,6 +248,7 @@ describe("createChatTools", () => {
   it("postMessage dispatches via the adapter's postMessage", async () => {
     const tools = createChatTools({
       chat,
+      scope: "slack:C123",
       requireApproval: false,
     });
     const result = await tools.postMessage?.execute?.(
@@ -262,6 +265,7 @@ describe("createChatTools", () => {
   it("postChannelMessage dispatches via the adapter's postChannelMessage", async () => {
     const tools = createChatTools({
       chat,
+      scope: "slack:C123",
       requireApproval: false,
     });
     await tools.postChannelMessage?.execute?.(
@@ -293,6 +297,7 @@ describe("createChatTools", () => {
   it("addReaction dispatches via the adapter's addReaction", async () => {
     const tools = createChatTools({
       chat,
+      scope: "slack:C123",
       requireApproval: false,
     });
     await tools.addReaction?.execute?.(
@@ -313,6 +318,7 @@ describe("createChatTools", () => {
   it("deleteMessage dispatches via the adapter's deleteMessage", async () => {
     const tools = createChatTools({
       chat,
+      scope: "slack:C123",
       requireApproval: false,
     });
     const result = await tools.deleteMessage?.execute?.(
@@ -329,6 +335,7 @@ describe("createChatTools", () => {
   it("subscribeThread persists the subscription", async () => {
     const tools = createChatTools({
       chat,
+      scope: "slack:C123",
       requireApproval: false,
     });
     await tools.subscribeThread?.execute?.(
@@ -339,7 +346,7 @@ describe("createChatTools", () => {
   });
 
   it("startTyping dispatches via the adapter's startTyping", async () => {
-    const tools = createChatTools({ chat });
+    const tools = createChatTools({ chat, scope: "slack:C123" });
     await tools.startTyping?.execute?.(
       { threadId: "slack:C123:1234.5678", status: "Searching..." },
       TOOL_OPTIONS
@@ -374,7 +381,7 @@ describe("createChatTools", () => {
       messages: [stubMessage],
       nextCursor: undefined,
     });
-    const tools = createChatTools({ chat });
+    const tools = createChatTools({ chat, scope: "slack:C123" });
     const result = (await tools.fetchMessages?.execute?.(
       { threadId: "slack:C123:1234.5678", limit: 5, direction: "backward" },
       TOOL_OPTIONS
@@ -645,22 +652,15 @@ describe("createChatTools", () => {
       expect(outcome).toBe("blocked");
     });
 
-    it("stays unscoped outside a handler when scope is omitted, but warns", async () => {
-      const warn = mockLogger.warn as ReturnType<typeof vi.fn>;
-      warn.mockClear();
+    it("rejects calls outside a handler when scope is omitted", async () => {
       const tools = createChatTools({ chat });
-      await tools.fetchMessages?.execute?.(
-        { threadId: OTHER_THREAD, limit: 5, direction: "backward" },
-        TOOL_OPTIONS
-      );
-      expect(mockAdapter.fetchMessages).toHaveBeenCalled();
-      expect(warn).toHaveBeenCalledTimes(1);
-      // A second unscoped read on the same guard must not warn again.
-      await tools.fetchMessages?.execute?.(
-        { threadId: OTHER_THREAD, limit: 5, direction: "backward" },
-        TOOL_OPTIONS
-      );
-      expect(warn).toHaveBeenCalledTimes(1);
+      await expect(
+        tools.fetchMessages?.execute?.(
+          { threadId: OTHER_THREAD, limit: 5, direction: "backward" },
+          TOOL_OPTIONS
+        )
+      ).rejects.toThrow(MISSING_SCOPE_REGEX);
+      expect(mockAdapter.fetchMessages).not.toHaveBeenCalled();
     });
 
     it("scopes to the conversation, not the channel, across adapters", async () => {
@@ -883,7 +883,7 @@ describe("createChatTools", () => {
   });
 
   it("getChannelInfo returns flattened metadata", async () => {
-    const tools = createChatTools({ chat });
+    const tools = createChatTools({ chat, scope: "slack:C123" });
     const result = await tools.getChannelInfo?.execute?.(
       { channelId: "slack:C123" },
       TOOL_OPTIONS
@@ -898,6 +898,7 @@ describe("createChatTools", () => {
   it("editMessage dispatches via the adapter's editMessage", async () => {
     const tools = createChatTools({
       chat,
+      scope: "slack:C123",
       requireApproval: false,
     });
     const result = await tools.editMessage?.execute?.(
@@ -919,6 +920,7 @@ describe("createChatTools", () => {
   it("postMessage forwards a `raw` PostableInput marked as AI-generated", async () => {
     const tools = createChatTools({
       chat,
+      scope: "slack:C123",
       requireApproval: false,
     });
     await tools.postMessage?.execute?.(
@@ -937,6 +939,7 @@ describe("createChatTools", () => {
   it("removeReaction dispatches via the adapter's removeReaction", async () => {
     const tools = createChatTools({
       chat,
+      scope: "slack:C123",
       requireApproval: false,
     });
     const result = await tools.removeReaction?.execute?.(
@@ -961,6 +964,7 @@ describe("createChatTools", () => {
 
     const tools = createChatTools({
       chat,
+      scope: "slack:C123",
       requireApproval: false,
     });
     const result = await tools.unsubscribeThread?.execute?.(
@@ -1000,7 +1004,7 @@ describe("createChatTools", () => {
       nextCursor: "next",
     });
 
-    const tools = createChatTools({ chat });
+    const tools = createChatTools({ chat, scope: "slack:C123" });
     const result = (await tools.fetchChannelMessages?.execute?.(
       { channelId: "slack:C123", limit: 5, direction: "backward" },
       TOOL_OPTIONS
@@ -1026,7 +1030,7 @@ describe("createChatTools", () => {
     (mockAdapter as { fetchChannelMessages?: unknown }).fetchChannelMessages =
       undefined;
 
-    const tools = createChatTools({ chat });
+    const tools = createChatTools({ chat, scope: "slack:C123" });
     await expect(
       tools.fetchChannelMessages?.execute?.(
         { channelId: "slack:C123", limit: 5, direction: "backward" },
@@ -1045,7 +1049,7 @@ describe("createChatTools", () => {
       isDM: false,
       metadata: {},
     });
-    const tools = createChatTools({ chat });
+    const tools = createChatTools({ chat, scope: "slack:C123" });
     const result = await tools.fetchThread?.execute?.(
       { threadId: "slack:C123:1234.5678" },
       TOOL_OPTIONS
@@ -1093,7 +1097,7 @@ describe("createChatTools", () => {
       nextCursor: undefined,
     });
 
-    const tools = createChatTools({ chat });
+    const tools = createChatTools({ chat, scope: "slack:C123" });
     const result = (await tools.listThreads?.execute?.(
       { channelId: "slack:C123", limit: 10 },
       TOOL_OPTIONS
@@ -1114,7 +1118,7 @@ describe("createChatTools", () => {
 
   it("listThreads throws when the adapter does not support it", async () => {
     (mockAdapter as { listThreads?: unknown }).listThreads = undefined;
-    const tools = createChatTools({ chat });
+    const tools = createChatTools({ chat, scope: "slack:C123" });
     await expect(
       tools.listThreads?.execute?.({ channelId: "slack:C123" }, TOOL_OPTIONS)
     ).rejects.toThrow(NO_LIST_THREADS_REGEX);
@@ -1144,7 +1148,7 @@ describe("createChatTools", () => {
       getParticipants: vi.fn().mockResolvedValue(participantsStub),
     } as unknown as ReturnType<typeof chat.thread>);
 
-    const tools = createChatTools({ chat });
+    const tools = createChatTools({ chat, scope: "slack:C123" });
     const result = (await tools.getThreadParticipants?.execute?.(
       { threadId: "slack:C123:1234.5678" },
       TOOL_OPTIONS
