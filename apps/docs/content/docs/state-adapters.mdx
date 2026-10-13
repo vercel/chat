@@ -57,10 +57,14 @@ The [Memory](/adapters/official/memory) adapter keeps state in process memory, s
 
 If you deploy to Vercel, you can provision either database from the [Vercel Marketplace](https://vercel.com/marketplace/category/storage) with the Vercel CLI:
 
-| Database | Marketplace providers | Command | State adapters |
-| --- | --- | --- | --- |
-| Redis | Upstash Redis, Redis Cloud | `vercel integration add upstash/upstash-kv` or `vercel integration add redis` | [Redis](/adapters/official/redis#vercel-marketplace), [ioredis](/adapters/official/ioredis) |
-| PostgreSQL | Neon, Supabase | `vercel integration add neon` or `vercel integration add supabase` | [PostgreSQL](/adapters/official/postgres#vercel-marketplace) |
+| Provider | Command | State adapter |
+| --- | --- | --- |
+| Upstash Redis | `vercel integration add upstash/upstash-kv` | [Redis](/adapters/official/redis#vercel-marketplace) or [ioredis](/adapters/official/ioredis) |
+| Redis Cloud | `vercel integration add redis` | [Redis](/adapters/official/redis#vercel-marketplace) or [ioredis](/adapters/official/ioredis) |
+| Neon | `vercel integration add neon` | [PostgreSQL](/adapters/official/postgres#vercel-marketplace) |
+| Supabase | `vercel integration add supabase` | [PostgreSQL](/adapters/official/postgres#vercel-marketplace) |
+| Prisma Postgres | `vercel integration add prisma` | [PostgreSQL](/adapters/official/postgres#vercel-marketplace) |
+| Nile | `vercel integration add nile` | [PostgreSQL](/adapters/official/postgres#vercel-marketplace) |
 
 Run the command from a linked project directory:
 

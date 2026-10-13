@@ -40,12 +40,14 @@ By default, the adapter creates its tables and indexes on `connect()` if they do
 
 ## Vercel Marketplace
 
-Postgres providers such as Neon and Supabase are available on the [Vercel Marketplace](https://vercel.com/marketplace/category/storage). From your project directory, link the project and add an integration with the Vercel CLI. `vercel integration add` creates the database, connects it to the linked project, adds its credentials as environment variables, and pulls them into your local env file.
+Neon, Supabase, Prisma Postgres, and Nile are available on the [Vercel Marketplace](https://vercel.com/marketplace/category/storage). From your project directory, link the project and add an integration with the Vercel CLI. `vercel integration add` creates the database, connects it to the linked project, adds its credentials as environment variables, and pulls them into your local env file.
 
 <CodeBlockTabs defaultValue="neon">
   <CodeBlockTabsList>
     <CodeBlockTabsTrigger value="neon">Neon</CodeBlockTabsTrigger>
     <CodeBlockTabsTrigger value="supabase">Supabase</CodeBlockTabsTrigger>
+    <CodeBlockTabsTrigger value="prisma">Prisma Postgres</CodeBlockTabsTrigger>
+    <CodeBlockTabsTrigger value="nile">Nile</CodeBlockTabsTrigger>
   </CodeBlockTabsList>
   <CodeBlockTab value="neon">
 ```bash
@@ -59,9 +61,21 @@ vercel link
 vercel integration add supabase
 ```
   </CodeBlockTab>
+  <CodeBlockTab value="prisma">
+```bash
+vercel link
+vercel integration add prisma
+```
+  </CodeBlockTab>
+  <CodeBlockTab value="nile">
+```bash
+vercel link
+vercel integration add nile
+```
+  </CodeBlockTab>
 </CodeBlockTabs>
 
-`createPostgresState()` reads `POSTGRES_URL`, then falls back to `DATABASE_URL`. Run `vercel env ls` to see the variable names the integration added. If it stores the connection URL under another name, pass that variable as `url`.
+`createPostgresState()` reads `POSTGRES_URL`, then falls back to `DATABASE_URL`. Supabase sets `POSTGRES_URL`, and Prisma Postgres sets `DATABASE_URL`. For other providers, run `vercel env ls` to see the variable names the integration added. If it stores the connection details under other names, pass them as `url`, or pass a `pg.Pool` as `client` (see [Using an existing client](#using-an-existing-client)).
 
 ## Configuration
 
