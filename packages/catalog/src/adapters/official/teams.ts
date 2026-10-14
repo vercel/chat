@@ -68,6 +68,7 @@ export const teams = {
     "@microsoft/teams.api",
     "@microsoft/teams.apps",
     "@microsoft/teams.cards",
+    "@microsoft/teams.graph",
     "@microsoft/teams.graph-endpoints",
   ],
   readme: "https://github.com/vercel/chat/tree/main/packages/adapter-teams",

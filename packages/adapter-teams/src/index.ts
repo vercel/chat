@@ -9,6 +9,7 @@ import {
 import type {
   Account,
   Activity,
+  AdaptiveCardActionMessageResponse,
   IAdaptiveCardActionInvokeActivity,
   IConversationUpdateActivity,
   IMessageActivity,
@@ -112,6 +113,16 @@ interface ActionSubmitData {
   actionId?: string;
   value?: string;
 }
+
+/**
+ * Valid adaptiveCard/action invoke acknowledgement.
+ * An empty `value` makes Teams show "Unable to reach app" and retry the invoke.
+ */
+const CARD_ACTION_INVOKE_ACK: AdaptiveCardActionMessageResponse = {
+  statusCode: 200,
+  type: "application/vnd.microsoft.activity.message",
+  value: "OK",
+};
 
 const MESSAGEID_CAPTURE_PATTERN = /messageid=(\d+)/;
 const MESSAGEID_STRIP_PATTERN = /;messageid=\d+/;
@@ -237,11 +248,11 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
     this.app.on("card.action", async (ctx) => {
       this.cacheUserContext(ctx.activity);
       await this.handleAdaptiveCardAction(ctx);
-      return {
-        statusCode: 200,
-        type: "application/vnd.microsoft.activity.message",
-        value: "",
-      };
+      // Teams rejects an empty activity.message value and retries the invoke,
+      // which re-delivers the action (duplicate onAction). Ack with a non-empty
+      // Adaptive Card invoke response so the client stops retrying.
+      // https://learn.microsoft.com/en-us/adaptive-cards/authoring-cards/universal-action-model#response-format
+      return CARD_ACTION_INVOKE_ACK;
     });
 
     this.app.on(
@@ -1127,7 +1138,14 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
         return null;
       }
 
-      return await this.getUserByAadObjectId(userId, aadObjectId);
+      const tenantId = await this.chat
+        .getState()
+        .get<string>(`teams:tenantId:${userId}`);
+      return await this.getUserByAadObjectId(
+        userId,
+        aadObjectId,
+        tenantId ?? undefined
+      );
     } catch (error) {
       this.logger.warn("Failed to read cached aadObjectId from state", {
         userId,
@@ -1179,7 +1197,8 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
 
   private async getUserByAadObjectId(
     userId: string,
-    aadObjectId: string
+    aadObjectId: string,
+    tenantId: string | undefined
   ): Promise<UserInfo | null> {
     const cacheKey = `teams:userInfo:${aadObjectId}`;
     const isBot = this.isBotUserId(userId);
@@ -1192,7 +1211,8 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
     }
 
     try {
-      const graphUser = await this.app.graph.call(users.get, {
+      // Users of other tenants only exist in their own tenant's directory
+      const graphUser = await this.app.graphFor(tenantId).call(users.get, {
         "user-id": aadObjectId,
       });
 

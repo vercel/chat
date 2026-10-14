@@ -8,6 +8,7 @@ import {
   toActivityParams,
 } from "@microsoft/teams.api";
 import { App } from "@microsoft/teams.apps";
+import { Client as GraphClient } from "@microsoft/teams.graph";
 import type { TeamsThreadId } from "./types";
 
 /** Bot Framework service URLs are compared and sent without a trailing slash. */
@@ -50,6 +51,22 @@ export class TeamsApp extends App {
     return new ConnectorClient(
       target,
       this.client.clone({ token: () => this.getBotToken() })
+    );
+  }
+
+  /**
+   * Graph client whose app token is issued by the given tenant.
+   *
+   * `App.graph` requests its token for the app's own tenant, where users of
+   * other tenants do not exist, so a multi-tenant bot looks them up here.
+   */
+  graphFor(tenantId: string | undefined): GraphClient {
+    if (!tenantId || tenantId === this.options.tenantId) {
+      return this.graph;
+    }
+    return new GraphClient(
+      this.client.clone({ token: () => this.getAppGraphToken(tenantId) }),
+      { baseUrlRoot: this.graphBaseUrl }
     );
   }
 

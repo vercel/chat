@@ -169,7 +169,7 @@ describe("Connect webhook dispatch", () => {
     expect(await response.json()).toEqual({
       statusCode: 200,
       type: "application/vnd.microsoft.activity.message",
-      value: "",
+      value: "OK",
     });
   });
 });
