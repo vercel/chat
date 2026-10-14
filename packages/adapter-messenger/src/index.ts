@@ -1,11 +1,15 @@
-import { createHmac, timingSafeEqual } from "node:crypto";
 import {
-  AdapterRateLimitError,
-  AuthenticationError,
+  compareMessagesByTime,
   extractCard,
+  messageSequence,
   NetworkError,
-  ResourceNotFoundError,
+  paginateMessages,
+  parseRetryAfter,
+  throwMetaGraphApiError,
+  upsertMessage,
   ValidationError,
+  verifyMetaSignature,
+  verifyMetaWebhookChallenge,
 } from "@chat-adapter/shared";
 import type {
   Adapter,
@@ -47,7 +51,6 @@ import type {
 const GRAPH_API_BASE = "https://graph.facebook.com";
 const DEFAULT_API_VERSION = "v21.0";
 const MESSENGER_MESSAGE_LIMIT = 2000;
-const MESSAGE_SEQUENCE_PATTERN = /:(\d+)$/;
 
 export class MessengerAdapter
   implements Adapter<MessengerThreadId, MessengerRawMessage>
@@ -194,14 +197,10 @@ export class MessengerAdapter
   }
 
   protected handleVerification(request: Request): Response {
-    const url = new URL(request.url);
-    const mode = url.searchParams.get("hub.mode");
-    const token = url.searchParams.get("hub.verify_token");
-    const challenge = url.searchParams.get("hub.challenge");
-
-    if (mode === "subscribe" && token === this.verifyToken) {
+    const challenge = verifyMetaWebhookChallenge(request, this.verifyToken);
+    if (challenge !== null) {
       this.logger.info("Messenger webhook verified");
-      return new Response(challenge ?? "", { status: 200 });
+      return new Response(challenge, { status: 200 });
     }
 
     this.logger.warn("Messenger webhook verification failed");
@@ -209,29 +208,11 @@ export class MessengerAdapter
   }
 
   protected verifySignature(request: Request, body: string): boolean {
-    const signature = request.headers.get("x-hub-signature-256");
-    if (!signature) {
-      return false;
-    }
-
-    const [algo, hash] = signature.split("=");
-    if (algo !== "sha256" || !hash) {
-      return false;
-    }
-
-    try {
-      const computedHash = createHmac("sha256", this.appSecret)
-        .update(body, "utf8")
-        .digest("hex");
-
-      return timingSafeEqual(
-        Buffer.from(hash, "hex"),
-        Buffer.from(computedHash, "hex")
-      );
-    } catch {
-      this.logger.warn("Failed to verify Messenger webhook signature");
-      return false;
-    }
+    return verifyMetaSignature(
+      body,
+      request.headers.get("x-hub-signature-256"),
+      this.appSecret
+    );
   }
 
   protected handleIncomingMessage(
@@ -749,55 +730,12 @@ export class MessengerAdapter
     messages: Message<MessengerRawMessage>[],
     options: FetchOptions
   ): FetchResult<MessengerRawMessage> {
-    const limit = Math.max(1, Math.min(options.limit ?? 50, 100));
-    const direction = options.direction ?? "backward";
-
-    if (messages.length === 0) {
-      return { messages: [] };
-    }
-
-    const messageIndexById = new Map(
-      messages.map((message, index) => [message.id, index])
-    );
-
-    if (direction === "backward") {
-      const end =
-        options.cursor && messageIndexById.has(options.cursor)
-          ? (messageIndexById.get(options.cursor) ?? messages.length)
-          : messages.length;
-      const start = Math.max(0, end - limit);
-      const page = messages.slice(start, end);
-
-      return {
-        messages: page,
-        nextCursor: start > 0 ? page[0]?.id : undefined,
-      };
-    }
-
-    const start =
-      options.cursor && messageIndexById.has(options.cursor)
-        ? (messageIndexById.get(options.cursor) ?? -1) + 1
-        : 0;
-    const end = Math.min(messages.length, start + limit);
-    const page = messages.slice(start, end);
-
-    return {
-      messages: page,
-      nextCursor: end < messages.length ? page.at(-1)?.id : undefined,
-    };
+    return paginateMessages(messages, options);
   }
 
   protected cacheMessage(message: Message<MessengerRawMessage>): void {
     const existing = this.messageCache.get(message.threadId) ?? [];
-    const index = existing.findIndex((item) => item.id === message.id);
-
-    if (index >= 0) {
-      existing[index] = message;
-    } else {
-      existing.push(message);
-    }
-
-    existing.sort((a, b) => this.compareMessages(a, b));
+    upsertMessage(existing, message, (a, b) => this.compareMessages(a, b));
     this.messageCache.set(message.threadId, existing);
   }
 
@@ -818,18 +756,11 @@ export class MessengerAdapter
     a: Message<MessengerRawMessage>,
     b: Message<MessengerRawMessage>
   ): number {
-    const timeDiff =
-      a.metadata.dateSent.getTime() - b.metadata.dateSent.getTime();
-    if (timeDiff !== 0) {
-      return timeDiff;
-    }
-
-    return this.messageSequence(a.id) - this.messageSequence(b.id);
+    return compareMessagesByTime(a, b);
   }
 
   protected messageSequence(messageId: string): number {
-    const match = messageId.match(MESSAGE_SEQUENCE_PATTERN);
-    return match ? Number.parseInt(match[1], 10) : 0;
+    return messageSequence(messageId);
   }
 
   protected async graphApiFetch<TResult>(
@@ -876,7 +807,12 @@ export class MessengerAdapter
     }
 
     if (!response.ok) {
-      this.throwGraphApiError(endpoint, response.status, data);
+      this.throwGraphApiError(
+        endpoint,
+        response.status,
+        data,
+        parseRetryAfter(response.headers.get("retry-after"))
+      );
     }
 
     return data as TResult;
@@ -885,34 +821,17 @@ export class MessengerAdapter
   protected throwGraphApiError(
     endpoint: string,
     status: number,
-    data: Record<string, unknown>
+    data: Record<string, unknown>,
+    retryAfter?: number
   ): never {
-    const error = data.error as
-      | { message?: string; code?: number; type?: string }
-      | undefined;
-    const message = error?.message ?? `Messenger API ${endpoint} failed`;
-    const code = error?.code ?? status;
-
-    if (status === 429 || code === 4 || code === 32 || code === 613) {
-      throw new AdapterRateLimitError("messenger");
-    }
-
-    if (status === 401 || code === 190) {
-      throw new AuthenticationError("messenger", message);
-    }
-
-    if (status === 403 || code === 10 || code === 200) {
-      throw new ValidationError("messenger", message);
-    }
-
-    if (status === 404) {
-      throw new ResourceNotFoundError("messenger", endpoint);
-    }
-
-    throw new NetworkError(
-      "messenger",
-      `${message} (status ${status}, code ${code})`
-    );
+    throwMetaGraphApiError({
+      adapter: "messenger",
+      data,
+      endpoint,
+      label: "Messenger",
+      retryAfter,
+      status,
+    });
   }
 }
 

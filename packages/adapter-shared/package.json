@@ -10,6 +10,10 @@
     ".": {
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js"
+    },
+    "./callback-data": {
+      "types": "./dist/callback-data.d.ts",
+      "import": "./dist/callback-data.js"
     }
   },
   "main": "./dist/index.js",

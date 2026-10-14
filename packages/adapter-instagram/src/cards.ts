@@ -1,7 +1,12 @@
+import {
+  decodeCallbackData,
+  encodeCallbackData,
+  findCardActions as findActions,
+  truncateWithEllipsis as truncate,
+} from "@chat-adapter/shared";
 import type {
   ActionsElement,
   ButtonElement,
-  CardChild,
   CardElement,
   LinkButtonElement,
 } from "chat";
@@ -12,7 +17,6 @@ import type {
   InstagramTemplatePayload,
 } from "./types";
 
-const CALLBACK_DATA_PREFIX = "chat:";
 const MAX_TEMPLATE_BUTTONS = 3;
 const MAX_QUICK_REPLIES = 13;
 const MAX_BUTTON_TITLE_LENGTH = 20;
@@ -20,11 +24,6 @@ const MAX_QUICK_REPLY_TITLE_LENGTH = 20;
 const MAX_TITLE_LENGTH = 80;
 const MAX_SUBTITLE_LENGTH = 80;
 const MAX_BUTTON_TEMPLATE_TEXT_LENGTH = 640;
-
-interface InstagramCardActionPayload {
-  a: string;
-  v?: string;
-}
 
 export type InstagramCardResult =
   | {
@@ -39,37 +38,14 @@ export function encodeInstagramCallbackData(
   actionId: string,
   value?: string
 ): string {
-  const payload: InstagramCardActionPayload = { a: actionId };
-  if (typeof value === "string") {
-    payload.v = value;
-  }
-  return `${CALLBACK_DATA_PREFIX}${JSON.stringify(payload)}`;
+  return encodeCallbackData(actionId, value);
 }
 
 export function decodeInstagramCallbackData(data?: string): {
   actionId: string;
   value: string | undefined;
 } {
-  if (!data) {
-    return { actionId: "instagram_callback", value: undefined };
-  }
-  if (!data.startsWith(CALLBACK_DATA_PREFIX)) {
-    return { actionId: data, value: data };
-  }
-  try {
-    const decoded = JSON.parse(
-      data.slice(CALLBACK_DATA_PREFIX.length)
-    ) as InstagramCardActionPayload;
-    if (typeof decoded.a === "string" && decoded.a) {
-      return {
-        actionId: decoded.a,
-        value: typeof decoded.v === "string" ? decoded.v : undefined,
-      };
-    }
-  } catch {
-    // Malformed callback data is passed through for third-party payloads.
-  }
-  return { actionId: data, value: data };
+  return decodeCallbackData(data, "instagram_callback");
 }
 
 export function cardToInstagram(card: CardElement): InstagramCardResult {
@@ -149,21 +125,6 @@ function markdownToPlainText(text: string): string {
   return toPlainText(parseMarkdown(text)).trim();
 }
 
-function findActions(children: CardChild[]): ActionsElement | null {
-  for (const child of children) {
-    if (child.type === "actions") {
-      return child;
-    }
-    if (child.type === "section") {
-      const nested = findActions(child.children);
-      if (nested) {
-        return nested;
-      }
-    }
-  }
-  return null;
-}
-
 function extractQuickReplies(actions: ActionsElement): InstagramQuickReply[] {
   const replies: InstagramQuickReply[] = [];
   for (const action of actions.children) {
@@ -205,11 +166,4 @@ function linkButtonToWebUrl(button: LinkButtonElement): InstagramButton {
     title: truncate(button.label, MAX_BUTTON_TITLE_LENGTH),
     url: button.url,
   };
-}
-
-function truncate(text: string, maxLength: number): string {
-  if (text.length <= maxLength) {
-    return text;
-  }
-  return `${text.slice(0, maxLength - 1)}…`;
 }

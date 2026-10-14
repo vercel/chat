@@ -36,6 +36,33 @@ pnpm add @chat-adapter/shared
 - `mapButtonStyle(style)` - map generic button styles to platform-specific variants
 - `renderGfmTable(headers, rows)` - render a GitHub Flavored Markdown table
 - `escapeTableCell(text)` - escape pipe characters in table cells
+- `findCardActions(children)` - find the first actions element, searching nested sections
+- `truncateWithEllipsis(text, maxLength)` - cut text to a length limit and end it with `…`
+
+### Callback data
+
+- `encodeCallbackData(actionId, value?)` - encode a button or quick-reply payload as `chat:{json}`
+- `decodeCallbackData(data, fallbackActionId)` - decode it, passing legacy and third-party payloads through unchanged
+- `isChatCallbackData(data)` - check for the `chat:` prefix
+
+These are also exported from `@chat-adapter/shared/callback-data`, which has no dependencies, for runtime-light entry points such as webhook parsers.
+
+### Message history
+
+For platforms whose API cannot list past messages, such as Messenger and Instagram:
+
+- `upsertMessage(messages, message, compare?)` - insert or replace a message by ID and keep the list sorted
+- `paginateMessages(messages, options)` - page a sorted list with message-ID cursors
+- `compareMessagesByTime(a, b)` and `messageSequence(id)` - the default sort order
+
+### Meta platforms
+
+Used by `@chat-adapter/messenger`, `@chat-adapter/instagram`, and `@chat-adapter/whatsapp`:
+
+- `verifyMetaWebhookChallenge(request, verifyToken)` - check a webhook subscription request and return the challenge, or `null`
+- `verifyMetaSignature(body, signature, appSecret)` - verify the `X-Hub-Signature-256` header in constant time
+- `throwMetaGraphApiError(options)` - map a failed Graph API response onto the shared error classes
+- `parseRetryAfter(header)` - parse a `Retry-After` header in seconds
 
 ### Token encryption
 
