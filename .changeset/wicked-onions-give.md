@@ -3,4 +3,4 @@
 "@chat-adapter/notion": patch
 ---
 
-Validate comment ownership before edits, deletions, and reactions to prevent cross-thread mutations
+Check that a comment belongs to the supplied thread before changing it. The Linear adapter checks before edits, deletions, and reactions. The Notion adapter checks before edits and deletions.
