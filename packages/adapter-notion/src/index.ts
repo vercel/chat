@@ -793,8 +793,20 @@ export class NotionAdapter
     messageId: string,
     message: AdapterPostableMessage
   ): Promise<RawMessage<NotionRawMessage>> {
+    const id = await this.validateComment(
+      this.decodeThreadId(threadId),
+      messageId
+    );
+    return this.updateComment(threadId, id, message);
+  }
+
+  private async updateComment(
+    threadId: string,
+    messageId: string,
+    message: AdapterPostableMessage
+  ): Promise<RawMessage<NotionRawMessage>> {
     const decoded = this.decodeThreadId(threadId);
-    const id = await this.validateComment(decoded, messageId);
+    const id = normalizeUuid(messageId, "messageId");
     // PATCH comments may not accept attachments — link files in markdown only.
     const { markdown, linkOverflow } = await this.renderOutbound(message, {
       attachNative: false,
@@ -828,34 +840,44 @@ export class NotionAdapter
   ): Promise<string> {
     const id = normalizeUuid(messageId, "messageId");
     const comment = await this.retrieveComment(id);
-    if (
-      !comment ||
-      (thread.discussionId &&
-        normalizeUuid(comment.discussion_id, "discussionId") !==
-          thread.discussionId) ||
-      (thread.blockId &&
-        (comment.parent.type !== "block_id" ||
-          normalizeUuid(comment.parent.block_id, "blockId") !== thread.blockId))
-    ) {
-      throw new ValidationError(
-        "notion",
-        "Comment does not belong to this thread"
-      );
-    }
-    const pageId =
-      comment.parent.type === "page_id"
-        ? normalizeUuid(comment.parent.page_id, "pageId")
-        : await this.resolveBlockPageId(
-            normalizeUuid(comment.parent.block_id, "blockId"),
-            false
-          );
-    if (pageId !== thread.pageId) {
+    if (!(comment && (await this.commentBelongsToThread(comment, thread)))) {
       throw new ValidationError(
         "notion",
         "Comment does not belong to this thread"
       );
     }
     return id;
+  }
+
+  private async commentBelongsToThread(
+    comment: NotionComment,
+    thread: NotionThreadId
+  ): Promise<boolean> {
+    if (
+      thread.discussionId &&
+      normalizeUuid(comment.discussion_id, "discussionId") !==
+        thread.discussionId
+    ) {
+      return false;
+    }
+    if (
+      thread.blockId &&
+      (comment.parent.type !== "block_id" ||
+        normalizeUuid(comment.parent.block_id, "blockId") !== thread.blockId)
+    ) {
+      return false;
+    }
+    try {
+      const pageId = await this.resolvePageId(comment, undefined, {
+        fresh: true,
+      });
+      return pageId === thread.pageId;
+    } catch (error) {
+      if (error instanceof ResourceNotFoundError) {
+        return false;
+      }
+      throw error;
+    }
   }
 
   async stream(
@@ -888,7 +910,7 @@ export class NotionAdapter
         return;
       }
       try {
-        posted = await this.editMessage(editThreadId, posted.id, {
+        posted = await this.updateComment(editThreadId, posted.id, {
           markdown: content,
         });
         lastEditContent = content;
@@ -1117,7 +1139,8 @@ export class NotionAdapter
 
   protected async resolvePageId(
     comment: NotionComment,
-    event?: NotionWebhookEvent
+    event?: NotionWebhookEvent,
+    options: ResolveBlockPageOptions = {}
   ): Promise<string> {
     if (event?.data?.page_id) {
       return normalizeUuid(event.data.page_id, "pageId");
@@ -1126,21 +1149,21 @@ export class NotionAdapter
       return normalizeUuid(comment.parent.page_id, "pageId");
     }
     const blockId = normalizeUuid(comment.parent.block_id, "blockId");
-    return this.resolveBlockPageId(blockId);
+    return this.resolveBlockPageId(blockId, options);
   }
 
   protected async resolveBlockPageId(
     blockId: string,
-    cache = true
+    { fresh = false }: ResolveBlockPageOptions = {}
   ): Promise<string> {
-    const cached = cache ? this.blockPageCache.get(blockId) : undefined;
+    const cached = fresh ? undefined : this.blockPageCache.get(blockId);
     if (cached) {
       return cached;
     }
 
     const state = this.chat?.getState();
     const stateKey = `notion:block-page:${blockId}`;
-    if (cache && state) {
+    if (!fresh && state) {
       const fromState = await state.get(stateKey);
       if (typeof fromState === "string") {
         this.blockPageCache.set(blockId, fromState);
@@ -1164,12 +1187,10 @@ export class NotionAdapter
       if (block.parent.type === "page_id" && block.parent.page_id) {
         const pageId = normalizeUuid(block.parent.page_id, "pageId");
         // Cache every intermediate blockId → pageId once the page is found.
-        if (cache) {
-          for (const visitedId of visited) {
-            this.blockPageCache.set(visitedId, pageId);
-            if (state) {
-              await state.set(`notion:block-page:${visitedId}`, pageId);
-            }
+        for (const visitedId of visited) {
+          this.blockPageCache.set(visitedId, pageId);
+          if (state) {
+            await state.set(`notion:block-page:${visitedId}`, pageId);
           }
         }
         return pageId;
@@ -1177,9 +1198,9 @@ export class NotionAdapter
       if (block.parent.type === "block_id" && block.parent.block_id) {
         currentId = normalizeUuid(block.parent.block_id, "blockId");
         visited.push(currentId);
-        const cachedParent = cache
-          ? this.blockPageCache.get(currentId)
-          : undefined;
+        const cachedParent = fresh
+          ? undefined
+          : this.blockPageCache.get(currentId);
         if (cachedParent) {
           for (const visitedId of visited) {
             this.blockPageCache.set(visitedId, cachedParent);
@@ -1582,6 +1603,11 @@ export class NotionAdapter
       linkOverflow,
     };
   }
+}
+
+interface ResolveBlockPageOptions {
+  /** Skip cached ancestry reads; resolved ancestry is still written back. */
+  fresh?: boolean;
 }
 
 interface NotionFileUploadResponse {

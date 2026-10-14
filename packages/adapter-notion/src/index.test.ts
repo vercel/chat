@@ -953,6 +953,24 @@ describe.each([
     ).toEqual(["GET", "GET"]);
   });
 
+  it("rejects a page-level thread when a block ancestor is not found", async () => {
+    fetchMock.mockImplementation(async (url: string) =>
+      String(url).includes("/blocks/")
+        ? new Response("not found", { status: 404 })
+        : Response.json(
+            fixtureComment({
+              parent: { type: "block_id", block_id: PERSON_USER_ID },
+            })
+          )
+    );
+    await expect(
+      mutate(createTestAdapter(), `notion:${PAGE_ID}`)
+    ).rejects.toThrow("Comment does not belong to this thread");
+    expect(
+      fetchMock.mock.calls.map(([, init]) => (init as RequestInit).method)
+    ).toEqual(["GET", "GET"]);
+  });
+
   it("verifies the current page of a block despite a stale cached page", async () => {
     const block = PERSON_USER_ID;
     fetchMock.mockImplementation(async (url: string) =>
@@ -999,6 +1017,54 @@ describe.each([
     ).toEqual(["GET", "GET", "GET", operation === "edit" ? "PATCH" : "DELETE"]);
   });
 
+  it("walks a nested block for a page-level thread and refreshes the cache", async () => {
+    fetchMock.mockImplementation(async (url: string) => {
+      if (String(url).endsWith(`/blocks/${PERSON_USER_ID}`)) {
+        return Response.json({
+          parent: { type: "block_id", block_id: BOT_USER_ID },
+        });
+      }
+      if (String(url).endsWith(`/blocks/${BOT_USER_ID}`)) {
+        return Response.json({ parent: { type: "page_id", page_id: PAGE_ID } });
+      }
+      return Response.json(
+        fixtureComment({
+          parent: { type: "block_id", block_id: PERSON_USER_ID },
+        })
+      );
+    });
+    const adapter = createTestAdapter();
+    const cache = (
+      adapter as unknown as { blockPageCache: Map<string, string> }
+    ).blockPageCache;
+    cache.set(PERSON_USER_ID, DISCUSSION_ID);
+    await mutate(adapter, `notion:${PAGE_ID}`);
+    expect(
+      fetchMock.mock.calls.map(([, init]) => (init as RequestInit).method)
+    ).toEqual(["GET", "GET", "GET", operation === "edit" ? "PATCH" : "DELETE"]);
+    expect(cache.get(PERSON_USER_ID)).toBe(PAGE_ID);
+    expect(cache.get(BOT_USER_ID)).toBe(PAGE_ID);
+  });
+
+  it("rejects a synced block comment whose ancestry leads to another page", async () => {
+    const otherPage = PERSON_USER_ID;
+    fetchMock.mockImplementation(async (url: string) =>
+      Response.json(
+        String(url).includes("/blocks/")
+          ? { parent: { type: "page_id", page_id: PAGE_ID } }
+          : fixtureComment({
+              parent: { type: "block_id", block_id: BOT_USER_ID },
+            })
+      )
+    );
+    await expect(
+      mutate(createTestAdapter(), `notion:${otherPage}:${DISCUSSION_ID}`)
+    ).rejects.toThrow(ValidationError);
+    expect(
+      fetchMock.mock.calls.map(([, init]) => (init as RequestInit).method)
+    ).toEqual(["GET", "GET"]);
+  });
+
   it("rejects a comment on another block in the requested page", async () => {
     fetchMock.mockImplementation(async (url: string) =>
       Response.json(
@@ -1017,6 +1083,68 @@ describe.each([
         ([, init]) => (init as RequestInit).method === "GET"
       )
     ).toBe(true);
+  });
+
+  it.each([
+    {
+      shape: "discussion",
+      threadId: `notion:${PAGE_ID}:${DISCUSSION_ID}`,
+      comment: fixtureComment({
+        parent: { type: "page_id", page_id: BOT_USER_ID },
+      }),
+    },
+    {
+      shape: "block",
+      threadId: `notion:${PAGE_ID}:block:${PERSON_USER_ID}`,
+      comment: fixtureComment({
+        parent: { type: "block_id", block_id: PERSON_USER_ID },
+      }),
+    },
+  ])("blocks a foreign $shape comment through the scoped public tool", async ({
+    threadId,
+    comment,
+  }) => {
+    fetchMock.mockImplementation(async (url: string) => {
+      if (String(url).endsWith("/users/me")) {
+        return Response.json({ id: BOT_USER_ID, type: "bot", bot: {} });
+      }
+      if (String(url).includes("/blocks/")) {
+        return Response.json({
+          parent: { type: "page_id", page_id: BOT_USER_ID },
+        });
+      }
+      return Response.json(comment);
+    });
+    const adapter = createTestAdapter();
+    const chat = new Chat({
+      userName: "test-bot",
+      adapters: { notion: adapter },
+      state: createMockState(),
+      logger: createMockLogger(),
+    });
+    await chat.initialize();
+    fetchMock.mockClear();
+    try {
+      const tools = createChatTools({
+        chat,
+        scope: `notion:${PAGE_ID}`,
+        strictScope: true,
+        requireApproval: false,
+      });
+      const input = { threadId, messageId: COMMENT_ID, message: "Updated" };
+      const tool =
+        operation === "edit" ? tools.editMessage : tools.deleteMessage;
+      await expect(
+        tool?.execute?.(input, { toolCallId: "ownership", messages: [] })
+      ).rejects.toThrow("Comment does not belong to this thread");
+      expect(
+        fetchMock.mock.calls.every(
+          ([, init]) => (init as RequestInit).method === "GET"
+        )
+      ).toBe(true);
+    } finally {
+      await chat.shutdown();
+    }
   });
 
   it("blocks a foreign comment through the scoped public tool", async () => {
@@ -1833,12 +1961,6 @@ describe("Post+Edit streaming", () => {
         commentBody = body.markdown;
         return Response.json(fixtureComment({ id: COMMENT_ID }));
       }
-      if (
-        String(url).endsWith(`/comments/${COMMENT_ID}`) &&
-        init?.method === "GET"
-      ) {
-        return Response.json(fixtureComment());
-      }
       return new Response("nope", { status: 404 });
     });
 
@@ -1868,6 +1990,14 @@ describe("Post+Edit streaming", () => {
     );
     expect(postCalls.length).toBe(1);
     expect(patchCalls.length).toBeGreaterThanOrEqual(1);
+    expect(
+      fetchMock.mock.calls.filter(
+        ([url, init]) =>
+          String(url).includes("/blocks/") ||
+          (String(url).includes(`/comments/${COMMENT_ID}`) &&
+            (init as RequestInit | undefined)?.method !== "PATCH")
+      )
+    ).toEqual([]);
     const lastPatch = JSON.parse(
       String((patchCalls.at(-1)?.[1] as RequestInit).body)
     );
