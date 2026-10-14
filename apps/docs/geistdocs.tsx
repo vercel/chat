@@ -4,7 +4,14 @@ import type {
 } from "@vercel/geistdocs/config";
 import { LogoChatSdk } from "@vercel/geistdocs/assets/logos/logo-chat-sdk";
 
-export const Logo = () => <LogoChatSdk />;
+// The SVG is aria-hidden, so the text gives the navbar home links an
+// accessible name.
+export const Logo = () => (
+  <>
+    <LogoChatSdk />
+    <span className="sr-only">Chat SDK</span>
+  </>
+);
 
 export const github: GeistdocsGithubConfig = {
   branch: "main",

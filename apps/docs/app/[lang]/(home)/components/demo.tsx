@@ -52,7 +52,7 @@ const getHighlightedDemo = async () => {
   const { tokens: allTokens, rootStyle } = await codeToTokens(fullCode, {
     lang: "tsx",
     themes: {
-      light: "github-light",
+      light: "github-light-default",
       dark: "github-dark",
     },
     defaultColor: false,

@@ -24,7 +24,7 @@ const VendorOfficialNotice = ({ adapter }: { adapter: Adapter }) => {
   const author = getAuthor(adapter);
 
   return (
-    <div className="mb-8 rounded-md border bg-muted/40 px-4 py-3 text-muted-foreground text-sm">
+    <div className="mb-8 rounded-md border bg-muted/40 px-4 py-3 text-gray-900 text-sm">
       <strong className="text-foreground">Vendor-official adapter</strong>
       {author ? (
         <>

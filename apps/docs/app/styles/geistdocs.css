@@ -202,3 +202,10 @@ div[data-streamdown="code-block-body"] {
 div[data-streamdown="code-block-body"] > pre {
   padding-right: 1rem;
 }
+
+/* Geist gray-800 muted text is below the WCAG AA 4.5:1 contrast ratio on light
+   backgrounds (callouts, card descriptions). Use gray-900 in light mode; dark
+   mode already passes. */
+:root:not(.dark-theme) {
+  --color-fd-muted-foreground: var(--ds-gray-900);
+}

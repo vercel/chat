@@ -229,6 +229,49 @@ jobs:
         if: ${{ contains(needs.*.result, 'failure') }}
         run: exit 1
 
+  # Builds the docs site, serves it locally, and runs axe-core against every
+  # page in light and dark mode. See apps/docs/scripts/a11y.mts.
+  docs-a11y:
+    runs-on: ubuntu-latest
+    name: docs-a11y
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v6.0.0
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6.0.0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v6.0.0
+        with:
+          node-version-file: .nvmrc
+          cache: "pnpm"
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Install Playwright Chromium
+        run: pnpm --filter docs exec playwright install --with-deps chromium
+
+      - name: Build docs
+        run: pnpm turbo build --filter=docs
+
+      - name: Run accessibility checks
+        run: |
+          pnpm --filter docs start > docs-server.log 2>&1 &
+          for _ in $(seq 1 60); do
+            if curl -sf http://localhost:3000/sitemap.md > /dev/null; then
+              break
+            fi
+            sleep 1
+          done
+          pnpm --filter docs a11y http://localhost:3000
+
+      - name: Show docs server log
+        if: failure()
+        run: cat docs-server.log
+
   # Finds every app under examples/ so the matrix below picks up new examples
   # without editing this file.
   examples-discover:

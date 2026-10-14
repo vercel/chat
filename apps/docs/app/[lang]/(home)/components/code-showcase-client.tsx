@@ -78,10 +78,7 @@ export const CodeShowcaseClient = ({ tabs }: { tabs: HighlightedTab[] }) => {
               <button
                 aria-label={`Examples ${index + 1}`}
                 aria-selected={isActive}
-                className={cn(
-                  "flex items-center justify-center p-2",
-                  index === groups.length - 1 && "-ml-1"
-                )}
+                className="flex items-center justify-center p-2"
                 key={group[0]?.label ?? index}
                 onClick={() => selectGroup(index)}
                 role="tab"

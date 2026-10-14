@@ -32,7 +32,10 @@ export const CodeWindow = ({
       ) : null}
     </div>
     <div className="relative min-w-0 flex-1 overflow-hidden rounded-b-lg border border-gray-200 bg-background-100">
-      <div className="h-56 overflow-auto">{children}</div>
+      {/* biome-ignore lint/a11y/noNoninteractiveTabindex: scrollable code must be reachable by keyboard */}
+      <div className="h-56 overflow-auto" tabIndex={0}>
+        {children}
+      </div>
       <div className="pointer-events-none absolute inset-x-0 bottom-0 h-12 rounded-b-lg bg-gradient-to-t from-background-100 to-transparent" />
     </div>
   </div>

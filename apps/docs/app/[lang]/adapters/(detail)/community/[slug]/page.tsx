@@ -42,7 +42,7 @@ const CommunityNotice = ({ adapter }: { adapter: Adapter }) => {
   const issuesUrl = getIssuesUrl(adapter.readme);
 
   return (
-    <div className="mb-8 rounded-md border bg-muted/40 px-4 py-3 text-muted-foreground text-sm">
+    <div className="mb-8 rounded-md border bg-muted/40 px-4 py-3 text-gray-900 text-sm">
       <strong className="text-foreground">Community adapter.</strong> Not
       maintained by Vercel or Chat SDK contributors. For feature requests, bug
       reports, and support,{" "}
