@@ -110,8 +110,8 @@ describe("GitHub emulator: auth", () => {
       logger: silentLogger,
     });
     const handler = vi.fn();
-    chat.onNewMessage(async (thread, message) => {
-      handler(thread.id, message.id, await adapter.getInstallationId(thread));
+    chat.onNewMessage((thread, message) => {
+      handler(thread.id, message.id);
     });
     await chat.initialize();
     const tracker = createWaitUntilTracker();
@@ -170,7 +170,7 @@ describe("GitHub emulator: auth", () => {
 
       expect(response.status).toBe(installation === 111 ? 200 : 404);
       if (installation === 111) {
-        expect(handler).toHaveBeenCalledWith(expect.any(String), "100", 111);
+        expect(handler).toHaveBeenCalledWith(expect.any(String), "100");
       } else {
         expect(handler).not.toHaveBeenCalled();
       }

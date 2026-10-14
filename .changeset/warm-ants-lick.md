@@ -2,4 +2,4 @@
 "@chat-adapter/github": patch
 ---
 
-Reject webhooks from missing or mismatched installations when an installation ID is configured
+When `installationId` is configured, new issue and pull request review comments from a missing or different installation now get a `404` and don't reach handlers. Passing a non-numeric `installationId` in config now throws a `ValidationError`.

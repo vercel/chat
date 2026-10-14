@@ -1,5 +1,6 @@
 import type { AsyncLocalStorage } from "node:async_hooks";
 import { createHmac } from "node:crypto";
+import { ValidationError } from "@chat-adapter/shared";
 import {
   connectWebhookContract,
   createMockChatInstance,
@@ -627,6 +628,76 @@ describe("GitHubAdapter", () => {
         });
       });
 
+      it("logs the expected and received installation IDs on rejection", async () => {
+        const body = JSON.stringify(
+          makeIssueCommentPayload({ installation: { id: 999 } })
+        );
+        await fixed.handleWebhook(
+          makeWebhookRequest(
+            body,
+            "issue_comment",
+            verification === "hmac" ? signPayload(body) : undefined
+          )
+        );
+
+        expect(mockLogger.warn).toHaveBeenCalledWith(
+          "GitHub webhook rejected for unknown installation",
+          expect.objectContaining({
+            eventType: "issue_comment",
+            expectedInstallationId: 111,
+            receivedInstallationId: 999,
+          })
+        );
+      });
+
+      it.each([
+        ["issues", { action: "opened" }],
+        ["pull_request", { action: "opened" }],
+        ["issue_comment", makeIssueCommentPayload({ action: "edited" })],
+      ] as const)("acknowledges %s deliveries from other installations without dispatching", async (event, basePayload) => {
+        for (const installation of [{ id: 999 }, undefined]) {
+          const body = JSON.stringify({ ...basePayload, installation });
+          const response = await fixed.handleWebhook(
+            makeWebhookRequest(
+              body,
+              event,
+              verification === "hmac" ? signPayload(body) : undefined
+            )
+          );
+
+          expect(response.status).toBe(200);
+          expect(await response.text()).toBe("ok");
+        }
+        expect(chat).not.toHaveDispatched("processMessage");
+        expect(mockLogger.warn).not.toHaveBeenCalled();
+      });
+
+      it("accepts an installationId passed as a numeric string", async () => {
+        fixed = new GitHubAdapter({
+          appId: "12345",
+          privateKey: "test-private-key",
+          installationId: "111" as unknown as number,
+          botUserId: 777,
+          webhookSecret: WEBHOOK_SECRET,
+          webhookVerifier: verification === "custom" ? () => true : undefined,
+          logger: mockLogger,
+        });
+        await fixed.initialize(chat);
+        const body = JSON.stringify(
+          makeIssueCommentPayload({ installation: { id: 111 } })
+        );
+        const response = await fixed.handleWebhook(
+          makeWebhookRequest(
+            body,
+            "issue_comment",
+            verification === "hmac" ? signPayload(body) : undefined
+          )
+        );
+
+        expect(response.status).toBe(200);
+        expect(chat.processMessage).toHaveBeenCalled();
+      });
+
       it("acknowledges ping without dispatching", async () => {
         const body = JSON.stringify({ zen: "test" });
         const response = await fixed.handleWebhook(
@@ -659,6 +730,51 @@ describe("GitHubAdapter", () => {
         expect(response.status).toBe(401);
         expect(chat).not.toHaveDispatched("processMessage");
       });
+    });
+
+    it.each([
+      "abc",
+      "-1",
+      "111.5",
+    ])("throws a ValidationError for an invalid installationId %s", (installationId) => {
+      expect(
+        () =>
+          new GitHubAdapter({
+            appId: "12345",
+            privateKey: "test-private-key",
+            installationId: installationId as unknown as number,
+            webhookSecret: WEBHOOK_SECRET,
+            logger: mockLogger,
+          })
+      ).toThrow(ValidationError);
+    });
+
+    it("does not store a non-numeric installation ID in multi-tenant mode", async () => {
+      const multiTenantAdapter = new GitHubAdapter({
+        appId: "12345",
+        privateKey:
+          "-----BEGIN RSA PRIVATE KEY-----\nfake\n-----END RSA PRIVATE KEY-----",
+        webhookSecret: WEBHOOK_SECRET,
+        userName: "test-bot[bot]",
+        logger: mockLogger,
+      });
+      const state = createMockState();
+      const mockChat = createMockChatInstance({ state });
+      await multiTenantAdapter.initialize(mockChat);
+
+      const body = JSON.stringify({
+        ...makeIssueCommentPayload(),
+        installation: { id: "111" },
+      });
+      const response = await multiTenantAdapter.handleWebhook(
+        makeWebhookRequest(body, "issue_comment", signPayload(body))
+      );
+
+      expect(response.status).toBe(200);
+      expect(state.set).not.toHaveBeenCalledWith(
+        expect.stringContaining("github:install:"),
+        expect.anything()
+      );
     });
 
     it("enforces the installation configured through environment variables", async () => {
