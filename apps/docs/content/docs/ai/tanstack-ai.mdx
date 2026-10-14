@@ -122,7 +122,7 @@ type TanStackChatToolsOptions = {
 | `chat` | The `Chat` instance the tools dispatch operations against. Required. |
 | `preset` | Preset (or array of presets) restricting which tools are returned. Omit to get every tool. |
 | `requireApproval` | `true` (default), `false`, or per-tool overrides. Applies to every write tool and `getUser`. See [Approval](#approval) before leaving this on. |
-| `scope` | Conversation the tools are confined to. Defaults to the conversation being handled and rejects calls when no scope resolves. Pass a `Thread`, `Channel`, raw id, or `false` for workspace-wide access. |
+| `scope` | Conversation the tools are confined to. Defaults to the conversation being handled. When no scope resolves, calls are rejected inside a handler and run with a warning outside one. Pass a `Thread`, `Channel`, raw id, or `false` for workspace-wide access. |
 | `strictScope` | `false` (default). Set `true` to tighten a thread `scope` to that thread alone. |
 | `overrides` | Per-tool customization keyed by tool name. Only `description`, `needsApproval` (boolean), `metadata`, and `lazy` can be set; `name`, `inputSchema`, `outputSchema`, and `execute` are ignored so tool semantics stay stable. |
 
@@ -145,7 +145,7 @@ Write tools and `getUser` default to `needsApproval: true`, matching `createChat
 
 ### Scope
 
-`scope` and `strictScope` behave the same as they do for `createChatTools`: tools called inside a handler with a conversation are confined to it, and calls that resolve outside it or have no conversation scope are rejected before the platform is called. Pass an explicit `scope` for background jobs and handlers without a conversation, or `scope: false` when workspace-wide access is intended. `getUser` and `sendDirectMessage` are exempt because they target user ids rather than conversations. Read [Limiting what the agent can reach](/docs/ai/ai-sdk-tools#limiting-what-the-agent-can-reach) for the full model, including what `scope` does not check.
+`scope` and `strictScope` behave the same as they do for `createChatTools`: tools called inside a handler with a conversation are confined to it, and calls that resolve outside it are rejected before the platform is called. Calls with no scope are rejected inside a handler that has no conversation, and run workspace-wide with a warning outside any handler. Pass an explicit `scope` for background jobs and handlers without a conversation, or `scope: false` when workspace-wide access is intended. `getUser` and `sendDirectMessage` are exempt because they target user ids rather than conversations. Read [Limiting what the agent can reach](/docs/ai/ai-sdk-tools#limiting-what-the-agent-can-reach) for the full model, including what `scope` does not check.
 
 ## Differences from the AI SDK helpers
 

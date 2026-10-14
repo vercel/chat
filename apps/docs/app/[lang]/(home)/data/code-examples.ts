@@ -90,6 +90,7 @@ const result = await generateText({
   tools: createChatTools({
     chat: bot,
     preset: "messenger",
+    scope: "slack:C0123ABC",
   }),
   prompt: "Post a hello in slack:C0123ABC and react with a thumbs up.",
 });`,

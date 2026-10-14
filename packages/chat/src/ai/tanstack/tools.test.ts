@@ -4,6 +4,7 @@ import {
 } from "@tanstack/ai";
 import { beforeEach, describe, expect, it } from "vitest";
 import { Chat } from "../../chat";
+import { runInConversation } from "../../context";
 import {
   createMockAdapter,
   createMockState,
@@ -293,16 +294,17 @@ describe("createTanStackTools", () => {
     ],
     ["subscribeThread", { threadId: "slack:C123:1234.5678" }],
     ["unsubscribeThread", { threadId: "slack:C123:1234.5678" }],
-  ] as const)("blocks %s without a conversation scope even when approval is disabled", async (name, input) => {
+  ] as const)("blocks %s in a handler with no conversation even when approval is disabled", async (name, input) => {
     const tools = byName(createTanStackTools({ chat, requireApproval: false }));
     expect(tools[name]).toBeDefined();
-    await expect(tools[name]?.execute(input)).rejects.toThrow(
-      MISSING_SCOPE_REGEX
-    );
+    await expect(
+      runInConversation(undefined, () => tools[name]?.execute(input))
+    ).rejects.toThrow(MISSING_SCOPE_REGEX);
     expect(mockAdapter.fetchMessages).not.toHaveBeenCalled();
     expect(mockAdapter.fetchChannelMessages).not.toHaveBeenCalled();
     expect(mockAdapter.fetchThread).not.toHaveBeenCalled();
     expect(mockAdapter.fetchChannelInfo).not.toHaveBeenCalled();
+    expect(mockAdapter.listThreads).not.toHaveBeenCalled();
     expect(mockAdapter.postMessage).not.toHaveBeenCalled();
     expect(mockAdapter.postChannelMessage).not.toHaveBeenCalled();
     expect(mockAdapter.editMessage).not.toHaveBeenCalled();

@@ -3680,6 +3680,294 @@ describe("Chat", () => {
       }
     });
 
+    describe("modal context lifetime", () => {
+      const submitEvent = (callbackId: string) => ({
+        callbackId,
+        viewId: "V789",
+        values: { message: "" },
+        user: {
+          userId: "U123",
+          userName: "user",
+          fullName: "Test User",
+          isBot: false,
+          isMe: false,
+        },
+        adapter: mockAdapter,
+        raw: {},
+      });
+
+      const openModalFromAction = async (
+        callbackId: string,
+        callbackUrl?: string
+      ): Promise<string> => {
+        let capturedActionEvent: ActionEvent | undefined;
+        chat.onAction("open_form", async (event: ActionEvent) => {
+          capturedActionEvent = event;
+        });
+        await chat.processAction(
+          {
+            actionId: "open_form",
+            user: {
+              userId: "U123",
+              userName: "user",
+              fullName: "Test User",
+              isBot: false,
+              isMe: false,
+            },
+            messageId: "msg-1",
+            threadId: "slack:C123:1234.5678",
+            adapter: mockAdapter,
+            raw: {},
+            triggerId: "trigger-123",
+          },
+          undefined
+        );
+        await capturedActionEvent?.openModal({
+          type: "modal",
+          callbackId,
+          title: "Feedback",
+          callbackUrl,
+          children: [],
+        });
+        const contextId = (mockAdapter.openModal as ReturnType<typeof vi.fn>)
+          .mock.calls[0]?.[2] as string;
+        return contextId;
+      };
+
+      const hasContext = (contextId: string) =>
+        (mockState as MockStateAdapter).cache.has(
+          `modal-context:slack:${contextId}`
+        );
+
+      it("should keep relatedThread when a submit returning errors is resubmitted", async () => {
+        const contextId = await openModalFromAction("retry_modal");
+        const threadIds: (string | undefined)[] = [];
+        let attempt = 0;
+        chat.onModalSubmit("retry_modal", (event) => {
+          threadIds.push(event.relatedThread?.id);
+          attempt++;
+          if (attempt === 1) {
+            return { action: "errors", errors: { message: "Required" } };
+          }
+          return { action: "close" };
+        });
+
+        await chat.processModalSubmit(submitEvent("retry_modal"), contextId);
+        expect(hasContext(contextId)).toBe(true);
+
+        await chat.processModalSubmit(submitEvent("retry_modal"), contextId);
+        expect(threadIds).toEqual([
+          "slack:C123:1234.5678",
+          "slack:C123:1234.5678",
+        ]);
+        expect(hasContext(contextId)).toBe(false);
+      });
+
+      it.each([
+        "update",
+        "push",
+      ] as const)("should keep context when submit returns %s", async (action) => {
+        const contextId = await openModalFromAction("stay_open");
+        chat.onModalSubmit("stay_open", () => ({
+          action,
+          modal: {
+            type: "modal",
+            callbackId: "stay_open",
+            title: "Next",
+            children: [],
+          },
+        }));
+
+        await chat.processModalSubmit(submitEvent("stay_open"), contextId);
+
+        expect(hasContext(contextId)).toBe(true);
+      });
+
+      it.each([
+        ["close", { action: "close" } as const],
+        ["clear", { action: "clear" } as const],
+        ["no response", undefined],
+      ])("should delete context when submit returns %s", async (_label, response) => {
+        const contextId = await openModalFromAction("closing");
+        chat.onModalSubmit("closing", () => response);
+
+        await chat.processModalSubmit(submitEvent("closing"), contextId);
+
+        expect(hasContext(contextId)).toBe(false);
+      });
+
+      it("should delete context when the submit handler throws", async () => {
+        const contextId = await openModalFromAction("throwing");
+        chat.onModalSubmit("throwing", () => {
+          throw new Error("boom");
+        });
+
+        await chat.processModalSubmit(submitEvent("throwing"), contextId);
+
+        expect(hasContext(contextId)).toBe(false);
+      });
+
+      it("should delete context on modal close even when the handler throws", async () => {
+        const contextId = await openModalFromAction("close_modal");
+        chat.onModalClose("close_modal", () => {
+          throw new Error("boom");
+        });
+        const tasks: Promise<unknown>[] = [];
+
+        chat.processModalClose(
+          {
+            callbackId: "close_modal",
+            viewId: "V789",
+            user: submitEvent("close_modal").user,
+            adapter: mockAdapter,
+            raw: {},
+          },
+          contextId,
+          { waitUntil: (task) => tasks.push(task) }
+        );
+        await Promise.all(tasks);
+
+        expect(hasContext(contextId)).toBe(false);
+      });
+
+      it("should POST to callbackUrl only once across an update and a later submit", async () => {
+        const mockFetch = vi.fn().mockResolvedValue(new Response("ok"));
+        vi.stubGlobal("fetch", mockFetch);
+
+        try {
+          const contextId = await openModalFromAction(
+            "multi_step",
+            "https://example.com/webhook/modal-hook"
+          );
+          let attempt = 0;
+          chat.onModalSubmit("multi_step", () => {
+            attempt++;
+            if (attempt === 1) {
+              return {
+                action: "update",
+                modal: {
+                  type: "modal",
+                  callbackId: "multi_step",
+                  title: "Step 2",
+                  children: [],
+                },
+              };
+            }
+            return { action: "close" };
+          });
+          const tasks: Promise<unknown>[] = [];
+          const options = {
+            waitUntil: (task: Promise<unknown>) => {
+              tasks.push(task);
+            },
+          };
+
+          await chat.processModalSubmit(
+            submitEvent("multi_step"),
+            contextId,
+            options
+          );
+          expect(hasContext(contextId)).toBe(true);
+          await chat.processModalSubmit(
+            submitEvent("multi_step"),
+            contextId,
+            options
+          );
+          await Promise.all(tasks);
+
+          expect(mockFetch).toHaveBeenCalledTimes(1);
+          expect(hasContext(contextId)).toBe(false);
+        } finally {
+          vi.unstubAllGlobals();
+        }
+      });
+
+      it("should POST to callbackUrl once when a resubmit succeeds after errors", async () => {
+        const mockFetch = vi.fn().mockResolvedValue(new Response("ok"));
+        vi.stubGlobal("fetch", mockFetch);
+
+        try {
+          const contextId = await openModalFromAction(
+            "retry_hook",
+            "https://example.com/webhook/modal-hook"
+          );
+          let attempt = 0;
+          chat.onModalSubmit("retry_hook", () => {
+            attempt++;
+            return attempt === 1
+              ? { action: "errors", errors: { message: "Required" } }
+              : undefined;
+          });
+          const tasks: Promise<unknown>[] = [];
+          const options = {
+            waitUntil: (task: Promise<unknown>) => {
+              tasks.push(task);
+            },
+          };
+
+          await chat.processModalSubmit(
+            submitEvent("retry_hook"),
+            contextId,
+            options
+          );
+          await chat.processModalSubmit(
+            submitEvent("retry_hook"),
+            contextId,
+            options
+          );
+          await Promise.all(tasks);
+
+          expect(mockFetch).toHaveBeenCalledTimes(1);
+        } finally {
+          vi.unstubAllGlobals();
+        }
+      });
+
+      it("should POST to callbackUrl once when duplicate submits overlap", async () => {
+        const mockFetch = vi.fn().mockResolvedValue(new Response("ok"));
+        vi.stubGlobal("fetch", mockFetch);
+
+        try {
+          const contextId = await openModalFromAction(
+            "slow_hook",
+            "https://example.com/webhook/modal-hook"
+          );
+          let release: () => void = () => undefined;
+          const gate = new Promise<void>((resolve) => {
+            release = resolve;
+          });
+          chat.onModalSubmit("slow_hook", async () => {
+            await gate;
+          });
+          const tasks: Promise<unknown>[] = [];
+          const options = {
+            waitUntil: (task: Promise<unknown>) => {
+              tasks.push(task);
+            },
+          };
+
+          const first = chat.processModalSubmit(
+            submitEvent("slow_hook"),
+            contextId,
+            options
+          );
+          const second = chat.processModalSubmit(
+            submitEvent("slow_hook"),
+            contextId,
+            options
+          );
+          await new Promise((resolve) => setTimeout(resolve, 0));
+          release();
+          await Promise.all([first, second]);
+          await Promise.all(tasks);
+
+          expect(mockFetch).toHaveBeenCalledTimes(1);
+        } finally {
+          vi.unstubAllGlobals();
+        }
+      });
+    });
+
     it("should not wait for modal callbackUrl before returning response", async () => {
       const mockFetch = vi.fn(() => new Promise<Response>(() => undefined));
       vi.stubGlobal("fetch", mockFetch);

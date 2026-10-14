@@ -132,6 +132,14 @@ const NUMERIC_REGEX = /^\d+$/;
 const DEDUPE_TTL_MS = 10 * 60 * 1000; // 10 minutes
 const MODAL_CONTEXT_TTL_MS = 24 * 60 * 60 * 1000; // 24 hours
 
+function modalStaysOpen(response: ModalResponse | undefined): boolean {
+  return (
+    response?.action === "errors" ||
+    response?.action === "update" ||
+    response?.action === "push"
+  );
+}
+
 /** Server-side stored modal context */
 interface StoredModalContext {
   callbackUrl?: string;
@@ -1269,19 +1277,21 @@ export class Chat<
       ),
     ];
 
-    for (const { handler } of matchingHandlers) {
-      try {
-        const options = await handler(event);
-        if (options) {
-          return options;
+    return await runInConversation(undefined, async () => {
+      for (const { handler } of matchingHandlers) {
+        try {
+          const options = await handler(event);
+          if (options) {
+            return options;
+          }
+        } catch (err) {
+          this.logger.error("Options load handler error", {
+            error: err,
+            actionId: event.actionId,
+          });
         }
-      } catch (err) {
-        this.logger.error("Options load handler error", {
-          error: err,
-          actionId: event.actionId,
-        });
       }
-    }
+    });
   }
 
   async processModalSubmit(
@@ -1324,9 +1334,20 @@ export class Chat<
       }
       return;
     };
-    const result = await runInConversation(conversationId, runHandlers);
+    let result: ModalResponse | undefined;
+    try {
+      result = await runInConversation(conversationId, runHandlers);
+    } finally {
+      if (!modalStaysOpen(result)) {
+        await this.deleteModalContext(event.adapter.name, contextId);
+      }
+    }
 
-    if (callbackUrl && result?.action !== "errors") {
+    if (
+      callbackUrl &&
+      result?.action !== "errors" &&
+      (await this.claimModalCallback(event.adapter.name, contextId))
+    ) {
       const task = postToCallbackUrl(callbackUrl, {
         type: "modal_submit",
         callbackId: event.callbackId,
@@ -1386,7 +1407,11 @@ export class Chat<
           }
         }
       };
-      await runInConversation(conversationId, runHandlers);
+      try {
+        await runInConversation(conversationId, runHandlers);
+      } finally {
+        await this.deleteModalContext(event.adapter.name, contextId);
+      }
     })().catch((err) => {
       this.logger.error("Modal close handler error", {
         error: err,
@@ -1758,9 +1783,47 @@ export class Chat<
     }
   }
 
+  private async deleteModalContext(
+    adapterName: string,
+    contextId: string | undefined
+  ): Promise<void> {
+    if (!contextId) {
+      return;
+    }
+    try {
+      await this._stateAdapter.delete(
+        `modal-context:${adapterName}:${contextId}`
+      );
+    } catch (err) {
+      this.logger.error("Failed to delete modal context", {
+        contextId,
+        error: err,
+      });
+    }
+  }
+
   /**
-   * Retrieve and delete modal context from server-side storage.
+   * Atomically claim the one POST to a modal's callbackUrl, so concurrent
+   * submits that both read the stored context do not both resume the hook.
+   */
+  private async claimModalCallback(
+    adapterName: string,
+    contextId: string | undefined
+  ): Promise<boolean> {
+    if (!contextId) {
+      return false;
+    }
+    return await this._stateAdapter.setIfNotExists(
+      `modal-callback:${adapterName}:${contextId}`,
+      true,
+      MODAL_CONTEXT_TTL_MS
+    );
+  }
+
+  /**
+   * Retrieve modal context from server-side storage.
    * Called when processing modal submit/close to reconstruct thread/message/channel.
+   * The context is deleted separately once the modal closes.
    */
   private async retrieveModalContext(
     adapterName: string,
@@ -1771,29 +1834,22 @@ export class Chat<
     relatedMessage: SentMessage | undefined;
     relatedChannel: Channel | undefined;
   }> {
+    const empty = {
+      callbackUrl: undefined,
+      relatedThread: undefined,
+      relatedMessage: undefined,
+      relatedChannel: undefined,
+    };
     if (!contextId) {
-      return {
-        callbackUrl: undefined,
-        relatedThread: undefined,
-        relatedMessage: undefined,
-        relatedChannel: undefined,
-      };
+      return empty;
     }
 
     const key = `modal-context:${adapterName}:${contextId}`;
     const stored = await this._stateAdapter.get<StoredModalContext>(key);
 
     if (!stored) {
-      return {
-        callbackUrl: undefined,
-        relatedThread: undefined,
-        relatedMessage: undefined,
-        relatedChannel: undefined,
-      };
+      return empty;
     }
-
-    // Clean up stored context after retrieval (one-time use)
-    await this._stateAdapter.delete(key);
 
     const adapter = this.adapters.get(adapterName);
 

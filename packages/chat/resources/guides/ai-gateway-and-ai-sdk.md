@@ -156,9 +156,9 @@ Two helpers from the `chat/ai` subpath connect the two SDKs. Importing from `cha
 
 `createChatTools` provides the agent with a set of AI SDK tools for posting messages, adding reactions, and performing other platform actions. Pass it to your Chat instance alongside an AI SDK call:
 
-`import { Chat } from 'chat'; import { createChatTools } from 'chat/ai'; import { createSlackAdapter } from '@chat-adapter/slack'; import { createMemoryState } from '@chat-adapter/state-memory'; import { generateText } from 'ai'; const chat = new Chat({ userName: 'mybot', adapters: { slack: createSlackAdapter() }, state: createMemoryState(), }); const result = await generateText({ model: 'xai/grok-4.5', tools: createChatTools({ chat, preset: 'messenger' }), prompt: 'Post a friendly hello in slack:C0123ABC and react to it with a thumbs up.', });`
+`import { Chat } from 'chat'; import { createChatTools } from 'chat/ai'; import { createSlackAdapter } from '@chat-adapter/slack'; import { createMemoryState } from '@chat-adapter/state-memory'; import { generateText } from 'ai'; const chat = new Chat({ userName: 'mybot', adapters: { slack: createSlackAdapter() }, state: createMemoryState(), }); const result = await generateText({ model: 'xai/grok-4.5', tools: createChatTools({ chat, preset: 'messenger', scope: 'slack:C0123ABC' }), prompt: 'Post a friendly hello in slack:C0123ABC and react to it with a thumbs up.', });`
 
-Each tool resolves the right adapter from the id prefix you give it (`slack:`, `discord:`, `gchat:`), so one agent can drive any platform your Chat instance is wired up to. Because the model string still routes through AI Gateway, you keep the provider failover and unified billing from the earlier steps while reaching users wherever they already work.
+Outside a handler, pass a `scope` to confine the tools to the conversation they should act in. Without one, they run workspace-wide and log a warning. Each tool resolves the right adapter from the id prefix you give it (`slack:`, `discord:`, `gchat:`), so one agent can drive any platform your Chat instance is wired up to. Because the model string still routes through AI Gateway, you keep the provider failover and unified billing from the earlier steps while reaching users wherever they already work.
 
 ## Give your agent secure access to third-party APIs
 

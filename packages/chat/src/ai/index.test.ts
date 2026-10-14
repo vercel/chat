@@ -591,8 +591,8 @@ describe("createChatTools", () => {
             TOOL_OPTIONS
           );
           outcome = "allowed";
-        } catch {
-          outcome = "blocked";
+        } catch (error) {
+          outcome = (error as Error).message;
         }
       });
 
@@ -614,7 +614,7 @@ describe("createChatTools", () => {
         undefined
       );
 
-      expect(outcome).toBe("blocked");
+      expect(outcome).toMatch(OUT_OF_SCOPE_REGEX);
     });
 
     it("scopes reads during slash command dispatch", async () => {
@@ -627,8 +627,8 @@ describe("createChatTools", () => {
             TOOL_OPTIONS
           );
           outcome = "allowed";
-        } catch {
-          outcome = "blocked";
+        } catch (error) {
+          outcome = (error as Error).message;
         }
       });
 
@@ -649,17 +649,145 @@ describe("createChatTools", () => {
         undefined
       );
 
-      expect(outcome).toBe("blocked");
+      expect(outcome).toMatch(OUT_OF_SCOPE_REGEX);
     });
 
-    it("rejects calls outside a handler when scope is omitted", async () => {
+    it("rejects calls in a handler with no conversation when scope is omitted", async () => {
       const tools = createChatTools({ chat });
       await expect(
-        tools.fetchMessages?.execute?.(
-          { threadId: OTHER_THREAD, limit: 5, direction: "backward" },
-          TOOL_OPTIONS
+        runInConversation(undefined, () =>
+          tools.fetchMessages?.execute?.(
+            { threadId: OTHER_THREAD, limit: 5, direction: "backward" },
+            TOOL_OPTIONS
+          )
         )
       ).rejects.toThrow(MISSING_SCOPE_REGEX);
+      expect(mockAdapter.fetchMessages).not.toHaveBeenCalled();
+    });
+
+    it("runs calls outside a handler workspace-wide and warns once", async () => {
+      const warn = vi.spyOn(mockLogger, "warn");
+      const tools = createChatTools({ chat });
+      for (const _ of [1, 2]) {
+        await tools.fetchMessages?.execute?.(
+          { threadId: OTHER_THREAD, limit: 5, direction: "backward" },
+          TOOL_OPTIONS
+        );
+      }
+      expect(mockAdapter.fetchMessages).toHaveBeenCalledTimes(2);
+      expect(
+        warn.mock.calls.filter(([msg]) =>
+          String(msg).startsWith("Agent tool ran unscoped")
+        )
+      ).toHaveLength(1);
+      warn.mockRestore();
+    });
+
+    it("rejects calls in an action with no thread when scope is omitted", async () => {
+      let outcome = "not-run";
+      chat.onAction("home-button", async () => {
+        const tools = createChatTools({ chat });
+        try {
+          await tools.fetchMessages?.execute?.(
+            { threadId: OTHER_THREAD, limit: 5, direction: "backward" },
+            TOOL_OPTIONS
+          );
+          outcome = "allowed";
+        } catch (error) {
+          outcome = (error as Error).message;
+        }
+      });
+
+      await chat.processAction(
+        {
+          actionId: "home-button",
+          adapter: mockAdapter,
+          messageId: "",
+          threadId: "",
+          user: {
+            userId: "U1",
+            userName: "alice",
+            fullName: "Alice",
+            isBot: false,
+            isMe: false,
+          },
+          value: undefined,
+        } as unknown as Parameters<typeof chat.processAction>[0],
+        undefined
+      );
+
+      expect(outcome).toMatch(MISSING_SCOPE_REGEX);
+      expect(mockAdapter.fetchMessages).not.toHaveBeenCalled();
+    });
+
+    it("rejects calls in a modal submit with no stored context when scope is omitted", async () => {
+      let outcome = "not-run";
+      chat.onModalSubmit("orphan", async () => {
+        const tools = createChatTools({ chat });
+        try {
+          await tools.fetchMessages?.execute?.(
+            { threadId: OTHER_THREAD, limit: 5, direction: "backward" },
+            TOOL_OPTIONS
+          );
+          outcome = "allowed";
+        } catch (error) {
+          outcome = (error as Error).message;
+        }
+      });
+
+      await chat.processModalSubmit(
+        {
+          callbackId: "orphan",
+          viewId: "V1",
+          values: {},
+          adapter: mockAdapter,
+          raw: {},
+          user: {
+            userId: "U1",
+            userName: "alice",
+            fullName: "Alice",
+            isBot: false,
+            isMe: false,
+          },
+        },
+        "missing-context"
+      );
+
+      expect(outcome).toMatch(MISSING_SCOPE_REGEX);
+      expect(mockAdapter.fetchMessages).not.toHaveBeenCalled();
+    });
+
+    it("rejects calls in an options-load handler when scope is omitted", async () => {
+      let outcome = "not-run";
+      chat.onOptionsLoad(async () => {
+        const tools = createChatTools({ chat });
+        try {
+          await tools.fetchMessages?.execute?.(
+            { threadId: OTHER_THREAD, limit: 5, direction: "backward" },
+            TOOL_OPTIONS
+          );
+          outcome = "allowed";
+        } catch (error) {
+          outcome = (error as Error).message;
+        }
+        return [];
+      });
+
+      await chat.processOptionsLoad({
+        actionId: "pick",
+        adapter: mockAdapter,
+        query: "",
+        raw: {},
+        user: {
+          userId: "U1",
+          userName: "alice",
+          fullName: "Alice",
+          isBot: false,
+          isMe: false,
+        },
+      });
+
+      expect(outcome).toMatch(MISSING_SCOPE_REGEX);
       expect(mockAdapter.fetchMessages).not.toHaveBeenCalled();
     });
 
@@ -754,8 +882,8 @@ describe("createChatTools", () => {
             TOOL_OPTIONS
           );
           outcome = "allowed";
-        } catch {
-          outcome = "blocked";
+        } catch (error) {
+          outcome = (error as Error).message;
         }
       });
 
@@ -769,7 +897,7 @@ describe("createChatTools", () => {
       );
       await sleep(0);
 
-      expect(outcome).toBe("blocked");
+      expect(outcome).toMatch(OUT_OF_SCOPE_REGEX);
     });
   });
 

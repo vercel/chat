@@ -2,7 +2,7 @@ import { z } from "zod";
 import type { Message } from "../../message";
 import type { ChannelVisibility, ThreadSummary } from "../../types";
 import type { ScopeGuard } from "../scope";
-import type { ChatBinding, ToolOptions } from "../types";
+import type { ChatBinding, ToolSpecOptions } from "../types";
 import type { ChatToolSpec } from "./spec";
 
 const FETCH_DIRECTION = z
@@ -237,7 +237,7 @@ const SUBSCRIBE_THREAD_INPUT = z.object({
 
 export const subscribeThreadSpec = (
   chat: ChatBinding,
-  { needsApproval = true, guard }: ToolOptions = {}
+  { needsApproval = true, guard }: ToolSpecOptions = {}
 ): ChatToolSpec<
   z.infer<typeof SUBSCRIBE_THREAD_INPUT>,
   { subscribed: boolean; threadId: string }
@@ -263,7 +263,7 @@ const UNSUBSCRIBE_THREAD_INPUT = z.object({
 
 export const unsubscribeThreadSpec = (
   chat: ChatBinding,
-  { needsApproval = true, guard }: ToolOptions = {}
+  { needsApproval = true, guard }: ToolSpecOptions = {}
 ): ChatToolSpec<
   z.infer<typeof UNSUBSCRIBE_THREAD_INPUT>,
   { subscribed: boolean; threadId: string }

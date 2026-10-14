@@ -156,4 +156,4 @@ export type {
   ChatToolPreset,
   ChatWriteToolName,
 } from "./toolset";
-export type { ChatBinding, ToolOptions } from "./types";
+export type { ChatBinding, ToolOptions, ToolScopeOptions } from "./types";

@@ -12,6 +12,7 @@ const THREAD = "slack:C123:1234.5678";
 const FOREIGN = "slack:C999:1111.2222";
 const MISSING = /Tool call blocked: no conversation scope/;
 const OUTSIDE = /tools are scoped to/;
+const EMPTY = /Invalid tool scope: `scope` is an empty id/;
 
 describe("scope guard", () => {
   let chat: Chat;
@@ -37,10 +38,28 @@ describe("scope guard", () => {
   });
 
   it.each(["", { id: "" }])("rejects an empty explicit scope %j", (scope) => {
-    const guard = createScopeGuard(chat, scope);
-    expect(() => runInConversation(THREAD, () => guard?.(THREAD))).toThrow(
-      MISSING
-    );
+    expect(() => createScopeGuard(chat, scope)).toThrow(EMPTY);
+  });
+
+  it("defers resolving an explicit scope's channel until a call", () => {
+    const adapter = chat.getAdapter("slack");
+    if (!adapter) {
+      throw new Error("slack adapter missing");
+    }
+    adapter.channelIdFromThreadId = () => {
+      throw new Error("malformed id");
+    };
+    const guard = createScopeGuard(chat, "slack:bad");
+    expect(() => guard?.(THREAD)).toThrow("malformed id");
+  });
+
+  it("does not inherit an outer conversation inside an unscoped dispatch", () => {
+    const guard = createScopeGuard(chat, undefined);
+    runInConversation(THREAD, () => {
+      expect(() => runInConversation(undefined, () => guard?.(THREAD))).toThrow(
+        MISSING
+      );
+    });
   });
 
   it.each([
@@ -52,7 +71,7 @@ describe("scope guard", () => {
     expect(() => guard?.(FOREIGN)).toThrow(OUTSIDE);
   });
 
-  it("resolves inherited scope on every call and rejects calls after the handler", () => {
+  it("resolves inherited scope on every call", () => {
     const guard = createScopeGuard(chat, undefined);
     runInConversation(THREAD, () => {
       expect(() => guard?.(THREAD)).not.toThrow();
@@ -62,7 +81,10 @@ describe("scope guard", () => {
       expect(() => guard?.(FOREIGN)).not.toThrow();
       expect(() => guard?.(THREAD)).toThrow(OUTSIDE);
     });
-    expect(() => guard?.(THREAD)).toThrow(MISSING);
+    expect(() => runInConversation(undefined, () => guard?.(THREAD))).toThrow(
+      MISSING
+    );
+    expect(() => guard?.(THREAD)).not.toThrow();
   });
 
   it("requires an explicit opt-out for unrestricted tools", () => {

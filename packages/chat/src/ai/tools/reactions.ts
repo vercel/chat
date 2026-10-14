@@ -1,5 +1,5 @@
 import { z } from "zod";
-import type { ChatBinding, ToolOptions } from "../types";
+import type { ChatBinding, ToolSpecOptions } from "../types";
 import type { ChatToolSpec } from "./spec";
 
 // Spec factories carry explicit `ChatToolSpec<Input, Output>` return types so
@@ -18,7 +18,7 @@ const ADD_REACTION_INPUT = z.object({
 
 export const addReactionSpec = (
   chat: ChatBinding,
-  { needsApproval = true, guard }: ToolOptions = {}
+  { needsApproval = true, guard }: ToolSpecOptions = {}
 ): ChatToolSpec<
   z.infer<typeof ADD_REACTION_INPUT>,
   { added: boolean; emoji: string; messageId: string; threadId: string }
@@ -57,7 +57,7 @@ const REMOVE_REACTION_INPUT = z.object({
 
 export const removeReactionSpec = (
   chat: ChatBinding,
-  { needsApproval = true, guard }: ToolOptions = {}
+  { needsApproval = true, guard }: ToolSpecOptions = {}
 ): ChatToolSpec<
   z.infer<typeof REMOVE_REACTION_INPUT>,
   { removed: boolean; emoji: string; messageId: string; threadId: string }
