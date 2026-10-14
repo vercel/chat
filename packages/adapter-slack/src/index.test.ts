@@ -12450,6 +12450,110 @@ describe("native stream rotation", () => {
     });
   });
 
+  it("retries the rotation stop without task chunks when Slack rejects them", async () => {
+    await withClock(async (tick) => {
+      const { adapter, segments } = setup();
+      const task = {
+        type: "task_update" as const,
+        id: "t1",
+        title: "One",
+        status: "in_progress" as const,
+      };
+      segments[0].stop.mockRejectedValueOnce(
+        Object.assign(new Error("invalid_chunks"), {
+          code: "slack_webapi_platform_error",
+          data: { error: "invalid_chunks" },
+        })
+      );
+      async function* stream() {
+        yield task;
+        yield "first\n";
+        tick(MAX_AGE + 1);
+        yield "second\n\nthird\n";
+        yield { ...task, status: "complete" as const };
+      }
+
+      const result = await adapter.stream(THREAD, stream());
+
+      expect(segments[0].stop).toHaveBeenCalledTimes(2);
+      expect(segments[0].stop).toHaveBeenNthCalledWith(1, {
+        chunks: [{ ...task, status: "complete" }],
+        markdown_text: "second\n\n",
+        token: TOKEN,
+      });
+      // The streamer kept the text from the rejected call, so the retry
+      // must not send it again.
+      expect(segments[0].stop.mock.calls[1][0]).toStrictEqual({
+        token: TOKEN,
+      });
+      // Structured chunks are off for the rest of the stream.
+      expect(segments[1].append).not.toHaveBeenCalledWith(
+        expect.objectContaining({ chunks: expect.arrayContaining([task]) })
+      );
+      expect(result).toMatchObject({
+        id: "1234567890.1",
+        messageIds: ["1234567890.0", "1234567890.1"],
+      });
+      expect(mockLogger.warn).toHaveBeenCalledWith(
+        expect.stringContaining("Structured streaming chunk failed"),
+        expect.objectContaining({ chunkType: "task_update" })
+      );
+    });
+  });
+
+  it("does not retry the rotation stop after an error Slack may have applied", async () => {
+    await withClock(async (tick) => {
+      const { adapter, segments } = setup();
+      const task = {
+        type: "task_update" as const,
+        id: "t1",
+        title: "One",
+        status: "in_progress" as const,
+      };
+      segments[0].stop.mockRejectedValueOnce(
+        Object.assign(new Error("internal_error"), {
+          code: "slack_webapi_platform_error",
+          data: { error: "internal_error" },
+        })
+      );
+      async function* stream() {
+        yield task;
+        yield "first\n";
+        tick(MAX_AGE + 1);
+        yield "second\n\nthird\n";
+      }
+
+      await expect(adapter.stream(THREAD, stream())).rejects.toThrow(
+        "internal_error"
+      );
+      expect(segments[0].stop).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  it("does not retry the rotation stop after a transport error", async () => {
+    await withClock(async (tick) => {
+      const { adapter, segments } = setup();
+      const task = {
+        type: "task_update" as const,
+        id: "t1",
+        title: "One",
+        status: "in_progress" as const,
+      };
+      segments[0].stop.mockRejectedValueOnce(new Error("socket hang up"));
+      async function* stream() {
+        yield task;
+        yield "first\n";
+        tick(MAX_AGE + 1);
+        yield "second\n\nthird\n";
+      }
+
+      await expect(adapter.stream(THREAD, stream())).rejects.toThrow(
+        "socket hang up"
+      );
+      expect(segments[0].stop).toHaveBeenCalledTimes(1);
+    });
+  });
+
   it("repeats the table header when a table continues in the new segment", async () => {
     await withClock(async (tick) => {
       const { adapter, segments } = setup();

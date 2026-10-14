@@ -336,9 +336,9 @@ When adding a feature, prefer extending an existing fixture in
 
 - All exports are `export function`, `export const`, or `export class`
   — no default exports.
-- Public types live alongside the implementation in `src/index.ts` and
-  are re-exported from the package entry. Internal-only types stay in
-  their dedicated module (`crypto.ts`, `modals.ts`).
+- Public types live in `src/types.ts` and are re-exported from
+  `src/index.ts`. Internal-only types stay in their dedicated module
+  (`crypto.ts`, `modals.ts`).
 - The adapter never calls `process.env` outside the
   `createSlackAdapter` factory; runtime code receives explicit config.
 - Webhook handlers must return `Response` synchronously; long work

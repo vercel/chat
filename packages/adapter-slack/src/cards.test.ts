@@ -437,6 +437,225 @@ describe("cardToBlockKit Slack length limits", () => {
   });
 });
 
+describe("cardToBlockKit Slack length limits for other fields", () => {
+  const sectionText = (block: unknown) =>
+    (block as { text: { text: string } }).text.text;
+
+  it("keeps the closing asterisk when cutting bold text", () => {
+    const blocks = cardToBlockKit(
+      Card({ children: [CardText("b".repeat(5000), { style: "bold" })] })
+    );
+
+    expect(sectionText(blocks[0])).toBe(`*${"b".repeat(2997)}…*`);
+  });
+
+  it("cuts muted text in the context element", () => {
+    const blocks = cardToBlockKit(
+      Card({ children: [CardText("m".repeat(5000), { style: "muted" })] })
+    );
+
+    expect(blocks[0]).toEqual({
+      type: "context",
+      elements: [{ type: "mrkdwn", text: `${"m".repeat(2999)}…` }],
+    });
+  });
+
+  it("cuts the subtitle context element", () => {
+    const blocks = cardToBlockKit(Card({ subtitle: "s".repeat(5000) }));
+
+    expect(blocks[0]).toEqual({
+      type: "context",
+      elements: [{ type: "mrkdwn", text: `${"s".repeat(2999)}…` }],
+    });
+  });
+
+  it("cuts header image and image element alt text", () => {
+    const blocks = cardToBlockKit(
+      Card({
+        title: "t".repeat(2500),
+        imageUrl: "https://example.com/hero.png",
+        children: [
+          Image({ url: "https://example.com/img.png", alt: "a".repeat(2500) }),
+        ],
+      })
+    );
+
+    expect(blocks[1]).toMatchObject({
+      type: "image",
+      alt_text: `${"t".repeat(1999)}…`,
+    });
+    expect(blocks[2]).toMatchObject({
+      type: "image",
+      alt_text: `${"a".repeat(1999)}…`,
+    });
+  });
+
+  it("cuts a long field label and value to the per-field limit", () => {
+    const blocks = cardToBlockKit(
+      Card({
+        children: [
+          Fields([
+            Field({ label: "L".repeat(3000), value: "V".repeat(3000) }),
+            Field({ label: "L".repeat(3000), value: "short" }),
+          ]),
+        ],
+      })
+    );
+    const fields = (blocks[0] as { fields: { text: string }[] }).fields;
+
+    expect(fields[0].text).toBe(`*${"L".repeat(998)}…*\n${"V".repeat(997)}…`);
+    expect(fields[0].text).toHaveLength(2000);
+    expect(fields[1].text).toBe(`*${"L".repeat(1991)}…*\nshort`);
+    expect(fields[1].text).toHaveLength(2000);
+  });
+
+  it("cuts only the link label so the whole link fits", () => {
+    const url = `https://example.com/${"p".repeat(980)}`;
+    const blocks = cardToBlockKit(
+      Card({ children: [CardLink({ url, label: "l".repeat(5000) })] })
+    );
+    const text = sectionText(blocks[0]);
+
+    expect(text).toHaveLength(3000);
+    expect(text.startsWith(`<${url}|`)).toBe(true);
+    expect(text.endsWith("…>")).toBe(true);
+  });
+
+  it("cuts select option text, description, and placeholder", () => {
+    const blocks = cardToBlockKit(
+      Card({
+        children: [
+          Actions([
+            Select({
+              id: "pick",
+              label: "Pick",
+              placeholder: "p".repeat(200),
+              initialOption: "a",
+              options: [
+                SelectOption({
+                  label: "o".repeat(100),
+                  value: "a",
+                  description: "d".repeat(100),
+                }),
+              ],
+            }),
+          ]),
+        ],
+      })
+    );
+    const select = (
+      blocks[0] as {
+        elements: {
+          placeholder: { text: string };
+          options: unknown[];
+          initial_option: unknown;
+        }[];
+      }
+    ).elements[0];
+
+    expect(select.placeholder.text).toBe(`${"p".repeat(149)}…`);
+    expect(select.options[0]).toEqual({
+      text: { type: "plain_text", text: `${"o".repeat(74)}…` },
+      value: "a",
+      description: { type: "plain_text", text: `${"d".repeat(74)}…` },
+    });
+    expect(select.initial_option).toEqual(select.options[0]);
+  });
+
+  it("cuts radio option text and description", () => {
+    const blocks = cardToBlockKit(
+      Card({
+        children: [
+          Actions([
+            RadioSelect({
+              id: "plan",
+              label: "Plan",
+              initialOption: "a",
+              options: [
+                SelectOption({
+                  label: "o".repeat(100),
+                  value: "a",
+                  description: "d".repeat(100),
+                }),
+              ],
+            }),
+          ]),
+        ],
+      })
+    );
+    const radio = (
+      blocks[0] as {
+        elements: { options: unknown[]; initial_option: unknown }[];
+      }
+    ).elements[0];
+
+    expect(radio.options[0]).toEqual({
+      text: { type: "mrkdwn", text: `${"o".repeat(74)}…` },
+      value: "a",
+      description: { type: "mrkdwn", text: `${"d".repeat(74)}…` },
+    });
+    expect(radio.initial_option).toEqual(radio.options[0]);
+  });
+
+  it("cuts a text input label without splitting an HTML entity", () => {
+    const blocks = cardToBlockKit(
+      Card({ children: [TextInput({ id: "q", label: "<".repeat(1000) })] })
+    );
+
+    expect(sectionText(blocks[0])).toBe(`${"&lt;".repeat(749)}…`);
+  });
+
+  it("backs up before an unclosed mention or link", () => {
+    const blocks = cardToBlockKit(
+      Card({
+        children: [CardText(`${"x".repeat(2990)} <https://example.com|docs>`)],
+      })
+    );
+
+    expect(sectionText(blocks[0])).toBe(`${"x".repeat(2990)} …`);
+  });
+
+  it("backs up before the link when the cut lands in an entity inside it", () => {
+    const head = "x".repeat(2980);
+    const blocks = cardToBlockKit(
+      Card({
+        children: [CardText(`${head} <https://e.co?a=1&amp;b=2|docs>`)],
+      })
+    );
+
+    expect(sectionText(blocks[0])).toBe(`${head} …`);
+  });
+
+  it("closes an open code fence when the closing fence fits", () => {
+    const head = `\`\`\`\n${"c".repeat(2900)}`;
+    const blocks = cardToBlockKit(
+      Card({
+        children: [
+          CardText(`${head} <https://example.com/${"u".repeat(200)}>`),
+        ],
+      })
+    );
+
+    expect(sectionText(blocks[0])).toBe(`${head} …\n\`\`\``);
+  });
+
+  it("cuts further to close an open code fence", () => {
+    const content = `\`\`\`\n${"c".repeat(5000)}`;
+    const blocks = cardToBlockKit(Card({ children: [CardText(content)] }));
+
+    const text = sectionText(blocks[0]);
+    expect(text).toBe(`${content.slice(0, 2995)}…\n\`\`\``);
+    expect(text).toHaveLength(3000);
+  });
+
+  it("keeps text after a stray < that starts no Slack token", () => {
+    const content = `if x < 5 then ${"y".repeat(5000)}`;
+    const blocks = cardToBlockKit(Card({ children: [CardText(content)] }));
+
+    expect(sectionText(blocks[0])).toBe(`${content.slice(0, 2999)}…`);
+  });
+});
+
 describe("cardToBlockKit with select elements", () => {
   it("converts actions with select element", () => {
     const card = Card({
