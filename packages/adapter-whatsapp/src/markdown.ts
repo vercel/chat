@@ -27,8 +27,8 @@ export class WhatsAppFormatConverter extends BaseFormatConverter {
    * Convert an AST to WhatsApp markdown format.
    *
    * Transforms unsupported nodes (headings, thematic breaks, tables)
-   * into WhatsApp-compatible equivalents, then converts standard markdown
-   * bold/strikethrough to WhatsApp syntax.
+   * into WhatsApp-compatible equivalents and renders supported formatting
+   * directly in WhatsApp syntax.
    */
   fromAst(ast: Root): string {
     const transformed = walkAst(structuredClone(ast), (node: Content) => {
@@ -62,12 +62,21 @@ export class WhatsAppFormatConverter extends BaseFormatConverter {
       }
       return node;
     });
-    // Use _ for emphasis and - for bullets so the only * in output is **strong**
-    const markdown = stringifyMarkdown(transformed, {
+    const options = {
       emphasis: "_",
       bullet: "-",
-    }).trim();
-    return this.toWhatsAppFormat(markdown);
+      handlers: {
+        text: (node) => node.value,
+        strong: (node, _parent, state, info) =>
+          `*${state.containerPhrasing(node, { ...info, before: "*", after: "*" })}*`,
+        delete: (node, _parent, state, info) =>
+          `~${state.containerPhrasing(node, { ...info, before: "~", after: "~" })}~`,
+      },
+    } satisfies Parameters<typeof stringifyMarkdown>[1];
+    // Lookahead must not serialize nested formatting a second time.
+    Object.assign(options.handlers.strong, { peek: () => "*" });
+    Object.assign(options.handlers.delete, { peek: () => "~" });
+    return stringifyMarkdown(transformed, options).trim();
   }
 
   /**
@@ -102,20 +111,6 @@ export class WhatsAppFormatConverter extends BaseFormatConverter {
       return this.fromAst(message.ast);
     }
     return super.renderPostable(message);
-  }
-
-  /**
-   * Convert remaining standard markdown markers to WhatsApp format.
-   * The stringifier already outputs _italic_ and - bullets.
-   * This only converts **bold** -> *bold* and ~~strike~~ -> ~strike~.
-   */
-  private toWhatsAppFormat(text: string): string {
-    let result = text;
-    // Convert **bold** -> *bold*
-    result = result.replace(/\*\*(.+?)\*\*/g, "*$1*");
-    // Convert ~~strikethrough~~ -> ~strikethrough~
-    result = result.replace(/~~(.+?)~~/g, "~$1~");
-    return result;
   }
 
   /**
