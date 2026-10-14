@@ -15,7 +15,11 @@ import type {
   AgentSession,
   Comment,
 } from "@linear/sdk";
-import { AgentActivityType, LinearClient } from "@linear/sdk";
+import {
+  AgentActivityType,
+  InvalidInputLinearError,
+  LinearClient,
+} from "@linear/sdk";
 import {
   type AgentSessionEventWebhookPayload,
   type EntityWebhookPayloadWithCommentData as CommentWebhookPayload,
@@ -67,8 +71,17 @@ import {
 const COMMENT_SESSION_THREAD_PATTERN = /^([^:]+):c:([^:]+):s:([^:]+)$/;
 const COMMENT_THREAD_PATTERN = /^([^:]+):c:([^:]+)$/;
 const ISSUE_SESSION_THREAD_PATTERN = /^([^:]+):s:([^:]+)$/;
+const ISSUE_IDENTIFIER_PATTERN = /^[A-Z][A-Z0-9]*-\d+$/;
+const ENTITY_NOT_FOUND_PATTERN = /entity not found|could not find referenced/i;
 const INSTALLATION_KEY_PREFIX = "linear:installation";
 const INSTALLATION_REFRESH_BUFFER_MS = 5 * 60 * 1000;
+
+function isEntityNotFoundError(error: unknown): boolean {
+  return (
+    error instanceof InvalidInputLinearError &&
+    ENTITY_NOT_FOUND_PATTERN.test(error.message)
+  );
+}
 
 function renderActivity(activity: AgentActivity): string {
   const { content } = activity;
@@ -1690,9 +1703,21 @@ export class LinearAdapter
     message: AdapterPostableMessage
   ): Promise<RawMessage<LinearRawMessage>> {
     await this.ensureValidToken();
-    const client = this.getClient();
     const thread = this.decodeThreadId(threadId);
-    const { issueId, agentSessionId } = thread;
+    if (!thread.agentSessionId) {
+      await this.validateComment(thread, messageId);
+    }
+    return await this.updateComment(threadId, messageId, message);
+  }
+
+  private async updateComment(
+    threadId: string,
+    messageId: string,
+    message: AdapterPostableMessage
+  ): Promise<RawMessage<LinearRawMessage>> {
+    await this.ensureValidToken();
+    const client = this.getClient();
+    const { issueId, agentSessionId } = this.decodeThreadId(threadId);
 
     if (agentSessionId) {
       throw new AdapterError(
@@ -1701,7 +1726,6 @@ export class LinearAdapter
       );
     }
 
-    await this.validateComment(thread, messageId);
     const body = renderMessageToLinearMarkdown(message, this.formatConverter);
 
     // Update the comment via Linear SDK
@@ -1789,18 +1813,52 @@ export class LinearAdapter
     thread: LinearThreadId,
     messageId: string
   ): Promise<void> {
-    const comment = await this.getClient().comment({ id: messageId });
+    const error = new ValidationError(
+      "linear",
+      "Comment does not belong to this thread"
+    );
+    const comment = await this.findComment(messageId, error);
+    const rootId = thread.commentId?.toLowerCase();
     if (
-      !comment.issueId ||
-      comment.issueId !== thread.issueId ||
-      (thread.commentId &&
-        comment.id !== thread.commentId &&
-        comment.parentId !== thread.commentId)
+      !(await this.isSameIssue(thread.issueId, comment.issueId, error)) ||
+      (rootId &&
+        comment.id.toLowerCase() !== rootId &&
+        comment.parentId?.toLowerCase() !== rootId)
     ) {
-      throw new ValidationError(
-        "linear",
-        "Comment does not belong to this thread"
-      );
+      throw error;
+    }
+  }
+
+  private async findComment(
+    commentId: string,
+    notFoundError: ValidationError
+  ): Promise<Comment> {
+    try {
+      return await this.getClient().comment({ id: commentId });
+    } catch (error) {
+      throw isEntityNotFoundError(error) ? notFoundError : error;
+    }
+  }
+
+  private async isSameIssue(
+    threadIssueId: string,
+    issueId: string | null | undefined,
+    notFoundError: ValidationError
+  ): Promise<boolean> {
+    if (!issueId) {
+      return false;
+    }
+    if (threadIssueId.toLowerCase() === issueId.toLowerCase()) {
+      return true;
+    }
+    if (!ISSUE_IDENTIFIER_PATTERN.test(threadIssueId)) {
+      return false;
+    }
+    try {
+      const issue = await this.getClient().issue(threadIssueId);
+      return issue.id.toLowerCase() === issueId.toLowerCase();
+    } catch (error) {
+      throw isEntityNotFoundError(error) ? notFoundError : error;
     }
   }
 
@@ -2000,9 +2058,11 @@ export class LinearAdapter
       const content = renderer.render();
       if (content !== lastEditContent) {
         try {
-          rawMessage = await this.editMessage(threadIdForEdits, rawMessage.id, {
-            markdown: content,
-          });
+          rawMessage = await this.updateComment(
+            threadIdForEdits,
+            rawMessage.id,
+            { markdown: content }
+          );
           lastEditContent = content;
           threadIdForEdits = rawMessage.threadId || threadIdForEdits;
         } catch (error) {
@@ -2038,7 +2098,7 @@ export class LinearAdapter
 
     const finalContent = renderer.finish();
     if (finalContent !== lastEditContent && rawMessage) {
-      rawMessage = await this.editMessage(threadIdForEdits, rawMessage.id, {
+      rawMessage = await this.updateComment(threadIdForEdits, rawMessage.id, {
         markdown: finalContent,
       });
     }
@@ -2087,11 +2147,17 @@ export class LinearAdapter
     const linear = this.getClient();
     const agentSession = await linear.agentSession(thread.agentSessionId);
     const issueId = agentSession.issueId;
-    if (!issueId || issueId !== thread.issueId) {
-      throw new ValidationError(
-        "linear",
-        "Agent session does not belong to this issue"
-      );
+    const ownershipError = new ValidationError(
+      "linear",
+      "Agent session does not belong to this issue"
+    );
+    if (
+      !(
+        issueId &&
+        (await this.isSameIssue(thread.issueId, issueId, ownershipError))
+      )
+    ) {
+      throw ownershipError;
     }
 
     const rootComment = await agentSession.comment;
@@ -2232,12 +2298,18 @@ export class LinearAdapter
   ): Promise<FetchResult<LinearRawMessage>> {
     const linear = this.getClient();
 
-    const rootComment = await linear.comment({ id: commentId });
-    if (!rootComment.issueId || rootComment.issueId !== issueId) {
-      throw new ValidationError(
-        "linear",
-        "Comment does not belong to this issue"
-      );
+    const ownershipError = new ValidationError(
+      "linear",
+      "Comment does not belong to this issue"
+    );
+    const rootComment = await this.findComment(commentId, ownershipError);
+    if (
+      !(
+        rootComment.issueId &&
+        (await this.isSameIssue(issueId, rootComment.issueId, ownershipError))
+      )
+    ) {
+      throw ownershipError;
     }
 
     // Get the children (replies) of the root comment

@@ -285,7 +285,7 @@ For agent-session threads, `fetchMessages()` throws a `ValidationError` if the s
 
 ## Comment mutations
 
-Comment edits, deletions, and reactions retrieve the target comment before writing. The adapter throws a `ValidationError` if the comment has no issue, belongs to another issue, or is outside the requested comment thread. The connection needs read access to verify ownership, in addition to the permissions required for the write.
+Comment edits, deletions, and reactions retrieve the target comment before writing. The adapter throws a `ValidationError` if the comment doesn't exist, has no issue, belongs to another issue, or is outside the requested comment thread. The connection needs read access to verify ownership, in addition to the permissions required for the write.
 
 ## Thread IDs
 

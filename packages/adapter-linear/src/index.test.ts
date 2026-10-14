@@ -8,7 +8,11 @@ import {
   createMockState,
   threadIdContract,
 } from "@chat-adapter/tests";
-import type { LinearClient } from "@linear/sdk";
+import {
+  InvalidInputLinearError,
+  type LinearClient,
+  RatelimitedLinearError,
+} from "@linear/sdk";
 import { Chat } from "chat";
 import { createChatTools } from "chat/ai";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -23,6 +27,7 @@ import { createLinearAdapter, LinearAdapter } from "./index";
 const WEBHOOK_SECRET = "test-webhook-secret";
 const BYTES_32_PATTERN = /32 bytes/;
 const NO_LINEAR_TOKEN_PATTERN = /No Linear access token available/;
+const ISSUE_UUID = "2174add1-f7c8-44e3-bbf3-2d60b5ea8bc9";
 
 afterEach(() => {
   vi.restoreAllMocks();
@@ -2286,6 +2291,274 @@ describe("SDK comment ownership", () => {
       );
       expect(calls).toEqual(["lookup"]);
     }
+  });
+});
+
+describe.each([
+  "edit",
+  "delete",
+  "reaction",
+] as const)("%s comment ownership with issue identifiers", (operation) => {
+  const mutate = (
+    adapter: LinearAdapter,
+    threadId: string,
+    messageId: string
+  ) => {
+    if (operation === "edit") {
+      return adapter.editMessage(threadId, messageId, "Updated");
+    }
+    if (operation === "delete") {
+      return adapter.deleteMessage(threadId, messageId);
+    }
+    return adapter.addReaction(threadId, messageId, "thumbs_up");
+  };
+
+  const setup = (resolvedIssueId: string) => {
+    const adapter = createWebhookAdapter();
+    setDefaultOrganizationId(adapter, "org-123");
+    const comment = { id: "comment-1", issueId: ISSUE_UUID };
+    const client = {
+      comment: vi.fn().mockResolvedValue(comment),
+      issue: vi.fn().mockResolvedValue({ id: resolvedIssueId }),
+      updateComment: vi.fn().mockResolvedValue({
+        comment: {
+          ...comment,
+          body: "Updated",
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        },
+      }),
+      deleteComment: vi.fn().mockResolvedValue({ success: true }),
+      createReaction: vi.fn().mockResolvedValue({ success: true }),
+    };
+    setDefaultClient(adapter, client);
+    const mutation = {
+      edit: client.updateComment,
+      delete: client.deleteComment,
+      reaction: client.createReaction,
+    }[operation];
+    return { adapter, client, mutation };
+  };
+
+  it("allows a comment whose issue resolves to the thread identifier", async () => {
+    const { adapter, client, mutation } = setup(ISSUE_UUID);
+    await mutate(adapter, "linear:ENG-123", "comment-1");
+    expect(client.issue).toHaveBeenCalledWith("ENG-123");
+    expect(mutation).toHaveBeenCalled();
+  });
+
+  it("rejects a comment whose issue resolves to a different identifier", async () => {
+    const { adapter, client, mutation } = setup(
+      "a1b2c3d4-e5f6-7890-abcd-ef1234567890"
+    );
+    await expect(
+      mutate(adapter, "linear:ENG-123", "comment-1")
+    ).rejects.toThrowError(
+      new ValidationError("linear", "Comment does not belong to this thread")
+    );
+    expect(client.issue).toHaveBeenCalledWith("ENG-123");
+    expect(mutation).not.toHaveBeenCalled();
+  });
+
+  it("rejects a thread identifier that does not exist", async () => {
+    const { adapter, client, mutation } = setup(ISSUE_UUID);
+    client.issue.mockRejectedValue(
+      new InvalidInputLinearError({ message: "Entity not found: Issue" }, [])
+    );
+    await expect(
+      mutate(adapter, "linear:ENG-999", "comment-1")
+    ).rejects.toThrowError(
+      new ValidationError("linear", "Comment does not belong to this thread")
+    );
+    expect(mutation).not.toHaveBeenCalled();
+  });
+
+  it("allows a mixed-case UUID thread without resolving the issue", async () => {
+    const { adapter, client, mutation } = setup(ISSUE_UUID);
+    await mutate(adapter, `linear:${ISSUE_UUID.toUpperCase()}`, "comment-1");
+    expect(client.issue).not.toHaveBeenCalled();
+    expect(mutation).toHaveBeenCalled();
+  });
+
+  it("maps a missing comment to a ValidationError", async () => {
+    const { adapter, mutation } = setup(ISSUE_UUID);
+    (adapter as unknown as { defaultClient: unknown }).defaultClient = {
+      ...(adapter as unknown as { defaultClient: object }).defaultClient,
+      comment: vi
+        .fn()
+        .mockRejectedValue(
+          new InvalidInputLinearError(
+            { message: "Entity not found: Comment" },
+            []
+          )
+        ),
+    };
+    await expect(
+      mutate(adapter, "linear:issue-123", "comment-1")
+    ).rejects.toThrowError(
+      new ValidationError("linear", "Comment does not belong to this thread")
+    );
+    expect(mutation).not.toHaveBeenCalled();
+  });
+
+  it("propagates lookup errors other than not found", async () => {
+    const { adapter, client, mutation } = setup(ISSUE_UUID);
+    const rateLimit = new RatelimitedLinearError(
+      { message: "Rate limit exceeded" },
+      []
+    );
+    client.comment.mockRejectedValue(rateLimit);
+    await expect(mutate(adapter, "linear:issue-123", "comment-1")).rejects.toBe(
+      rateLimit
+    );
+    expect(mutation).not.toHaveBeenCalled();
+  });
+});
+
+describe("SDK comment lookup errors", () => {
+  const stubLinearError = (type: string, message: string, status = 200) => {
+    const fetch = vi.fn<typeof globalThis.fetch>().mockResolvedValue(
+      Response.json(
+        {
+          data: null,
+          errors: [
+            {
+              message,
+              path: ["comment"],
+              extensions: { type, userError: true },
+            },
+          ],
+        },
+        { status }
+      )
+    );
+    vi.stubGlobal("fetch", fetch);
+    return fetch;
+  };
+
+  const createSdkAdapter = () =>
+    createLinearAdapter({
+      apiKey: "test",
+      webhookSecret: WEBHOOK_SECRET,
+      apiUrl: "https://api.linear.test/graphql",
+      logger: createMockLogger(),
+    });
+
+  it("maps a missing comment to a ValidationError before mutating", async () => {
+    const fetch = stubLinearError("invalid input", "Entity not found: Comment");
+    await expect(
+      createSdkAdapter().deleteMessage("linear:issue-123", "comment-1")
+    ).rejects.toThrowError(
+      new ValidationError("linear", "Comment does not belong to this thread")
+    );
+    expect(fetch).toHaveBeenCalledTimes(1);
+  });
+
+  it("maps a missing root comment to a ValidationError when fetching", async () => {
+    stubLinearError("invalid input", "Entity not found: Comment");
+    await expect(
+      createSdkAdapter().fetchMessages("linear:issue-123:c:comment-1")
+    ).rejects.toThrowError(
+      new ValidationError("linear", "Comment does not belong to this issue")
+    );
+  });
+
+  it("propagates rate limit errors unchanged", async () => {
+    const fetch = stubLinearError("ratelimited", "Rate limit exceeded", 400);
+    await expect(
+      createSdkAdapter().deleteMessage("linear:issue-123", "comment-1")
+    ).rejects.toBeInstanceOf(RatelimitedLinearError);
+    expect(fetch).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("streamAsComment", () => {
+  it("edits its own comment without ownership lookups", async () => {
+    const adapter = createWebhookAdapter();
+    setDefaultOrganizationId(adapter, "org-123");
+    const comment = {
+      id: "stream-comment",
+      issueId: "issue-123",
+      body: "...",
+      createdAt: new Date(),
+      updatedAt: new Date(),
+      url: "https://linear.app/test/comment/stream-comment",
+    };
+    const client = {
+      comment: vi.fn(),
+      issue: vi.fn(),
+      createComment: vi.fn().mockResolvedValue({
+        comment: Promise.resolve(comment),
+      }),
+      updateComment: vi.fn().mockResolvedValue({
+        comment: Promise.resolve(comment),
+      }),
+    };
+    setDefaultClient(adapter, client);
+
+    async function* chunks() {
+      for (const chunk of ["Hello", " there", " world"]) {
+        yield chunk;
+        await new Promise((resolve) => setTimeout(resolve, 20));
+      }
+    }
+
+    await adapter.stream("linear:issue-123", chunks(), {
+      updateIntervalMs: 5,
+    });
+
+    expect(client.updateComment.mock.calls.length).toBeGreaterThan(1);
+    expect(client.updateComment).toHaveBeenLastCalledWith("stream-comment", {
+      body: "Hello there world",
+    });
+    expect(client.comment).not.toHaveBeenCalled();
+    expect(client.issue).not.toHaveBeenCalled();
+  });
+});
+
+describe("fetchMessages with issue identifiers", () => {
+  const setup = (resolvedIssueId: string) => {
+    const adapter = createWebhookAdapter();
+    setDefaultOrganizationId(adapter, "org-123");
+    const client = {
+      comment: vi.fn().mockResolvedValue({
+        id: "root-comment",
+        issueId: ISSUE_UUID,
+        body: "Root comment",
+        botActor: { id: "bot-user-id", name: "Test Bot" },
+        createdAt: new Date("2025-06-01T10:00:00.000Z"),
+        updatedAt: new Date("2025-06-01T10:00:00.000Z"),
+      }),
+      issue: vi.fn().mockResolvedValue({ id: resolvedIssueId }),
+      comments: vi.fn().mockResolvedValue({
+        nodes: [],
+        pageInfo: { hasNextPage: false, endCursor: null },
+      }),
+    };
+    setDefaultClient(adapter, client);
+    return { adapter, client };
+  };
+
+  it("fetches a comment thread addressed by issue identifier", async () => {
+    const { adapter, client } = setup(ISSUE_UUID);
+    const result = await adapter.fetchMessages("linear:ENG-123:c:root-comment");
+    expect(client.issue).toHaveBeenCalledWith("ENG-123");
+    expect(result.messages.map((message) => message.text)).toEqual([
+      "Root comment",
+    ]);
+    expect(result.messages[0].threadId).toBe(
+      `linear:${ISSUE_UUID}:c:root-comment`
+    );
+  });
+
+  it("rejects a comment thread whose identifier resolves elsewhere", async () => {
+    const { adapter, client } = setup("a1b2c3d4-e5f6-7890-abcd-ef1234567890");
+    await expect(
+      adapter.fetchMessages("linear:ENG-123:c:root-comment")
+    ).rejects.toThrowError(
+      new ValidationError("linear", "Comment does not belong to this issue")
+    );
+    expect(client.comments).not.toHaveBeenCalled();
   });
 });
 
