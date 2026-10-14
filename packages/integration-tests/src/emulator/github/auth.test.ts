@@ -116,7 +116,9 @@ describe("GitHub emulator: auth", () => {
     await chat.initialize();
     const tracker = createWaitUntilTracker();
 
-    for (const installation of [999, undefined, 111]) {
+    for (const [index, installation] of [999, undefined, 111].entries()) {
+      const commentId = 100 + index;
+      handler.mockClear();
       const body = JSON.stringify({
         action: "created",
         installation:
@@ -137,7 +139,7 @@ describe("GitHub emulator: auth", () => {
           type: "User",
         },
         comment: {
-          id: 100,
+          id: commentId,
           body: "hello bot",
           user: {
             id: emulator.humanUserId,
@@ -146,7 +148,7 @@ describe("GitHub emulator: auth", () => {
           },
           created_at: "2026-10-13T00:00:00Z",
           updated_at: "2026-10-13T00:00:00Z",
-          html_url: `https://github.com/${emulator.owner}/${emulator.repo}/issues/${emulator.issueNumber}#issuecomment-100`,
+          html_url: `https://github.com/${emulator.owner}/${emulator.repo}/issues/${emulator.issueNumber}#issuecomment-${commentId}`,
         },
         issue: { number: emulator.issueNumber, title: "Test issue" },
         pull_request: { number: emulator.prNumber, title: "Test PR" },
@@ -168,11 +170,14 @@ describe("GitHub emulator: auth", () => {
       );
       await tracker.waitForAll();
 
-      expect(response.status).toBe(installation === 111 ? 200 : 404);
-      if (installation === 111) {
-        expect(handler).toHaveBeenCalledWith(expect.any(String), "100");
-      } else {
+      expect(response.status).toBe(installation === 999 ? 404 : 200);
+      if (installation === 999) {
         expect(handler).not.toHaveBeenCalled();
+      } else {
+        expect(handler).toHaveBeenCalledWith(
+          expect.any(String),
+          String(commentId)
+        );
       }
     }
   });

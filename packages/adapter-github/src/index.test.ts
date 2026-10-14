@@ -603,10 +603,31 @@ describe("GitHubAdapter", () => {
         });
 
         it.each([
-          ["foreign", { id: 999 }],
           ["missing", undefined],
           ["null", null],
           ["empty", {}],
+        ])("dispatches comments with a %s installation", async (_, installation) => {
+          const body = JSON.stringify({ ...payload(), installation });
+          const response = await fixed.handleWebhook(
+            makeWebhookRequest(
+              body,
+              event,
+              verification === "hmac" ? signPayload(body) : undefined
+            )
+          );
+
+          expect(response.status).toBe(200);
+          expect(chat.processMessage).toHaveBeenCalledWith(
+            fixed,
+            expect.any(String),
+            expect.any(Object),
+            undefined
+          );
+          expect(mockLogger.warn).not.toHaveBeenCalled();
+        });
+
+        it.each([
+          ["foreign", { id: 999 }],
           ["string", { id: "111" }],
           ["fractional", { id: 111.5 }],
         ])("rejects a %s installation before dispatch", async (_, installation) => {

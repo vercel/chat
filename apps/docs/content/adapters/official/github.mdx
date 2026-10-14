@@ -105,10 +105,10 @@ We recommend a GitHub App. It has better rate limits and security than a persona
 
 #### Single-tenant configuration
 
-Set `installationId` to accept comments only from that GitHub App installation. After verification, a new comment (`issue_comment` or `pull_request_review_comment` with action `created`) whose `installation.id` is missing or different gets a `404`, handlers don't run, and the adapter logs a warning with both IDs. The check runs whether you verify with `webhookSecret` or a custom `webhookVerifier`, and other event types and actions aren't checked.
+Set `installationId` to accept comments only from that GitHub App installation. After verification, a new comment (`issue_comment` or `pull_request_review_comment` with action `created`) from a different installation gets a `404`, handlers don't run, and the adapter logs a warning with both IDs. The check runs whether you verify with `webhookSecret` or a custom `webhookVerifier`, and other event types and actions aren't checked.
 
 <Callout type="info">
-GitHub includes the `installation` object only in deliveries sent to a GitHub App, so comment events from repository or organization webhooks get a `404` in this mode. Use the GitHub App's own webhook instead. Vercel Connect mode (`installationToken`) has no configured installation ID and skips this check.
+Deliveries without an `installation` object still reach handlers. GitHub omits it from repository and organization webhooks, so those keep working in this mode. Vercel Connect mode (`installationToken`) has no configured installation ID and skips this check.
 </Callout>
 
 ```typescript
@@ -220,7 +220,7 @@ required, plus either `webhookSecret` or a `webhookVerifier`.
 
 ## Webhooks
 
-Repository and organization webhooks work with a personal access token or a multi-tenant GitHub App. A [single-tenant](#single-tenant-configuration) App rejects comments from them, because GitHub only includes `installation` in deliveries sent to the App. To add a repository or organization webhook:
+For repository or organization webhooks:
 
 1. Open **Settings** then **Webhooks** then **Add webhook**.
 2. Set the payload URL to `https://your-domain.com/api/webhooks/github`.

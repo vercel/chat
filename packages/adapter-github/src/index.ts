@@ -677,6 +677,7 @@ export class GitHubAdapter
       : undefined;
     if (
       this.fixedInstallationId !== null &&
+      rawInstallationId != null &&
       installationId !== this.fixedInstallationId
     ) {
       const wouldDispatch =
