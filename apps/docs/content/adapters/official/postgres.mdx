@@ -75,7 +75,11 @@ vercel integration add nile
   </CodeBlockTab>
 </CodeBlockTabs>
 
-`createPostgresState()` reads `POSTGRES_URL`, then falls back to `DATABASE_URL`. Supabase sets `POSTGRES_URL`, and Prisma Postgres sets `DATABASE_URL`. For other providers, run `vercel env ls` to see the variable names the integration added. If it stores the connection details under other names, pass them as `url`, or pass a `pg.Pool` as `client` (see [Using an existing client](#using-an-existing-client)).
+Neon, Prisma Postgres, and Nile set `DATABASE_URL` or `POSTGRES_URL`, which `createPostgresState()` reads with no extra configuration. Supabase sets `SUPABASE_POSTGRES_URL`, so pass it as `url`:
+
+```typescript title="lib/bot.ts"
+state: createPostgresState({ url: process.env.SUPABASE_POSTGRES_URL }),
+```
 
 ## Configuration
 
