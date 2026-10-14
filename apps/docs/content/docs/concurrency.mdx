@@ -236,6 +236,10 @@ The `queue`, `debounce`, and `burst` strategies require three additional methods
 
 All built-in state adapters (`@chat-adapter/state-memory`, `@chat-adapter/state-redis`, `@chat-adapter/state-ioredis`) implement these methods. The Redis adapters use Lua scripts for atomicity.
 
+<Callout type="info">
+An adapter can namespace these state keys by tenant, so the key passed to your state adapter isn't always the bare thread ID. The [Slack adapter in multi-workspace mode](/adapters/official/slack#using-the-adapter-outside-webhooks) scopes deduplication, locks, queues, concurrency slots, and turn cancellation by installation. If you inspect state or recover from an incident with calls like `queueDepth(threadId)` or `forceReleaseLock(threadId)`, those calls won't reach the namespaced keys. Log events still report the public `threadId`.
+</Callout>
+
 ## Observability
 
 All strategies emit structured log events at `info` level:

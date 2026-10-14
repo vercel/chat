@@ -32,26 +32,39 @@ describe("concurrency scope", () => {
     expect(first).not.toContain("xoxb");
   });
 
-  it("separates org-wide workspace scopes", () => {
+  it("separates installations", () => {
     const adapter = new SlackAdapter({ signingSecret: "local" });
-    const first = adapter.withBotToken(
+    const organization = adapter.withBotToken(
       "xoxb-org",
       () => adapter.getConcurrencyScope(),
-      { installationId: "E_ORG", teamId: "T_A" }
+      { installationId: "E_ORG" }
     );
-    const second = adapter.withBotToken(
+    const workspace = adapter.withBotToken(
       "xoxb-org",
       () => adapter.getConcurrencyScope(),
-      { installationId: "E_ORG", teamId: "T_B" }
+      { installationId: "T_A" }
     );
-    expect(first).not.toBe(second);
+    expect(organization).not.toBe(workspace);
   });
 
-  it("isolates token-only overrides without exposing credentials", () => {
+  it("keeps single-workspace token overrides unscoped", () => {
     const adapter = new SlackAdapter({
       signingSecret: "local",
       botToken: "xoxb-default",
     });
+    expect(
+      adapter.withBotToken("xoxb-first", () => adapter.getConcurrencyScope())
+    ).toBeUndefined();
+    expect(
+      adapter.withBotToken("xoxb-first", () => adapter.getConcurrencyScope(), {
+        installationId: "T_A",
+      })
+    ).toBeUndefined();
+    expect(adapter.getConcurrencyScope()).toBeUndefined();
+  });
+
+  it("isolates multi-workspace token-only overrides without exposing credentials", () => {
+    const adapter = new SlackAdapter({ signingSecret: "local" });
     const first = adapter.withBotToken("xoxb-first", () =>
       adapter.getConcurrencyScope()
     );
@@ -61,11 +74,12 @@ describe("concurrency scope", () => {
     const second = adapter.withBotToken("xoxb-second", () =>
       adapter.getConcurrencyScope()
     );
+    expect(first).toBeDefined();
     expect(first).toBe(repeated);
     expect(first).not.toBe(second);
     expect(first).not.toContain("xoxb-first");
     expect(second).not.toContain("xoxb-second");
-    expect(adapter.getConcurrencyScope()).toBeUndefined();
+    expect(() => adapter.getConcurrencyScope()).toThrow(AuthenticationError);
   });
 
   it("keeps nested installation scopes isolated", () => {

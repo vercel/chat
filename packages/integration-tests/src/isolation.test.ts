@@ -374,36 +374,37 @@ describe("Slack installation concurrency isolation", () => {
     });
   }
 
-  it("separates workspaces within an org-wide installation", async () => {
-    const { chat, state, deliver } = await setup(
+  it("shares one thread across workspaces in an org-wide installation", async () => {
+    const { chat, adapter, deliver } = await setup(
       "queue",
       "thread",
       createMemoryState(),
       true
     );
-    const locks = vi.spyOn(state, "acquireLock");
     const blocked = gate();
     releases.push(blocked.release);
     const observations: string[] = [];
+    const threads = new Map<string, Thread>();
     chat.onNewMessage(async (thread, message) => {
       observations.push(message.text);
-      await thread.post(message.text);
+      threads.set(message.text, thread);
       if (message.text.startsWith("T_A")) {
         await blocked.promise;
       }
     });
     const first = await deliver("T_A");
     await vi.waitFor(() => expect(observations).toHaveLength(1));
-    const second = await deliver("T_B");
-    await vi.waitFor(() => expect(locks).toHaveBeenCalledTimes(2));
+    await (await deliver("T_B")).waitForAll();
+    expect(observations).toEqual(["T_A-1"]);
+    await adapter.withBotToken(tokens.T_A, () => chat.abortTurn(identity), {
+      installationId: "E_ORG",
+    });
+    await vi.waitFor(() =>
+      expect(threads.get("T_A-1")?.signal.aborted).toBe(true)
+    );
     blocked.release();
     await first.waitForAll();
-    await second.waitForAll();
-    expect(
-      requests
-        .filter((request) => request.method === "chat.postMessage")
-        .map((request) => request.parameters.get("team_id"))
-    ).toEqual(["T_A", "T_B"]);
+    expect(observations).toEqual(["T_A-1", "T_B-2"]);
   });
 
   it("fails closed when multi-workspace cancellation lacks installation context", async () => {

@@ -5892,6 +5892,168 @@ describe("Chat", () => {
     });
   });
 
+  describe("concurrency scope", () => {
+    const scopedThreadId = "slack:C123:1234.5678";
+
+    function createScopedAdapter(scope = "T1") {
+      const adapter = createMockAdapter("slack");
+      const getConcurrencyScope = vi.fn(() => scope);
+      adapter.getConcurrencyScope = getConcurrencyScope;
+      return { adapter, getConcurrencyScope };
+    }
+
+    function createWarnLogger() {
+      const warn = vi.fn();
+      const logger = {
+        debug: vi.fn(),
+        info: vi.fn(),
+        warn,
+        error: vi.fn(),
+        child: () => logger,
+      };
+      return { logger, warn };
+    }
+
+    it("resolves the scope once per incoming message under queue strategy", async () => {
+      const state = createMockState();
+      const { adapter, getConcurrencyScope } = createScopedAdapter();
+      const scopedChat = new Chat({
+        userName: "testbot",
+        adapters: { slack: adapter },
+        state,
+        logger: mockLogger,
+        concurrency: "queue",
+      });
+      await scopedChat.webhooks.slack(
+        new Request("http://test.com", { method: "POST" })
+      );
+
+      let releaseFirst: () => void = () => {
+        throw new Error("releaseFirst not assigned");
+      };
+      let notifyStarted: () => void = () => {
+        throw new Error("notifyStarted not assigned");
+      };
+      const started = new Promise<void>((resolve) => {
+        notifyStarted = resolve;
+      });
+      const received: string[] = [];
+      scopedChat.onNewMention(async (_thread, message) => {
+        received.push(message.text);
+        if (received.length === 1) {
+          notifyStarted();
+          await new Promise<void>((resolve) => {
+            releaseFirst = resolve;
+          });
+        }
+      });
+
+      const first = scopedChat.handleIncomingMessage(
+        adapter,
+        scopedThreadId,
+        createTestMessage("msg-scope-1", "Hey @slack-bot first")
+      );
+      await started;
+      await scopedChat.handleIncomingMessage(
+        adapter,
+        scopedThreadId,
+        createTestMessage("msg-scope-2", "Hey @slack-bot second")
+      );
+      releaseFirst();
+      await first;
+
+      expect(received).toEqual([
+        "Hey @slack-bot first",
+        "Hey @slack-bot second",
+      ]);
+      expect(getConcurrencyScope).toHaveBeenCalledTimes(2);
+      expect(state.acquireLock).toHaveBeenCalledWith(
+        `concurrency:${JSON.stringify(["slack", "T1", scopedThreadId])}`,
+        expect.any(Number)
+      );
+    });
+
+    it("resolves the scope once when deduplication is disabled", async () => {
+      const state = createMockState();
+      const { adapter, getConcurrencyScope } = createScopedAdapter();
+      const scopedChat = new Chat({
+        userName: "testbot",
+        adapters: { slack: adapter },
+        state,
+        logger: mockLogger,
+      });
+      await scopedChat.webhooks.slack(
+        new Request("http://test.com", { method: "POST" })
+      );
+      const handler = vi.fn().mockResolvedValue(undefined);
+      scopedChat.onNewMention(handler);
+
+      await scopedChat.processMessage(
+        adapter,
+        scopedThreadId,
+        createTestMessage("msg-scope-nodedupe", "Hey @slack-bot"),
+        { deduplicate: false }
+      );
+
+      expect(handler).toHaveBeenCalledTimes(1);
+      expect(getConcurrencyScope).toHaveBeenCalledTimes(1);
+    });
+
+    it("logs the real thread ID when turn cancellation polling fails", async () => {
+      const state = createMockState();
+      const { adapter } = createScopedAdapter();
+      adapter.supportsTurnCancellation = true;
+      const { logger, warn } = createWarnLogger();
+      const scopedChat = new Chat({
+        userName: "testbot",
+        adapters: { slack: adapter },
+        state,
+        logger,
+      });
+      await scopedChat.webhooks.slack(
+        new Request("http://test.com", { method: "POST" })
+      );
+      scopedChat.onNewMention(vi.fn().mockResolvedValue(undefined));
+      const pollError = new Error("state unavailable");
+      state.get.mockImplementation(async (key: string) => {
+        if (key.startsWith("abort-turn:")) {
+          throw pollError;
+        }
+        return null;
+      });
+
+      await scopedChat.handleIncomingMessage(
+        adapter,
+        scopedThreadId,
+        createTestMessage("msg-scope-log", "Hey @slack-bot")
+      );
+
+      expect(state.get).toHaveBeenCalledWith(
+        `abort-turn:concurrency:${JSON.stringify(["slack", "T1", scopedThreadId])}`
+      );
+      expect(warn).toHaveBeenCalledWith(
+        "Could not poll turn cancellation state",
+        { error: pollError, threadId: scopedThreadId }
+      );
+      expect(warn).toHaveBeenCalledWith(
+        "Could not clear turn cancellation state",
+        { error: pollError, threadId: scopedThreadId }
+      );
+    });
+
+    it("throws INVALID_THREAD_ID from abortTurn for an empty adapter prefix", async () => {
+      await expect(chat.abortTurn(":C123:1234.5678")).rejects.toMatchObject({
+        code: "INVALID_THREAD_ID",
+      });
+    });
+
+    it("throws ADAPTER_NOT_FOUND from abortTurn for an unknown adapter", async () => {
+      await expect(
+        chat.abortTurn("unknown:C123:1234.5678")
+      ).rejects.toMatchObject({ code: "ADAPTER_NOT_FOUND" });
+    });
+  });
+
   describe("lockScope", () => {
     it("should use threadId as lock key with default (thread) scope", async () => {
       const state = createMockState();

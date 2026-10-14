@@ -624,7 +624,7 @@ These methods are optional. Implement them to support more Chat SDK features:
 
 Implement only the methods your platform supports. The SDK handles adapters that leave optional methods out.
 
-For multi-tenant adapters whose conversation IDs can overlap, implement `getConcurrencyScope(): string | undefined`. Return a stable, non-secret scope from the authenticated installation context. Include the workspace when an installation spans multiple workspaces. The same scope must be available during message handling and `abortTurn()` calls, including across processes. Never derive it from the message author's workspace or store credentials in it.
+For multi-tenant adapters whose conversation IDs can overlap, implement `getConcurrencyScope(): string | undefined`. Return a stable, non-secret scope from the authenticated installation context. Base it on the credential boundary: if one installation serves several workspaces with the same credentials, use one scope for all of them, since each entry point may report a different workspace for the same conversation. The same scope must be available during message handling and `abortTurn()` calls, including across processes. Never derive it from the message author's workspace or store credentials in it.
 
 Returning `undefined` preserves unscoped keys for single-tenant adapters. If tenant context is required but unavailable, throw rather than silently using unscoped keys. This hook does not change public conversation IDs or scope subscriptions, thread state, or history.
 
