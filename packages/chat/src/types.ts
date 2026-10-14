@@ -631,10 +631,18 @@ export interface Adapter<TThreadId = unknown, TRawMessage = unknown> {
  * - `task_update`: Tool/step progress cards (pending → in_progress → complete → error)
  * - `plan_update`: Plan title updates
  *
+ * `reasoning` chunks carry the model's reasoning. The Web adapter streams them
+ * as reasoning parts, and every other adapter drops them so reasoning is never
+ * posted to a chat platform.
+ *
  * Adapters that don't support structured chunks will extract `text` from
  * `markdown_text` chunks and ignore other types gracefully.
  */
-export type StreamChunk = MarkdownTextChunk | TaskUpdateChunk | PlanUpdateChunk;
+export type StreamChunk =
+  | MarkdownTextChunk
+  | TaskUpdateChunk
+  | PlanUpdateChunk
+  | ReasoningChunk;
 
 export interface MarkdownTextChunk {
   text: string;
@@ -653,6 +661,15 @@ export interface TaskUpdateChunk {
 export interface PlanUpdateChunk {
   title: string;
   type: "plan_update";
+}
+
+/**
+ * A delta of the model's reasoning text. Consecutive `reasoning` chunks form
+ * one reasoning block, and any other chunk ends it.
+ */
+export interface ReasoningChunk {
+  text: string;
+  type: "reasoning";
 }
 
 /**

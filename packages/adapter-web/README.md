@@ -223,7 +223,9 @@ bot.onDirectMessage(async (thread, message) => {
 });
 ```
 
-The adapter honors `request.signal`, so calling `stop()` from `useChat` short-circuits the iterator on the server. `task_update` and `plan_update` `StreamChunk`s have no native v1 representation in the UI message stream and are dropped silently.
+The adapter honors `request.signal`, so calling `stop()` from `useChat` short-circuits the iterator on the server.
+
+`task_update` and `plan_update` `StreamChunk`s reach `useChat` as `data-task` and `data-plan` message parts, and `reasoning` chunks as reasoning parts; see the [Web adapter docs](https://chat-sdk.dev/adapters/official/web#task-and-plan-updates).
 
 ## Message persistence
 
@@ -356,7 +358,7 @@ Unlike the React helper, Vue and Svelte return the `Chat` instance directly. Acc
 
 ## v1 scope
 
-**In:** text + markdown, native streaming, DM-style routing, persisted message history, abort propagation via `request.signal`.
+**In:** text + markdown, native streaming, task and plan updates as `data-*` parts, reasoning parts, DM-style routing, persisted message history, abort propagation via `request.signal`.
 
 **Out (deferred to v2):** cards/JSX rendering, reactions, modals, file uploads, edit/delete, multi-tab proactive push.
 

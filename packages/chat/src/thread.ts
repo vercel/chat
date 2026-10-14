@@ -830,7 +830,7 @@ export class ThreadImpl<TState = Record<string, unknown>>
                 } else if (value.type === "markdown_text") {
                   accumulated += value.text;
                 }
-                // task_update and plan_update chunks don't contribute to accumulated text
+                // task_update, plan_update, and reasoning chunks don't contribute to accumulated text
               }
               return result;
             },
@@ -880,7 +880,7 @@ export class ThreadImpl<TState = Record<string, unknown>>
               if (value.type === "markdown_text") {
                 return { value: value.text, done: false };
               }
-              // Skip non-text chunks (task_update, plan_update) in fallback mode
+              // Skip non-text chunks (task_update, plan_update, reasoning) in fallback mode
             }
           },
         };

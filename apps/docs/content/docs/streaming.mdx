@@ -167,7 +167,7 @@ When streamed content contains GFM tables, as LLM output often does, the SDK buf
 
 ## Structured streaming chunks
 
-For Slack native streams and Linear agent-session streams, you can yield `StreamChunk` objects alongside plain text for rich progress updates:
+For Slack native streams, Linear agent-session streams, and the Web adapter, you can yield `StreamChunk` objects alongside plain text for rich progress updates. The Web adapter sends task and plan updates to `useChat` as [data parts](/adapters/official/web#task-and-plan-updates):
 
 ```typescript title="lib/bot.ts" lineNumbers
 import type { StreamChunk } from "chat";
@@ -207,6 +207,25 @@ await thread.post(stream);
 | `markdown_text` | `text` | Streamed text content |
 | `task_update` | `id`, `title`, `status`, `details?`, `output?` | Tool/step progress updates (`pending`, `in_progress`, `complete`, `error`) with optional extra task context |
 | `plan_update` | `title` | Plan title updates on supported platforms |
+| `reasoning` | `text` | A delta of the model's reasoning. Only the Web adapter displays it, as a [reasoning part](/adapters/official/web#reasoning) |
+
+### Reasoning
+
+Yield `reasoning` chunks to show the model's reasoning in a web chat UI while keeping it out of chat platforms. Each chunk is a delta, so consecutive chunks form one reasoning block. The Web adapter streams them to `useChat` as reasoning parts. Every other adapter drops them, and reasoning never counts toward the posted message's text:
+
+```typescript title="lib/bot.ts" lineNumbers
+import type { StreamChunk } from "chat";
+
+const stream = (async function* () {
+  yield { type: "reasoning", text: "The user wants a summary, " } satisfies StreamChunk;
+  yield { type: "reasoning", text: "so I'll keep it short." } satisfies StreamChunk;
+  yield "Here's the summary...";
+})();
+
+await thread.post(stream);
+```
+
+On Slack, this posts only "Here's the summary...".
 
 ### Streaming with options
 

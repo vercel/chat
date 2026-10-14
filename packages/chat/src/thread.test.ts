@@ -1209,6 +1209,46 @@ describe("ThreadImpl", () => {
         { markdown: "Hello World" }
       );
     });
+
+    it("keeps reasoning chunks out of the message text", async () => {
+      async function* reasoningStream() {
+        yield { type: "reasoning" as const, text: "Let me think. " };
+        yield "Hello";
+        yield { type: "reasoning" as const, text: "Almost there." };
+        yield " World";
+      }
+
+      // Native streaming: the adapter receives the chunk, the text excludes it.
+      const seen: (string | StreamChunk)[] = [];
+      mockAdapter.stream = vi.fn(
+        async (
+          _threadId: string,
+          stream: AsyncIterable<string | StreamChunk>
+        ) => {
+          for await (const chunk of stream) {
+            seen.push(chunk);
+          }
+          return { id: "msg-stream", threadId: "t1", raw: {} };
+        }
+      );
+      const streamed = await thread.post(
+        reasoningStream() as AsyncIterable<string>
+      );
+      expect(seen).toContainEqual({
+        type: "reasoning",
+        text: "Let me think. ",
+      });
+      expect(streamed.text).toBe("Hello World");
+
+      // Fallback post+edit: reasoning never reaches the posted message.
+      mockAdapter.stream = undefined;
+      await thread.post(reasoningStream() as AsyncIterable<string>);
+      expect(mockAdapter.editMessage).toHaveBeenLastCalledWith(
+        "slack:C123:1234.5678",
+        "msg-1",
+        { markdown: "Hello World" }
+      );
+    });
   });
 
   describe("allMessages iterator", () => {

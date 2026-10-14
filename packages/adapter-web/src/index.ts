@@ -8,6 +8,9 @@ export { WebFormatConverter } from "./format-converter";
 export type {
   WebAdapterConfig,
   WebAdapterOptions,
+  WebPlanData,
+  WebTaskData,
+  WebUIMessage,
   WebUser,
 } from "./types";
 export type { Adapter };

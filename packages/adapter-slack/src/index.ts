@@ -6497,6 +6497,10 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
       } else if (chunk.type === "markdown_text") {
         renderer.push(chunk.text);
         await flushCommitted();
+      } else if (chunk.type === "reasoning") {
+        // Reasoning is never posted as text, and Slack's streaming API has
+        // no reasoning chunk type. A rejected append would also disable task
+        // and plan chunks for the rest of the stream.
       } else {
         // Structured chunk (task_update, plan_update) — send directly to Slack
         await sendStructuredChunk(chunk);

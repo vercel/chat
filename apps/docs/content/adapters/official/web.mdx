@@ -192,6 +192,72 @@ bot.onDirectMessage(async (thread, message) => {
 
 The adapter honors `request.signal`, so calling `stop()` from `useChat` short-circuits the iterator on the server.
 
+### Task and plan updates
+
+[Structured streaming chunks](/docs/streaming#structured-streaming-chunks) reach the browser as AI SDK [data parts](https://ai-sdk.dev/docs/ai-sdk-ui/streaming-data) on the assistant message. Each part's `data` is the chunk without its `type` field:
+
+| Chunk | Part type | Part `id` | `data` |
+|-------|-----------|-----------|--------|
+| `task_update` | `data-task` | The task's `id` | `{ id, title, status, details?, output? }` |
+| `plan_update` | `data-plan` | The assistant message ID | `{ title }` |
+
+`markdown_text` chunks stream as text, the same as plain strings.
+
+`useChat` replaces a data part when a later part has the same type and `id`, so each task stays a single part whose `status` moves from `pending` to `complete` or `error`. The parts are stored on the message, so they remain after the stream ends. A task or plan chunk also closes the current text part, and text yielded after it starts a new one. As a result, `message.parts` lists text, tasks, and the plan in the order your handler yielded them.
+
+Pass `WebUIMessage` as `useChat`'s type argument to narrow `part.data` by part type. Use `import type` so the server entry stays out of the client bundle:
+
+```tsx title="app/chat/page.tsx" lineNumbers
+"use client";
+import type { WebUIMessage } from "@chat-adapter/web";
+import { useChat } from "@chat-adapter/web/react";
+
+export default function ChatPage() {
+  const { messages } = useChat<WebUIMessage>();
+  return messages.map((message) => (
+    <div key={message.id}>
+      {message.parts.map((part, index) => {
+        switch (part.type) {
+          case "text":
+            return <p key={`${message.id}-${index}`}>{part.text}</p>;
+          case "data-plan":
+            return <h3 key={part.id}>{part.data.title}</h3>;
+          case "data-task":
+            return (
+              <div key={part.id}>
+                {part.data.title}: {part.data.status}
+                {part.data.output ? <pre>{part.data.output}</pre> : null}
+              </div>
+            );
+          default:
+            return null;
+        }
+      })}
+    </div>
+  ));
+}
+```
+
+The Vue and Svelte `useChat` helpers take the same type argument.
+
+### Reasoning
+
+[`reasoning` chunks](/docs/streaming#reasoning) stream as AI SDK [reasoning parts](https://ai-sdk.dev/docs/ai-sdk-ui/chatbot#reasoning), so the browser can show the model's reasoning while other adapters drop it. Consecutive `reasoning` chunks fill one part of type `reasoning`. Text, a task, or a plan chunk closes it, and reasoning yielded after that starts a new part. A `reasoning` chunk likewise closes the current text part. `message.parts` therefore keeps reasoning, text, tasks, and the plan in the order your handler yielded them.
+
+Render reasoning parts next to the text parts:
+
+```tsx title="app/chat/page.tsx"
+case "reasoning":
+  return (
+    <details key={`${message.id}-${index}`}>
+      <summary>Reasoning</summary>
+      {part.text}
+    </details>
+  );
+```
+
+Reasoning isn't part of the message text, so it isn't included in the `text` of the message `thread.post()` returns.
+
 ## Framework integrations
 
 The Web adapter speaks the AI SDK UI message stream protocol, so React, Vue, and Svelte AI SDK clients work against the same server endpoint. The framework subpaths expose `useChat` helpers preconfigured for that endpoint. The `api` and `threadId` options are the same in all three, and the server-side setup doesn't change.

@@ -12111,6 +12111,49 @@ describe("stream with empty threadTs", () => {
       expect.objectContaining({ token: "xoxb-test-token" })
     );
   });
+
+  it("drops reasoning chunks and keeps streaming task updates", async () => {
+    const adapter = createSlackAdapter({
+      botToken: "xoxb-test-token",
+      signingSecret: "test-signing-secret",
+      logger: mockLogger,
+    });
+    const append = vi.fn().mockResolvedValue({ ok: true });
+    const stop = vi.fn().mockResolvedValue({
+      ok: true,
+      ts: "1234567890.111111",
+    });
+    mockClientMethod(
+      adapter,
+      "chatStream",
+      vi.fn().mockReturnValue({ append, stop })
+    );
+
+    const task = {
+      id: "task-1",
+      status: "in_progress" as const,
+      title: "Task one",
+      type: "task_update" as const,
+    };
+    async function* chunkStream() {
+      yield { type: "reasoning" as const, text: "secret thoughts" };
+      yield task;
+      yield { type: "reasoning" as const, text: "more thoughts" };
+      yield "Hello";
+    }
+
+    await adapter.stream("slack:C123:1234567890.000000", chunkStream(), {
+      recipientUserId: "U123",
+      recipientTeamId: "T123",
+    });
+
+    const sent = JSON.stringify([append.mock.calls, stop.mock.calls]);
+    expect(sent).not.toContain("thoughts");
+    expect(sent).toContain("Hello");
+    expect(append).toHaveBeenCalledWith(
+      expect.objectContaining({ chunks: [task] })
+    );
+  });
 });
 
 describe("native stream rotation", () => {
