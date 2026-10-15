@@ -8010,6 +8010,7 @@ describe("Telegram Business mode", () => {
       "channel_post",
       "edited_channel_post",
       "callback_query",
+      "guest_message",
       "business_connection",
       "business_message",
       "edited_business_message",
@@ -8041,5 +8042,287 @@ describe("Telegram Business mode", () => {
       "business_message",
       "edited_business_message",
     ]);
+  });
+});
+
+// ============================================================================
+// Telegram guest mode
+// ============================================================================
+
+const GUEST_THREAD_ID = "telegram:guest:-100555:gq-1";
+const GUEST_FILES_ERROR = /guest replies do not support file uploads/;
+const GUEST_DELETE_ERROR = /cannot delete a guest reply/;
+const GUEST_REACTION_ERROR = /reactions in guest calls/;
+
+function sampleGuestMessage(
+  overrides?: Partial<TelegramMessage>
+): TelegramMessage {
+  return sampleMessage({
+    chat: { id: -100_555, type: "supergroup", title: "Elsewhere" },
+    guest_query_id: "gq-1",
+    text: "@mybot what's the weather?",
+    ...overrides,
+  });
+}
+
+function requestBody(callIndex: number): Record<string, unknown> {
+  return JSON.parse(
+    String((mockFetch.mock.calls[callIndex]?.[1] as RequestInit).body)
+  ) as Record<string, unknown>;
+}
+
+describe("Telegram guest mode", () => {
+  async function createGuestAdapter(
+    config?: Parameters<typeof createTelegramAdapter>[0]
+  ): Promise<{ adapter: TelegramAdapter; chat: ChatInstance }> {
+    mockFetch.mockResolvedValueOnce(
+      telegramOk({
+        id: 999,
+        is_bot: true,
+        first_name: "Bot",
+        username: "mybot",
+      })
+    );
+    const adapter = createTelegramAdapter({
+      allowUnverifiedWebhooks: true,
+      botToken: "token",
+      mode: "webhook",
+      logger: mockLogger,
+      userName: "mybot",
+      ...config,
+    });
+    const chat = createMockChat();
+    await adapter.initialize(chat);
+    return { adapter, chat };
+  }
+
+  async function sendGuestUpdate(
+    adapter: TelegramAdapter,
+    guestMessage: TelegramMessage
+  ): Promise<void> {
+    const pendingTasks: Promise<unknown>[] = [];
+    await adapter.handleWebhook(
+      new Request("https://example.com/webhooks/telegram", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ update_id: 1, guest_message: guestMessage }),
+      }),
+      {
+        waitUntil: (task: Promise<unknown>) => {
+          pendingTasks.push(task);
+        },
+      }
+    );
+    await Promise.all(pendingTasks);
+  }
+
+  it("routes guest_message updates as mentions in their own thread", async () => {
+    const { adapter, chat } = await createGuestAdapter();
+
+    await sendGuestUpdate(adapter, sampleGuestMessage());
+
+    const processMessage = chat.processMessage as ReturnType<typeof vi.fn>;
+    expect(processMessage).toHaveBeenCalledTimes(1);
+    const [, threadId, message] = processMessage.mock.calls[0] as [
+      unknown,
+      string,
+      Message,
+    ];
+    expect(threadId).toBe(GUEST_THREAD_ID);
+    expect(message.isMention).toBe(true);
+    expect(message.text).toBe("@mybot what's the weather?");
+    // Guest bots are not chat members, so no typing action is sent.
+    expect(telegramMethods()).toEqual(["getMe"]);
+  });
+
+  it("drops guest messages from users outside allowedUserIds", async () => {
+    const { adapter, chat } = await createGuestAdapter({
+      allowedUserIds: [1],
+    });
+
+    await sendGuestUpdate(adapter, sampleGuestMessage());
+
+    expect(chat.processMessage).not.toHaveBeenCalled();
+  });
+
+  it("ignores a guest message without a guest query id", async () => {
+    const { adapter, chat } = await createGuestAdapter();
+
+    await sendGuestUpdate(
+      adapter,
+      sampleGuestMessage({ guest_query_id: undefined })
+    );
+
+    expect(chat.processMessage).not.toHaveBeenCalled();
+  });
+
+  it("answers the guest query instead of sending a message", async () => {
+    const { adapter } = await createGuestAdapter();
+    await sendGuestUpdate(adapter, sampleGuestMessage());
+    mockFetch.mockResolvedValueOnce(
+      telegramOk({ inline_message_id: "inline-1" })
+    );
+
+    const result = await adapter.postMessage(GUEST_THREAD_ID, "Sunny");
+
+    expect(telegramMethods()).toEqual(["getMe", "answerGuestQuery"]);
+    expect(requestBody(1)).toEqual({
+      guest_query_id: "gq-1",
+      result: {
+        type: "article",
+        id: "reply",
+        title: "Reply",
+        input_message_content: {
+          message_text: "Sunny",
+        },
+      },
+    });
+    expect(result.id).toBe("inline-1");
+    expect(result.threadId).toBe(GUEST_THREAD_ID);
+    expect(result.raw.chat).toEqual({
+      id: -100_555,
+      type: "supergroup",
+      title: "Elsewhere",
+    });
+  });
+
+  it("does not thread a guest reply to the summoning message", async () => {
+    const { adapter } = await createGuestAdapter();
+    mockFetch.mockResolvedValueOnce(
+      telegramOk({ inline_message_id: "inline-1" })
+    );
+
+    await adapter.reply(GUEST_THREAD_ID, "-100555:11", "Sunny");
+
+    expect(requestBody(1)).not.toHaveProperty("reply_parameters");
+    expect(telegramMethods()).toEqual(["getMe", "answerGuestQuery"]);
+  });
+
+  it("rejects files in a guest reply", async () => {
+    const { adapter } = await createGuestAdapter();
+
+    await expect(
+      adapter.postMessage(GUEST_THREAD_ID, {
+        markdown: "report",
+        files: [{ filename: "a.txt", data: Buffer.from("a") }],
+      })
+    ).rejects.toThrow(GUEST_FILES_ERROR);
+    expect(telegramMethods()).toEqual(["getMe"]);
+  });
+
+  it("edits a guest reply by its inline message id", async () => {
+    const { adapter } = await createGuestAdapter();
+    mockFetch
+      .mockResolvedValueOnce(telegramOk({ inline_message_id: "inline-1" }))
+      .mockResolvedValueOnce(telegramOk(true));
+
+    const posted = await adapter.postMessage(GUEST_THREAD_ID, "Checking");
+    const edited = await adapter.editMessage(
+      GUEST_THREAD_ID,
+      posted.id,
+      "Sunny"
+    );
+
+    expect(telegramMethods()).toEqual([
+      "getMe",
+      "answerGuestQuery",
+      "editMessageText",
+    ]);
+    const body = requestBody(2);
+    expect(body.inline_message_id).toBe("inline-1");
+    expect(body).not.toHaveProperty("chat_id");
+    expect(body).not.toHaveProperty("message_id");
+    expect(body.text).toBe("Sunny");
+    expect(edited.id).toBe("inline-1");
+  });
+
+  it("streams a guest reply by editing the answered message", async () => {
+    const { adapter } = await createGuestAdapter({
+      nativeStreaming: true,
+      streamingEditIntervalMs: 0,
+    });
+    mockFetch
+      .mockResolvedValueOnce(telegramOk({ inline_message_id: "inline-1" }))
+      .mockImplementation(() => Promise.resolve(telegramOk(true)));
+
+    async function* textStream(): AsyncIterable<string> {
+      yield "hello";
+      yield " world";
+    }
+
+    // A private guest chat still must not use draft streaming, which needs a
+    // direct chat with the bot.
+    const result = await adapter.stream(
+      "telegram:guest:777:gq-2",
+      textStream(),
+      { updateIntervalMs: 0 }
+    );
+
+    const methods = telegramMethods();
+    expect(methods[1]).toBe("answerGuestQuery");
+    expect(methods.slice(2).every((m) => m === "editMessageText")).toBe(true);
+    expect(methods).not.toContain("sendMessageDraft");
+    expect(requestBody(methods.length - 1)).toMatchObject({
+      inline_message_id: "inline-1",
+      text: "hello world",
+    });
+    expect(result?.id).toBe("inline-1");
+  });
+
+  it("rejects deletes and reactions, and skips typing", async () => {
+    const { adapter } = await createGuestAdapter();
+
+    await expect(
+      adapter.deleteMessage(GUEST_THREAD_ID, "inline-1")
+    ).rejects.toThrow(GUEST_DELETE_ERROR);
+    await expect(
+      adapter.addReaction(GUEST_THREAD_ID, "-100555:11", "thumbs_up")
+    ).rejects.toThrow(GUEST_REACTION_ERROR);
+    await expect(
+      adapter.removeReaction(GUEST_THREAD_ID, "-100555:11", "thumbs_up")
+    ).rejects.toThrow(GUEST_REACTION_ERROR);
+    await adapter.startTyping(GUEST_THREAD_ID);
+
+    expect(telegramMethods()).toEqual(["getMe"]);
+  });
+
+  it("encodes guest threads as their own channel", () => {
+    const adapter = createTelegramAdapter({
+      botToken: "token",
+      mode: "webhook",
+      logger: mockLogger,
+    });
+
+    expect(adapter.decodeThreadId(GUEST_THREAD_ID)).toEqual({
+      chatId: "-100555",
+      guestQueryId: "gq-1",
+    });
+    expect(adapter.decodeThreadId("telegram:guest:-1:a:b")).toEqual({
+      chatId: "-1",
+      guestQueryId: "a:b",
+    });
+    expect(() => adapter.decodeThreadId("telegram:guest:-1")).toThrow(
+      ValidationError
+    );
+    expect(adapter.channelIdFromThreadId(GUEST_THREAD_ID)).toBe(
+      GUEST_THREAD_ID
+    );
+    expect(adapter.isDM("telegram:guest:777:gq-2")).toBe(false);
+  });
+
+  it("describes a guest thread from the guest message", async () => {
+    const { adapter } = await createGuestAdapter();
+    await sendGuestUpdate(adapter, sampleGuestMessage());
+
+    const thread = await adapter.fetchThread(GUEST_THREAD_ID);
+
+    expect(thread).toMatchObject({
+      id: GUEST_THREAD_ID,
+      channelId: "-100555",
+      channelName: "Elsewhere",
+      isDM: false,
+      metadata: { guestQueryId: "gq-1" },
+    });
+    expect(telegramMethods()).toEqual(["getMe"]);
   });
 });
