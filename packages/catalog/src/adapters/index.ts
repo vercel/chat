@@ -29,6 +29,7 @@ import { telegram } from "./official/telegram";
 import { twilio } from "./official/twilio";
 import { twitch } from "./official/twitch";
 import { web } from "./official/web";
+import { webhook } from "./official/webhook";
 import { whatsapp } from "./official/whatsapp";
 import { x } from "./official/x";
 import { xchat } from "./official/xchat";
@@ -69,6 +70,7 @@ export const ADAPTERS = {
   instagram,
   twitch,
   web,
+  webhook,
   redis,
   ioredis,
   postgres,

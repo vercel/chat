@@ -378,6 +378,27 @@ export const CLI_SCAFFOLD_SPEC = {
     extraDependencies: ["ai"],
     invocation: { kind: "web-server" },
   },
+  webhook: {
+    invocation: {
+      kind: "object",
+      properties: [
+        {
+          key: "parse",
+          value: placeholder(
+            "(payload: unknown) => null",
+            "Map your platform's webhook payload to { channelId, text, author: { userId } }."
+          ),
+        },
+        {
+          key: "send",
+          value: placeholder(
+            "async ({ channelId, text }) => {}",
+            "Send the reply to your platform's API."
+          ),
+        },
+      ],
+    },
+  },
   whatsapp: {
     invocation: { kind: "zero-arg" },
   },
