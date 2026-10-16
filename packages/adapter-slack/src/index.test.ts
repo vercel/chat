@@ -8869,36 +8869,91 @@ describe("mention routing", () => {
     expect(messageHandler).toHaveBeenCalled();
   });
 
-  it("routes a code reference whose blocks drop the bot id to message handlers", async () => {
+  // Slack fires `app_mention` for the bot's token anywhere in `text`, while the
+  // blocks that clients render show these references as plain text with no
+  // bot id, so the bot is never shown as mentioned.
+  it.each([
+    {
+      name: "inline code",
+      text: "see `<@U_BOT>` for setup",
+      elements: [
+        {
+          type: "rich_text_section",
+          elements: [
+            { type: "text", text: "see " },
+            { type: "text", text: "@examplebot", style: { code: true } },
+            { type: "text", text: " for setup" },
+          ],
+        },
+      ],
+    },
+    {
+      name: "a labeled token in inline code",
+      text: "see `<@U_BOT|examplebot>`",
+      elements: [
+        {
+          type: "rich_text_section",
+          elements: [
+            { type: "text", text: "see " },
+            { type: "text", text: "@examplebot", style: { code: true } },
+          ],
+        },
+      ],
+    },
+    {
+      name: "a preformatted block",
+      text: "setup:\n```<@U_BOT> deploy```",
+      elements: [
+        {
+          type: "rich_text_section",
+          elements: [{ type: "text", text: "setup:\n" }],
+        },
+        {
+          type: "rich_text_preformatted",
+          elements: [{ type: "text", text: "@examplebot deploy" }],
+        },
+      ],
+    },
+    {
+      name: "inline code in a quote",
+      text: "&gt; see `<@U_BOT>`",
+      elements: [
+        {
+          type: "rich_text_quote",
+          elements: [
+            { type: "text", text: "see " },
+            { type: "text", text: "@examplebot", style: { code: true } },
+          ],
+        },
+      ],
+    },
+    {
+      name: "plain text",
+      text: "ask <@U_BOT> later",
+      elements: [
+        {
+          type: "rich_text_section",
+          elements: [{ type: "text", text: "ask @examplebot later" }],
+        },
+      ],
+    },
+  ])("routes a reference whose blocks drop the bot id in $name to message handlers", async ({
+    text,
+    elements,
+  }) => {
     const { adapter, bot } = await createRoutedBot();
     const mentionHandler = vi.fn();
     const messageHandler = vi.fn();
     bot.onNewMention(mentionHandler);
     bot.onNewMessage(ANY_TEXT_PATTERN, messageHandler);
 
-    // Slack fires `app_mention` for the token inside the code span in `text`,
-    // while the blocks render that code as plain text with no bot id.
     await deliverWebhook(adapter, {
       type: "app_mention",
       user: "U_SENDER",
       channel: "C456",
-      text: "see `<@U_BOT>` for setup",
+      text,
       ts: "1234567890.222223",
-      blocks: [
-        {
-          type: "rich_text",
-          elements: [
-            {
-              type: "rich_text_section",
-              elements: [
-                { type: "text", text: "see " },
-                { type: "text", text: "@examplebot", style: { code: true } },
-                { type: "text", text: " for setup" },
-              ],
-            },
-          ],
-        },
-      ],
+      blocks: [{ type: "rich_text", elements }],
     });
 
     expect(mentionHandler).not.toHaveBeenCalled();
