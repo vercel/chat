@@ -98,7 +98,9 @@ import { verifySlackRequest } from "./webhook/index";
 const SLACK_USER_ID_PATTERN = /^[A-Z0-9_]+$/;
 // Enterprise Grid users can have W-prefixed IDs anywhere a U-prefixed ID appears
 const SLACK_USER_ID_EXACT_PATTERN = /^[UW][A-Z0-9]+$/;
-const SLACK_USER_TOKEN_PATTERN = /<@!?[UW][A-Z0-9_]+(?:\|[^>]*)?>/i;
+// Slack escapes `<` in message text, so a token label stops at the next `<`.
+// Excluding it keeps the label scan linear on text with many unclosed tokens.
+const SLACK_USER_TOKEN_PATTERN = /<@!?[UW][A-Z0-9_]+(?:\|[^<>]*)?>/i;
 const SLACK_RESPONSE_URL_HOSTS = new Set([
   "hooks.slack-gov.com",
   "hooks.slack.com",
@@ -570,10 +572,11 @@ export interface SlackMessageBlock extends SlackBlock {
 
 /**
  * Slack's user-mention syntax for `userId`: `<@U…>` or `<@U…|name>`. Used for
- * mrkdwn content, where a mention is a token in the text.
+ * mrkdwn content, where a mention is a token in the text. The label excludes
+ * `<` for the same reason as `SLACK_USER_TOKEN_PATTERN`.
  */
 function mentionTokenPattern(userId: string): RegExp {
-  return new RegExp(`<@!?${escapeRegExp(userId)}(?:\\|[^>]*)?>`, "i");
+  return new RegExp(`<@!?${escapeRegExp(userId)}(?:\\|[^<>]*)?>`, "i");
 }
 
 /**
