@@ -98,6 +98,7 @@ import { verifySlackRequest } from "./webhook/index";
 const SLACK_USER_ID_PATTERN = /^[A-Z0-9_]+$/;
 // Enterprise Grid users can have W-prefixed IDs anywhere a U-prefixed ID appears
 const SLACK_USER_ID_EXACT_PATTERN = /^[UW][A-Z0-9]+$/;
+const SLACK_USER_TOKEN_PATTERN = /<@!?[UW][A-Z0-9_]+(?:\|[^>]*)?>/i;
 const SLACK_RESPONSE_URL_HOSTS = new Set([
   "hooks.slack-gov.com",
   "hooks.slack.com",
@@ -621,6 +622,27 @@ function classifyAttachmentPart(
     return classifyMrkdwnMention(part.mrkdwn, matcher);
   }
   return matcher.token.test(part.literal) ? "mention" : "none";
+}
+
+/**
+ * Whether the fields Slack scans for `app_mention`, `text` and legacy
+ * attachment text, show any user token outside code. Slack also fires the
+ * event for a token inside code, which renders literally.
+ */
+function hasUserTokenOutsideCode(
+  rawText: string,
+  attachments: SlackAttachmentContent[]
+): boolean {
+  if (SLACK_USER_TOKEN_PATTERN.test(maskCodeSpans(rawText))) {
+    return true;
+  }
+  return attachments.some((attachment) =>
+    attachment.parts.some((part) =>
+      SLACK_USER_TOKEN_PATTERN.test(
+        "mrkdwn" in part ? maskCodeSpans(part.mrkdwn) : part.literal
+      )
+    )
+  );
 }
 
 /**
@@ -4568,7 +4590,8 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
    * the bot only literally, or not at all on an ordinary message. Blocks can
    * render a code-styled bot reference as plain text while `text` keeps its
    * `<@U…>` token, so a token there also refers to the bot literally. An
-   * `app_mention` whose content never shows the known bot id is still trusted:
+   * `app_mention` whose content never shows the known bot id is still trusted
+   * when `text` or an attachment shows another user token outside code:
    * Slack saw a mention under an id the adapter does not know, such as the
    * `W…` form an Enterprise Grid workspace emits for a `U…` bot. Without any
    * bot id, `app_mention` is trusted the same way and other messages stay
@@ -4624,7 +4647,8 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
     if (
       event.type === "app_mention" &&
       !literal &&
-      !matcher.token.test(rawText)
+      !matcher.token.test(rawText) &&
+      hasUserTokenOutsideCode(rawText, attachments)
     ) {
       return true;
     }

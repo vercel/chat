@@ -9040,6 +9040,40 @@ describe("mention routing", () => {
     expect(mentionHandler).toHaveBeenCalled();
   });
 
+  it("routes an id the adapter does not know that only appears in code to message handlers", async () => {
+    const { adapter, bot } = await createRoutedBot();
+    const mentionHandler = vi.fn();
+    const messageHandler = vi.fn();
+    bot.onNewMention(mentionHandler);
+    bot.onNewMessage(ANY_TEXT_PATTERN, messageHandler);
+
+    await deliverWebhook(adapter, {
+      type: "app_mention",
+      user: "U_SENDER",
+      channel: "C456",
+      text: "see `<@W_BOT_GRID>` for setup",
+      ts: "1234567890.252526",
+      blocks: [
+        {
+          type: "rich_text",
+          elements: [
+            {
+              type: "rich_text_section",
+              elements: [
+                { type: "text", text: "see " },
+                { type: "text", text: "@examplebot", style: { code: true } },
+                { type: "text", text: " for setup" },
+              ],
+            },
+          ],
+        },
+      ],
+    });
+
+    expect(mentionHandler).not.toHaveBeenCalled();
+    expect(messageHandler).toHaveBeenCalled();
+  });
+
   it("trusts app_mention when the bot id is unresolved", async () => {
     const { adapter, bot } = await createRoutedBot({ botUserId: null });
     const mentionHandler = vi.fn();
