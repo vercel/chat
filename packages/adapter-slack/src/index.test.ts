@@ -22,12 +22,13 @@ import type {
   Message,
   StateAdapter,
 } from "chat";
-import { Chat } from "chat";
+import { Chat, stringifyMarkdown } from "chat";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type {
   SlackAdapterConfig,
   SlackEvent,
   SlackInstallation,
+  SlackMessageBlock,
   SlackThreadId,
 } from "./index";
 import {
@@ -1299,6 +1300,207 @@ describe("parseMessage", () => {
     expect(message.formatted.children.map((node) => node.type)).toEqual([
       "paragraph",
     ]);
+  });
+
+  describe("composer lists", () => {
+    const section = (...elements: SlackMessageBlock[]): SlackMessageBlock => ({
+      type: "rich_text_section",
+      elements,
+    });
+    const text = (
+      value: string,
+      style?: SlackMessageBlock["style"]
+    ): SlackMessageBlock => ({
+      type: "text",
+      text: value,
+      ...(style ? { style } : {}),
+    });
+    const internals = adapter as unknown as {
+      parseSlackMessage(
+        value: SlackEvent,
+        threadId: string
+      ): Promise<Message<unknown>>;
+    };
+
+    // Shape from https://github.com/vercel/chat/issues/956: Slack flattens
+    // the list in `text` to `•`/`◦` lines and keeps its structure in blocks.
+    const listEvent: SlackEvent = {
+      type: "message",
+      channel: "D0123456789",
+      channel_type: "im",
+      user: "U0123456789",
+      username: "jane",
+      ts: "1726600000.000100",
+      text: "Steps:\n• one\n• two\n    ◦ nested\n<!here> and <!subteam^S0123456789|@devs>",
+      blocks: [
+        {
+          type: "rich_text",
+          elements: [
+            section(text("Steps:\n")),
+            {
+              type: "rich_text_list",
+              style: "bullet",
+              indent: 0,
+              elements: [section(text("one")), section(text("two"))],
+            },
+            {
+              type: "rich_text_list",
+              style: "bullet",
+              indent: 1,
+              elements: [section(text("nested"))],
+            },
+            section({ type: "broadcast", range: "here" }, text(" and "), {
+              type: "usergroup",
+              usergroup_id: "S0123456789",
+            }),
+          ],
+        },
+      ],
+    };
+
+    it("builds nested lists from rich_text_list blocks in both parsing paths", async () => {
+      for (const message of [
+        adapter.parseMessage(listEvent),
+        await internals.parseSlackMessage(
+          listEvent,
+          "slack:D0123456789:1726600000.000100"
+        ),
+      ]) {
+        expect(message.formatted.children.map((node) => node.type)).toEqual([
+          "paragraph",
+          "list",
+          "paragraph",
+        ]);
+        expect(stringifyMarkdown(message.formatted)).toBe(
+          "Steps:\n\n* one\n* two\n  * nested\n\n@here and @devs\n"
+        );
+        expect(message.text).toBe(
+          "Steps:\n\none\ntwo\nnested\n\n@here and @devs"
+        );
+      }
+    });
+
+    it("continues ordered lists across a nested list and keeps inline styles", () => {
+      const message = adapter.parseMessage({
+        type: "message",
+        user: "U123",
+        channel: "C456",
+        text: "1. *first* item\n    • see <https://example.com|docs>\n2. run `pnpm test`",
+        ts: "1234567890.123456",
+        blocks: [
+          {
+            type: "rich_text",
+            elements: [
+              {
+                type: "rich_text_list",
+                style: "ordered",
+                indent: 0,
+                elements: [
+                  section(text("first", { bold: true }), text(" item")),
+                ],
+              },
+              {
+                type: "rich_text_list",
+                style: "bullet",
+                indent: 1,
+                elements: [
+                  section(text("see "), {
+                    type: "link",
+                    url: "https://example.com",
+                    text: "docs",
+                  }),
+                ],
+              },
+              {
+                type: "rich_text_list",
+                style: "ordered",
+                indent: 0,
+                offset: 1,
+                elements: [
+                  section(text("run "), text("pnpm test", { code: true })),
+                ],
+              },
+            ],
+          },
+        ],
+      });
+
+      expect(stringifyMarkdown(message.formatted)).toBe(
+        "1. **first** item\n   * see [docs](https://example.com)\n2. run `pnpm test`\n"
+      );
+    });
+
+    it("keeps quotes and code blocks around a list as their own blocks", () => {
+      const message = adapter.parseMessage({
+        type: "message",
+        user: "U123",
+        channel: "C456",
+        text: "&gt; quoted\n• item\n```a <b> *c*```\nafter",
+        ts: "1234567890.123456",
+        blocks: [
+          {
+            type: "rich_text",
+            elements: [
+              { type: "rich_text_quote", elements: [text("quoted")] },
+              {
+                type: "rich_text_list",
+                style: "bullet",
+                elements: [section(text("item"))],
+              },
+              {
+                type: "rich_text_preformatted",
+                elements: [text("a <b> *c*")],
+              },
+              section(text("after")),
+            ],
+          },
+        ],
+      });
+
+      expect(message.formatted.children.map((node) => node.type)).toEqual([
+        "blockquote",
+        "list",
+        "code",
+        "paragraph",
+      ]);
+      expect(message.formatted.children[2]).toMatchObject({
+        type: "code",
+        value: "a <b> *c*",
+      });
+    });
+
+    it("keeps event.text when blocks have no list or carry non-rich-text content", () => {
+      const cases: SlackMessageBlock[][] = [
+        [{ type: "rich_text", elements: [section(text("other words"))] }],
+        [
+          {
+            type: "section",
+            fields: [{ type: "mrkdwn", text: "app content" }],
+          },
+          {
+            type: "rich_text",
+            elements: [
+              {
+                type: "rich_text_list",
+                style: "bullet",
+                elements: [section(text("item"))],
+              },
+            ],
+          },
+        ],
+      ];
+      for (const blocks of cases) {
+        const message = adapter.parseMessage({
+          type: "message",
+          user: "U123",
+          channel: "C456",
+          text: "fallback text",
+          ts: "1234567890.123456",
+          blocks,
+        });
+        expect(message.text).toBe("fallback text");
+      }
+    });
   });
 
   it("preserves special mention tokens in an inbound inline code span", () => {
