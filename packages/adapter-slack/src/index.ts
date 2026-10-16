@@ -4565,7 +4565,9 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
    * so a bot id there is not.
    *
    * Returns `true` for an invocation and `false` when the content refers to
-   * the bot only literally, or not at all on an ordinary message. An
+   * the bot only literally, or not at all on an ordinary message. Blocks can
+   * render a code-styled bot reference as plain text while `text` keeps its
+   * `<@U…>` token, so a token there also refers to the bot literally. An
    * `app_mention` whose content never shows the known bot id is still trusted:
    * Slack saw a mention under an id the adapter does not know, such as the
    * `W…` form an Enterprise Grid workspace emits for a `U…` bot. Without any
@@ -4619,7 +4621,11 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
       }
     }
 
-    if (event.type === "app_mention" && !literal) {
+    if (
+      event.type === "app_mention" &&
+      !literal &&
+      !matcher.token.test(rawText)
+    ) {
       return true;
     }
 
