@@ -8273,6 +8273,26 @@ describe("resolveInlineMentions", () => {
     expect(message.isMention).toBe(true);
   });
 
+  it("does not flag a bot id inside code in a mrkdwn section block", async () => {
+    // Slack fires app_mention for a token in section mrkdwn, including one
+    // inside code, so the event type alone does not make this a mention.
+    const message = await parseIncoming({
+      type: "app_mention",
+      user: "U_SENDER",
+      channel: "C456",
+      text: "see `<@U_BOT>`",
+      ts: "1234567890.202024",
+      blocks: [
+        {
+          type: "section",
+          text: { type: "mrkdwn", text: "see `<@U_BOT>`" },
+        },
+      ],
+    });
+
+    expect(message.isMention).toBe(false);
+  });
+
   it("does not flag a bot id in a plain_text section block", async () => {
     const message = await parseIncoming({
       type: "message",
