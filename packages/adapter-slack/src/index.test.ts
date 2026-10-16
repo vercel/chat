@@ -8888,6 +8888,25 @@ describe("mention routing", () => {
       ],
     },
     {
+      name: "inline code beside another person's mention",
+      text: "<@U_OTHER> see `<@U_BOT>` for setup",
+      elements: [
+        {
+          type: "rich_text_section",
+          elements: [
+            { type: "user", user_id: "U_OTHER" },
+            { type: "text", text: " see " },
+            {
+              type: "text",
+              text: "@examplebot",
+              style: { code: true },
+            },
+            { type: "text", text: " for setup" },
+          ],
+        },
+      ],
+    },
+    {
       name: "a labeled token in inline code",
       text: "see `<@U_BOT|examplebot>`",
       elements: [
