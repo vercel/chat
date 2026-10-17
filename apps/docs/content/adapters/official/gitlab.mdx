@@ -198,15 +198,19 @@ createGitLabAdapter({
 
 ## Webhooks
 
-Add a project or group webhook:
+Add a project or group webhook. You need the Maintainer or Owner role on the project, or the Owner role on the group.
 
 1. Go to **Settings** then **Webhooks** and select **Add new webhook**.
 2. Set **URL** to `https://your-domain.com/api/webhooks/gitlab`.
-3. Under request authentication, select **Generate signing token** and set `GITLAB_WEBHOOK_SIGNING_TOKEN` to the full token, including the `whsec_` prefix. On GitLab versions earlier than 19.0, enter a **Secret token** instead and set `GITLAB_WEBHOOK_SECRET` to the same value.
+3. Select **Generate signing token** and set `GITLAB_WEBHOOK_SIGNING_TOKEN` to the `whsec_` value. GitLab shows the token only once, so copy it before you leave the page. Signing tokens are available from GitLab 19.0. On earlier versions, or on a 19.0 instance with the `webhook_signing_token` feature flag turned off, enter a **Secret token** instead and set `GITLAB_WEBHOOK_SECRET` to the same value.
 4. Under **Trigger**, select **Comments**. Select **Emoji events** too if your bot handles reactions with `onReaction`.
 5. Select **Add webhook**.
 
-When both tokens are configured, the adapter verifies the `webhook-signature` header if GitLab sends one and falls back to the `X-Gitlab-Token` header otherwise. Signed requests with a `webhook-timestamp` more than five minutes from the current time are rejected.
+<Callout type="info">
+We recommend a signing token over a secret token. GitLab sends a secret token as plain text with every request, but it never sends the signing token. It uses the signing token to sign each payload, so the adapter can confirm that a request came from GitLab and wasn't modified.
+</Callout>
+
+GitLab sends a `webhook-signature` header when the webhook has a signing token, and an `X-Gitlab-Token` header when it has a secret token. If you configure both, it sends both headers, which lets you move from a secret token to a signing token without downtime. When a request has a `webhook-signature` header and the adapter has a signing token, the adapter verifies the signature and doesn't fall back to the secret token if the signature fails. Otherwise, it compares `X-Gitlab-Token` with the secret token, and rejects the request if no secret token is configured. Signed requests with a `webhook-timestamp` more than five minutes from the current time are rejected.
 
 The adapter dispatches newly created comments on merge requests and issues. It ignores comment edits, system notes, and comments on commits and snippets. It also ignores internal notes and comments on confidential issues, so a public reply can't expose their content.
 
