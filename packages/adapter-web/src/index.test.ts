@@ -3,6 +3,7 @@ import { createMemoryState } from "@chat-adapter/state-memory";
 import { Chat, type StreamChunk } from "chat";
 import { describe, expect, it, vi } from "vitest";
 import { createWebAdapter, WebAdapter } from "./index";
+import { createSseResponse, webProtocols } from "./protocol";
 import type { WebMessage, WebUser } from "./types";
 
 const TEST_USER: WebUser = { id: "u-test", name: "Test User" };
@@ -242,6 +243,116 @@ describe("WebAdapter.handleWebhook — input validation", () => {
       makeWebRequest({ messages: [makeUserMessage("hello")] })
     );
     expect(response.status).toBe(401);
+  });
+});
+
+describe("WebAdapter.handleWebhook — request shape", () => {
+  it("returns 400 when the last message is not a user message", async () => {
+    const { chat } = buildChat({});
+    const handler = vi.fn();
+    chat.onDirectMessage(handler);
+
+    const response = await chat.webhooks.web(
+      makeWebRequest({
+        id: "conv-1",
+        messages: [
+          makeUserMessage("hello"),
+          {
+            id: "asst-1",
+            role: "assistant",
+            parts: [{ type: "text", text: "hi" }],
+          },
+        ],
+      })
+    );
+    expect(response.status).toBe(400);
+    expect(await response.json()).toEqual({
+      error: "The last entry in messages must be a user message",
+    });
+    expect(handler).not.toHaveBeenCalled();
+  });
+
+  it("returns 400 when the conversation id is not a string", async () => {
+    const { chat } = buildChat({});
+    const handler = vi.fn();
+    chat.onDirectMessage(handler);
+
+    const response = await chat.webhooks.web(
+      makeWebRequest({ id: 42, messages: [makeUserMessage("hello")] })
+    );
+    expect(response.status).toBe(400);
+    expect(handler).not.toHaveBeenCalled();
+  });
+
+  it("points at the protocol option when the body is an AG-UI request", async () => {
+    const { chat } = buildChat({});
+    const response = await chat.webhooks.web(
+      makeWebRequest({
+        threadId: "conv-1",
+        messages: [{ id: "msg-1", role: "user", content: "hello" }],
+      })
+    );
+    expect(response.status).toBe(400);
+    const { error } = (await response.json()) as { error: string };
+    expect(error).toContain('"ag-ui"');
+  });
+
+  it("uses a fresh assistant message id for each response", async () => {
+    const { chat } = buildChat({});
+    chat.onDirectMessage(async (thread) => {
+      await thread.post("ok");
+    });
+
+    const startIds: unknown[] = [];
+    for (let attempt = 0; attempt < 2; attempt++) {
+      const response = await chat.webhooks.web(
+        makeWebRequest({ id: "conv-1", messages: [makeUserMessage("hi")] })
+      );
+      const events = (await readSseEvents(response)) as Array<{
+        type: string;
+        messageId?: string;
+      }>;
+      startIds.push(events.find((e) => e.type === "start")?.messageId);
+    }
+    expect(startIds[0]).toEqual(expect.any(String));
+    expect(startIds[1]).toEqual(expect.any(String));
+    expect(startIds[0]).not.toBe(startIds[1]);
+  });
+
+  it("runs the handler again when the same message is resent", async () => {
+    const { chat } = buildChat({});
+    const handler = vi.fn(async (thread, message) => {
+      await thread.post(`echo: ${message.text}`);
+    });
+    chat.onDirectMessage(handler);
+
+    for (let attempt = 0; attempt < 2; attempt++) {
+      const response = await chat.webhooks.web(
+        makeWebRequest({ id: "conv-1", messages: [makeUserMessage("again")] })
+      );
+      const events = (await readSseEvents(response)) as Array<{
+        type: string;
+        delta?: string;
+      }>;
+      expect(
+        events
+          .filter((e) => e.type === "text-delta")
+          .map((e) => e.delta)
+          .join("")
+      ).toBe("echo: again");
+    }
+    expect(handler).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe("createSseResponse", () => {
+  it("errors the stream when run rejects", async () => {
+    const response = createSseResponse(webProtocols["ai-sdk"], async (send) => {
+      send({ type: "start" });
+      await Promise.resolve();
+      throw new Error("run failed");
+    });
+    await expect(response.text()).rejects.toThrow("run failed");
   });
 });
 
@@ -709,6 +820,59 @@ describe("WebAdapter — AG-UI protocol", () => {
     const response = await chat.webhooks.web(makeWebRequest(agUiBody("")));
     expect(response.status).toBe(400);
     expect(handler).not.toHaveBeenCalled();
+  });
+
+  it("returns 400 when the last message is a tool result", async () => {
+    const { chat } = buildAgUiChat();
+    const handler = vi.fn();
+    chat.onDirectMessage(handler);
+
+    const body = agUiBody("hi");
+    body.messages.push({
+      id: "tool-1",
+      role: "tool",
+      content: "{}",
+    } as (typeof body.messages)[number]);
+    const response = await chat.webhooks.web(makeWebRequest(body));
+    expect(response.status).toBe(400);
+    expect(handler).not.toHaveBeenCalled();
+  });
+
+  it("returns 400 when threadId is not a string", async () => {
+    const { chat } = buildAgUiChat();
+    const response = await chat.webhooks.web(
+      makeWebRequest(agUiBody("hi", { threadId: 7 }))
+    );
+    expect(response.status).toBe(400);
+  });
+
+  it("points at the protocol option when the body is an AI SDK request", async () => {
+    const { chat } = buildAgUiChat();
+    const response = await chat.webhooks.web(
+      makeWebRequest({ id: "conv-1", messages: [makeUserMessage("hello")] })
+    );
+    expect(response.status).toBe(400);
+    const { error } = (await response.json()) as { error: string };
+    expect(error).toContain('"ai-sdk"');
+  });
+
+  it("runs the handler again when the same message is resent", async () => {
+    const { chat } = buildAgUiChat();
+    const handler = vi.fn(async (thread) => {
+      await thread.post("ok");
+    });
+    chat.onDirectMessage(handler);
+
+    for (const runId of ["run-1", "run-2"]) {
+      const response = await chat.webhooks.web(
+        makeWebRequest(agUiBody("retry me", { runId }))
+      );
+      const events = (await readSseEvents(response)) as Array<{
+        type: string;
+      }>;
+      expect(events.map((e) => e.type)).toContain("TEXT_MESSAGE_CONTENT");
+    }
+    expect(handler).toHaveBeenCalledTimes(2);
   });
 
   it("returns 400 when threadId contains a colon", async () => {

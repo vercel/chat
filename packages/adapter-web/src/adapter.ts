@@ -112,12 +112,6 @@ export class WebAdapter implements Adapter<WebThreadIdData, WebMessage> {
       return jsonError(400, "Invalid JSON body");
     }
 
-    const protocol = this.protocol;
-    const parsed = protocol.parseRequest(body);
-    if (!parsed) {
-      return jsonError(400, "Request body must include a messages array");
-    }
-
     let user: WebUser | null;
     try {
       user = await this.resolveUser(request);
@@ -138,6 +132,11 @@ export class WebAdapter implements Adapter<WebThreadIdData, WebMessage> {
       return jsonError(400, "Invalid user id");
     }
 
+    const parsed = this.protocol.parseRequest(body);
+    if ("error" in parsed) {
+      return jsonError(400, parsed.error);
+    }
+
     const conversationId = parsed.conversationId ?? generateId();
     if (conversationId.includes(":")) {
       return jsonError(400, "Invalid conversation id");
@@ -149,9 +148,6 @@ export class WebAdapter implements Adapter<WebThreadIdData, WebMessage> {
     // come from the state adapter (persistMessageHistory), never from the
     // request body.
     const userMessage = parsed.message;
-    if (!userMessage) {
-      return jsonError(400, "No user message found in messages array");
-    }
     if (userMessage.parts.length === 0) {
       return jsonError(400, "No usable content in last user message");
     }
@@ -160,27 +156,34 @@ export class WebAdapter implements Adapter<WebThreadIdData, WebMessage> {
 
     const chat = this.chat;
     const run = { conversationId, runId: parsed.runId ?? generateId() };
-    return createSseResponse(protocol, async (send) => {
-      for (const payload of protocol.begin(run)) {
+    return createSseResponse(this.protocol, async (send) => {
+      for (const payload of this.protocol.begin(run)) {
         send(payload);
       }
       let errorText: string | undefined;
       try {
         await webRequestContext.run(
           {
-            write: (event) => send(protocol.encode(event)),
+            write: (event) => send(this.protocol.encode(event)),
             signal: request.signal,
             userId: user.id,
             conversationId,
           },
-          () => chat.processMessage(this, threadId, message)
+          // Web requests are never redelivered, so a repeated message id
+          // is a deliberate regenerate or reload and must reach the handler.
+          // The tradeoff is that history keeps the earlier reply and stores
+          // the user message twice.
+          () =>
+            chat.processMessage(this, threadId, message, {
+              deduplicate: false,
+            })
         );
       } catch (error) {
         // chat.processMessage already logs handler errors at ERROR level.
         // Just turn the error into a string for the client.
         errorText = error instanceof Error ? error.message : "Internal error";
       }
-      for (const payload of protocol.end(run, errorText)) {
+      for (const payload of this.protocol.end(run, errorText)) {
         send(payload);
       }
     });

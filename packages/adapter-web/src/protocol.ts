@@ -19,13 +19,15 @@ export type WebStreamEvent =
 export interface WebProtocolRequest {
   /** Client-supplied conversation id, if any. */
   conversationId?: string;
-  /**
-   * Latest user message with only the parts this protocol allows. `null`
-   * when the body has no user message.
-   */
-  message: WebMessage | null;
+  /** Latest user message with only the parts this protocol allows. */
+  message: WebMessage;
   /** Client-supplied run id, if any. */
   runId?: string;
+}
+
+/** Why a request body was rejected, sent to the client as a 400. */
+export interface WebProtocolError {
+  error: string;
 }
 
 /** Ids shared by every frame of one response. */
@@ -44,8 +46,7 @@ export interface WebProtocol {
   /** Payloads to send when the response ends, with `errorText` on failure. */
   end(run: WebRunContext, errorText?: string): unknown[];
   readonly headers: Record<string, string>;
-  /** Returns `null` when the body is not a valid request for this protocol. */
-  parseRequest(body: unknown): WebProtocolRequest | null;
+  parseRequest(body: unknown): WebProtocolRequest | WebProtocolError;
 }
 
 const SSE_HEADERS = {
@@ -67,15 +68,19 @@ const aiSdkProtocol: WebProtocol = {
   doneFrame: "data: [DONE]\n\n",
 
   parseRequest(body) {
-    if (!(isRecord(body) && isNonEmptyArray(body.messages))) {
-      return null;
+    const request = readRequestBody(body, "id");
+    if ("error" in request) {
+      return request;
     }
-    const last = findLastUserMessage(body.messages);
+    const { last } = request;
+    if (!Array.isArray(last.parts) && "content" in last) {
+      return { error: protocolMismatchError("ag-ui") };
+    }
     return {
-      conversationId: typeof body.id === "string" ? body.id : undefined,
+      conversationId: request.conversationId,
       // Tool parts are dropped so a browser can't inject forged tool-call or
       // approval state. Text, file, and custom data parts pass through.
-      message: last && {
+      message: {
         ...last,
         id: messageId(last),
         role: "user",
@@ -89,8 +94,8 @@ const aiSdkProtocol: WebProtocol = {
     };
   },
 
-  begin: (run) => [
-    { type: "start", messageId: run.runId },
+  begin: () => [
+    { type: "start", messageId: generateId() },
     { type: "start-step" },
   ],
 
@@ -121,15 +126,18 @@ const agUiProtocol: WebProtocol = {
   headers: SSE_HEADERS,
 
   parseRequest(body) {
-    if (!(isRecord(body) && isNonEmptyArray(body.messages))) {
-      return null;
+    const request = readRequestBody(body, "threadId");
+    if ("error" in request) {
+      return request;
     }
-    const last = findLastUserMessage(body.messages);
+    const { body: record, last } = request;
+    if (!("content" in last) && Array.isArray(last.parts)) {
+      return { error: protocolMismatchError("ai-sdk") };
+    }
     return {
-      conversationId:
-        typeof body.threadId === "string" ? body.threadId : undefined,
-      runId: typeof body.runId === "string" ? body.runId : undefined,
-      message: last && {
+      conversationId: request.conversationId,
+      runId: typeof record.runId === "string" ? record.runId : undefined,
+      message: {
         id: messageId(last),
         role: "user",
         parts: agUiContentToParts(last.content),
@@ -155,8 +163,14 @@ const agUiProtocol: WebProtocol = {
           messageId: event.id,
           delta: event.delta,
         };
-      default:
+      case "text-end":
         return { type: "TEXT_MESSAGE_END", messageId: event.id };
+      default: {
+        const unhandled: never = event;
+        throw new Error(
+          `Unhandled web stream event: ${JSON.stringify(unhandled)}`
+        );
+      }
     }
   },
 
@@ -179,8 +193,8 @@ export const webProtocols: Record<WebProtocolName, WebProtocol> = {
 };
 
 /**
- * Build an SSE response whose body is fed by `run`. `run` must not reject;
- * the stream closes when it settles.
+ * Build an SSE response whose body is fed by `run`. The stream closes when
+ * `run` resolves and errors if it rejects.
  */
 export function createSseResponse(
   protocol: WebProtocol,
@@ -207,6 +221,13 @@ export function createSseResponse(
           } catch {
             // Already closed or cancelled.
           }
+        },
+        (error: unknown) => {
+          try {
+            controller.error(error);
+          } catch {
+            // Already closed or cancelled.
+          }
         }
       );
     },
@@ -222,16 +243,44 @@ function isNonEmptyArray(value: unknown): value is unknown[] {
   return Array.isArray(value) && value.length > 0;
 }
 
-function findLastUserMessage(
-  messages: unknown[]
-): Record<string, unknown> | null {
-  for (let i = messages.length - 1; i >= 0; i--) {
-    const m = messages[i];
-    if (isRecord(m) && m.role === "user") {
-      return m;
-    }
+/**
+ * Validate the parts of a request body every protocol shares: a non-empty
+ * `messages` array ending in a user message, and an optional string
+ * conversation id under `idField`.
+ */
+function readRequestBody(
+  body: unknown,
+  idField: string
+):
+  | WebProtocolError
+  | {
+      body: Record<string, unknown>;
+      conversationId?: string;
+      last: Record<string, unknown>;
+    } {
+  if (!(isRecord(body) && isNonEmptyArray(body.messages))) {
+    return { error: "Request body must include a messages array" };
   }
-  return null;
+  const id = body[idField];
+  if (id !== undefined && typeof id !== "string") {
+    return { error: `Request body field "${idField}" must be a string` };
+  }
+  // Only a new user turn is handled. Bodies ending in an assistant or tool
+  // message (client-side tool results, automatic resubmits) are rejected
+  // rather than replaying an earlier user message to the handler.
+  const last = body.messages.at(-1);
+  if (!(isRecord(last) && last.role === "user")) {
+    return { error: "The last entry in messages must be a user message" };
+  }
+  return {
+    body,
+    conversationId: typeof id === "string" ? id : undefined,
+    last,
+  };
+}
+
+function protocolMismatchError(expected: WebProtocolName): string {
+  return `Request body is shaped for the "${expected}" protocol. Set the Web adapter's protocol option to "${expected}" or send a matching client request.`;
 }
 
 function messageId(message: Record<string, unknown>): string {
