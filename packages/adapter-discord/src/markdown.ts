@@ -142,7 +142,13 @@ export class DiscordFormatConverter extends BaseFormatConverter {
           const discordLinkStyle = getDiscordLinkStyle(source);
 
           if (discordLinkStyle !== undefined) {
-            node.data = { ...node.data, discordLinkStyle };
+            // Packages such as mdast-util-to-hast add fields to mdast's Data,
+            // which makes an inline literal fail the excess property check.
+            const data: DiscordLinkData & typeof node.data = {
+              ...node.data,
+              discordLinkStyle,
+            };
+            node.data = data;
           }
         }
       }
