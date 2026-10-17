@@ -2,6 +2,8 @@
 
 import { useChat } from "@chat-adapter/web/react";
 import { type FormEvent, useEffect, useRef, useState } from "react";
+import { Streamdown } from "streamdown";
+import "streamdown/styles.css";
 
 export default function ChatPage() {
   const { messages, sendMessage, status, stop, error } = useChat();
@@ -54,7 +56,7 @@ export default function ChatPage() {
               const text = message.parts
                 .filter((part) => part.type === "text")
                 .map((part) => (part as { text: string }).text)
-                .join("");
+                .join("\n\n");
               const isUser = message.role === "user";
               const isLastAssistant = !isUser && message === messages.at(-1);
               const isStreaming = isLastAssistant && status === "streaming";
@@ -70,10 +72,14 @@ export default function ChatPage() {
                     </div>
                   ) : (
                     <div
-                      className="whitespace-pre-wrap py-2 text-sm leading-relaxed"
+                      className="py-2 text-sm leading-relaxed"
                       style={{ color: "var(--foreground)" }}
                     >
-                      {text}
+                      {text && (
+                        <Streamdown isAnimating={isStreaming}>
+                          {text}
+                        </Streamdown>
+                      )}
                       {isStreaming && !text && (
                         <span
                           className="inline-block h-4 w-0.5"

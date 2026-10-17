@@ -1,7 +1,7 @@
 {
   "name": "@chat-adapter/web",
   "version": "4.42.0",
-  "description": "Web adapter for Chat SDK — browser chat UI via the AI SDK useChat stream protocol",
+  "description": "Web adapter for Chat SDK — browser chat UI over the AI SDK or AG-UI (TanStack AI) stream protocols",
   "type": "module",
   "engines": {
     "node": ">=20"
@@ -52,6 +52,9 @@
     "vue": "^3"
   },
   "peerDependenciesMeta": {
+    "ai": {
+      "optional": true
+    },
     "@ai-sdk/react": {
       "optional": true
     },
@@ -110,6 +113,8 @@
     "svelte",
     "useChat",
     "ai-sdk",
+    "ag-ui",
+    "tanstack-ai",
     "ai-agent",
     "bot",
     "adapter",

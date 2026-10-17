@@ -1,14 +1,14 @@
 import { ValidationError } from "@chat-adapter/shared";
 import { createMemoryState } from "@chat-adapter/state-memory";
-import type { UIMessage } from "ai";
 import { Chat, type StreamChunk } from "chat";
 import { describe, expect, it, vi } from "vitest";
 import { createWebAdapter, WebAdapter } from "./index";
-import type { WebUser } from "./types";
+import { createSseResponse, webProtocols } from "./protocol";
+import type { WebMessage, WebUser } from "./types";
 
 const TEST_USER: WebUser = { id: "u-test", name: "Test User" };
 
-function makeUserMessage(text: string, id = "msg-1"): UIMessage {
+function makeUserMessage(text: string, id = "msg-1"): WebMessage {
   return {
     id,
     role: "user",
@@ -246,6 +246,116 @@ describe("WebAdapter.handleWebhook — input validation", () => {
   });
 });
 
+describe("WebAdapter.handleWebhook — request shape", () => {
+  it("returns 400 when the last message is not a user message", async () => {
+    const { chat } = buildChat({});
+    const handler = vi.fn();
+    chat.onDirectMessage(handler);
+
+    const response = await chat.webhooks.web(
+      makeWebRequest({
+        id: "conv-1",
+        messages: [
+          makeUserMessage("hello"),
+          {
+            id: "asst-1",
+            role: "assistant",
+            parts: [{ type: "text", text: "hi" }],
+          },
+        ],
+      })
+    );
+    expect(response.status).toBe(400);
+    expect(await response.json()).toEqual({
+      error: "The last entry in messages must be a user message",
+    });
+    expect(handler).not.toHaveBeenCalled();
+  });
+
+  it("returns 400 when the conversation id is not a string", async () => {
+    const { chat } = buildChat({});
+    const handler = vi.fn();
+    chat.onDirectMessage(handler);
+
+    const response = await chat.webhooks.web(
+      makeWebRequest({ id: 42, messages: [makeUserMessage("hello")] })
+    );
+    expect(response.status).toBe(400);
+    expect(handler).not.toHaveBeenCalled();
+  });
+
+  it("points at the protocol option when the body is an AG-UI request", async () => {
+    const { chat } = buildChat({});
+    const response = await chat.webhooks.web(
+      makeWebRequest({
+        threadId: "conv-1",
+        messages: [{ id: "msg-1", role: "user", content: "hello" }],
+      })
+    );
+    expect(response.status).toBe(400);
+    const { error } = (await response.json()) as { error: string };
+    expect(error).toContain('"ag-ui"');
+  });
+
+  it("uses a fresh assistant message id for each response", async () => {
+    const { chat } = buildChat({});
+    chat.onDirectMessage(async (thread) => {
+      await thread.post("ok");
+    });
+
+    const startIds: unknown[] = [];
+    for (let attempt = 0; attempt < 2; attempt++) {
+      const response = await chat.webhooks.web(
+        makeWebRequest({ id: "conv-1", messages: [makeUserMessage("hi")] })
+      );
+      const events = (await readSseEvents(response)) as Array<{
+        type: string;
+        messageId?: string;
+      }>;
+      startIds.push(events.find((e) => e.type === "start")?.messageId);
+    }
+    expect(startIds[0]).toEqual(expect.any(String));
+    expect(startIds[1]).toEqual(expect.any(String));
+    expect(startIds[0]).not.toBe(startIds[1]);
+  });
+
+  it("runs the handler again when the same message is resent", async () => {
+    const { chat } = buildChat({});
+    const handler = vi.fn(async (thread, message) => {
+      await thread.post(`echo: ${message.text}`);
+    });
+    chat.onDirectMessage(handler);
+
+    for (let attempt = 0; attempt < 2; attempt++) {
+      const response = await chat.webhooks.web(
+        makeWebRequest({ id: "conv-1", messages: [makeUserMessage("again")] })
+      );
+      const events = (await readSseEvents(response)) as Array<{
+        type: string;
+        delta?: string;
+      }>;
+      expect(
+        events
+          .filter((e) => e.type === "text-delta")
+          .map((e) => e.delta)
+          .join("")
+      ).toBe("echo: again");
+    }
+    expect(handler).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe("createSseResponse", () => {
+  it("errors the stream when run rejects", async () => {
+    const response = createSseResponse(webProtocols["ai-sdk"], async (send) => {
+      send({ type: "start" });
+      await Promise.resolve();
+      throw new Error("run failed");
+    });
+    await expect(response.text()).rejects.toThrow("run failed");
+  });
+});
+
 describe("WebAdapter.handleWebhook — client message sanitization", () => {
   it("strips tool parts but keeps text and data parts", async () => {
     const { chat } = buildChat({});
@@ -282,7 +392,7 @@ describe("WebAdapter.handleWebhook — client message sanitization", () => {
     expect(handler).toHaveBeenCalledTimes(1);
     const [, message] = handler.mock.calls[0] as unknown as [
       unknown,
-      { raw: UIMessage; text: string },
+      { raw: WebMessage; text: string },
     ];
     expect(message.raw.parts.map((p) => p.type)).toEqual([
       "text",
@@ -322,7 +432,7 @@ describe("WebAdapter.handleWebhook — client message sanitization", () => {
     expect(handler).toHaveBeenCalledTimes(1);
     const [, message] = handler.mock.calls[0] as unknown as [
       unknown,
-      { raw: UIMessage },
+      { raw: WebMessage },
     ];
     expect(message.raw.parts).toHaveLength(1);
     expect(message.raw.parts[0]?.type).toBe("file");
@@ -566,5 +676,226 @@ describe("WebAdapter — end-to-end handler dispatch", () => {
     const errorEvent = events.find((e) => e.type === "error");
     expect(errorEvent).toBeDefined();
     expect(errorEvent?.errorText).toContain("handler exploded");
+  });
+});
+
+describe("WebAdapter — AG-UI protocol", () => {
+  function buildAgUiChat() {
+    const adapter = createWebAdapter({
+      userName: "testbot",
+      getUser: () => TEST_USER,
+      protocol: "ag-ui",
+    });
+    const chat = new Chat({
+      userName: "testbot",
+      adapters: { web: adapter },
+      state: createMemoryState(),
+    });
+    return { chat, adapter };
+  }
+
+  function agUiBody(content: unknown, overrides: Record<string, unknown> = {}) {
+    return {
+      threadId: "conv-agui",
+      runId: "run-1",
+      state: {},
+      messages: [
+        { id: "asst-0", role: "assistant", content: "earlier" },
+        { id: "msg-1", role: "user", content },
+      ],
+      tools: [],
+      context: [],
+      forwardedProps: {},
+      ...overrides,
+    };
+  }
+
+  it("throws on an unknown protocol", () => {
+    expect(() =>
+      createWebAdapter({
+        userName: "testbot",
+        getUser: () => TEST_USER,
+        protocol: "nope" as never,
+      })
+    ).toThrow(ValidationError);
+  });
+
+  it("streams AG-UI run and text message events", async () => {
+    const { chat } = buildAgUiChat();
+    const handler = vi.fn(async (thread, message) => {
+      async function* gen() {
+        yield "Hello, ";
+        yield message.text;
+      }
+      await thread.post(gen());
+    });
+    chat.onDirectMessage(handler);
+
+    const response = await chat.webhooks.web(makeWebRequest(agUiBody("world")));
+    expect(response.status).toBe(200);
+    expect(response.headers.get("content-type")).toBe("text/event-stream");
+    expect(response.headers.get("x-vercel-ai-ui-message-stream")).toBeNull();
+
+    const events = (await readSseEvents(response)) as Array<{
+      type: string;
+      delta?: string;
+      messageId?: string;
+      runId?: string;
+      threadId?: string;
+    }>;
+    expect(events.map((e) => e.type)).toEqual([
+      "RUN_STARTED",
+      "TEXT_MESSAGE_START",
+      "TEXT_MESSAGE_CONTENT",
+      "TEXT_MESSAGE_CONTENT",
+      "TEXT_MESSAGE_END",
+      "RUN_FINISHED",
+    ]);
+    expect(events[0]).toMatchObject({ threadId: "conv-agui", runId: "run-1" });
+    expect(events.at(-1)).toMatchObject({
+      threadId: "conv-agui",
+      runId: "run-1",
+    });
+    const messageId = events[1]?.messageId;
+    expect(messageId).toBeDefined();
+    expect(
+      events
+        .filter((e) => e.type.startsWith("TEXT_MESSAGE_"))
+        .every((e) => e.messageId === messageId)
+    ).toBe(true);
+    expect(
+      events
+        .filter((e) => e.type === "TEXT_MESSAGE_CONTENT")
+        .map((e) => e.delta)
+        .join("")
+    ).toBe("Hello, world");
+
+    const [thread, message] = handler.mock.calls[0];
+    expect(thread.id).toBe("web:u-test:conv-agui");
+    expect(message.id).toBe("msg-1");
+    expect(message.raw).toEqual({
+      id: "msg-1",
+      role: "user",
+      parts: [{ type: "text", text: "world" }],
+    });
+  });
+
+  it("keeps text and media content parts and drops the rest", async () => {
+    const { chat } = buildAgUiChat();
+    const handler = vi.fn(async (thread) => {
+      await thread.post("ok");
+    });
+    chat.onDirectMessage(handler);
+
+    const image = {
+      type: "image",
+      source: { type: "url", value: "https://example.com/a.png" },
+    };
+    const response = await chat.webhooks.web(
+      makeWebRequest(
+        agUiBody([
+          { type: "text", text: "look" },
+          image,
+          { type: "tool-call", id: "t1", name: "deleteMessage" },
+        ])
+      )
+    );
+    expect(response.status).toBe(200);
+    await response.text();
+
+    const [, message] = handler.mock.calls[0] as unknown as [
+      unknown,
+      { raw: WebMessage; text: string },
+    ];
+    expect(message.text).toBe("look");
+    expect(message.raw.parts).toEqual([{ type: "text", text: "look" }, image]);
+  });
+
+  it("rejects a user message with no usable content", async () => {
+    const { chat } = buildAgUiChat();
+    const handler = vi.fn();
+    chat.onDirectMessage(handler);
+    await chat.webhooks.web(makeWebRequest({ messages: [] })); // init
+
+    const response = await chat.webhooks.web(makeWebRequest(agUiBody("")));
+    expect(response.status).toBe(400);
+    expect(handler).not.toHaveBeenCalled();
+  });
+
+  it("returns 400 when the last message is a tool result", async () => {
+    const { chat } = buildAgUiChat();
+    const handler = vi.fn();
+    chat.onDirectMessage(handler);
+
+    const body = agUiBody("hi");
+    body.messages.push({
+      id: "tool-1",
+      role: "tool",
+      content: "{}",
+    } as (typeof body.messages)[number]);
+    const response = await chat.webhooks.web(makeWebRequest(body));
+    expect(response.status).toBe(400);
+    expect(handler).not.toHaveBeenCalled();
+  });
+
+  it("returns 400 when threadId is not a string", async () => {
+    const { chat } = buildAgUiChat();
+    const response = await chat.webhooks.web(
+      makeWebRequest(agUiBody("hi", { threadId: 7 }))
+    );
+    expect(response.status).toBe(400);
+  });
+
+  it("points at the protocol option when the body is an AI SDK request", async () => {
+    const { chat } = buildAgUiChat();
+    const response = await chat.webhooks.web(
+      makeWebRequest({ id: "conv-1", messages: [makeUserMessage("hello")] })
+    );
+    expect(response.status).toBe(400);
+    const { error } = (await response.json()) as { error: string };
+    expect(error).toContain('"ai-sdk"');
+  });
+
+  it("runs the handler again when the same message is resent", async () => {
+    const { chat } = buildAgUiChat();
+    const handler = vi.fn(async (thread) => {
+      await thread.post("ok");
+    });
+    chat.onDirectMessage(handler);
+
+    for (const runId of ["run-1", "run-2"]) {
+      const response = await chat.webhooks.web(
+        makeWebRequest(agUiBody("retry me", { runId }))
+      );
+      const events = (await readSseEvents(response)) as Array<{
+        type: string;
+      }>;
+      expect(events.map((e) => e.type)).toContain("TEXT_MESSAGE_CONTENT");
+    }
+    expect(handler).toHaveBeenCalledTimes(2);
+  });
+
+  it("returns 400 when threadId contains a colon", async () => {
+    const { chat } = buildAgUiChat();
+    await chat.webhooks.web(makeWebRequest({ messages: [] })); // init
+    const response = await chat.webhooks.web(
+      makeWebRequest(agUiBody("hi", { threadId: "bad:id" }))
+    );
+    expect(response.status).toBe(400);
+  });
+
+  it("ends the run with RUN_ERROR instead of RUN_FINISHED on handler errors", async () => {
+    const { chat } = buildAgUiChat();
+    chat.onDirectMessage(async () => {
+      throw new Error("handler exploded");
+    });
+
+    const response = await chat.webhooks.web(makeWebRequest(agUiBody("hi")));
+    const events = (await readSseEvents(response)) as Array<{
+      type: string;
+      message?: string;
+    }>;
+    expect(events.map((e) => e.type)).toEqual(["RUN_STARTED", "RUN_ERROR"]);
+    expect(events[1]?.message).toBe("handler exploded");
   });
 });

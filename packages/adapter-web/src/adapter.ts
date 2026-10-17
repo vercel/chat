@@ -1,19 +1,13 @@
 /**
  * Web adapter for chat-sdk.
  *
- * Speaks the AI SDK UI message stream protocol so a chat-sdk bot can serve
- * a browser UI alongside Slack/Teams/Discord. The browser POSTs the
- * conversation, the user handler runs on the server, and its output streams
- * back in the same response body.
+ * Lets a chat-sdk bot serve a browser UI alongside Slack/Teams/Discord. The
+ * browser POSTs the conversation, the user handler runs on the server, and
+ * its output streams back in the same response body using the configured
+ * protocol (AI SDK UI message stream or AG-UI).
  */
 
 import { ValidationError } from "@chat-adapter/shared";
-import {
-  createUIMessageStream,
-  createUIMessageStreamResponse,
-  isTextUIPart,
-  type UIMessage,
-} from "ai";
 import {
   type Adapter,
   type AdapterPostableMessage,
@@ -35,7 +29,13 @@ import {
 } from "chat";
 import { requireWebRequestContext, webRequestContext } from "./als";
 import { WebFormatConverter } from "./format-converter";
-import type { WebAdapterConfig, WebUser } from "./types";
+import {
+  createSseResponse,
+  generateId,
+  type WebProtocol,
+  webProtocols,
+} from "./protocol";
+import type { WebAdapterConfig, WebMessage, WebUser } from "./types";
 
 /** Decoded thread id components for the Web adapter. */
 export interface WebThreadIdData {
@@ -51,14 +51,7 @@ const defaultThreadIdFor = (args: {
   conversationId: string;
 }): string => `${ADAPTER_NAME}:${args.user.id}:${args.conversationId}`;
 
-interface WebRequestBody {
-  /** Optional useChat-supplied conversation id. Generated if absent. */
-  id?: string;
-  /** Latest UIMessage[] history sent by useChat. */
-  messages: UIMessage[];
-}
-
-export class WebAdapter implements Adapter<WebThreadIdData, UIMessage> {
+export class WebAdapter implements Adapter<WebThreadIdData, WebMessage> {
   readonly name = ADAPTER_NAME;
   readonly userName: string;
   readonly persistMessageHistory: boolean;
@@ -67,6 +60,7 @@ export class WebAdapter implements Adapter<WebThreadIdData, UIMessage> {
   protected chat: ChatInstance | null = null;
   protected readonly logger: Logger;
   protected readonly formatConverter = new WebFormatConverter();
+  protected readonly protocol: WebProtocol;
   protected readonly resolveUser: WebAdapterConfig["getUser"];
   protected readonly threadIdFor: NonNullable<WebAdapterConfig["threadIdFor"]>;
 
@@ -81,6 +75,14 @@ export class WebAdapter implements Adapter<WebThreadIdData, UIMessage> {
       );
     }
     this.userName = opts.userName;
+    const protocolName = opts.protocol ?? "ai-sdk";
+    if (!Object.hasOwn(webProtocols, protocolName)) {
+      throw new ValidationError(
+        ADAPTER_NAME,
+        `Unknown protocol "${protocolName}". Use "ai-sdk" or "ag-ui".`
+      );
+    }
+    this.protocol = webProtocols[protocolName];
     this.resolveUser = opts.getUser;
     this.threadIdFor = opts.threadIdFor ?? defaultThreadIdFor;
     // Default true: with no platform-side message API, the only way for
@@ -103,15 +105,11 @@ export class WebAdapter implements Adapter<WebThreadIdData, UIMessage> {
       return jsonError(500, "Web adapter not initialized");
     }
 
-    let body: WebRequestBody;
+    let body: unknown;
     try {
-      body = (await request.json()) as WebRequestBody;
+      body = await request.json();
     } catch {
       return jsonError(400, "Invalid JSON body");
-    }
-
-    if (!Array.isArray(body.messages) || body.messages.length === 0) {
-      return jsonError(400, "Request body must include a messages array");
     }
 
     let user: WebUser | null;
@@ -134,72 +132,65 @@ export class WebAdapter implements Adapter<WebThreadIdData, UIMessage> {
       return jsonError(400, "Invalid user id");
     }
 
-    const conversationId = body.id ?? generateId();
+    const parsed = this.protocol.parseRequest(body);
+    if ("error" in parsed) {
+      return jsonError(400, parsed.error);
+    }
+
+    const conversationId = parsed.conversationId ?? generateId();
     if (conversationId.includes(":")) {
       return jsonError(400, "Invalid conversation id");
     }
     const threadId = this.threadIdFor({ user, conversationId });
 
-    const lastUserMessage = findLastUserMessage(body.messages);
-    if (!lastUserMessage) {
-      return jsonError(400, "No user message found in messages array");
-    }
-
-    // The client-supplied messages array is untrusted, so only the latest
-    // user message is consumed, with tool parts stripped so a browser can't
-    // inject forged tool-call or approval state. Text, file, and custom data
-    // parts pass through untouched. Prior turns come from the state adapter
-    // (persistMessageHistory), never from the request body.
-    const sanitizedMessage: UIMessage = {
-      ...lastUserMessage,
-      parts: lastUserMessage.parts.filter(
-        (part) =>
-          part.type === "text" ||
-          part.type === "file" ||
-          part.type.startsWith("data-")
-      ),
-    };
-    if (sanitizedMessage.parts.length === 0) {
+    // The client-supplied messages array is untrusted, so the protocol only
+    // returns the latest user message, with tool parts stripped. Prior turns
+    // come from the state adapter (persistMessageHistory), never from the
+    // request body.
+    const userMessage = parsed.message;
+    if (userMessage.parts.length === 0) {
       return jsonError(400, "No usable content in last user message");
     }
 
-    const message = this.buildMessageFromUI(sanitizedMessage, threadId, user);
+    const message = this.buildMessageFromUI(userMessage, threadId, user);
 
     const chat = this.chat;
-    // `originalMessages` is deliberately not passed: nothing registers
-    // onFinish on this stream, so the ai SDK never consumes it, and the
-    // client array must not act as a source of prior-turn state anyway.
-    const stream = createUIMessageStream<UIMessage>({
-      execute: async ({ writer }) => {
-        const assistantMessageId = generateId();
-        writer.write({ type: "start", messageId: assistantMessageId });
-        writer.write({ type: "start-step" });
-        try {
-          await webRequestContext.run(
-            {
-              writer,
-              signal: request.signal,
-              userId: user.id,
-              conversationId,
-            },
-            () => chat.processMessage(this, threadId, message)
-          );
-        } finally {
-          writer.write({ type: "finish-step" });
-          writer.write({ type: "finish" });
-        }
-      },
-      onError: (error) =>
+    const run = { conversationId, runId: parsed.runId ?? generateId() };
+    return createSseResponse(this.protocol, async (send) => {
+      for (const payload of this.protocol.begin(run)) {
+        send(payload);
+      }
+      let errorText: string | undefined;
+      try {
+        await webRequestContext.run(
+          {
+            write: (event) => send(this.protocol.encode(event)),
+            signal: request.signal,
+            userId: user.id,
+            conversationId,
+          },
+          // Web requests are never redelivered, so a repeated message id
+          // is a deliberate regenerate or reload and must reach the handler.
+          // The tradeoff is that history keeps the earlier reply and stores
+          // the user message twice.
+          () =>
+            chat.processMessage(this, threadId, message, {
+              deduplicate: false,
+            })
+        );
+      } catch (error) {
         // chat.processMessage already logs handler errors at ERROR level.
-        // Just turn the error into a string for the SSE error chunk.
-        error instanceof Error ? error.message : "Internal error",
+        // Just turn the error into a string for the client.
+        errorText = error instanceof Error ? error.message : "Internal error";
+      }
+      for (const payload of this.protocol.end(run, errorText)) {
+        send(payload);
+      }
     });
-
-    return createUIMessageStreamResponse({ stream });
   }
 
-  parseMessage(raw: UIMessage): Message<UIMessage> {
-    const text = extractTextFromUIMessage(raw);
+  parseMessage(raw: WebMessage): Message<WebMessage> {
+    const text = extractText(raw);
     // The hot path uses buildMessageFromUI (which has WebUser context) and
     // does not call this method. Round-trip rehydration paths land here
     // without a WebUser, so for assistant messages we identify the bot by
@@ -220,7 +211,7 @@ export class WebAdapter implements Adapter<WebThreadIdData, UIMessage> {
           isBot: false,
           isMe: false,
         };
-    return new Message<UIMessage>({
+    return new Message<WebMessage>({
       id: raw.id,
       threadId: "",
       text,
@@ -267,44 +258,44 @@ export class WebAdapter implements Adapter<WebThreadIdData, UIMessage> {
   async postMessage(
     threadId: string,
     message: AdapterPostableMessage
-  ): Promise<RawMessage<UIMessage>> {
+  ): Promise<RawMessage<WebMessage>> {
     const ctx = requireWebRequestContext();
     const text = adapterPostableToText(message, this.formatConverter);
     const id = generateId();
     // Skip empty messages (e.g., a CardElement with no fallbackText) so
-    // useChat doesn't render a blank assistant bubble.
+    // the client doesn't render a blank assistant bubble.
     if (!text) {
       return {
         id,
         threadId,
-        raw: assistantUIMessageFromText(id, ""),
+        raw: assistantMessageFromText(id, ""),
       };
     }
-    ctx.writer.write({ type: "text-start", id });
-    ctx.writer.write({ type: "text-delta", id, delta: text });
-    ctx.writer.write({ type: "text-end", id });
+    ctx.write({ type: "text-start", id });
+    ctx.write({ type: "text-delta", id, delta: text });
+    ctx.write({ type: "text-end", id });
     return {
       id,
       threadId,
-      raw: assistantUIMessageFromText(id, text),
+      raw: assistantMessageFromText(id, text),
     };
   }
 
   /**
    * Native streaming path. Pumps text chunks straight onto the per-request SSE
    * response body — no edit loop, no rate limiting concerns. Honors the
-   * inbound request's abort signal so `useChat`'s `stop()` short-circuits the
-   * generator on the server side.
+   * inbound request's abort signal so the client's `stop()` short-circuits
+   * the generator on the server side.
    */
   async stream(
     threadId: string,
     iterable: AsyncIterable<string | StreamChunk>,
     _options?: StreamOptions
-  ): Promise<RawMessage<UIMessage>> {
+  ): Promise<RawMessage<WebMessage>> {
     const ctx = requireWebRequestContext();
     const id = generateId();
     let fullText = "";
-    ctx.writer.write({ type: "text-start", id });
+    ctx.write({ type: "text-start", id });
     try {
       for await (const chunk of iterable) {
         if (ctx.signal.aborted) {
@@ -313,16 +304,16 @@ export class WebAdapter implements Adapter<WebThreadIdData, UIMessage> {
         const text = streamChunkToText(chunk);
         if (text) {
           fullText += text;
-          ctx.writer.write({ type: "text-delta", id, delta: text });
+          ctx.write({ type: "text-delta", id, delta: text });
         }
       }
     } finally {
-      ctx.writer.write({ type: "text-end", id });
+      ctx.write({ type: "text-end", id });
     }
     return {
       id,
       threadId,
-      raw: assistantUIMessageFromText(id, fullText),
+      raw: assistantMessageFromText(id, fullText),
     };
   }
 
@@ -334,7 +325,7 @@ export class WebAdapter implements Adapter<WebThreadIdData, UIMessage> {
     _threadId: string,
     _messageId: string,
     _message: AdapterPostableMessage
-  ): Promise<RawMessage<UIMessage>> {
+  ): Promise<RawMessage<WebMessage>> {
     throw new NotImplementedError(
       "WebAdapter.editMessage is not supported in v1 — every assistant turn is a fresh streamed response."
     );
@@ -367,7 +358,7 @@ export class WebAdapter implements Adapter<WebThreadIdData, UIMessage> {
   }
 
   startTyping(_threadId: string, _status?: string): Promise<void> {
-    // useChat derives a "streaming" status from the SSE response itself, so an
+    // Clients derive a "streaming" status from the SSE response itself, so an
     // explicit typing indicator is unnecessary on web.
     return Promise.resolve();
   }
@@ -381,7 +372,7 @@ export class WebAdapter implements Adapter<WebThreadIdData, UIMessage> {
   fetchMessages(
     _threadId: string,
     _options?: FetchOptions
-  ): Promise<FetchResult<UIMessage>> {
+  ): Promise<FetchResult<WebMessage>> {
     return Promise.resolve({ messages: [] });
   }
 
@@ -405,12 +396,12 @@ export class WebAdapter implements Adapter<WebThreadIdData, UIMessage> {
   // ---------------------------------------------------------------------------
 
   protected buildMessageFromUI(
-    uiMessage: UIMessage,
+    uiMessage: WebMessage,
     threadId: string,
     user: WebUser
-  ): Message<UIMessage> {
-    const text = extractTextFromUIMessage(uiMessage);
-    return new Message<UIMessage>({
+  ): Message<WebMessage> {
+    const text = extractText(uiMessage);
+    return new Message<WebMessage>({
       id: uiMessage.id,
       threadId,
       text,
@@ -440,21 +431,14 @@ function jsonError(status: number, message: string): Response {
   });
 }
 
-function findLastUserMessage(messages: UIMessage[]): UIMessage | null {
-  for (let i = messages.length - 1; i >= 0; i--) {
-    const m = messages[i];
-    if (m && m.role === "user") {
-      return m;
+function extractText(message: WebMessage): string {
+  const texts: string[] = [];
+  for (const part of message.parts) {
+    if (part.type === "text" && typeof part.text === "string") {
+      texts.push(part.text);
     }
   }
-  return null;
-}
-
-function extractTextFromUIMessage(message: UIMessage): string {
-  return message.parts
-    .filter(isTextUIPart)
-    .map((p) => p.text)
-    .join("\n");
+  return texts.join("\n");
 }
 
 function streamChunkToText(chunk: string | StreamChunk): string {
@@ -464,7 +448,7 @@ function streamChunkToText(chunk: string | StreamChunk): string {
   if (chunk.type === "markdown_text") {
     return chunk.text;
   }
-  // task_update / plan_update — no native v1 representation in UIMessage.
+  // task_update / plan_update — no native v1 representation on the wire.
   // Future: emit as data-* parts. For now ignored so the stream stays clean.
   return "";
 }
@@ -492,19 +476,10 @@ function adapterPostableToText(
   return "";
 }
 
-function assistantUIMessageFromText(id: string, text: string): UIMessage {
+function assistantMessageFromText(id: string, text: string): WebMessage {
   return {
     id,
     role: "assistant",
     parts: [{ type: "text", text }],
   };
-}
-
-function generateId(): string {
-  // crypto.randomUUID is available in Node 19+ and modern browsers.
-  // Fallback ensures we don't hard-fail if it's missing.
-  if (typeof crypto !== "undefined" && "randomUUID" in crypto) {
-    return crypto.randomUUID();
-  }
-  return `web-${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
 }
