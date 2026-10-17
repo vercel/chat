@@ -915,10 +915,9 @@ describe("emoji events", () => {
   it("dispatches a removed reaction", async () => {
     const { adapter, chat } = await setup();
     await adapter.handleWebhook(
-      webhookRequest(
-        emojiEvent({ event_type: "revoke" }),
-        { "x-gitlab-event": "Emoji Hook" }
-      )
+      webhookRequest(emojiEvent({ event_type: "revoke" }), {
+        "x-gitlab-event": "Emoji Hook",
+      })
     );
     const [event] = vi.mocked(chat.processReaction).mock.calls[0];
     expect(event.added).toBe(false);
