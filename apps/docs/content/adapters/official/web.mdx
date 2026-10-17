@@ -306,6 +306,10 @@ export default function ChatPage() {
 
 The request body's `messages[]` array is not an alternative history source. A browser controls it entirely, so the adapter consumes only the latest user message and strips tool parts from it. A client therefore cannot inject forged tool-call or approval state or rewrite earlier turns. With `"ai-sdk"`, text, file, and custom `data-*` parts pass through to `message.raw` unchanged. With `"ag-ui"`, `message.raw.parts` holds the message content as `{ type: "text", text }` parts plus any `image`, `audio`, `video`, `document`, or `binary` content parts. Setting `persistMessageHistory: false` leaves handlers with only the current message.
 
+The last entry in `messages[]` must be a user message. A body ending in an assistant or tool message, such as a client-side tool result, gets HTTP 400, because the adapter doesn't support tool or assistant continuations. Sending the same user message again (`regenerate()` or a reload) runs the handler again rather than being dropped as a duplicate, and history keeps the earlier reply and stores the repeated message a second time.
+
+`message.raw` is typed `WebMessage`. Part fields other than `type` are `unknown`. With `"ai-sdk"` the shape matches the AI SDK `UIMessage`, so you can cast it with `message.raw as UIMessage`.
+
 ## Thread IDs
 
 By default, each client conversation maps to one Chat SDK thread:
@@ -314,7 +318,7 @@ By default, each client conversation maps to one Chat SDK thread:
 web:{user.id}:{conversationId}
 ```
 
-`conversationId` is the `id` field AI SDK's `useChat` sends in its request body, or the `threadId` field with `"ag-ui"`. If your client supplies one (`useChat({ id: "support-chat" })` or TanStack AI's `useChat({ threadId: "support-chat" })`), it's reused across reloads; otherwise the client or adapter generates one.
+`conversationId` is the `id` field AI SDK's `useChat` sends in its request body, or the `threadId` field with `"ag-ui"`. If your client supplies one (`useChat({ id: "support-chat" })` or TanStack AI's `useChat({ threadId: "support-chat" })`), it's reused across reloads; otherwise the client or adapter generates one. A conversation ID that isn't a string, or that contains `:`, gets HTTP 400.
 
 Override `threadIdFor` to use a single thread per user:
 

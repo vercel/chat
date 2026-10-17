@@ -211,7 +211,7 @@ By default, each `useChat` conversation maps to one chat-sdk thread:
 web:{user.id}:{conversationId}
 ```
 
-`conversationId` is the `id` field AI SDK's useChat sends in its request body, or the `threadId` field with `protocol: "ag-ui"`. If your client supplies one (`useChat({ id: "support-chat" })`), it's reused across reloads; otherwise a fresh id is generated per request.
+`conversationId` is the `id` field AI SDK's useChat sends in its request body, or the `threadId` field with `protocol: "ag-ui"`. If your client supplies one (`useChat({ id: "support-chat" })`), it's reused across reloads; otherwise a fresh id is generated per request. A conversation id that isn't a string, or that contains `:`, is rejected with HTTP 400.
 
 `channel.messages` and `thread.messages` are equivalent on web — the channel id is the thread id. This avoids cross-conversation bleed when `persistMessageHistory` is enabled and the same user has multiple useChat conversations open.
 
@@ -256,7 +256,7 @@ The adapter honors `request.signal`, so calling `stop()` from the client short-c
 
 ## Message persistence
 
-`persistMessageHistory` defaults to **`true`**. Web has no platform-side history API, so the only way for chat-sdk handlers to see prior turns via `thread.messages` / `channel.messages` is through the configured state adapter's message history cache. Set it to `false` only if your handler re-derives history from the request body's `messages[]` itself:
+`persistMessageHistory` defaults to **`true`**. Web has no platform-side history API, so the only way for chat-sdk handlers to see prior turns via `thread.messages` / `channel.messages` is through the configured state adapter's message history cache. Set it to `false` only if your handler doesn't need prior turns:
 
 ```typescript
 createWebAdapter({
@@ -266,7 +266,9 @@ createWebAdapter({
 });
 ```
 
-The AI SDK client retains the conversation in its UI state and resends it on every request, so opting out is a valid choice for stateless handlers — but anything that calls `await thread.messages` won't see prior turns.
+The client resends the whole conversation on every request, but the adapter doesn't read history from it. A browser controls the request body's `messages[]` array, so the adapter consumes only the latest user message and strips tool parts from it. The last entry must be a user message; a body ending in an assistant or tool message, such as a client-side tool result, is rejected with HTTP 400. Sending the same user message again (`regenerate()` or a reload) runs the handler again rather than being dropped as a duplicate, and history keeps the earlier reply and stores the repeated message a second time.
+
+`message.raw` is typed `WebMessage`. Part fields other than `type` are `unknown`. With `"ai-sdk"` the shape matches the AI SDK `UIMessage`, so you can cast it with `message.raw as UIMessage`.
 
 ## Framework helpers
 
@@ -407,7 +409,11 @@ Unlike the React helper, Vue and Svelte return the `Chat` instance directly. Acc
 
 ### `thread.messages` is empty
 
-- `persistMessageHistory` is `false` and there is no platform-side history to fall back on. Either set it to `true` (the default) or read history from the request body's `messages[]` directly inside your handler.
+- `persistMessageHistory` is `false` and there is no platform-side history to fall back on. Set it to `true` (the default). The adapter never passes the request body's `messages[]` to handlers, so the state adapter is the only source of prior turns.
+
+### Requests return 400 "The last entry in messages must be a user message"
+
+- The adapter only handles new user turns. Client-side tool results and automatic resubmits (for example, `useChat`'s `sendAutomaticallyWhen`) send a body ending in an assistant or tool message, which isn't supported.
 
 ## AI Coding Agents
 

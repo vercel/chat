@@ -23,8 +23,9 @@ dependency on `ai` or any client SDK.
 What it covers:
 
 - HTTP endpoint at `/api/chat` (or wherever the adapter is mounted).
-  Handles POST requests carrying the `useChat` request body and
-  responds with an SSE UI message stream.
+  Handles POST requests carrying the client's chat request body and
+  responds over SSE with an AI SDK UI message stream (`"ai-sdk"`) or
+  AG-UI events (`"ag-ui"`).
 - Native streaming via the SSE protocol — no edit loop, no rate
   limiting, abort propagation through `request.signal` to the
   handler.
@@ -87,15 +88,19 @@ Server entry (`@chat-adapter/web` → `src/index.ts`):
 - `createWebAdapter(config)` — primary factory. Required:
   `userName` (bot name) and `getUser(request)` resolver. Optional:
   `protocol`, `persistMessageHistory`, `threadIdFor`, `logger`.
-- `WebAdapter` class — implements `Adapter<WebThreadId, unknown>`.
+- `WebAdapter` class: implements `Adapter<WebThreadIdData, WebMessage>`.
   Public methods: `handleWebhook` (mounted at `/api/chat` etc.),
   `postMessage`, `editMessage`, `deleteMessage`, `addReaction`,
   `removeReaction`, `startTyping`, `fetchThread`, `fetchMessages`,
-  `fetchSingleMessage`, `openDM`.
-- Configuration: `WebAdapterConfig`, `WebUser`, `WebThreadId`,
-  `WebProtocolName`.
+  `fetchSingleMessage`, `openDM`, `encodeThreadId`, `decodeThreadId`,
+  `isDM`.
+- Configuration: `WebAdapterConfig` (alias `WebAdapterOptions`),
+  `WebUser`, `WebThreadIdData`, `WebProtocolName`.
 - Raw message type: `WebMessage` / `WebMessagePart` (`message.raw`).
-- `encodeThreadId`, `decodeThreadId`, `isDM`.
+  Part fields other than `type` are `unknown`. With `"ai-sdk"` the
+  shape matches the AI SDK `UIMessage`, so handlers can cast with
+  `message.raw as UIMessage`.
+- `WebFormatConverter`.
 
 React entry (`@chat-adapter/web/react` → `src/react/index.ts`):
 
@@ -134,11 +139,19 @@ chat route (typically `/api/chat`). It:
    consumed (the rest of the array is untrusted client state), and
    only allowlisted parts survive so a browser can't inject forged
    tool-call or approval state: text, file, and `data-*` for
-   `"ai-sdk"`; text and media content parts for `"ag-ui"`.
+   `"ai-sdk"`; text and media content parts for `"ag-ui"`. The last
+   entry of `messages[]` must be a user message, so bodies ending in
+   an assistant or tool message (client-side tool results, automatic
+   resubmits) get HTTP 400. So does a conversation id (`id` or
+   `threadId`) that is present but not a string.
 3. Resolves the thread id via `threadIdFor` (default
    `web:{user.id}:{conversationId}`).
-4. Routes to `chat.processMessage`, which persists the message into
-   the configured state adapter when `persistMessageHistory: true`.
+4. Routes to `chat.processMessage` with `deduplicate: false`, which
+   persists the message into the configured state adapter when
+   `persistMessageHistory: true`. Web requests are never redelivered,
+   so a repeated message id is a regenerate or reload and runs the
+   handler again. History keeps the earlier bot reply and stores the
+   repeated user message twice.
 5. Streams the handler's `thread.post` output back to the browser as
    SSE frames. The adapter writes protocol-neutral `text-start` /
    `text-delta` / `text-end` events and the protocol encodes them.
