@@ -28,14 +28,15 @@ export interface WebMessagePart {
  * Raw message type for the Web adapter, exposed as `message.raw`.
  *
  * Incoming user messages keep the parts the client sent, minus anything the
- * protocol doesn't allow (tool parts are always dropped). With `"ai-sdk"`
- * this matches the AI SDK `UIMessage` shape.
+ * protocol doesn't allow (tool parts are always dropped). An AI SDK
+ * `UIMessage` is assignable to it, and with `"ai-sdk"` you can cast
+ * `message.raw as UIMessage` to get typed part fields.
  */
 export interface WebMessage {
   id: string;
+  metadata?: unknown;
   parts: WebMessagePart[];
   role: "user" | "assistant" | "system";
-  [key: string]: unknown;
 }
 
 export interface WebAdapterConfig {
@@ -54,9 +55,10 @@ export interface WebAdapterConfig {
    *
    * Default: `true`. Web has no platform-side history API, so the only way for
    * chat-sdk handlers to see prior turns via `thread.messages` / `channel.messages`
-   * is through the configured state adapter's message history cache. Set to
-   * `false` only if your handler re-derives history from the request body's
-   * `messages[]` itself.
+   * is through the configured state adapter's message history cache. The
+   * request body's `messages[]` is not a substitute: only its latest user
+   * message reaches the handler, so `false` leaves handlers with just the
+   * current message.
    */
   persistMessageHistory?: boolean;
   /**
