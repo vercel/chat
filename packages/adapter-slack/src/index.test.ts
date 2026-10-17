@@ -8273,26 +8273,6 @@ describe("resolveInlineMentions", () => {
     expect(message.isMention).toBe(true);
   });
 
-  it("does not flag a bot id inside code in a mrkdwn section block", async () => {
-    // Slack fires app_mention for a token in section mrkdwn, including one
-    // inside code, so the event type alone does not make this a mention.
-    const message = await parseIncoming({
-      type: "app_mention",
-      user: "U_SENDER",
-      channel: "C456",
-      text: "see `<@U_BOT>`",
-      ts: "1234567890.202024",
-      blocks: [
-        {
-          type: "section",
-          text: { type: "mrkdwn", text: "see `<@U_BOT>`" },
-        },
-      ],
-    });
-
-    expect(message.isMention).toBe(false);
-  });
-
   it("does not flag a bot id in a plain_text section block", async () => {
     const message = await parseIncoming({
       type: "message",
@@ -8309,6 +8289,26 @@ describe("resolveInlineMentions", () => {
     });
 
     expect(message.isMention).toBe(false);
+  });
+
+  it("flags a bot id in text beside blocks that do not show it", async () => {
+    // Block Kit other than rich_text is separate from `text`, so the token
+    // there is the mention Slack notifies for.
+    const message = await parseIncoming({
+      type: "message",
+      user: "U_SENDER",
+      channel: "C456",
+      text: "<@U_BOT> deploy prod",
+      ts: "1234567890.202025",
+      blocks: [
+        {
+          type: "header",
+          text: { type: "plain_text", text: "Deploy request" },
+        },
+      ],
+    });
+
+    expect(message.isMention).toBe(true);
   });
 
   it("does not read attachment fallback when the attachment has blocks", async () => {
@@ -9111,6 +9111,195 @@ describe("mention routing", () => {
 
     expect(mentionHandler).not.toHaveBeenCalled();
     expect(messageHandler).toHaveBeenCalled();
+  });
+
+  it.each([
+    {
+      name: "an unknown id in section mrkdwn with separate fallback text",
+      text: "New alert",
+      blocks: [
+        {
+          type: "section",
+          text: { type: "mrkdwn", text: "<@W_BOT> please triage" },
+        },
+      ],
+      expected: true,
+    },
+    {
+      name: "a bot token in text beside header and actions blocks",
+      text: "<@U_BOT> deploy prod",
+      blocks: [
+        {
+          type: "header",
+          text: { type: "plain_text", text: "Deploy request" },
+        },
+        {
+          type: "actions",
+          elements: [
+            {
+              type: "button",
+              action_id: "approve",
+              text: { type: "plain_text", text: "Approve" },
+            },
+          ],
+        },
+      ],
+      expected: true,
+    },
+    {
+      name: "a bot token only in code in text beside a section block",
+      text: "see `<@U_BOT>` for setup",
+      blocks: [
+        {
+          type: "section",
+          text: { type: "mrkdwn", text: "Deploy notes" },
+        },
+      ],
+      expected: false,
+    },
+    {
+      name: "legacy text of an attachment that has blocks",
+      text: "see `<@W_BOT>` for setup",
+      attachments: [
+        {
+          text: "<@U_SOMEONE> fyi",
+          blocks: [
+            {
+              type: "section",
+              text: { type: "plain_text", text: "Build finished" },
+            },
+          ],
+        },
+      ],
+      expected: false,
+    },
+    {
+      name: "an unknown id that rich text renders as plain text",
+      text: "ask <@W_BOT> later",
+      blocks: [
+        {
+          type: "rich_text",
+          elements: [
+            {
+              type: "rich_text_section",
+              elements: [{ type: "text", text: "ask @examplebot later" }],
+            },
+          ],
+        },
+      ],
+      expected: false,
+    },
+    {
+      name: "an unknown id in a raw_text table cell",
+      text: "Import <@W_BOT>/passport",
+      blocks: [
+        {
+          type: "table",
+          rows: [
+            [
+              { type: "raw_text", text: "Import" },
+              { type: "raw_text", text: "<@W_BOT>/passport" },
+            ],
+          ],
+        },
+      ],
+      expected: false,
+    },
+    {
+      name: "an unknown id in a plain_text section",
+      text: "hey <@W_BOT> take a look",
+      blocks: [
+        {
+          type: "section",
+          text: { type: "plain_text", text: "hey <@W_BOT> take a look" },
+        },
+      ],
+      expected: false,
+    },
+    {
+      // Indistinguishable from a real `<@W_BOT> see `<@U_X>`` mention, where
+      // the blocks show the W id as a user element and the other id in code.
+      name: "an unknown id in code beside another person's mention",
+      text: "<@U_OTHER> see `<@W_BOT>` for setup",
+      blocks: [
+        {
+          type: "rich_text",
+          elements: [
+            {
+              type: "rich_text_section",
+              elements: [
+                { type: "user", user_id: "U_OTHER" },
+                { type: "text", text: " see " },
+                { type: "text", text: "@examplebot", style: { code: true } },
+                { type: "text", text: " for setup" },
+              ],
+            },
+          ],
+        },
+      ],
+      expected: true,
+    },
+    {
+      name: "a code-only reference when the bot id is unresolved",
+      botUserId: null,
+      text: "see `<@U_BOT>` for setup",
+      expected: false,
+    },
+    {
+      name: "a rendered mention when the bot id is unresolved",
+      botUserId: null,
+      text: "<@U_BOT> help me",
+      blocks: [
+        {
+          type: "rich_text",
+          elements: [
+            {
+              type: "rich_text_section",
+              elements: [
+                { type: "user", user_id: "U_BOT" },
+                { type: "text", text: " help me" },
+              ],
+            },
+          ],
+        },
+      ],
+      expected: true,
+    },
+  ])("classifies app_mention evidence: $name", async ({
+    botUserId,
+    text,
+    blocks,
+    attachments,
+    expected,
+  }: {
+    attachments?: unknown[];
+    blocks?: unknown[];
+    botUserId?: string | null;
+    expected: boolean;
+    text: string;
+  }) => {
+    const { adapter, bot } = await createRoutedBot({ botUserId });
+    const mentionHandler = vi.fn();
+    const messageHandler = vi.fn();
+    bot.onNewMention(mentionHandler);
+    bot.onNewMessage(ANY_TEXT_PATTERN, messageHandler);
+
+    await deliverWebhook(adapter, {
+      type: "app_mention",
+      user: "U_SENDER",
+      channel: "C456",
+      text,
+      ts: "1234567890.262626",
+      ...(blocks ? { blocks } : {}),
+      ...(attachments ? { attachments } : {}),
+    });
+
+    if (expected) {
+      expect(mentionHandler).toHaveBeenCalled();
+    } else {
+      expect(mentionHandler).not.toHaveBeenCalled();
+      expect(messageHandler).toHaveBeenCalled();
+    }
   });
 
   it("trusts app_mention when the bot id is unresolved", async () => {

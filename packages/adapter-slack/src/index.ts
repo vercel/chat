@@ -98,9 +98,6 @@ import { verifySlackRequest } from "./webhook/index";
 const SLACK_USER_ID_PATTERN = /^[A-Z0-9_]+$/;
 // Enterprise Grid users can have W-prefixed IDs anywhere a U-prefixed ID appears
 const SLACK_USER_ID_EXACT_PATTERN = /^[UW][A-Z0-9]+$/;
-// Slack escapes `<` in message text, so a token label stops at the next `<`.
-// Excluding it keeps the label scan linear on text with many unclosed tokens.
-const SLACK_USER_TOKEN_PATTERN = /<@!?[UW][A-Z0-9_]+(?:\|[^<>]*)?>/i;
 const SLACK_RESPONSE_URL_HOSTS = new Set([
   "hooks.slack-gov.com",
   "hooks.slack.com",
@@ -572,44 +569,82 @@ export interface SlackMessageBlock extends SlackBlock {
 
 /**
  * Slack's user-mention syntax for `userId`: `<@U…>` or `<@U…|name>`. Used for
- * mrkdwn content, where a mention is a token in the text. The label excludes
- * `<` for the same reason as `SLACK_USER_TOKEN_PATTERN`.
+ * mrkdwn content, where a mention is a token in the text. Slack escapes `<` in
+ * message text, so a label stops at the next `<`; excluding it keeps the scan
+ * linear on text with many unclosed tokens.
  */
 function mentionTokenPattern(userId: string): RegExp {
   return new RegExp(`<@!?${escapeRegExp(userId)}(?:\\|[^<>]*)?>`, "i");
 }
 
+/** The user ids referenced by `<@U…>` tokens in `text`. */
+function userMentionIds(text: string): Set<string> {
+  const userIds = new Set<string>();
+  collectMentionIds(text, userIds, new Set());
+  return userIds;
+}
+
 /**
- * The bot to look for, compiled once per message. `userId` is uppercased so
- * a structured `user` element compares the way the case-insensitive token
- * pattern matches.
+ * Which users to look for: `matchesId` tests a structured `user` element,
+ * `matchesText` tests a string for a mention token.
  */
 interface SlackMentionMatcher {
-  token: RegExp;
-  userId: string;
-}
-
-function mentionMatcher(userId: string): SlackMentionMatcher {
-  return { token: mentionTokenPattern(userId), userId: userId.toUpperCase() };
+  matchesId(userId: string): boolean;
+  matchesText(text: string): boolean;
 }
 
 /**
- * How a piece of content refers to the matched user: as a mention Slack
+ * Matches one user. Ids compare case-insensitively, the way the token
+ * pattern matches.
+ */
+function mentionMatcher(userId: string): SlackMentionMatcher {
+  const token = mentionTokenPattern(userId);
+  const upper = userId.toUpperCase();
+  return {
+    matchesId: (id) => id.toUpperCase() === upper,
+    matchesText: (text) => token.test(text),
+  };
+}
+
+/** Matches any user. */
+const ANY_USER_MATCHER: SlackMentionMatcher = {
+  matchesId: () => true,
+  matchesText: (text) => userMentionIds(text).size > 0,
+};
+
+/**
+ * How a piece of content refers to the matched users: as a mention Slack
  * renders, as a literal token (inside code or display text), or not at all.
  * `literal` explains an `app_mention` event without making it an invocation;
  * `none` leaves the event unexplained.
  */
 type SlackMentionEvidence = "literal" | "mention" | "none";
 
+/** `mention` if any piece is one, else `literal` if any piece is one. */
+function combineEvidence(
+  evidence: Iterable<SlackMentionEvidence>
+): SlackMentionEvidence {
+  let result: SlackMentionEvidence = "none";
+  for (const item of evidence) {
+    if (item === "mention") {
+      return "mention";
+    }
+    if (item === "literal") {
+      result = "literal";
+    }
+  }
+  return result;
+}
+
 /** Classify a mrkdwn string, where code is carried as backticks. */
 function classifyMrkdwnMention(
   text: string,
   matcher: SlackMentionMatcher
 ): SlackMentionEvidence {
-  if (!matcher.token.test(text)) {
+  if (!matcher.matchesText(text)) {
     return "none";
   }
-  return matcher.token.test(maskCodeSpans(text)) ? "mention" : "literal";
+  return matcher.matchesText(maskCodeSpans(text)) ? "mention" : "literal";
 }
 
 /**
@@ -624,32 +659,11 @@ function classifyAttachmentPart(
   if ("mrkdwn" in part) {
     return classifyMrkdwnMention(part.mrkdwn, matcher);
   }
-  return matcher.token.test(part.literal) ? "mention" : "none";
+  return matcher.matchesText(part.literal) ? "mention" : "none";
 }
 
 /**
- * Whether the fields Slack scans for `app_mention`, `text` and legacy
- * attachment text, show any user token outside code. Slack also fires the
- * event for a token inside code, which renders literally.
- */
-function hasUserTokenOutsideCode(
-  rawText: string,
-  attachments: SlackAttachmentContent[]
-): boolean {
-  if (SLACK_USER_TOKEN_PATTERN.test(maskCodeSpans(rawText))) {
-    return true;
-  }
-  return attachments.some((attachment) =>
-    attachment.parts.some((part) =>
-      SLACK_USER_TOKEN_PATTERN.test(
-        "mrkdwn" in part ? maskCodeSpans(part.mrkdwn) : part.literal
-      )
-    )
-  );
-}
-
-/**
- * Classify how blocks refer to the matched user.
+ * Classify how blocks refer to the matched users.
  *
  * Slack renders a mention from a `user` element, and from a `<@U…>` token in a
  * text object explicitly typed `mrkdwn`. A rich-text `text` element, a link
@@ -683,7 +697,7 @@ function classifyBlocksMention(
     if (
       value.type === "user" &&
       typeof value.user_id === "string" &&
-      value.user_id.toUpperCase() === matcher.userId
+      matcher.matchesId(value.user_id)
     ) {
       if (!isCode) {
         return true;
@@ -691,12 +705,12 @@ function classifyBlocksMention(
       literal = true;
     } else if (
       typeof value.text === "string" &&
-      matcher.token.test(value.text)
+      matcher.matchesText(value.text)
     ) {
       if (
         !isCode &&
         value.type === "mrkdwn" &&
-        matcher.token.test(maskCodeSpans(value.text))
+        matcher.matchesText(maskCodeSpans(value.text))
       ) {
         return true;
       }
@@ -715,6 +729,97 @@ function classifyBlocksMention(
     return "mention";
   }
   return literal ? "literal" : "none";
+}
+
+/**
+ * Classify the message body: its blocks and the `text` field.
+ *
+ * A `rich_text` block is the client-authored copy of `text`, so with one
+ * present the blocks decide, and a token in `text` they do not render refers
+ * to the user literally. Other blocks are separate from `text`: blocks that
+ * show the user decide, and otherwise `text` is classified as mrkdwn.
+ */
+function classifyBodyMention(
+  blocks: SlackMessageBlock[],
+  rawText: string,
+  matcher: SlackMentionMatcher
+): SlackMentionEvidence {
+  if (blocks.length === 0) {
+    return classifyMrkdwnMention(rawText, matcher);
+  }
+  const fromBlocks = classifyBlocksMention(blocks, matcher);
+  if (fromBlocks !== "none") {
+    return fromBlocks;
+  }
+  if (blocks.some((block) => block.type === "rich_text")) {
+    return matcher.matchesText(rawText) ? "literal" : "none";
+  }
+  return classifyMrkdwnMention(rawText, matcher);
+}
+
+/**
+ * Classify one attachment. Structured content is authoritative for its
+ * attachment, so with blocks present the legacy parts are not read.
+ */
+function classifyAttachmentMention(
+  attachment: SlackAttachmentContent,
+  matcher: SlackMentionMatcher
+): SlackMentionEvidence {
+  if (attachment.blocks.length > 0) {
+    return classifyBlocksMention(attachment.blocks, matcher);
+  }
+  return combineEvidence(
+    attachment.parts.map((part) => classifyAttachmentPart(part, matcher))
+  );
+}
+
+/**
+ * Every user id the blocks reference, as a `user` element or a token in any
+ * text, uppercased.
+ */
+function blockUserIds(blocks: SlackMessageBlock[]): Set<string> {
+  const ids = new Set<string>();
+  classifyBlocksMention(blocks, {
+    matchesId: (id) => {
+      ids.add(id.toUpperCase());
+      return false;
+    },
+    matchesText: (text) => {
+      for (const id of userMentionIds(text)) {
+        ids.add(id);
+      }
+      return false;
+    },
+  });
+  return ids;
+}
+
+/**
+ * Whether the rendered message shows a mention of any user. A token in `text`
+ * counts only without a `rich_text` block, and only for an id the blocks do
+ * not show literally, matching `classifyBodyMention` for that id.
+ */
+function rendersAnyUserMention(
+  blocks: SlackMessageBlock[],
+  rawText: string,
+  attachments: SlackAttachmentContent[]
+): boolean {
+  if (classifyBlocksMention(blocks, ANY_USER_MATCHER) === "mention") {
+    return true;
+  }
+  if (!blocks.some((block) => block.type === "rich_text")) {
+    // The blocks render no mention, so every id they reference is literal.
+    const literalIds = blockUserIds(blocks);
+    for (const userId of userMentionIds(maskCodeSpans(rawText))) {
+      if (!literalIds.has(userId)) {
+        return true;
+      }
+    }
+  }
+  return attachments.some(
+    (attachment) =>
+      classifyAttachmentMention(attachment, ANY_USER_MATCHER) === "mention"
+  );
 }
 
 type SlackContentNode = FormattedContent["children"][number];
@@ -4589,15 +4694,21 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
    * mention. Inline (`style.code`) and preformatted content renders literally,
    * so a bot id there is not.
    *
+   * With a `rich_text` block present, the blocks are the rendered copy of
+   * `text`, and a bot token in `text` they do not render refers to the bot
+   * literally. Other blocks are separate from `text`: a bot reference in them
+   * decides, and otherwise `text` is classified as mrkdwn. An attachment is
+   * classified from its blocks when it has any, otherwise from its legacy
+   * fields.
+   *
    * Returns `true` for an invocation and `false` when the content refers to
-   * the bot only literally, or not at all on an ordinary message. Blocks can
-   * render a code-styled bot reference as plain text while `text` keeps its
-   * `<@U…>` token, so a token there also refers to the bot literally. An
-   * `app_mention` whose content never shows the known bot id is still trusted
-   * when `text` or an attachment shows another user token outside code:
-   * Slack saw a mention under an id the adapter does not know, such as the
-   * `W…` form an Enterprise Grid workspace emits for a `U…` bot. Without any
-   * bot id, `app_mention` is trusted the same way and other messages stay
+   * the bot only literally, or not at all on an ordinary message. An
+   * `app_mention` with no reference to the known bot id is trusted only when
+   * the rendered content shows a mention of some user outside code: Slack saw
+   * a mention under an id the adapter does not know, such as the `W…` form an
+   * Enterprise Grid workspace emits for a `U…` bot. A reference to the bot
+   * beside another user's mention is indistinguishable from that case. Without
+   * a bot id, `app_mention` follows the same rule and other messages stay
    * undetermined for the SDK's text-based fallback.
    */
   protected detectSelfMention(
@@ -4605,55 +4716,27 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
     rawText: string,
     attachments: SlackAttachmentContent[]
   ): boolean | undefined {
+    const blocks = event.blocks ?? [];
     const botUserId = this.botUserId;
     if (!botUserId) {
-      return event.type === "app_mention" ? true : undefined;
+      return event.type === "app_mention"
+        ? rendersAnyUserMention(blocks, rawText, attachments)
+        : undefined;
     }
 
     const matcher = mentionMatcher(botUserId);
-    let literal = false;
-    const found = (evidence: SlackMentionEvidence): boolean => {
-      if (evidence === "literal") {
-        literal = true;
-      }
-      return evidence === "mention";
-    };
-
-    const blocks = event.blocks ?? [];
-    // Blocks model the message body. The flattened `text` field loses the
-    // code/literal distinction, so it is only consulted without them.
-    const body =
-      blocks.length > 0
-        ? classifyBlocksMention(blocks, matcher)
-        : classifyMrkdwnMention(rawText, matcher);
-    if (found(body)) {
+    const evidence = combineEvidence([
+      classifyBodyMention(blocks, rawText, matcher),
+      ...attachments.map((attachment) =>
+        classifyAttachmentMention(attachment, matcher)
+      ),
+    ]);
+    if (evidence === "mention") {
       return true;
     }
 
-    for (const attachment of attachments) {
-      if (attachment.blocks.length > 0) {
-        // Structured attachment content is authoritative for that attachment,
-        // so its legacy fallback cannot add mention evidence.
-        if (found(classifyBlocksMention(attachment.blocks, matcher))) {
-          return true;
-        }
-        continue;
-      }
-
-      for (const part of attachment.parts) {
-        if (found(classifyAttachmentPart(part, matcher))) {
-          return true;
-        }
-      }
-    }
-
-    if (
-      event.type === "app_mention" &&
-      !literal &&
-      !matcher.token.test(rawText) &&
-      hasUserTokenOutsideCode(rawText, attachments)
-    ) {
-      return true;
+    if (event.type === "app_mention" && evidence === "none") {
+      return rendersAnyUserMention(blocks, rawText, attachments);
     }
 
     // Slack mentions are user-id tokens. With the content inspected, the
