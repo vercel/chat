@@ -979,6 +979,64 @@ function attachmentContent(
   return { blocks, parts, tables };
 }
 
+/**
+ * The body of a message composed from Block Kit layout blocks, typically by
+ * an app or workflow. When a message carries blocks, Slack renders them and
+ * uses `text` only as the notification fallback, so the fallback can omit
+ * content the blocks show. Text in `section` (including `fields`), `header`,
+ * and `context` blocks becomes the body in block order: `mrkdwn` objects keep
+ * their markup and `plain_text` objects render literally.
+ *
+ * Messages typed in a Slack client carry `rich_text` blocks, which `text`
+ * mirrors, so they keep the `text` body. Without layout text, the result is
+ * `null` and `text` stays the body.
+ */
+function layoutBlockContent(event: SlackEvent): SlackAttachmentContent | null {
+  const blocks: unknown[] = event.blocks ?? [];
+  if (blocks.some((block) => isRecord(block) && block.type === "rich_text")) {
+    return null;
+  }
+
+  const parts: SlackAttachmentPart[] = [];
+  const push = (object: unknown) => {
+    if (!isRecord(object) || typeof object.text !== "string") {
+      return;
+    }
+    const text = object.text.trim();
+    if (!text) {
+      return;
+    }
+    if (object.type === "mrkdwn") {
+      parts.push({ mrkdwn: text });
+    } else if (object.type === "plain_text") {
+      parts.push({ literal: escapeSlackText(text) });
+    }
+  };
+  const pushEach = (objects: unknown) => {
+    if (Array.isArray(objects)) {
+      for (const object of objects) {
+        push(object);
+      }
+    }
+  };
+
+  for (const block of blocks) {
+    if (!isRecord(block)) {
+      continue;
+    }
+    if (block.type === "section") {
+      push(block.text);
+      pushEach(block.fields);
+    } else if (block.type === "header") {
+      push(block.text);
+    } else if (block.type === "context") {
+      pushEach(block.elements);
+    }
+  }
+
+  return parts.length > 0 ? { blocks: [], parts, tables: [] } : null;
+}
+
 function mentionIds(
   tables: SlackEventTables,
   attachments: SlackAttachmentContent[]
@@ -4678,9 +4736,16 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
     const attachments = authorAttachments(event).map(attachmentContent);
     const isMention = this.detectSelfMention(event, rawText, attachments);
 
-    // Resolve inline @mentions to display names.
-    const text = await this.resolveInlineMentions(rawText);
-    const formatted = await this.resolvedContent(event, text, attachments);
+    // Resolve inline @mentions to display names. Layout blocks replace the
+    // fallback text, so its mentions need no lookup.
+    const body = layoutBlockContent(event);
+    const text = body ? "" : await this.resolveInlineMentions(rawText);
+    const formatted = await this.resolvedContent(
+      event,
+      text,
+      attachments,
+      body
+    );
 
     return new Message({
       id: event.ts || "",
@@ -7053,12 +7118,14 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
   protected content(
     event: SlackEvent,
     text: string,
-    attachments = authorAttachments(event).map(attachmentContent)
+    attachments = authorAttachments(event).map(attachmentContent),
+    body = layoutBlockContent(event)
   ): FormattedContent {
     return this.assembleContent(
-      text,
+      body ? "" : text,
       eventTables(event),
-      attachments.flatMap((attachment) => this.attachmentNodes(attachment))
+      attachments.flatMap((attachment) => this.attachmentNodes(attachment)),
+      body ? this.attachmentNodes(body) : []
     );
   }
 
@@ -7071,12 +7138,13 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
   protected async resolvedContent(
     event: SlackEvent,
     text: string,
-    attachments = authorAttachments(event).map(attachmentContent)
+    attachments = authorAttachments(event).map(attachmentContent),
+    body = layoutBlockContent(event)
   ): Promise<FormattedContent> {
     const { leading, trailing } = eventTables(event);
     const { channelIds, userIds } = mentionIds(
       { leading, trailing },
-      attachments
+      body ? [body, ...attachments] : attachments
     );
     const names = await this.lookupMentionNames(userIds, channelIds);
 
@@ -7092,7 +7160,7 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
         : { literal: applyMentionNames(part.literal, names) };
 
     return this.assembleContent(
-      text,
+      body ? "" : text,
       {
         leading: leading.map(resolveTable),
         trailing: trailing.map(resolveTable),
@@ -7103,19 +7171,28 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
           parts: attachment.parts.map(resolvePart),
           tables: attachment.tables.map(resolveTable),
         })
-      )
+      ),
+      body
+        ? this.attachmentNodes({ ...body, parts: body.parts.map(resolvePart) })
+        : []
     );
   }
 
+  /**
+   * `body` holds layout block content that replaces `text`; it stays between
+   * the leading and trailing tables, matching the block order.
+   */
   private assembleContent(
     text: string,
     tables: SlackEventTables,
-    attachments: SlackContentNode[] = []
+    attachments: SlackContentNode[] = [],
+    body: SlackContentNode[] = []
   ): FormattedContent {
     const formatted = this.formatConverter.toAst(text);
     formatted.children.unshift(
       ...tables.leading.map((data) => this.tableNode(data))
     );
+    formatted.children.push(...body);
     formatted.children.push(
       ...tables.trailing.map((data) => this.tableNode(data))
     );

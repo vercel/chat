@@ -103,3 +103,11 @@ The next `app_mention` carries a bot reference composed inside inline code. Slac
   body: '{"token":"xAbCdEfGhIjKlMnOpQrStUvW","team_id":"T00FAKE00AA","api_app_id":"A00FAKEAPP01","event":{"type":"app_mention","user":"U00FAKEUSER1","ts":"1789637259.073259","client_msg_id":"9d1e2c6b-4f0a-4b7e-a4c1-2d8f7e6a5b30","text":"mrkdwn probe: the app imports `<@U00FAKEBOT01>/passport` and A &amp; B &lt;c&gt;","team":"T00FAKE00AA","blocks":[{"type":"rich_text","block_id":"5hP","elements":[{"type":"rich_text_section","elements":[{"type":"text","text":"mrkdwn probe: the app imports "},{"type":"user","user_id":"U00FAKEBOT01","style":{"code":true}},{"type":"text","text":"/passport","style":{"code":true}},{"type":"text","text":" and A & B <c>"}]}]}],"channel":"C00FAKECHAN1","event_ts":"1789637259.073259"},"type":"event_callback","event_id":"Ev0A6CODEREF1","event_time":1789637259,"authorizations":[{"enterprise_id":null,"team_id":"T00FAKE00AA","user_id":"U00FAKEBOT01","is_bot":true,"is_enterprise_install":false}],"is_ext_shared_channel":false,"event_context":"4-eyJldCI6ImFwcF9tZW50aW9uIiwidGlkIjoiVDAzU0g3RzAxR1UiLCJhaWQiOiJBMEE1RlVYUDFFRCIsImNpZCI6IkMwQTUxMU1CQ1VXIn0"}'
 }
 ```
+
+The next `app_mention` was posted through `chat.postMessage` with a `section` block and a separate fallback `text` (ids, timestamps, and text anonymized). Slack renders the block and fires `app_mention` for the token in its mrkdwn, although `text` has no token. The adapter classifies it as `isMention: true` and builds the message body from the block, so `message.text` is `@<bot name> please check the deploy`, not the fallback.
+
+```log
+[chat-sdk:slack] Slack webhook raw body {
+  body: '{"token":"xAbCdEfGhIjKlMnOpQrStUvW","team_id":"T00FAKE00AA","api_app_id":"A00FAKEAPP01","event":{"type":"app_mention","user":"U00FAKEUSER1","ts":"1789700000.000200","text":"New request","team":"T00FAKE00AA","blocks":[{"type":"section","block_id":"cD2eF","text":{"type":"mrkdwn","text":"<@U00FAKEBOT01> please check the deploy","verbatim":false}}],"channel":"C00FAKECHAN1","event_ts":"1789700000.000200"},"type":"event_callback","event_id":"Ev0ASECTION01","event_time":1789700000,"authorizations":[{"enterprise_id":null,"team_id":"T00FAKE00AA","user_id":"U00FAKEBOT01","is_bot":true,"is_enterprise_install":false}],"is_ext_shared_channel":false}'
+}
+```

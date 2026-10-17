@@ -1911,6 +1911,71 @@ describe("parseMessage", () => {
     }
   });
 
+  it("renders layout blocks as the body instead of the fallback text", async () => {
+    // Slack renders the blocks; `text` is only the notification fallback.
+    const event: SlackEvent = {
+      type: "message",
+      user: "U123",
+      channel: "C456",
+      text: "Deploy finished",
+      ts: "1786120899.208430",
+      blocks: [
+        { type: "header", text: { type: "plain_text", text: "Deploy *prod*" } },
+        {
+          type: "section",
+          text: { type: "mrkdwn", text: "*Status:* succeeded" },
+          fields: [
+            { type: "mrkdwn", text: "*Region:* iad1" },
+            { type: "plain_text", text: "Duration: 2m" },
+          ],
+        },
+        { type: "divider" },
+        {
+          type: "context",
+          elements: [{ type: "mrkdwn", text: "Triggered by CI" }],
+        },
+      ] as SlackEvent["blocks"],
+    };
+
+    const sync = adapter.parseMessage(event);
+    const internals = adapter as unknown as {
+      parseSlackMessage(
+        value: SlackEvent,
+        threadId: string
+      ): Promise<Message<unknown>>;
+    };
+    const async = await internals.parseSlackMessage(
+      event,
+      "slack:C456:1786120899.208430"
+    );
+
+    for (const message of [sync, async]) {
+      expect(message.text).toBe(
+        "Deploy *prod*\n\nStatus: succeeded\n\nRegion: iad1\n\nDuration: 2m\n\nTriggered by CI"
+      );
+    }
+  });
+
+  it("keeps the text body when blocks carry no layout text", () => {
+    const message = adapter.parseMessage({
+      type: "message",
+      user: "U123",
+      channel: "C456",
+      text: "Build 421 is ready",
+      ts: "1786120899.208431",
+      blocks: [
+        {
+          type: "actions",
+          elements: [
+            { type: "button", text: { type: "plain_text", text: "Open" } },
+          ],
+        },
+      ] as SlackEvent["blocks"],
+    });
+
+    expect(message.text).toBe("Build 421 is ready");
+  });
+
   it("falls back to attachment fallback only when nothing else carries content", () => {
     const message = adapter.parseMessage({
       type: "message",
@@ -8271,6 +8336,26 @@ describe("resolveInlineMentions", () => {
     });
 
     expect(message.isMention).toBe(true);
+  });
+
+  it("reads a mention in a section block into the message text", async () => {
+    // The fallback text omits the request that the section block shows.
+    const message = await parseIncoming({
+      type: "app_mention",
+      user: "U_SENDER",
+      channel: "C456",
+      text: "New request",
+      ts: "1234567890.202025",
+      blocks: [
+        {
+          type: "section",
+          text: { type: "mrkdwn", text: "<@U_BOT> please check the deploy" },
+        },
+      ],
+    });
+
+    expect(message.isMention).toBe(true);
+    expect(message.text).toBe("@Test Bot please check the deploy");
   });
 
   it("does not flag a bot id in a plain_text section block", async () => {
