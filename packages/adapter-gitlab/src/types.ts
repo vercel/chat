@@ -273,7 +273,7 @@ export interface GitLabNoteWebhookPayload {
 
 /** Emoji (`Emoji Hook`) webhook payload. */
 export interface GitLabEmojiWebhookPayload {
-  event_type?: "award" | "revoke";
+  event_type: "award" | "revoke";
   issue?: { confidential?: boolean; id: number; iid: number };
   merge_request?: { id: number; iid: number };
   note?: {
@@ -290,7 +290,6 @@ export interface GitLabEmojiWebhookPayload {
     updated_at: string;
   };
   object_attributes: {
-    action: "award" | "revoke";
     awardable_id: number;
     awardable_type: string;
     id: number;

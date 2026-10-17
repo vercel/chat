@@ -781,7 +781,7 @@ export class GitLabAdapter
     this.chat.processReaction(
       {
         adapter: this,
-        added: attrs.action === "award",
+        added: payload.event_type === "award",
         emoji: this.fromGitLabEmoji(attrs.name),
         messageId: String(note.id),
         raw: payload,

@@ -844,7 +844,6 @@ describe("emoji events", () => {
         name: "thumbsup",
         awardable_type: "Note",
         awardable_id: 500,
-        action: "award",
       },
       note: {
         id: 500,
@@ -917,12 +916,7 @@ describe("emoji events", () => {
     const { adapter, chat } = await setup();
     await adapter.handleWebhook(
       webhookRequest(
-        emojiEvent({
-          object_attributes: {
-            ...emojiEvent().object_attributes,
-            action: "revoke",
-          },
-        }),
+        emojiEvent({ event_type: "revoke" }),
         { "x-gitlab-event": "Emoji Hook" }
       )
     );
