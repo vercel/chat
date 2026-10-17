@@ -1,5 +1,7 @@
 # @chat-adapter/catalog
 
+## 4.42.1
+
 ## 4.42.0
 
 ### Minor Changes

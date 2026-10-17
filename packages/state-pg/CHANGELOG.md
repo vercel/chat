@@ -1,5 +1,11 @@
 # @chat-adapter/state-pg
 
+## 4.42.1
+
+### Patch Changes
+
+- chat@4.42.1
+
 ## 4.42.0
 
 ### Patch Changes
