@@ -56,7 +56,7 @@ export default function ChatPage() {
               const text = message.parts
                 .filter((part) => part.type === "text")
                 .map((part) => (part as { text: string }).text)
-                .join("");
+                .join("\n\n");
               const isUser = message.role === "user";
               const isLastAssistant = !isUser && message === messages.at(-1);
               const isStreaming = isLastAssistant && status === "streaming";

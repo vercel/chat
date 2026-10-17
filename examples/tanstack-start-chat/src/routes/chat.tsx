@@ -62,8 +62,8 @@ function ChatPage() {
           <>
             {messages.map((message) => {
               const text = message.parts
-                .map((part) => (part.type === "text" ? part.content : ""))
-                .join("");
+                .flatMap((part) => (part.type === "text" ? [part.content] : []))
+                .join("\n\n");
               const isUser = message.role === "user";
               const isLastAssistant = !isUser && message === messages.at(-1);
               const isStreaming = isLastAssistant && status === "streaming";
