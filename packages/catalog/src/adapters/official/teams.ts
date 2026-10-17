@@ -2,7 +2,6 @@ import { env, secretEnv, urlEnv } from "../../env";
 import type { CatalogAdapter } from "../../types";
 
 export const teams = {
-  beta: true,
   description:
     "Deploy bots to Microsoft Teams with adaptive cards, mentions, and conversation threading.",
   env: {

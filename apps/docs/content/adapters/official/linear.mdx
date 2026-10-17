@@ -6,8 +6,15 @@ slug: linear
 type: platform
 logo: linear
 tagline: Automate Linear issue comment threads with bot responses. Supports both standard comments mode and Linear's app-actor agent sessions.
-beta: true
 ---
+
+## Create a new bot
+
+Scaffold a Next.js bot with the Linear adapter using [`create-chat-sdk`](/docs/create-chat-sdk):
+
+<CreateChatSdk adapters="linear memory" />
+
+The generated app uses the [Memory state adapter](/adapters/official/memory) for local development. To add the adapter to an existing app, start at [Install](#install).
 
 ## Install
 
@@ -75,6 +82,17 @@ createLinearAdapter({
 We recommend agent sessions for Vercel Connect bots. Enable **Agent session events** on the Linear app and use an app-actor installation. Omitting `mode` keeps the `"comments"` default; existing bots do not need to change their configuration. Changing the adapter mode does not change the app's webhook subscriptions or permissions.
 
 `accessToken` accepts a `string` or `() => string | Promise<string>` resolver invoked per API call. When `webhookVerifier` is set it takes precedence over `webhookSecret` and `LINEAR_WEBHOOK_SECRET`.
+
+Create the connector and attach it to your project with the [Vercel CLI](https://vercel.com/docs/cli/connect). `--trigger-path` registers the Linear webhook route as the trigger destination, and `vercel env pull` downloads a development OIDC token for local runs:
+
+```bash
+vercel link
+vercel connect create linear --name acme-linear --triggers
+vercel connect attach linear/acme-linear --triggers --trigger-path /api/webhooks/linear
+vercel env pull
+```
+
+Without `--trigger-branch`, Connect forwards webhooks to your production deployment. See [Vercel Connect](/docs/vercel-connect#set-up-a-connector) for the full setup.
 
 ### Personal API key
 
@@ -282,6 +300,10 @@ The previous `.client` getter still works as a deprecated alias for `.linearClie
 ## Message history
 
 For agent-session threads, `fetchMessages()` throws a `ValidationError` if the session has no associated issue or its issue ID does not match the issue ID in the thread ID. The adapter checks this before fetching session comments or activities.
+
+## Comment mutations
+
+Comment edits, deletions, and reactions retrieve the target comment before writing. The adapter throws a `ValidationError` if the comment doesn't exist, has no issue, belongs to another issue, or is outside the requested comment thread. The connection needs read access to verify ownership, in addition to the permissions required for the write.
 
 ## Thread IDs
 

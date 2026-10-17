@@ -2,7 +2,6 @@ import { postgresUrlEnv } from "../../env";
 import type { CatalogAdapter } from "../../types";
 
 export const postgres = {
-  beta: true,
   description:
     "Production state adapter using PostgreSQL for persistence and distributed locking.",
   env: {

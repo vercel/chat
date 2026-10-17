@@ -54,7 +54,6 @@ const ICON_MAP: Record<
 const GithubIcon = github;
 
 interface AdapterHeroProps {
-  beta?: boolean;
   community?: boolean;
   logo?: string;
   name: string;

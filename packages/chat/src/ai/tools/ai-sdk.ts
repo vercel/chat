@@ -1,6 +1,11 @@
 import { type Tool, tool } from "ai";
-import type { ScopeGuard } from "../scope";
-import type { ChatBinding, ToolOptions } from "../types";
+import { createScopeGuard, type ScopeGuard } from "../scope";
+import type {
+  ChatBinding,
+  ToolOptions,
+  ToolScopeOptions,
+  ToolSpecOptions,
+} from "../types";
 import { getChannelInfoSpec } from "./channels";
 import {
   deleteMessageSpec,
@@ -70,59 +75,89 @@ export function toAiTool<TInput, TOutput>(
   return tool(definition);
 }
 
-export const fetchMessages = (chat: ChatBinding, guard?: ScopeGuard) =>
-  toAiTool(fetchMessagesSpec(chat, guard));
+const scopeGuard = (
+  chat: ChatBinding,
+  options: ToolScopeOptions | ScopeGuard
+): ScopeGuard | undefined =>
+  typeof options === "function"
+    ? options
+    : createScopeGuard(chat, options.scope, options.strictScope);
 
-export const fetchChannelMessages = (chat: ChatBinding, guard?: ScopeGuard) =>
-  toAiTool(fetchChannelMessagesSpec(chat, guard));
+const writeSpecOptions = (
+  chat: ChatBinding,
+  { needsApproval = true, guard, ...scopeOptions }: ToolOptions
+): ToolSpecOptions => ({
+  needsApproval,
+  guard: guard ?? scopeGuard(chat, scopeOptions),
+});
 
-export const fetchThread = (chat: ChatBinding, guard?: ScopeGuard) =>
-  toAiTool(fetchThreadSpec(chat, guard));
+export const fetchMessages = (
+  chat: ChatBinding,
+  options: ToolScopeOptions | ScopeGuard = {}
+) => toAiTool(fetchMessagesSpec(chat, scopeGuard(chat, options)));
 
-export const listThreads = (chat: ChatBinding, guard?: ScopeGuard) =>
-  toAiTool(listThreadsSpec(chat, guard));
+export const fetchChannelMessages = (
+  chat: ChatBinding,
+  options: ToolScopeOptions | ScopeGuard = {}
+) => toAiTool(fetchChannelMessagesSpec(chat, scopeGuard(chat, options)));
 
-export const getThreadParticipants = (chat: ChatBinding, guard?: ScopeGuard) =>
-  toAiTool(getThreadParticipantsSpec(chat, guard));
+export const fetchThread = (
+  chat: ChatBinding,
+  options: ToolScopeOptions | ScopeGuard = {}
+) => toAiTool(fetchThreadSpec(chat, scopeGuard(chat, options)));
 
-export const getChannelInfo = (chat: ChatBinding, guard?: ScopeGuard) =>
-  toAiTool(getChannelInfoSpec(chat, guard));
+export const listThreads = (
+  chat: ChatBinding,
+  options: ToolScopeOptions | ScopeGuard = {}
+) => toAiTool(listThreadsSpec(chat, scopeGuard(chat, options)));
+
+export const getThreadParticipants = (
+  chat: ChatBinding,
+  options: ToolScopeOptions | ScopeGuard = {}
+) => toAiTool(getThreadParticipantsSpec(chat, scopeGuard(chat, options)));
+
+export const getChannelInfo = (
+  chat: ChatBinding,
+  options: ToolScopeOptions | ScopeGuard = {}
+) => toAiTool(getChannelInfoSpec(chat, scopeGuard(chat, options)));
 
 export const getUser = (chat: ChatBinding, needsApproval = true) =>
   toAiTool(getUserSpec(chat, needsApproval));
 
-export const startTyping = (chat: ChatBinding, guard?: ScopeGuard) =>
-  toAiTool(startTypingSpec(chat, guard));
+export const startTyping = (
+  chat: ChatBinding,
+  options: ToolScopeOptions | ScopeGuard = {}
+) => toAiTool(startTypingSpec(chat, scopeGuard(chat, options)));
 
 export const postMessage = (chat: ChatBinding, options: ToolOptions = {}) =>
-  toAiTool(postMessageSpec(chat, options));
+  toAiTool(postMessageSpec(chat, writeSpecOptions(chat, options)));
 
 export const postChannelMessage = (
   chat: ChatBinding,
   options: ToolOptions = {}
-) => toAiTool(postChannelMessageSpec(chat, options));
+) => toAiTool(postChannelMessageSpec(chat, writeSpecOptions(chat, options)));
 
 export const sendDirectMessage = (
   chat: ChatBinding,
-  options: ToolOptions = {}
-) => toAiTool(sendDirectMessageSpec(chat, options));
+  { needsApproval = true }: ToolOptions = {}
+) => toAiTool(sendDirectMessageSpec(chat, { needsApproval }));
 
 export const editMessage = (chat: ChatBinding, options: ToolOptions = {}) =>
-  toAiTool(editMessageSpec(chat, options));
+  toAiTool(editMessageSpec(chat, writeSpecOptions(chat, options)));
 
 export const deleteMessage = (chat: ChatBinding, options: ToolOptions = {}) =>
-  toAiTool(deleteMessageSpec(chat, options));
+  toAiTool(deleteMessageSpec(chat, writeSpecOptions(chat, options)));
 
 export const addReaction = (chat: ChatBinding, options: ToolOptions = {}) =>
-  toAiTool(addReactionSpec(chat, options));
+  toAiTool(addReactionSpec(chat, writeSpecOptions(chat, options)));
 
 export const removeReaction = (chat: ChatBinding, options: ToolOptions = {}) =>
-  toAiTool(removeReactionSpec(chat, options));
+  toAiTool(removeReactionSpec(chat, writeSpecOptions(chat, options)));
 
 export const subscribeThread = (chat: ChatBinding, options: ToolOptions = {}) =>
-  toAiTool(subscribeThreadSpec(chat, options));
+  toAiTool(subscribeThreadSpec(chat, writeSpecOptions(chat, options)));
 
 export const unsubscribeThread = (
   chat: ChatBinding,
   options: ToolOptions = {}
-) => toAiTool(unsubscribeThreadSpec(chat, options));
+) => toAiTool(unsubscribeThreadSpec(chat, writeSpecOptions(chat, options)));

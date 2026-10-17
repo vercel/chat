@@ -162,6 +162,10 @@ Better rate limits, security, and supports multiple installations.
 
 **Single-tenant:**
 
+Set `installationId` to accept comments only from that GitHub App installation. After verification, a new comment (`issue_comment` or `pull_request_review_comment` with action `created`) from a different installation gets a `404`, handlers don't run, and the adapter logs a warning with both IDs. The check runs whether you verify with `webhookSecret` or a custom `webhookVerifier`, and other event types and actions aren't checked.
+
+Deliveries without an `installation` object still reach handlers. GitHub omits it from repository and organization webhooks, so those keep working in this mode. Vercel Connect mode (`installationToken`) has no configured installation ID and skips this check.
+
 ```typescript
 createGitHubAdapter({
   appId: process.env.GITHUB_APP_ID!,

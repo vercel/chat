@@ -2,7 +2,6 @@ import { env, secretEnv, urlEnv } from "../../env";
 import type { CatalogAdapter } from "../../types";
 
 export const whatsapp = {
-  beta: true,
   description:
     "Connect to WhatsApp Business Cloud for customer messaging and automated conversations.",
   env: {

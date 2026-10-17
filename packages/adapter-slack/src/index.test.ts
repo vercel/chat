@@ -8291,6 +8291,26 @@ describe("resolveInlineMentions", () => {
     expect(message.isMention).toBe(false);
   });
 
+  it("flags a bot id in text beside blocks that do not show it", async () => {
+    // Block Kit other than rich_text is separate from `text`, so the token
+    // there is the mention Slack notifies for.
+    const message = await parseIncoming({
+      type: "message",
+      user: "U_SENDER",
+      channel: "C456",
+      text: "<@U_BOT> deploy prod",
+      ts: "1234567890.202025",
+      blocks: [
+        {
+          type: "header",
+          text: { type: "plain_text", text: "Deploy request" },
+        },
+      ],
+    });
+
+    expect(message.isMention).toBe(true);
+  });
+
   it("does not read attachment fallback when the attachment has blocks", async () => {
     const message = await parseIncoming({
       type: "message",
@@ -8869,6 +8889,116 @@ describe("mention routing", () => {
     expect(messageHandler).toHaveBeenCalled();
   });
 
+  // Slack fires `app_mention` for the bot's token anywhere in `text`, while the
+  // blocks that clients render show these references as plain text with no
+  // bot id, so the bot is never shown as mentioned.
+  it.each([
+    {
+      name: "inline code",
+      text: "see `<@U_BOT>` for setup",
+      elements: [
+        {
+          type: "rich_text_section",
+          elements: [
+            { type: "text", text: "see " },
+            { type: "text", text: "@examplebot", style: { code: true } },
+            { type: "text", text: " for setup" },
+          ],
+        },
+      ],
+    },
+    {
+      name: "inline code beside another person's mention",
+      text: "<@U_OTHER> see `<@U_BOT>` for setup",
+      elements: [
+        {
+          type: "rich_text_section",
+          elements: [
+            { type: "user", user_id: "U_OTHER" },
+            { type: "text", text: " see " },
+            {
+              type: "text",
+              text: "@examplebot",
+              style: { code: true },
+            },
+            { type: "text", text: " for setup" },
+          ],
+        },
+      ],
+    },
+    {
+      name: "a labeled token in inline code",
+      text: "see `<@U_BOT|examplebot>`",
+      elements: [
+        {
+          type: "rich_text_section",
+          elements: [
+            { type: "text", text: "see " },
+            { type: "text", text: "@examplebot", style: { code: true } },
+          ],
+        },
+      ],
+    },
+    {
+      name: "a preformatted block",
+      text: "setup:\n```<@U_BOT> deploy```",
+      elements: [
+        {
+          type: "rich_text_section",
+          elements: [{ type: "text", text: "setup:\n" }],
+        },
+        {
+          type: "rich_text_preformatted",
+          elements: [{ type: "text", text: "@examplebot deploy" }],
+        },
+      ],
+    },
+    {
+      name: "inline code in a quote",
+      text: "&gt; see `<@U_BOT>`",
+      elements: [
+        {
+          type: "rich_text_quote",
+          elements: [
+            { type: "text", text: "see " },
+            { type: "text", text: "@examplebot", style: { code: true } },
+          ],
+        },
+      ],
+    },
+    {
+      name: "plain text",
+      text: "ask <@U_BOT> later",
+      elements: [
+        {
+          type: "rich_text_section",
+          elements: [{ type: "text", text: "ask @examplebot later" }],
+        },
+      ],
+    },
+  ])("routes a reference whose blocks drop the bot id in $name to message handlers", async ({
+    text,
+    elements,
+  }) => {
+    const { adapter, bot } = await createRoutedBot();
+    const mentionHandler = vi.fn();
+    const messageHandler = vi.fn();
+    bot.onNewMention(mentionHandler);
+    bot.onNewMessage(ANY_TEXT_PATTERN, messageHandler);
+
+    await deliverWebhook(adapter, {
+      type: "app_mention",
+      user: "U_SENDER",
+      channel: "C456",
+      text,
+      ts: "1234567890.222223",
+      blocks: [{ type: "rich_text", elements }],
+    });
+
+    expect(mentionHandler).not.toHaveBeenCalled();
+    expect(messageHandler).toHaveBeenCalled();
+  });
+
   it("routes a raw_text table cell reference to message handlers", async () => {
     const { adapter, bot } = await createRoutedBot();
     const mentionHandler = vi.fn();
@@ -8947,6 +9077,229 @@ describe("mention routing", () => {
     });
 
     expect(mentionHandler).toHaveBeenCalled();
+  });
+
+  it("routes an id the adapter does not know that only appears in code to message handlers", async () => {
+    const { adapter, bot } = await createRoutedBot();
+    const mentionHandler = vi.fn();
+    const messageHandler = vi.fn();
+    bot.onNewMention(mentionHandler);
+    bot.onNewMessage(ANY_TEXT_PATTERN, messageHandler);
+
+    await deliverWebhook(adapter, {
+      type: "app_mention",
+      user: "U_SENDER",
+      channel: "C456",
+      text: "see `<@W_BOT_GRID>` for setup",
+      ts: "1234567890.252526",
+      blocks: [
+        {
+          type: "rich_text",
+          elements: [
+            {
+              type: "rich_text_section",
+              elements: [
+                { type: "text", text: "see " },
+                { type: "text", text: "@examplebot", style: { code: true } },
+                { type: "text", text: " for setup" },
+              ],
+            },
+          ],
+        },
+      ],
+    });
+
+    expect(mentionHandler).not.toHaveBeenCalled();
+    expect(messageHandler).toHaveBeenCalled();
+  });
+
+  it.each([
+    {
+      name: "an unknown id in section mrkdwn with separate fallback text",
+      text: "New alert",
+      blocks: [
+        {
+          type: "section",
+          text: { type: "mrkdwn", text: "<@W_BOT> please triage" },
+        },
+      ],
+      expected: true,
+    },
+    {
+      name: "a bot token in text beside header and actions blocks",
+      text: "<@U_BOT> deploy prod",
+      blocks: [
+        {
+          type: "header",
+          text: { type: "plain_text", text: "Deploy request" },
+        },
+        {
+          type: "actions",
+          elements: [
+            {
+              type: "button",
+              action_id: "approve",
+              text: { type: "plain_text", text: "Approve" },
+            },
+          ],
+        },
+      ],
+      expected: true,
+    },
+    {
+      name: "a bot token only in code in text beside a section block",
+      text: "see `<@U_BOT>` for setup",
+      blocks: [
+        {
+          type: "section",
+          text: { type: "mrkdwn", text: "Deploy notes" },
+        },
+      ],
+      expected: false,
+    },
+    {
+      name: "legacy text of an attachment that has blocks",
+      text: "see `<@W_BOT>` for setup",
+      attachments: [
+        {
+          text: "<@U_SOMEONE> fyi",
+          blocks: [
+            {
+              type: "section",
+              text: { type: "plain_text", text: "Build finished" },
+            },
+          ],
+        },
+      ],
+      expected: false,
+    },
+    {
+      name: "an unknown id that rich text renders as plain text",
+      text: "ask <@W_BOT> later",
+      blocks: [
+        {
+          type: "rich_text",
+          elements: [
+            {
+              type: "rich_text_section",
+              elements: [{ type: "text", text: "ask @examplebot later" }],
+            },
+          ],
+        },
+      ],
+      expected: false,
+    },
+    {
+      name: "an unknown id in a raw_text table cell",
+      text: "Import <@W_BOT>/passport",
+      blocks: [
+        {
+          type: "table",
+          rows: [
+            [
+              { type: "raw_text", text: "Import" },
+              { type: "raw_text", text: "<@W_BOT>/passport" },
+            ],
+          ],
+        },
+      ],
+      expected: false,
+    },
+    {
+      name: "an unknown id in a plain_text section",
+      text: "hey <@W_BOT> take a look",
+      blocks: [
+        {
+          type: "section",
+          text: { type: "plain_text", text: "hey <@W_BOT> take a look" },
+        },
+      ],
+      expected: false,
+    },
+    {
+      // Indistinguishable from a real `<@W_BOT> see `<@U_X>`` mention, where
+      // the blocks show the W id as a user element and the other id in code.
+      name: "an unknown id in code beside another person's mention",
+      text: "<@U_OTHER> see `<@W_BOT>` for setup",
+      blocks: [
+        {
+          type: "rich_text",
+          elements: [
+            {
+              type: "rich_text_section",
+              elements: [
+                { type: "user", user_id: "U_OTHER" },
+                { type: "text", text: " see " },
+                { type: "text", text: "@examplebot", style: { code: true } },
+                { type: "text", text: " for setup" },
+              ],
+            },
+          ],
+        },
+      ],
+      expected: true,
+    },
+    {
+      name: "a code-only reference when the bot id is unresolved",
+      botUserId: null,
+      text: "see `<@U_BOT>` for setup",
+      expected: false,
+    },
+    {
+      name: "a rendered mention when the bot id is unresolved",
+      botUserId: null,
+      text: "<@U_BOT> help me",
+      blocks: [
+        {
+          type: "rich_text",
+          elements: [
+            {
+              type: "rich_text_section",
+              elements: [
+                { type: "user", user_id: "U_BOT" },
+                { type: "text", text: " help me" },
+              ],
+            },
+          ],
+        },
+      ],
+      expected: true,
+    },
+  ])("classifies app_mention evidence: $name", async ({
+    botUserId,
+    text,
+    blocks,
+    attachments,
+    expected,
+  }: {
+    attachments?: unknown[];
+    blocks?: unknown[];
+    botUserId?: string | null;
+    expected: boolean;
+    text: string;
+  }) => {
+    const { adapter, bot } = await createRoutedBot({ botUserId });
+    const mentionHandler = vi.fn();
+    const messageHandler = vi.fn();
+    bot.onNewMention(mentionHandler);
+    bot.onNewMessage(ANY_TEXT_PATTERN, messageHandler);
+
+    await deliverWebhook(adapter, {
+      type: "app_mention",
+      user: "U_SENDER",
+      channel: "C456",
+      text,
+      ts: "1234567890.262626",
+      ...(blocks ? { blocks } : {}),
+      ...(attachments ? { attachments } : {}),
+    });
+
+    if (expected) {
+      expect(mentionHandler).toHaveBeenCalled();
+    } else {
+      expect(mentionHandler).not.toHaveBeenCalled();
+      expect(messageHandler).toHaveBeenCalled();
+    }
   });
 
   it("trusts app_mention when the bot id is unresolved", async () => {
@@ -12192,7 +12545,31 @@ describe("native stream rotation", () => {
         token: TOKEN,
       });
       expect(segments[1].stop).toHaveBeenCalledWith({ token: TOKEN });
-      expect(result).toMatchObject({ id: "1234567890.1" });
+      expect(result).toMatchObject({
+        id: "1234567890.1",
+        messageIds: ["1234567890.0", "1234567890.1"],
+      });
+    });
+  });
+
+  it("returns the message IDs of every segment in order", async () => {
+    await withClock(async (tick) => {
+      const { adapter, chatStream } = setup();
+      async function* stream() {
+        yield "first\n";
+        tick(MAX_AGE + 1);
+        yield "second\n\nthird\n";
+        tick(2 * MAX_AGE + 2);
+        yield "fourth\n\nfifth\n";
+      }
+
+      const result = await adapter.stream(THREAD, stream());
+
+      expect(chatStream).toHaveBeenCalledTimes(3);
+      expect(result).toMatchObject({
+        id: "1234567890.2",
+        messageIds: ["1234567890.0", "1234567890.1", "1234567890.2"],
+      });
     });
   });
 
@@ -12237,7 +12614,10 @@ describe("native stream rotation", () => {
       expect(chatStream).toHaveBeenCalledTimes(1);
       expect(segments[0].stop).toHaveBeenCalledTimes(1);
       expect(segments[0].stop).toHaveBeenCalledWith({ token: TOKEN });
-      expect(result).toMatchObject({ id: "1234567890.0" });
+      expect(result).toMatchObject({
+        id: "1234567890.0",
+        messageIds: ["1234567890.0"],
+      });
     });
   });
 
@@ -12306,7 +12686,10 @@ describe("native stream rotation", () => {
         token: TOKEN,
         chunks: [],
       });
-      expect(result).toMatchObject({ id: "1234567890.1" });
+      expect(result).toMatchObject({
+        id: "1234567890.1",
+        messageIds: ["1234567890.0", "1234567890.1"],
+      });
       expect(mockLogger.warn).toHaveBeenCalledWith(
         expect.stringContaining("expired before rotation"),
         expect.anything()
@@ -12332,7 +12715,10 @@ describe("native stream rotation", () => {
       token: TOKEN,
       markdown_text: "second\n",
     });
-    expect(result).toMatchObject({ id: "1234567890.1" });
+    expect(result).toMatchObject({
+      id: "1234567890.1",
+      messageIds: ["1234567890.0", "1234567890.1"],
+    });
   });
 
   it("returns the finalized message when the last segment expired with everything delivered", async () => {
@@ -12348,7 +12734,10 @@ describe("native stream rotation", () => {
 
     // No empty message is posted just to carry the feedback buttons.
     expect(chatStream).toHaveBeenCalledTimes(1);
-    expect(result).toMatchObject({ id: "1234567890.0" });
+    expect(result).toMatchObject({
+      id: "1234567890.0",
+      messageIds: ["1234567890.0"],
+    });
     expect(mockLogger.warn).toHaveBeenCalledWith(
       expect.stringContaining("stream-end blocks skipped"),
       expect.objectContaining({ skippedBlocks: 1 })
@@ -12371,7 +12760,7 @@ describe("native stream rotation", () => {
     });
   });
 
-  it("replays the plan and open task cards into the new segment", async () => {
+  it("completes open task cards before replaying them into the new segment", async () => {
     await withClock(async (tick) => {
       const { adapter, segments } = setup();
       const plan = { type: "plan_update" as const, title: "Plan" };
@@ -12399,7 +12788,10 @@ describe("native stream rotation", () => {
 
       await adapter.stream(THREAD, stream());
 
-      expect(segments[0].stop).toHaveBeenCalledWith({ token: TOKEN });
+      expect(segments[0].stop).toHaveBeenCalledWith({
+        chunks: [{ ...oneInProgress, status: "complete" }],
+        token: TOKEN,
+      });
       expect(segments[1].append).toHaveBeenNthCalledWith(1, {
         chunks: [plan, oneInProgress],
         token: TOKEN,
@@ -12408,6 +12800,110 @@ describe("native stream rotation", () => {
         chunks: [oneComplete],
         token: TOKEN,
       });
+    });
+  });
+
+  it("retries the rotation stop without task chunks when Slack rejects them", async () => {
+    await withClock(async (tick) => {
+      const { adapter, segments } = setup();
+      const task = {
+        type: "task_update" as const,
+        id: "t1",
+        title: "One",
+        status: "in_progress" as const,
+      };
+      segments[0].stop.mockRejectedValueOnce(
+        Object.assign(new Error("invalid_chunks"), {
+          code: "slack_webapi_platform_error",
+          data: { error: "invalid_chunks" },
+        })
+      );
+      async function* stream() {
+        yield task;
+        yield "first\n";
+        tick(MAX_AGE + 1);
+        yield "second\n\nthird\n";
+        yield { ...task, status: "complete" as const };
+      }
+
+      const result = await adapter.stream(THREAD, stream());
+
+      expect(segments[0].stop).toHaveBeenCalledTimes(2);
+      expect(segments[0].stop).toHaveBeenNthCalledWith(1, {
+        chunks: [{ ...task, status: "complete" }],
+        markdown_text: "second\n\n",
+        token: TOKEN,
+      });
+      // The streamer kept the text from the rejected call, so the retry
+      // must not send it again.
+      expect(segments[0].stop.mock.calls[1][0]).toStrictEqual({
+        token: TOKEN,
+      });
+      // Structured chunks are off for the rest of the stream.
+      expect(segments[1].append).not.toHaveBeenCalledWith(
+        expect.objectContaining({ chunks: expect.arrayContaining([task]) })
+      );
+      expect(result).toMatchObject({
+        id: "1234567890.1",
+        messageIds: ["1234567890.0", "1234567890.1"],
+      });
+      expect(mockLogger.warn).toHaveBeenCalledWith(
+        expect.stringContaining("Structured streaming chunk failed"),
+        expect.objectContaining({ chunkType: "task_update" })
+      );
+    });
+  });
+
+  it("does not retry the rotation stop after an error Slack may have applied", async () => {
+    await withClock(async (tick) => {
+      const { adapter, segments } = setup();
+      const task = {
+        type: "task_update" as const,
+        id: "t1",
+        title: "One",
+        status: "in_progress" as const,
+      };
+      segments[0].stop.mockRejectedValueOnce(
+        Object.assign(new Error("internal_error"), {
+          code: "slack_webapi_platform_error",
+          data: { error: "internal_error" },
+        })
+      );
+      async function* stream() {
+        yield task;
+        yield "first\n";
+        tick(MAX_AGE + 1);
+        yield "second\n\nthird\n";
+      }
+
+      await expect(adapter.stream(THREAD, stream())).rejects.toThrow(
+        "internal_error"
+      );
+      expect(segments[0].stop).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  it("does not retry the rotation stop after a transport error", async () => {
+    await withClock(async (tick) => {
+      const { adapter, segments } = setup();
+      const task = {
+        type: "task_update" as const,
+        id: "t1",
+        title: "One",
+        status: "in_progress" as const,
+      };
+      segments[0].stop.mockRejectedValueOnce(new Error("socket hang up"));
+      async function* stream() {
+        yield task;
+        yield "first\n";
+        tick(MAX_AGE + 1);
+        yield "second\n\nthird\n";
+      }
+
+      await expect(adapter.stream(THREAD, stream())).rejects.toThrow(
+        "socket hang up"
+      );
+      expect(segments[0].stop).toHaveBeenCalledTimes(1);
     });
   });
 
@@ -12662,7 +13158,10 @@ describe("native streaming fallback", () => {
 
     expect(postSpy).toHaveBeenCalledTimes(1);
     expect(stop).not.toHaveBeenCalled();
-    expect(result).toMatchObject({ id: "fallback-ts" });
+    expect(result).toMatchObject({
+      id: "fallback-ts",
+      messageIds: ["fallback-ts"],
+    });
     // Whatever the throttle did mid-stream, the final forced flush must have
     // delivered the full text — via the initial post or a closing edit.
     const lastPosted = editSpy.mock.calls.length

@@ -2,7 +2,6 @@ import { env, secretEnv, urlEnv } from "../../env";
 import type { CatalogAdapter } from "../../types";
 
 export const slack = {
-  beta: true,
   description:
     "Build bots for Slack workspaces with full support for threads, reactions, and interactive messages.",
   env: {

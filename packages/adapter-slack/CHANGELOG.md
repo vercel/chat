@@ -1,5 +1,36 @@
 # @chat-adapter/slack
 
+## 4.42.0
+
+### Minor Changes
+
+- 7b7d73c: Add a `visibleTo` option to `Button` and `LinkButton` that lists the user IDs allowed to see the button. The Slack adapter renders it as `visible_to_user_ids`. Other adapters ignore it and show the button to everyone. It only hides the button, so action handlers still need to check who clicked.
+- c70379b: Return every message ID from `SlackAdapter.stream()`. When a long reply rotates into several messages, the result now includes `messageIds`, which lists the messages of the reply in order. Its last entry is `id`. The new `SlackStreamResult` type describes the result.
+- f923b1c: Add a `blocks` option to `uploadSlackFiles` so the message that shares the uploaded files can carry Block Kit blocks. Slack renders the files below the blocks. Passing both `blocks` and `initialComment` throws a `TypeError`, since Slack would silently ignore `blocks`.
+- 9a83b22: Isolate Slack message concurrency and turn cancellation by installation to prevent cross-workspace bot token reuse. Adapters can now namespace dedupe, lock, queue, and turn keys with the optional `Adapter.getConcurrencyScope()` hook. In multi-workspace mode, messages queued under the old keys aren't migrated, and old and new workers don't exclude each other, so upgrade `chat` and `@chat-adapter/slack` together and restart all workers.
+
+### Patch Changes
+
+- c70379b: Complete open task cards when a native Slack stream segment rotates, then replay the in-progress cards in the next segment. Retired segments now finish without Slack's error indicator. If Slack rejects the closing task cards, the adapter finalizes the segment without them and streams the rest of the reply as text only.
+- b37a550: Preserve literal text and code formatting in incoming Slack messages and correctly parse email and phone links
+- ec6edb8: Fix backward thread history reads returning older replies when a Slack thread spans multiple API pages. Backward reads now follow every `conversations.replies` page before selecting the newest messages, so long threads take one API call per page.
+- c70379b: Cut Slack card text that goes past Block Kit's length limits, so a long value no longer makes Slack reject the message. This covers headers, section and muted text, subtitles, fields, link labels, button labels, image alt text, and select and radio options and placeholders. Cuts in mrkdwn text don't split a mention, link, or HTML entity, close a code fence left open, and keep the closing `*` of bold text.
+- Updated dependencies [2f1cfa2]
+- Updated dependencies [daaa0ac]
+- Updated dependencies [fd291b8]
+- Updated dependencies [19c7aa2]
+- Updated dependencies [08081fa]
+- Updated dependencies [19c7aa2]
+- Updated dependencies [80e7bae]
+- Updated dependencies [08081fa]
+- Updated dependencies [7b7d73c]
+- Updated dependencies [f8527b2]
+- Updated dependencies [9a83b22]
+- Updated dependencies [8178fdb]
+- Updated dependencies [f635dbe]
+  - chat@4.42.0
+  - @chat-adapter/shared@4.42.0
+
 ## 4.41.1
 
 ### Patch Changes

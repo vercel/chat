@@ -6,8 +6,15 @@ slug: telegram
 type: platform
 logo: telegram
 tagline: Connect to Telegram with support for groups, channels, inline keyboards, and a polling fallback for local development.
-beta: true
 ---
+
+## Create a new bot
+
+Scaffold a Next.js bot with the Telegram adapter using [`create-chat-sdk`](/docs/create-chat-sdk):
+
+<CreateChatSdk adapters="telegram memory" />
+
+The generated app uses the [Memory state adapter](/adapters/official/memory) for local development. To add the adapter to an existing app, start at [Install](#install).
 
 ## Install
 
@@ -87,6 +94,15 @@ const telegram = createTelegramAdapter({
   polling mode without an inbound webhook. `TELEGRAM_BOT_TOKEN` is not needed
   when using `connectTelegramAdapter`.
 </Callout>
+
+Create the connector and attach it to your project with the [Vercel CLI](https://vercel.com/docs/cli/connect). Telegram webhooks go directly to your app, so omit `--triggers`. `vercel env pull` downloads a development OIDC token for local runs:
+
+```bash
+vercel link
+vercel connect create telegram --name acme-telegram
+vercel connect attach telegram/acme-telegram
+vercel env pull
+```
 
 ### Bot token
 

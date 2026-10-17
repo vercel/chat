@@ -3,10 +3,11 @@ import { createDocsPage } from "@vercel/geistdocs/pages/docs";
 import type { Metadata } from "next";
 import type { ReactNode } from "react";
 import { ReadMore } from "@/components/custom/read-more";
+import { JsonLd } from "@/components/geistdocs/json-ld";
 import { getMDXComponents } from "@/components/geistdocs/mdx-components";
 import { config } from "@/lib/geistdocs/config";
 import { getDocsJsonLd } from "@/lib/geistdocs/docs-jsonld";
-import { geistdocsSource } from "@/lib/geistdocs/source";
+import { geistdocsSource, getPageImage, source } from "@/lib/geistdocs/source";
 
 const docsPage = createDocsPage({
   config,
@@ -43,16 +44,17 @@ const docsPage = createDocsPage({
   },
   renderTop: ({ data, page, pageUrl }) => {
     const markdownPath = pageUrl === "/docs" ? "/docs.md" : `${pageUrl}.md`;
-    const jsonLd = getDocsJsonLd(page);
+    const jsonLd = getDocsJsonLd({
+      getPage: (slugs) => source.getPage(slugs, page.locale),
+      image: getPageImage(page).url,
+      page,
+      tree: source.getPageTree(page.locale),
+    });
 
     return (
       <>
         <MobileDocsBar toc={data.toc} />
-        <script
-          // biome-ignore lint/security/noDangerouslySetInnerHtml: static JSON-LD, not user input
-          dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }}
-          type="application/ld+json"
-        />
+        <JsonLd data={jsonLd} />
         {/* biome-ignore lint/a11y/useAnchorContent: intentionally aria-hidden hint surfacing the markdown URL for AI/LLM crawlers, not for screen readers */}
         <a
           aria-hidden="true"

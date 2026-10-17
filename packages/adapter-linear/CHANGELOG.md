@@ -1,5 +1,26 @@
 # @chat-adapter/linear
 
+## 4.42.0
+
+### Patch Changes
+
+- 0fff9d1: Check that a comment belongs to the supplied thread before changing it. The Linear adapter checks before edits, deletions, and reactions. The Notion adapter checks before edits and deletions.
+- Updated dependencies [2f1cfa2]
+- Updated dependencies [daaa0ac]
+- Updated dependencies [fd291b8]
+- Updated dependencies [19c7aa2]
+- Updated dependencies [08081fa]
+- Updated dependencies [19c7aa2]
+- Updated dependencies [80e7bae]
+- Updated dependencies [08081fa]
+- Updated dependencies [7b7d73c]
+- Updated dependencies [f8527b2]
+- Updated dependencies [9a83b22]
+- Updated dependencies [8178fdb]
+- Updated dependencies [f635dbe]
+  - chat@4.42.0
+  - @chat-adapter/shared@4.42.0
+
 ## 4.41.1
 
 ### Patch Changes

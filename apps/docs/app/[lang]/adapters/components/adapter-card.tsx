@@ -61,7 +61,6 @@ const iconMap: Record<
 
 interface AdapterCardProps {
   badge?: "official" | "vendor-official";
-  beta?: boolean;
   description: string;
   href: string;
   icon?: string;
@@ -76,7 +75,6 @@ export const AdapterCard = ({
   packageName,
   icon,
   badge,
-  beta,
 }: AdapterCardProps) => {
   const Icon = icon ? iconMap[icon] : undefined;
 
@@ -94,13 +92,6 @@ export const AdapterCard = ({
                 <Badge className="shrink-0" variant="secondary">
                   <VerifiedIcon className="size-4 text-primary" />
                   {badge === "official" ? "Official" : "Vendor official"}
-                </Badge>
-              </CardAction>
-            ) : null}
-            {beta ? (
-              <CardAction>
-                <Badge className="shrink-0" variant="secondary">
-                  Beta
                 </Badge>
               </CardAction>
             ) : null}

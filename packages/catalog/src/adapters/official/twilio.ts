@@ -2,7 +2,6 @@ import { env, secretEnv } from "../../env";
 import type { CatalogAdapter } from "../../types";
 
 export const twilio = {
-  beta: true,
   description:
     "Build SMS, MMS, and RCS bots with Twilio Messaging webhooks and the Messages API.",
   env: {

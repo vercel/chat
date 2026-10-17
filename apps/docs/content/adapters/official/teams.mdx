@@ -6,8 +6,15 @@ slug: teams
 type: platform
 logo: teams
 tagline: Deploy bots to Microsoft Teams with Adaptive Cards, mentions, and conversation threading.
-beta: true
 ---
+
+## Create a new bot
+
+Scaffold a Next.js bot with the Microsoft Teams adapter using [`create-chat-sdk`](/docs/create-chat-sdk):
+
+<CreateChatSdk adapters="teams memory" />
+
+The generated app uses the [Memory state adapter](/adapters/official/memory) for local development. To add the adapter to an existing app, start at [Install](#install).
 
 ## Install
 
@@ -128,6 +135,17 @@ The callback requests separate tokens for `https://api.botframework.com/.default
 An `appId` resolver runs once during successful initialization. Call `await bot.initialize()` before using adapter methods directly; Chat initializes automatically before handling webhooks. `botUserId` becomes available after initialization when using a resolver.
 
 A custom `webhookVerifier` receives the incoming request and its raw body. Return a truthy value to accept, or return a falsy value or throw to reject with HTTP 401. Without a verifier, the adapter retains Microsoft's native JWT verification.
+
+Create the connector and attach it to your project with the [Vercel CLI](https://vercel.com/docs/cli/connect). `--trigger-path` registers the Teams webhook route as the trigger destination, and `vercel env pull` downloads a development OIDC token for local runs:
+
+```bash
+vercel link
+vercel connect create microsoft-teams --name acme-teams --triggers
+vercel connect attach microsoft-teams/acme-teams --triggers --trigger-path /api/webhooks/teams
+vercel env pull
+```
+
+Without `--trigger-branch`, Connect forwards webhooks to your production deployment. See [Vercel Connect](/docs/vercel-connect#set-up-a-connector) for the full setup.
 
 ### Client secret
 

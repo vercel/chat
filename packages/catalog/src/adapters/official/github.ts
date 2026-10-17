@@ -2,7 +2,6 @@ import { env, secretEnv, urlEnv } from "../../env";
 import type { CatalogAdapter } from "../../types";
 
 export const github = {
-  beta: true,
   description:
     "Build bots that respond to pull request and issue comment threads.",
   env: {

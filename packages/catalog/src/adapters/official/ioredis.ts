@@ -1,7 +1,6 @@
 import type { CatalogAdapter } from "../../types";
 
 export const ioredis = {
-  beta: true,
   description: "Redis state adapter using ioredis, with Sentinel support.",
   env: {
     config: ["url or client", "keyPrefix"],

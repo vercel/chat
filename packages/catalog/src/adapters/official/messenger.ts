@@ -2,7 +2,6 @@ import { secretEnv } from "../../env";
 import type { CatalogAdapter } from "../../types";
 
 export const messenger = {
-  beta: true,
   description:
     "Build bots for Facebook Messenger with support for templates, buttons, reactions, and postbacks.",
   env: {
