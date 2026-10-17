@@ -8,7 +8,12 @@ import {
   threadIdContract,
 } from "@chat-adapter/tests";
 import type { IStreamer } from "@microsoft/teams.apps";
-import { type ChatInstance, ConsoleLogger, getEmoji } from "chat";
+import {
+  type AdapterPostableMessage,
+  type ChatInstance,
+  ConsoleLogger,
+  getEmoji,
+} from "chat";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { TeamsActivityAttachment } from "./attachments";
 import { createTeamsAdapter, TeamsAdapter, type TeamsThreadId } from "./index";
@@ -137,6 +142,35 @@ threadIdContract<TeamsThreadId>({
 });
 
 describe("Teams conversation type routing", () => {
+  it.each([
+    ["19:opaque", "channel"],
+    ["19:channel@thread.skype", "channel"],
+    ["19:channel@thread.skype;messageid=1767297849909", "channel"],
+    ["19:group@thread.tacv2", "groupChat"],
+    ["19:group@thread.tacv2;messageid=1767297849909", "groupChat"],
+  ] as const)("preserves the explicit type of %s", (conversationId, conversationType) => {
+    const target = {
+      conversationId,
+      conversationType,
+      serviceUrl: TEST_SERVICE_URL,
+    };
+    const encoded = contractAdapter.encodeThreadId(target);
+
+    expect(contractAdapter.decodeThreadId(encoded)).toEqual(target);
+    expect(contractAdapter.isDM(encoded)).toBe(false);
+  });
+
+  it.each([
+    ["19:channel@thread.tacv2;messageid=1767297849909", "channel"],
+    ["19:group@thread.v2", "groupChat"],
+  ] as const)("keeps the legacy ID for %s", (conversationId, conversationType) => {
+    const target = { conversationId, serviceUrl: TEST_SERVICE_URL };
+
+    expect(
+      contractAdapter.encodeThreadId({ ...target, conversationType })
+    ).toBe(contractAdapter.encodeThreadId(target));
+  });
+
   it("keeps the legacy ID when the conversation type agrees with its prefix", () => {
     const personal = contractAdapter.encodeThreadId({
       conversationId: "a:personal-conversation",
@@ -718,6 +752,33 @@ describe("TeamsAdapter", () => {
       expect(message.author.isMe).toBe(false);
     });
 
+    it.each([
+      { id: "other-bot", role: "bot", isBot: true, isMe: false },
+      { id: "other-bot", role: "Bot", isBot: true, isMe: false },
+      { id: "28:other-bot", isBot: true, isMe: false },
+      { id: "28:test-app", isBot: true, isMe: true },
+      { id: "test-app", isBot: true, isMe: true },
+      { id: "29:human", role: "user", isBot: false, isMe: false },
+      { id: "29:human", isBot: false, isMe: false },
+    ])("classifies sender $id with role $role", ({ id, role, isBot, isMe }) => {
+      const adapter = createTeamsAdapter({
+        appId: "test-app",
+        appPassword: "test",
+        logger,
+      });
+      const message = adapter.parseMessage({
+        type: "message",
+        id: "reply-100",
+        text: "Reply in a subscribed thread",
+        from: { id, name: "Sender", role },
+        conversation: { id: "19:channel@thread.tacv2;messageid=root-100" },
+        serviceUrl: TEST_SERVICE_URL,
+      });
+
+      expect(message.author.isBot).toBe(isBot);
+      expect(message.author.isMe).toBe(isMe);
+    });
+
     it("should handle missing text gracefully", () => {
       const adapter = createTeamsAdapter({
         appId: "test-app",
@@ -1236,6 +1297,156 @@ describe("TeamsAdapter", () => {
     });
   });
 
+  describe("postChannelMessage", () => {
+    it.each([
+      "text",
+      "card",
+    ] as const)("should return a replyable thread ID for a %s channel post", async (kind) => {
+      const adapter = createTeamsAdapter({
+        appId: "test-app-id",
+        appPassword: "test",
+        logger,
+      });
+      const mockApp = (
+        adapter as unknown as { app: { sendTo: ReturnType<typeof vi.fn> } }
+      ).app;
+      const rootMessageId = "1767297849909";
+      mockApp.sendTo = vi.fn(async () => ({ id: rootMessageId }));
+      const channel = {
+        conversationId: "19:abc@thread.tacv2",
+        serviceUrl: TEST_SERVICE_URL,
+      };
+      const message =
+        kind === "card"
+          ? { card: { type: "card" as const, title: "Root", children: [] } }
+          : { markdown: "Root" };
+
+      const sent = await adapter.postChannelMessage(
+        adapter.encodeThreadId(channel),
+        message
+      );
+      const thread = {
+        ...channel,
+        conversationId: `${channel.conversationId};messageid=${rootMessageId}`,
+      };
+      expect(sent.id).toBe(rootMessageId);
+      expect(adapter.decodeThreadId(sent.threadId)).toEqual(thread);
+
+      await adapter.postMessage(sent.threadId, { markdown: "Follow-up" });
+      expect(mockApp.sendTo).toHaveBeenNthCalledWith(
+        1,
+        channel,
+        expect.anything()
+      );
+      expect(mockApp.sendTo).toHaveBeenNthCalledWith(
+        2,
+        thread,
+        expect.anything()
+      );
+
+      await adapter.postChannelMessage(sent.threadId, message);
+      expect(mockApp.sendTo).toHaveBeenNthCalledWith(
+        3,
+        channel,
+        expect.anything()
+      );
+    });
+
+    it.each([
+      "text",
+      "card",
+    ] as const)("should preserve group chat and personal IDs for a %s post", async (kind) => {
+      const adapter = createTeamsAdapter({
+        appId: "test-app-id",
+        appPassword: "test",
+        logger,
+      });
+      const mockApp = (
+        adapter as unknown as { app: { sendTo: ReturnType<typeof vi.fn> } }
+      ).app;
+      mockApp.sendTo = vi.fn(async () => ({ id: "1767297849909" }));
+      const message =
+        kind === "card"
+          ? { card: { type: "card" as const, title: "Root", children: [] } }
+          : { markdown: "Root" };
+
+      for (const conversationId of [
+        "19:group@thread.v2",
+        "a:personal-conversation",
+      ]) {
+        const channelId = adapter.encodeThreadId({
+          conversationId,
+          serviceUrl: TEST_SERVICE_URL,
+        });
+        const sent = await adapter.postChannelMessage(channelId, message);
+        expect(sent.threadId).toBe(channelId);
+      }
+    });
+
+    it("uses the explicit conversation type for channel receipt IDs", async () => {
+      const adapter = createTeamsAdapter({
+        appId: "test-app-id",
+        appPassword: "test",
+        logger,
+      });
+      const mockApp = (
+        adapter as unknown as { app: { sendTo: ReturnType<typeof vi.fn> } }
+      ).app;
+      mockApp.sendTo = vi.fn(async () => ({ id: "root-100" }));
+
+      const personalId = adapter.encodeThreadId({
+        conversationId: "19:personal@thread.tacv2",
+        conversationType: "personal",
+        serviceUrl: TEST_SERVICE_URL,
+      });
+      const channelId = adapter.encodeThreadId({
+        conversationId: "a:channel",
+        conversationType: "channel",
+        serviceUrl: TEST_SERVICE_URL,
+      });
+
+      await expect(
+        adapter.postChannelMessage(personalId, { markdown: "Personal" })
+      ).resolves.toMatchObject({ threadId: personalId });
+      await expect(
+        adapter.postChannelMessage(channelId, { markdown: "Channel" })
+      ).resolves.toMatchObject({
+        threadId: adapter.encodeThreadId({
+          conversationId: "a:channel;messageid=root-100",
+          conversationType: "channel",
+          serviceUrl: TEST_SERVICE_URL,
+        }),
+      });
+    });
+
+    it.each([
+      "text",
+      "card",
+    ] as const)("should preserve the channel ID when a %s post has no message ID", async (kind) => {
+      const adapter = createTeamsAdapter({
+        appId: "test-app-id",
+        appPassword: "test",
+        logger,
+      });
+      const mockApp = (
+        adapter as unknown as { app: { sendTo: ReturnType<typeof vi.fn> } }
+      ).app;
+      mockApp.sendTo = vi.fn(async () => ({}));
+      const channelId = adapter.encodeThreadId({
+        conversationId: "19:abc@thread.tacv2",
+        serviceUrl: TEST_SERVICE_URL,
+      });
+      const message =
+        kind === "card"
+          ? { card: { type: "card" as const, title: "Root", children: [] } }
+          : { markdown: "Root" };
+
+      const sent = await adapter.postChannelMessage(channelId, message);
+      expect(sent.id).toBe("");
+      expect(sent.threadId).toBe(channelId);
+    });
+  });
+
   describe("postEphemeral", () => {
     it("should send a targeted text message to the requested user", async () => {
       const adapter = createTeamsAdapter({
@@ -1414,6 +1625,244 @@ describe("TeamsAdapter", () => {
       expect(result.id).toBe("edit-msg-1");
       expect(result.threadId).toBe(threadId);
       expect(mockUpdate).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  describe("AI-generated label", () => {
+    const SERVICE_URL = "https://smba.trafficmanager.net/teams/";
+    const AI_LABEL = expect.arrayContaining([
+      expect.objectContaining({
+        type: "https://schema.org/Message",
+        "@type": "Message",
+        "@context": "https://schema.org",
+        additionalType: ["AIGeneratedContent"],
+      }),
+    ]);
+
+    const labeledMessages: [string, AdapterPostableMessage][] = [
+      [
+        "markdown",
+        { markdown: "Usage rose 12% this week.", aiGenerated: true },
+      ],
+      [
+        "card",
+        {
+          card: { type: "card", title: "Weekly report", children: [] },
+          aiGenerated: true,
+        },
+      ],
+    ];
+
+    function setUp() {
+      const adapter = createTeamsAdapter({
+        appId: "test-app-id",
+        appPassword: "test",
+        logger,
+      });
+      const mockApp = (
+        adapter as unknown as {
+          app: { api: unknown; sendTo: ReturnType<typeof vi.fn> };
+        }
+      ).app;
+      mockApp.sendTo = vi.fn(async () => ({
+        id: "sent-msg-1",
+        type: "message",
+      }));
+      const update = vi.fn(async () => ({ id: "edit-msg-1" }));
+      mockApp.api = {
+        conversations: {
+          activities: () => ({ update, delete: vi.fn() }),
+        },
+        reactions: { add: vi.fn(), remove: vi.fn() },
+        serviceUrl: SERVICE_URL,
+      };
+      const threadId = adapter.encodeThreadId({
+        conversationId: "19:abc@thread.tacv2",
+        serviceUrl: SERVICE_URL,
+      });
+      const sentEntities = () =>
+        (mockApp.sendTo.mock.calls[0]?.[1] as { entities?: unknown[] })
+          .entities;
+      const updatedEntities = () =>
+        (update.mock.calls[0]?.[1] as { entities?: unknown[] } | undefined)
+          ?.entities;
+      return { adapter, threadId, sentEntities, updatedEntities };
+    }
+
+    it.each(
+      labeledMessages
+    )("labels a %s message sent with postMessage", async (_kind, message) => {
+      const { adapter, threadId, sentEntities } = setUp();
+      await adapter.postMessage(threadId, message);
+      expect(sentEntities()).toEqual(AI_LABEL);
+    });
+
+    it.each(
+      labeledMessages
+    )("labels a %s message sent with postChannelMessage", async (_kind, message) => {
+      const { adapter, threadId, sentEntities } = setUp();
+      await adapter.postChannelMessage(threadId, message);
+      expect(sentEntities()).toEqual(AI_LABEL);
+    });
+
+    it.each(
+      labeledMessages
+    )("labels a targeted %s message sent with postEphemeral", async (_kind, message) => {
+      const { adapter, threadId, sentEntities } = setUp();
+      await adapter.postEphemeral(threadId, "29:target-user", message);
+      expect(sentEntities()).toEqual(AI_LABEL);
+    });
+
+    it.each(
+      labeledMessages
+    )("labels a %s message updated with editMessage", async (_kind, message) => {
+      const { adapter, threadId, updatedEntities } = setUp();
+      await adapter.editMessage(threadId, "edit-msg-1", message);
+      expect(updatedEntities()).toEqual(AI_LABEL);
+    });
+
+    it.each<[string, AdapterPostableMessage]>([
+      ["a plain string", "Sorry, something went wrong."],
+      ["markdown without the flag", { markdown: "Here's how to get started." }],
+      [
+        "markdown with the flag set to false",
+        { markdown: "Here's how to get started.", aiGenerated: false },
+      ],
+      ["a bare card element", { type: "card", title: "Help", children: [] }],
+    ])("does not label %s", async (_kind, message) => {
+      const { adapter, threadId, sentEntities } = setUp();
+      await adapter.postMessage(threadId, message);
+      expect(sentEntities()).not.toEqual(AI_LABEL);
+    });
+
+    it("does not label a postChannelMessage without the flag", async () => {
+      const { adapter, threadId, sentEntities } = setUp();
+      await adapter.postChannelMessage(threadId, {
+        markdown: "Here's how to get started.",
+      });
+      expect(sentEntities()).not.toEqual(AI_LABEL);
+    });
+
+    it("does not label an editMessage without the flag", async () => {
+      const { adapter, threadId, updatedEntities } = setUp();
+      await adapter.editMessage(threadId, "edit-msg-1", {
+        markdown: "Here's how to get started.",
+      });
+      expect(updatedEntities()).not.toEqual(AI_LABEL);
+    });
+
+    it("does not carry the label over to an edit that omits the flag", async () => {
+      const { adapter, threadId, sentEntities, updatedEntities } = setUp();
+      await adapter.postMessage(threadId, {
+        markdown: "Usage rose 12% this week.",
+        aiGenerated: true,
+      });
+      await adapter.editMessage(threadId, "sent-msg-1", "Usage rose 15%.");
+      expect(sentEntities()).toEqual(AI_LABEL);
+      expect(updatedEntities()).not.toEqual(AI_LABEL);
+    });
+
+    it("labels an edit of a targeted message", async () => {
+      const adapter = createTeamsAdapter({
+        appId: "test-app-id",
+        appPassword: "test",
+        logger,
+      });
+      await adapter.initialize(createMockChatInstance());
+      const calls = {
+        update: vi.fn(async () => ({ id: "targeted-msg-1" })),
+        updateTargeted: vi.fn(async () => ({ id: "targeted-msg-1" })),
+        delete: vi.fn(),
+        deleteTargeted: vi.fn(),
+      };
+      const mockApp = (
+        adapter as unknown as { app: { api: unknown; sendTo: unknown } }
+      ).app;
+      mockApp.sendTo = vi.fn(async () => ({
+        id: "targeted-msg-1",
+        type: "message",
+      }));
+      mockApp.api = {
+        conversations: { activities: () => calls },
+        reactions: { add: vi.fn(), remove: vi.fn() },
+        serviceUrl: SERVICE_URL,
+      };
+      const threadId = adapter.encodeThreadId({
+        conversationId: "19:abc@thread.tacv2",
+        serviceUrl: SERVICE_URL,
+      });
+      await adapter.postEphemeral(threadId, "29:target-user", {
+        markdown: "Only you can see this",
+      });
+
+      await adapter.editMessage(threadId, "targeted-msg-1", {
+        markdown: "Updated",
+        aiGenerated: true,
+      });
+
+      expect(calls.update).not.toHaveBeenCalled();
+      expect(calls.updateTargeted).toHaveBeenCalledTimes(1);
+      const activity = calls.updateTargeted.mock.calls[0]?.[1] as
+        | { entities?: unknown[] }
+        | undefined;
+      expect(activity?.entities).toEqual(AI_LABEL);
+    });
+
+    describe("stream", () => {
+      async function* chunks(parts: string[]) {
+        yield* parts;
+      }
+
+      it("labels a buffered stream when aiGenerated is set", async () => {
+        const { adapter, threadId, sentEntities } = setUp();
+        await adapter.stream(threadId, chunks(["Usage ", "rose."]), {
+          aiGenerated: true,
+        });
+        expect(sentEntities()).toEqual(AI_LABEL);
+      });
+
+      it("does not label a buffered stream without the flag", async () => {
+        const { adapter, threadId, sentEntities } = setUp();
+        await adapter.stream(threadId, chunks(["Usage ", "rose."]));
+        expect(sentEntities()).not.toEqual(AI_LABEL);
+      });
+
+      function setUpNativeStream() {
+        const { adapter, threadId } = setUp();
+        let onChunk: ((activity: { id: string }) => void) | undefined;
+        const streamer = {
+          canceled: false,
+          close: vi.fn(),
+          emit: vi.fn(() => onChunk?.({ id: "answer-id" })),
+          events: {
+            once: vi.fn((_event, listener) => {
+              onChunk = listener;
+            }),
+          },
+          update: vi.fn(),
+        };
+        (
+          adapter as unknown as { activeStreams: Map<string, unknown> }
+        ).activeStreams.set(threadId, streamer);
+        return { adapter, threadId, emit: streamer.emit };
+      }
+
+      it("labels every chunk emitted to an active streamer", async () => {
+        const { adapter, threadId, emit } = setUpNativeStream();
+        await adapter.stream(threadId, chunks(["Usage ", "rose."]), {
+          aiGenerated: true,
+        });
+        expect(emit).toHaveBeenCalledTimes(2);
+        for (const [arg] of emit.mock.calls as unknown[][]) {
+          expect(arg).toEqual(expect.objectContaining({ entities: AI_LABEL }));
+        }
+      });
+
+      it("emits plain strings to an active streamer without the flag", async () => {
+        const { adapter, threadId, emit } = setUpNativeStream();
+        await adapter.stream(threadId, chunks(["Usage ", "rose."]));
+        expect(emit.mock.calls).toEqual([["Usage "], ["rose."]]);
+      });
     });
   });
 
@@ -1785,6 +2234,53 @@ describe("TeamsAdapter", () => {
       return { adapter, chat, getMemberById, mockApp, state };
     };
 
+    it("preserves bot authors when hydrating sender email", async () => {
+      const { adapter, chat, getMemberById } = await setup({
+        email: "bot@example.com",
+        name: "Other bot",
+      });
+      const botActivity = {
+        ...activity("activity-aad-id"),
+        from: {
+          id: "28:other-bot",
+          name: "Other bot",
+          aadObjectId: "activity-aad-id",
+        },
+      };
+
+      await adapter.handleIncoming(botActivity, getMemberById);
+
+      const message = vi.mocked(chat.processMessage).mock.calls[0]?.[2];
+      expect(message?.author.email).toBe("bot@example.com");
+      expect(message?.author.isBot).toBe(true);
+      expect(message?.author.isMe).toBe(false);
+    });
+
+    it("skips the cached user lookup for bot senders without an AAD object ID", async () => {
+      const { adapter, chat, getMemberById, state } = await setup({
+        email: "bot@example.com",
+        name: "Other bot",
+      });
+      state.cache.set("teams:aadObjectId:28:other-bot", "bot-aad-id");
+      const getUser = vi.spyOn(adapter, "getUser");
+      const botActivity = {
+        ...activity(),
+        from: { id: "28:other-bot", name: "Other bot" },
+      };
+
+      await adapter.handleIncoming(botActivity, getMemberById);
+
+      expect(getUser).not.toHaveBeenCalled();
+      expect(state.get).not.toHaveBeenCalledWith(
+        "teams:aadObjectId:28:other-bot"
+      );
+      expect(getMemberById).not.toHaveBeenCalled();
+      expect(chat.processMessage).toHaveBeenCalledOnce();
+      const message = vi.mocked(chat.processMessage).mock.calls[0]?.[2];
+      expect(message?.author.isBot).toBe(true);
+      expect(message?.author.email).toBeUndefined();
+    });
+
     it("hydrates email from the conversation member without Graph", async () => {
       const { adapter, chat, getMemberById, mockApp, state } = await setup({
         email: "alice@example.com",
@@ -1925,6 +2421,163 @@ describe("TeamsAdapter", () => {
     });
   });
 
+  describe("sender bot classification on events", () => {
+    class EventTestAdapter extends TeamsAdapter {
+      reaction(activity: Record<string, unknown>) {
+        this.handleReactionFromContext({ activity } as never);
+      }
+
+      message(activity: Record<string, unknown>) {
+        return this.handleMessageActivity({ activity } as never);
+      }
+
+      cardAction(activity: Record<string, unknown>) {
+        return this.handleAdaptiveCardAction({ activity } as never);
+      }
+
+      dialogSubmit(activity: Record<string, unknown>) {
+        return this.handleDialogSubmit({ activity } as never);
+      }
+    }
+
+    const setup = async () => {
+      const adapter = new EventTestAdapter({
+        appId: "test-app",
+        appPassword: "test",
+        logger,
+      });
+      const chat = createMockChatInstance();
+      const mockApp = (
+        adapter as unknown as {
+          app: { initialize: ReturnType<typeof vi.fn> };
+        }
+      ).app;
+      mockApp.initialize = vi.fn(async () => undefined);
+      await adapter.initialize(chat);
+      return { adapter, chat };
+    };
+
+    const baseActivity = (from: { id: string; role?: string }) => ({
+      id: "activity-100",
+      from: { ...from, name: "Sender" },
+      conversation: { id: "19:abc@thread.tacv2;messageid=1767297849909" },
+      serviceUrl: TEST_SERVICE_URL,
+    });
+
+    it.each([
+      { id: "28:other-bot", role: undefined, isBot: true },
+      { id: "other-bot", role: "Bot", isBot: true },
+      { id: "29:human", role: "user", isBot: false },
+    ])("classifies reaction sender $id with role $role", async ({
+      id,
+      role,
+      isBot,
+    }) => {
+      const { adapter, chat } = await setup();
+
+      adapter.reaction({
+        ...baseActivity({ id, role }),
+        type: "messageReaction",
+        reactionsAdded: [{ type: "like" }],
+        reactionsRemoved: [{ type: "heart" }],
+      });
+
+      expect(chat.processReaction).toHaveBeenCalledTimes(2);
+      for (const [event] of vi.mocked(chat.processReaction).mock.calls) {
+        expect(event.user.userId).toBe(id);
+        expect(event.user.isBot).toBe(isBot);
+        expect(event.user.isMe).toBe(false);
+      }
+    });
+
+    it("classifies a bot sender on an Action.Submit message action", async () => {
+      const { adapter, chat } = await setup();
+
+      await adapter.message({
+        ...baseActivity({ id: "28:other-bot" }),
+        type: "message",
+        value: { actionId: "approve", value: "yes" },
+      });
+
+      expect(chat.processMessage).not.toHaveBeenCalled();
+      const event = vi.mocked(chat.processAction).mock.calls[0]?.[0];
+      expect(event?.actionId).toBe("approve");
+      expect(event?.user.isBot).toBe(true);
+      expect(event?.user.isMe).toBe(false);
+    });
+
+    it("classifies a bot sender on an adaptive card action", async () => {
+      const { adapter, chat } = await setup();
+
+      await adapter.cardAction({
+        ...baseActivity({ id: "28:other-bot" }),
+        type: "invoke",
+        name: "adaptiveCard/action",
+        value: { action: { data: { actionId: "approve", value: "yes" } } },
+      });
+
+      const event = vi.mocked(chat.processAction).mock.calls[0]?.[0];
+      expect(event?.actionId).toBe("approve");
+      expect(event?.user.isBot).toBe(true);
+    });
+
+    it("keeps a human sender on an adaptive card action", async () => {
+      const { adapter, chat } = await setup();
+
+      await adapter.cardAction({
+        ...baseActivity({ id: "29:human", role: "user" }),
+        type: "invoke",
+        name: "adaptiveCard/action",
+        value: { action: { data: { actionId: "approve", value: "yes" } } },
+      });
+
+      const event = vi.mocked(chat.processAction).mock.calls[0]?.[0];
+      expect(event?.user.isBot).toBe(false);
+    });
+
+    it("classifies a bot sender on every auto-submit fan-out action", async () => {
+      const { adapter, chat } = await setup();
+
+      await adapter.cardAction({
+        ...baseActivity({ id: "28:other-bot" }),
+        type: "invoke",
+        name: "adaptiveCard/action",
+        value: {
+          action: {
+            data: { actionId: "__auto_submit", color: "red", size: "large" },
+          },
+        },
+      });
+
+      expect(chat.processAction).toHaveBeenCalledTimes(2);
+      for (const [event] of vi.mocked(chat.processAction).mock.calls) {
+        expect(event.user.isBot).toBe(true);
+      }
+    });
+
+    it("classifies a bot sender on dialog.submit", async () => {
+      const { adapter, chat } = await setup();
+
+      await adapter.dialogSubmit({
+        ...baseActivity({ id: "28:other-bot" }),
+        type: "invoke",
+        name: "task/submit",
+        value: {
+          data: {
+            __contextId: "context-1",
+            __callbackId: "feedback",
+            comment: "Looks good",
+          },
+        },
+      });
+
+      const event = vi.mocked(chat.processModalSubmit).mock.calls[0]?.[0];
+      expect(event?.callbackId).toBe("feedback");
+      expect(event?.user.isBot).toBe(true);
+      expect(event?.user.isMe).toBe(false);
+    });
+  });
+
   describe("getUser", () => {
     it("should return user info when aadObjectId is cached and Graph call succeeds", async () => {
       const adapter = new TeamsAdapter({
@@ -1964,6 +2617,53 @@ describe("TeamsAdapter", () => {
       expect(user?.userName).toBe("alice@contoso.com");
       expect(user?.userId).toBe("29:user-123");
       expect(user?.isBot).toBe(false);
+    });
+
+    it.each([
+      { userId: "28:other-bot", isBot: true },
+      { userId: "29:user-123", isBot: false },
+    ])("classifies cached user $userId as isBot $isBot", async ({
+      userId,
+      isBot,
+    }) => {
+      const adapter = new TeamsAdapter({
+        appId: "test",
+        appPassword: "test",
+        logger,
+      });
+
+      const state = createMockState();
+      state.cache.set(`teams:aadObjectId:${userId}`, "aad-object-id-456");
+      state.cache.set(
+        "teams:userInfo:aad-object-id-456",
+        JSON.stringify({
+          email: "sender@contoso.com",
+          fullName: "Sender",
+          isBot: false,
+          userId: "stale-user-id",
+          userName: "sender@contoso.com",
+        })
+      );
+      const mockChat = createMockChatInstance({ state });
+
+      const mockApp = (
+        adapter as unknown as {
+          app: {
+            initialize: ReturnType<typeof vi.fn>;
+            graph: { call: ReturnType<typeof vi.fn> };
+          };
+        }
+      ).app;
+      mockApp.initialize = vi.fn(async () => undefined);
+      mockApp.graph = { call: vi.fn() };
+
+      await adapter.initialize(mockChat);
+
+      const user = await adapter.getUser(userId);
+      expect(mockApp.graph.call).not.toHaveBeenCalled();
+      expect(user?.userId).toBe(userId);
+      expect(user?.email).toBe("sender@contoso.com");
+      expect(user?.isBot).toBe(isBot);
     });
 
     it("should return null when aadObjectId is not cached", async () => {
@@ -2084,5 +2784,156 @@ describe("subclass extensibility", () => {
       }
     }
     expect(TestSubclass.prototype.checkAccess).toBeInstanceOf(Function);
+  });
+});
+
+describe("card input values on actions", () => {
+  class ActionTestAdapter extends TeamsAdapter {
+    submitAsMessage(activity: unknown, data: Record<string, unknown>): void {
+      this.handleMessageAction(activity as never, data as never);
+    }
+
+    submitAsInvoke(activity: unknown): Promise<void> {
+      return this.handleAdaptiveCardAction({ activity } as never);
+    }
+  }
+
+  const activity = {
+    conversation: { conversationType: "personal", id: "19:abc" },
+    from: { id: "29:user", name: "Ada" },
+    id: "act-1",
+    serviceUrl: TEST_SERVICE_URL,
+  };
+
+  async function createAdapter() {
+    const chat = createMockChatInstance();
+    const adapter = new ActionTestAdapter({
+      appId: "test",
+      appPassword: "test",
+      logger,
+    });
+    await adapter.initialize(chat);
+    return { adapter, chat };
+  }
+
+  const lastAction = (chat: ReturnType<typeof createMockChatInstance>) =>
+    (chat.processAction as unknown as ReturnType<typeof vi.fn>).mock
+      .calls[0][0];
+
+  it("reports the card's inputs on an Action.Submit message", async () => {
+    const { adapter, chat } = await createAdapter();
+
+    adapter.submitAsMessage(activity, {
+      actionId: "approve",
+      value: "plan-1",
+      notes: "ship it",
+      priority: 2,
+    });
+
+    const action = lastAction(chat);
+    expect(action).toMatchObject({ actionId: "approve", value: "plan-1" });
+    // Exact: toMatchObject would let the adapter's own keys leak in as inputs.
+    expect(action.values).toEqual({ notes: "ship it", priority: "2" });
+  });
+
+  it("reports the card's inputs on an adaptive card invoke", async () => {
+    const { adapter, chat } = await createAdapter();
+
+    await adapter.submitAsInvoke({
+      ...activity,
+      value: { action: { data: { actionId: "approve", notes: "ship it" } } },
+    });
+
+    expect(lastAction(chat)).toMatchObject({
+      actionId: "approve",
+      values: { notes: "ship it" },
+    });
+  });
+
+  it("leaves values absent when the card has no inputs", async () => {
+    const { adapter, chat } = await createAdapter();
+
+    adapter.submitAsMessage(activity, {
+      actionId: "approve",
+      value: "plan-1",
+      msteams: { type: "task/fetch" },
+    });
+
+    expect(lastAction(chat).values).toBeUndefined();
+  });
+
+  it("delivers an auto-submit input named value, which only a button reserves", async () => {
+    const { adapter, chat } = await createAdapter();
+
+    // The auto-injected submit carries no button value, so `value` here can
+    // only be a card input.
+    adapter.submitAsMessage(activity, {
+      actionId: "__auto_submit",
+      value: "opt-1",
+      priority: 2,
+    });
+
+    const events = (
+      chat.processAction as unknown as ReturnType<typeof vi.fn>
+    ).mock.calls.map(([event]) => event);
+    expect(events).toHaveLength(2);
+    expect(events).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ actionId: "value", value: "opt-1" }),
+        expect.objectContaining({ actionId: "priority", value: "2" }),
+      ])
+    );
+    for (const event of events) {
+      expect(event.values).toEqual({ value: "opt-1", priority: "2" });
+    }
+  });
+
+  it("reads a button click's inputs without taking the button's value as one", async () => {
+    const { adapter, chat } = await createAdapter();
+
+    adapter.submitAsMessage(activity, {
+      actionId: "approve",
+      value: "plan-1",
+      notes: "ship it",
+    });
+
+    const action = lastAction(chat);
+    expect(action.value).toBe("plan-1");
+    expect(action.values).toEqual({ notes: "ship it" });
+  });
+
+  it("keeps only string and number input values", async () => {
+    const { adapter, chat } = await createAdapter();
+
+    adapter.submitAsMessage(activity, {
+      actionId: "approve",
+      notes: "ship it",
+      priority: 2,
+      toggle: true,
+      cleared: null,
+      tags: ["a"],
+    });
+
+    expect(lastAction(chat).values).toEqual({
+      notes: "ship it",
+      priority: "2",
+    });
+  });
+
+  it("gives every fanned-out auto-submit action the whole form", async () => {
+    const { adapter, chat } = await createAdapter();
+
+    adapter.submitAsMessage(activity, {
+      actionId: "__auto_submit",
+      notes: "ship it",
+      severity: "high",
+    });
+
+    const calls = (chat.processAction as unknown as ReturnType<typeof vi.fn>)
+      .mock.calls;
+    expect(calls).toHaveLength(2);
+    for (const [event] of calls) {
+      expect(event.values).toEqual({ notes: "ship it", severity: "high" });
+    }
   });
 });

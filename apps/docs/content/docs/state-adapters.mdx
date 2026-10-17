@@ -51,6 +51,30 @@ State adapters also provide key-value storage with a TTL. The SDK uses it for th
 
 To build your own state adapter, implement the `StateAdapter` interface exported from `chat`. The `@chat-adapter/state-memory` package is a small implementation you can use as a reference.
 
+## Production state on Vercel
+
+The [Memory](/adapters/official/memory) adapter keeps state in process memory, so it suits local development and tests. In production, use [Redis](/adapters/official/redis), [ioredis](/adapters/official/ioredis), or [PostgreSQL](/adapters/official/postgres) so subscriptions, locks, and cached data are shared across instances and survive restarts.
+
+If you deploy to Vercel, you can provision either database from the [Vercel Marketplace](https://vercel.com/marketplace/category/storage) with the Vercel CLI:
+
+| Provider | Command | State adapter |
+| --- | --- | --- |
+| Upstash Redis | `vercel integration add upstash/upstash-kv` | [Redis](/adapters/official/redis#vercel-marketplace) or [ioredis](/adapters/official/ioredis) |
+| Redis Cloud | `vercel integration add redis` | [Redis](/adapters/official/redis#vercel-marketplace) or [ioredis](/adapters/official/ioredis) |
+| Neon | `vercel integration add neon` | [PostgreSQL](/adapters/official/postgres#vercel-marketplace) |
+| Supabase | `vercel integration add supabase` | [PostgreSQL](/adapters/official/postgres#vercel-marketplace) |
+| Prisma Postgres | `vercel integration add prisma` | [PostgreSQL](/adapters/official/postgres#vercel-marketplace) |
+| Nile | `vercel integration add nile` | [PostgreSQL](/adapters/official/postgres#vercel-marketplace) |
+
+Run the command from a linked project directory:
+
+```bash
+vercel link
+vercel integration add upstash/upstash-kv
+```
+
+`vercel integration add` creates the database, connects it to the linked project, adds its credentials as environment variables, and pulls them into your local env file. Each adapter page lists the environment variables the adapter reads and how to pass a different one.
+
 <Cards>
   <Card title="List a vendor-official adapter" description="How platform vendors qualify and list a maintained adapter in the Vendor Official tier." href="/docs/contributing/vendor-official" />
 </Cards>

@@ -6,60 +6,15 @@ slug: telegram
 type: platform
 logo: telegram
 tagline: Connect to Telegram with support for groups, channels, inline keyboards, and a polling fallback for local development.
-beta: true
-features:
-  postMessage: yes
-  messageReplies: yes
-  editMessage: yes
-  deleteMessage: yes
-  fileUploads: yes
-  streaming:
-    status: partial
-    label: Post+Edit / Opt-in rich drafts
-  scheduledMessages: no
-  cardFormat:
-    status: partial
-    label: MarkdownV2 + inline keyboard
-  buttons:
-    status: partial
-    label: Inline keyboard
-  linkButtons:
-    status: partial
-    label: Inline keyboard URLs
-  selectMenus: no
-  tables:
-    status: partial
-    label: Native messages / ASCII cards
-  fields: yes
-  imagesInCards: no
-  modals: no
-  slashCommands: yes
-  mentions: yes
-  addReactions: yes
-  removeReactions: yes
-  typingIndicator: yes
-  messageUpdatedEvents: no
-  messageDeletedEvents: no
-  directMessages: yes
-  ephemeralMessages: no
-  userLookup:
-    status: partial
-    label: Seen users
-  customApiEndpoint: yes
-  fetchMessages:
-    status: partial
-    label: Cached
-  fetchSingleMessage:
-    status: partial
-    label: Cached
-  fetchThreadInfo: yes
-  fetchChannelMessages:
-    status: partial
-    label: Cached
-  listThreads: no
-  fetchChannelInfo: yes
-  postChannelMessage: yes
 ---
+
+## Create a new bot
+
+Scaffold a Next.js bot with the Telegram adapter using [`create-chat-sdk`](/docs/create-chat-sdk):
+
+<CreateChatSdk adapters="telegram memory" />
+
+The generated app uses the [Memory state adapter](/adapters/official/memory) for local development. To add the adapter to an existing app, start at [Install](#install).
 
 ## Install
 
@@ -139,6 +94,15 @@ const telegram = createTelegramAdapter({
   polling mode without an inbound webhook. `TELEGRAM_BOT_TOKEN` is not needed
   when using `connectTelegramAdapter`.
 </Callout>
+
+Create the connector and attach it to your project with the [Vercel CLI](https://vercel.com/docs/cli/connect). Telegram webhooks go directly to your app, so omit `--triggers`. `vercel env pull` downloads a development OIDC token for local runs:
+
+```bash
+vercel link
+vercel connect create telegram --name acme-telegram
+vercel connect attach telegram/acme-telegram
+vercel env pull
+```
 
 ### Bot token
 

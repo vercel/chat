@@ -130,6 +130,8 @@ export interface ButtonProps {
   /** Hover text for the button. Rendered by Teams only; other adapters ignore it */
   tooltip?: string;
   value?: string;
+  /** User IDs that can see the button. Rendered by Slack only; other adapters show the button to everyone. Hides the button but does not restrict who can trigger its action */
+  visibleTo?: string[];
 }
 
 /** Props for LinkButton component in JSX */
@@ -141,6 +143,8 @@ export interface LinkButtonProps {
   /** Hover text for the button. Rendered by Teams only; other adapters ignore it */
   tooltip?: string;
   url: string;
+  /** User IDs that can see the button. Rendered by Slack only; other adapters show the button to everyone. Hides the button but does not restrict who can trigger its action */
+  visibleTo?: string[];
 }
 
 /** Props for CardLink component in JSX */
@@ -713,6 +717,7 @@ function resolveJSXElement(element: JSXElement): AnyCardElement {
       callbackUrl: props.callbackUrl,
       disabled: props.disabled,
       tooltip: props.tooltip,
+      visibleTo: props.visibleTo,
     });
   }
 
@@ -732,6 +737,7 @@ function resolveJSXElement(element: JSXElement): AnyCardElement {
       label,
       style: props.style,
       tooltip: props.tooltip,
+      visibleTo: props.visibleTo,
     });
   }
 

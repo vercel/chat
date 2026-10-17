@@ -4,7 +4,7 @@ export default defineConfig({
   entry: ["src/index.ts"],
   format: ["esm"],
   clean: true,
-  noExternal: ["chat"],
+  noExternal: ["@chat-adapter/catalog"],
   sourcemap: false,
   banner: {
     js: "#!/usr/bin/env node",

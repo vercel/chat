@@ -251,8 +251,12 @@ export interface Adapter<TThreadId = unknown, TRawMessage = unknown> {
     messageId: string,
     emoji: EmojiValue | string
   ): Promise<void>;
-  /** Bot user ID for platforms that use IDs in mentions (e.g., Slack's <@U123>) */
-  readonly botUserId?: string;
+  /**
+   * Bot user ID for platforms that use IDs in mentions (e.g., Slack's <@U123>).
+   * `| undefined` keeps a getter that returns `string | undefined` assignable
+   * under `exactOptionalPropertyTypes`.
+   */
+  readonly botUserId?: string | undefined;
 
   /**
    * Derive channel ID from a thread ID.
@@ -384,6 +388,7 @@ export interface Adapter<TThreadId = unknown, TRawMessage = unknown> {
    * @returns The channel visibility scope
    */
   getChannelVisibility?(threadId: string): ChannelVisibility;
+  getConcurrencyScope?(): string | undefined;
 
   /**
    * Look up user information by user ID.
@@ -655,6 +660,8 @@ export interface PlanUpdateChunk {
  * Platform-specific options are passed through to the adapter.
  */
 export interface StreamOptions {
+  /** Mark the streamed message as AI-generated. Adapters with a native AI label (currently Teams) show it. */
+  aiGenerated?: boolean;
   /** Placeholder text when explicitly configured for fallback streaming. */
   fallbackStreamingPlaceholderText?: string | null;
   /** Slack: The team/workspace ID */
@@ -1815,6 +1822,8 @@ export type StreamEvent =
   | { type: string };
 
 export interface PostableRaw {
+  /** Mark the message as AI-generated. Adapters with a native AI label (currently Teams) show it; others ignore it. */
+  aiGenerated?: boolean;
   /** File/image attachments */
   attachments?: Attachment[];
   /** Files to upload */
@@ -1824,6 +1833,8 @@ export interface PostableRaw {
 }
 
 export interface PostableMarkdown {
+  /** Mark the message as AI-generated. Adapters with a native AI label (currently Teams) show it; others ignore it. */
+  aiGenerated?: boolean;
   /** File/image attachments */
   attachments?: Attachment[];
   /** Files to upload */
@@ -1833,6 +1844,8 @@ export interface PostableMarkdown {
 }
 
 export interface PostableAst {
+  /** Mark the message as AI-generated. Adapters with a native AI label (currently Teams) show it; others ignore it. */
+  aiGenerated?: boolean;
   /** mdast AST, converted to platform format */
   ast: Root;
   /** File/image attachments */
@@ -1842,6 +1855,8 @@ export interface PostableAst {
 }
 
 export interface PostableCard {
+  /** Mark the message as AI-generated. Adapters with a native AI label (currently Teams) show it; others ignore it. */
+  aiGenerated?: boolean;
   /** Rich card element */
   card: CardElement;
   /** Fallback text for platforms/clients that can't render cards */
@@ -1971,10 +1986,15 @@ export type DirectMessageHandler<TState = Record<string, unknown>> = (
 ) => void | Promise<void>;
 
 /**
- * Handler for messages matching a regex pattern.
+ * Handler for messages reaching pattern routing, optionally filtered by a
+ * regex pattern.
  *
- * Registered via `chat.onNewMessage(pattern, handler)`. Called when a message
- * matches the pattern in an unsubscribed thread.
+ * Registered via `chat.onNewMessage(handler)` or
+ * `chat.onNewMessage(pattern, handler)`. Called when a message matches the
+ * pattern in an unsubscribed, unmentioned, non-DM thread. The handler-only
+ * form is unfiltered and receives every message reaching pattern routing,
+ * including messages without text. All `onNewMessage` handlers run
+ * sequentially in registration order.
  */
 export type MessageHandler<TState = Record<string, unknown>> = (
   thread: Thread<TState>,
@@ -2357,6 +2377,12 @@ export interface ActionEvent<TRawMessage = unknown> {
   user: Author;
   /** Optional value/payload from the button */
   value?: string;
+  /**
+   * Values of the card's own inputs at the moment the action fired, keyed by
+   * input ID — the same shape as `ModalSubmitEvent.values`. Absent on
+   * platforms that cannot put an input on a card, and on cards that have none.
+   */
+  values?: Record<string, string>;
 }
 
 /**

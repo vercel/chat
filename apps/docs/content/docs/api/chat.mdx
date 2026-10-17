@@ -148,7 +148,7 @@ bot.onSubscribedMessage(async (thread, message) => {
 
 ### onNewMessage
 
-Fires for messages matching a regex pattern in unsubscribed threads.
+Fires for messages in unsubscribed threads that aren't DMs and don't mention the bot. Pass a regex to filter by message text, or pass only a handler to receive every such message, including attachment-only messages with empty text. All `onNewMessage` handlers run one after another in registration order.
 
 ```typescript
 bot.onNewMessage(/^!help/i, async (thread, message) => {
@@ -156,18 +156,26 @@ bot.onNewMessage(/^!help/i, async (thread, message) => {
 });
 ```
 
+```typescript
+bot.onNewMessage(async (thread, message) => {
+  await thread.post(`Received: ${message.text || "an attachment"}`);
+});
+```
+
 <TypeTable
   type={{
     pattern: {
-      description: 'Regular expression to match against message text.',
+      description: 'Optional regular expression tested against the message text. Omit it to receive every message that reaches pattern routing.',
       type: 'RegExp',
     },
     handler: {
-      description: 'Handler called when the pattern matches.',
-      type: '(thread: Thread, message: Message) => Promise<void>',
+      description: 'Handler called for each matching message. `context` is set by the `queue` and `burst` concurrency strategies. See [MessageContext](/docs/concurrency#messagecontext).',
+      type: '(thread: Thread, message: Message, context?: MessageContext) => Promise<void>',
     },
   }}
 />
+
+The handler-only form doesn't receive DMs or mentions, even when no `onDirectMessage` or `onNewMention` handler is registered. Passing arguments in the wrong order, a `pattern` that isn't a `RegExp`, or no handler throws a `ChatError` when the handler is registered.
 
 ### onReaction
 
@@ -248,6 +256,10 @@ bot.onAction(async (event) => { /* ... */ });
     'event.value': {
       description: 'Optional payload value from the button.',
       type: 'string | undefined',
+    },
+    'event.values': {
+      description: "The card's own input values, keyed by input ID. Absent where the platform has no card inputs.",
+      type: 'Record<string, string> | undefined',
     },
     'event.user': {
       description: 'User who triggered the action.',

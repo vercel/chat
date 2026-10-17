@@ -75,6 +75,10 @@ function normalizeInstallationTokenProvider(
   return () => Promise.resolve(value);
 }
 
+function isValidInstallationId(value: unknown): value is number {
+  return Number.isSafeInteger(value) && (value as number) > 0;
+}
+
 /**
  * GitHub adapter for chat SDK.
  *
@@ -288,13 +292,20 @@ export class GitHubAdapter
     ) {
       if ("installationId" in config && config.installationId) {
         // Single-tenant app mode - fixed installation
-        fixedInstallationId = config.installationId;
+        const installationId = Number(config.installationId);
+        if (!isValidInstallationId(installationId)) {
+          throw new ValidationError(
+            "github",
+            `Invalid installationId: expected a positive integer, received ${String(config.installationId)}.`
+          );
+        }
+        fixedInstallationId = installationId;
         this.defaultOctokit = new Octokit({
           authStrategy: createAppAuth,
           auth: {
             appId: config.appId,
             privateKey: config.privateKey,
-            installationId: config.installationId,
+            installationId,
           },
           ...(this.apiUrl ? { baseUrl: this.apiUrl } : {}),
         });
@@ -659,8 +670,30 @@ export class GitHubAdapter
     }
 
     // Extract and store installation ID for multi-tenant mode
-    const installationId = (payload as { installation?: { id: number } })
+    const rawInstallationId = (payload as { installation?: { id?: unknown } })
       .installation?.id;
+    const installationId = isValidInstallationId(rawInstallationId)
+      ? rawInstallationId
+      : undefined;
+    if (
+      this.fixedInstallationId !== null &&
+      rawInstallationId != null &&
+      installationId !== this.fixedInstallationId
+    ) {
+      const wouldDispatch =
+        (eventType === "issue_comment" ||
+          eventType === "pull_request_review_comment") &&
+        payload.action === "created";
+      if (!wouldDispatch) {
+        return new Response("ok", { status: 200 });
+      }
+      this.logger.warn("GitHub webhook rejected for unknown installation", {
+        ...webhookMetadata,
+        expectedInstallationId: this.fixedInstallationId,
+        receivedInstallationId: rawInstallationId,
+      });
+      return new Response("Unknown installation", { status: 404 });
+    }
     if (installationId && this.isMultiTenant && payload.repository) {
       const repo = payload.repository;
       await this.storeInstallationId(

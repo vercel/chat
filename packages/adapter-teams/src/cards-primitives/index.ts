@@ -16,6 +16,7 @@ import type {
   TeamsTableElement,
   TeamsTableVerticalAlignment,
   TeamsTextElement,
+  TeamsTextInputElement,
 } from "./types";
 
 export * from "./input";
@@ -87,6 +88,8 @@ function convertChild(child: TeamsCardChild): ConvertedChild {
       return { actions: [], body: [convertLink(child)] };
     case "table":
       return { actions: [], body: convertTable(child) };
+    case "text_input":
+      return { actions: [], body: [convertTextInput(child)] };
     default:
       return { actions: [], body: [] };
   }
@@ -105,6 +108,40 @@ function convertImage(element: TeamsImageElement): unknown {
     size: "Auto",
     type: "Image",
     url: element.url,
+  };
+}
+
+// Input IDs that would collide with a button's own `Action.Submit` data. Teams
+// merges the card's inputs into that data, so an input named `actionId` would
+// replace the clicked button's ID with whatever the user typed.
+const RESERVED_INPUT_IDS: ReadonlySet<string> = new Set([
+  "actionId",
+  "msteams",
+  "value",
+]);
+
+// Same mapping as `textInputToAdaptive` in the full adapter's cards.ts, so both
+// subpaths emit the same element. An input is required unless `optional` is
+// set, and Teams validates every input on the card before it lets an
+// Action.Submit through.
+function convertTextInput(input: TeamsTextInputElement): unknown {
+  if (RESERVED_INPUT_IDS.has(input.id)) {
+    throw new Error(
+      `A card TextInput can't use the ID "${input.id}", which is reserved for the button's own submit data`
+    );
+  }
+
+  return {
+    id: input.id,
+    isMultiline: input.multiline ?? false,
+    isRequired: !(input.optional ?? false),
+    label: convertTeamsEmojiPlaceholders(input.label),
+    ...(input.maxLength === undefined ? {} : { maxLength: input.maxLength }),
+    ...(input.placeholder === undefined
+      ? {}
+      : { placeholder: input.placeholder }),
+    ...(input.initialValue === undefined ? {} : { value: input.initialValue }),
+    type: "Input.Text",
   };
 }
 
@@ -348,6 +385,9 @@ function cardChildToFallbackText(child: TeamsCardChild): string {
         child.headers.join(" | "),
         ...child.rows.map((row) => row.join(" | ")),
       ].join("\n");
+    case "text_input":
+      // An empty box carries nothing; its label is what the reader needs.
+      return child.label;
     default:
       return "";
   }

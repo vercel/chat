@@ -1,24 +1,41 @@
-export type AdapterFeatureStatus = "yes" | "no" | "partial";
+import type { AdapterType } from "./types";
 
-export type AdapterFeatureValue =
-  | AdapterFeatureStatus
-  | {
-      status: AdapterFeatureStatus;
-      label?: string;
-    };
-
-export interface AdapterFeature {
-  key: string;
-  label: string;
+/**
+ * One capability shown in an adapter's feature matrix.
+ */
+export interface FeatureDefinition<Key extends string = FeatureKey> {
+  /**
+   * Stable key used in {@link AdapterFeatures}.
+   */
+  readonly key: Key;
+  /**
+   * Display label.
+   */
+  readonly label: string;
 }
 
-export interface AdapterFeatureCategory {
-  features: AdapterFeature[];
-  id: string;
-  label: string;
+/**
+ * A titled group of related capabilities.
+ */
+export interface FeatureCategory<Key extends string = FeatureKey> {
+  /**
+   * Capabilities in display order.
+   */
+  readonly features: readonly FeatureDefinition<Key>[];
+  /**
+   * Stable category identifier.
+   */
+  readonly id: string;
+  /**
+   * Display label.
+   */
+  readonly label: string;
 }
 
-export const PLATFORM_FEATURE_CATEGORIES: AdapterFeatureCategory[] = [
+/**
+ * Capability categories for platform adapters, in display order.
+ */
+export const PLATFORM_FEATURE_CATEGORIES = [
   {
     id: "messaging",
     label: "Messaging",
@@ -80,9 +97,12 @@ export const PLATFORM_FEATURE_CATEGORIES: AdapterFeatureCategory[] = [
       { key: "postChannelMessage", label: "Post channel message" },
     ],
   },
-];
+] as const satisfies readonly FeatureCategory<string>[];
 
-export const STATE_FEATURE_CATEGORIES: AdapterFeatureCategory[] = [
+/**
+ * Capability categories for state adapters, in display order.
+ */
+export const STATE_FEATURE_CATEGORIES = [
   {
     id: "capabilities",
     label: "Capabilities",
@@ -100,16 +120,71 @@ export const STATE_FEATURE_CATEGORIES: AdapterFeatureCategory[] = [
       { key: "keyPrefix", label: "Key prefix namespacing" },
     ],
   },
-];
+] as const satisfies readonly FeatureCategory<string>[];
 
+/**
+ * Capability key for platform adapters.
+ */
+export type PlatformFeatureKey =
+  (typeof PLATFORM_FEATURE_CATEGORIES)[number]["features"][number]["key"];
+
+/**
+ * Capability key for state adapters.
+ */
+export type StateFeatureKey =
+  (typeof STATE_FEATURE_CATEGORIES)[number]["features"][number]["key"];
+
+/**
+ * Any capability key.
+ */
+export type FeatureKey = PlatformFeatureKey | StateFeatureKey;
+
+/**
+ * Whether an adapter supports a capability.
+ */
+export type FeatureStatus = "yes" | "no" | "partial";
+
+/**
+ * Normalized support entry for one capability.
+ */
+export interface FeatureSupport {
+  /**
+   * Short qualifier, such as `"Native"` or `"Block Kit"`.
+   */
+  label?: string;
+  status: FeatureStatus;
+}
+
+/**
+ * Authored support value: a bare status or a status with a label.
+ */
+export type FeatureValue = FeatureStatus | FeatureSupport;
+
+/**
+ * Capability support declared by an adapter. Omitted keys mean `"no"`.
+ */
+export type AdapterFeatures = Partial<Record<FeatureKey, FeatureValue>>;
+
+/**
+ * Return the capability categories that apply to an adapter type.
+ *
+ * @param type - Adapter type.
+ * @returns Platform or state categories in display order.
+ */
 export const getFeatureCategories = (
-  type: "platform" | "state"
-): AdapterFeatureCategory[] =>
+  type: AdapterType
+): readonly FeatureCategory[] =>
   type === "platform" ? PLATFORM_FEATURE_CATEGORIES : STATE_FEATURE_CATEGORIES;
 
+/**
+ * Normalize an authored support value. Missing values mean `"no"`.
+ *
+ * @param value - Bare status, status with a label, or `undefined`.
+ * @returns A {@link FeatureSupport} object.
+ */
 export const normalizeFeatureValue = (
-  value: AdapterFeatureValue | undefined
-): { status: AdapterFeatureStatus; label?: string } => {
+  value: FeatureValue | undefined
+): FeatureSupport => {
   if (!value) {
     return { status: "no" };
   }

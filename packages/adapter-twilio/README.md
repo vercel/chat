@@ -77,6 +77,26 @@ Inbound MMS media is exposed as attachments. Twilio media URLs are private, so a
 
 Outbound MMS supports attachments with public `url` values. Chat SDK cannot upload binary files to Twilio because Twilio's Messages API requires media URLs that Twilio can fetch.
 
+## Templates
+
+Cards create Content API templates on demand for RCS senders only. To send a template on any channel, such as an approved WhatsApp template, pass its ContentSid to `sendTemplate`:
+
+```typescript
+const twilio = bot.getAdapter("twilio");
+
+const threadId = twilio.encodeThreadId({
+  sender: "whatsapp:+15550000001",
+  recipient: "whatsapp:+15551234567",
+});
+
+await twilio.sendTemplate(threadId, {
+  contentSid: "HXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX",
+  contentVariables: { "1": "Tomorrow at 2pm" },
+});
+```
+
+WhatsApp templates need a `whatsapp:` sender or a Messaging Service with a WhatsApp sender. Quick-reply taps on templates sent this way are not decoded as Chat SDK actions: taps that carry a message body arrive as regular messages, and taps without one reach `onAction` with the raw ButtonPayload as `actionId`.
+
 ## Low-level helpers
 
 Runtime-light `api`, `format`, `voice`, and `webhook` subpaths are available for apps that only need Twilio primitives. These subpaths do not import the full Chat SDK adapter or the `twilio` npm package.

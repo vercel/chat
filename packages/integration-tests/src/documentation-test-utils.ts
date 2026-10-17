@@ -55,6 +55,9 @@ export const getExpectedHomepage = (dirName: string, name: string): string => {
   if (name === "create-chat-sdk") {
     return `${CHAT_SDK_HOMEPAGE}/docs/create-chat-sdk`;
   }
+  if (name === "@chat-adapter/catalog") {
+    return `${CHAT_SDK_HOMEPAGE}/docs/adapter-catalog`;
+  }
   if (dirName.startsWith("state-")) {
     const slug =
       dirName === "state-pg" ? "postgres" : dirName.slice("state-".length);
@@ -133,6 +136,9 @@ export function createTempProject(codeBlocks: string[]): string {
       ],
       paths: {
         chat: [join(import.meta.dirname, "../../chat/src/index.ts")],
+        "@chat-adapter/catalog": [
+          join(import.meta.dirname, "../../catalog/src/index.ts"),
+        ],
         "@chat-adapter/slack": [
           join(import.meta.dirname, "../../adapter-slack/src/index.ts"),
         ],

@@ -51,6 +51,7 @@ import {
   toPlainText,
   walkAst,
 } from "./markdown";
+import { TextInput } from "./modals";
 
 const BOT_MENTION_WITH_WHITESPACE_REGEX = /@test-bot\s+hi there/;
 const LIST_ITEMS_WITH_WHITESPACE_REGEX = /one\s+two/;
@@ -709,6 +710,18 @@ describe("BaseFormatConverter", () => {
       const result = converter.renderPostable({ card });
       // Divider falls to default case and returns null, so only title
       expect(result).toBe("**With Divider**");
+    });
+
+    it("falls back to a text input's label", () => {
+      // Adapters that inherit this converter (github, instagram, linear,
+      // messenger, web) have no card-input rendering, so the label is the only
+      // thing that tells the reader what the card was asking for.
+      const card = Card({
+        title: "Deploy?",
+        children: [TextInput({ id: "notes", label: "Notes" })],
+      });
+      const result = converter.renderPostable({ card });
+      expect(result).toBe("**Deploy?**\nNotes");
     });
 
     it("handles card with mixed children including actions (excluded)", () => {

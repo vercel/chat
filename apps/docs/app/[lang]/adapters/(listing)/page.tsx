@@ -1,5 +1,6 @@
+import { listAdapters } from "@chat-adapter/catalog";
 import type { Metadata } from "next";
-import adapters from "@/adapters.json";
+import { JsonLd } from "@/components/geistdocs/json-ld";
 import {
   ADAPTERS_LISTING_DESCRIPTION,
   getAdaptersListingJsonLd,
@@ -18,15 +19,21 @@ export const metadata: Metadata = {
   },
 };
 
+const adapters = listAdapters().map((adapter) => ({
+  description: adapter.description,
+  group: adapter.group,
+  icon: adapter.icon,
+  name: adapter.name,
+  packageName: adapter.packageName,
+  slug: adapter.slug,
+  type: adapter.type,
+}));
+
 const jsonLd = getAdaptersListingJsonLd(adapters);
 
 const AdaptersPage = () => (
   <div className="container mx-auto max-w-5xl">
-    <script
-      // biome-ignore lint/security/noDangerouslySetInnerHtml: static JSON-LD, not user input
-      dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }}
-      type="application/ld+json"
-    />
+    <JsonLd data={jsonLd} />
     <section className="mt-(--fd-nav-height) space-y-4 px-4 pt-16 pb-8 sm:pt-24">
       <h1 className="text-balance text-heading-40 sm:text-heading-48">
         Adapters

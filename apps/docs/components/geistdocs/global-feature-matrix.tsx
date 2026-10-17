@@ -1,24 +1,23 @@
 import Link from "next/link";
 import {
-  type AdapterFeatureValue,
+  type AdapterFeatures,
+  getCatalogEntry,
   PLATFORM_FEATURE_CATEGORIES,
   STATE_FEATURE_CATEGORIES,
-} from "@/lib/adapter-features";
+} from "@chat-adapter/catalog";
 import { adaptersSource } from "@/lib/geistdocs/adapters-source";
 import { i18n } from "@/lib/geistdocs/i18n";
 import { cn } from "@/lib/utils";
 import { FeatureCell } from "./feature-cell";
 
 interface AdapterFrontmatter {
-  community?: boolean;
-  features?: Record<string, AdapterFeatureValue>;
   slug: string;
   title: string;
   type: "platform" | "state";
 }
 
 interface AdapterEntry {
-  features: Record<string, AdapterFeatureValue> | undefined;
+  features: AdapterFeatures | undefined;
   href: string;
   name: string;
   slug: string;
@@ -29,12 +28,12 @@ const collectAdapters = (type: "platform" | "state"): AdapterEntry[] => {
   return pages
     .map((page) => ({ url: page.url, data: page.data as AdapterFrontmatter }))
     .filter(({ data }) => data.type === type)
-    .filter(({ data }) => !data.community)
+    .filter(({ data }) => getCatalogEntry(data.slug)?.group === "official")
     .map(({ url, data }) => ({
       name: data.title,
       slug: data.slug,
       href: url,
-      features: data.features,
+      features: getCatalogEntry(data.slug)?.features,
     }));
 };
 

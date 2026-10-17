@@ -13,6 +13,8 @@ related:
   - /docs/history
 ---
 
+A channel holds threads, and each thread holds the messages in one conversation. Your event handlers receive the `Thread` and `Message` for each event, and `thread.channel` returns the `Channel` that contains the thread.
+
 ## Threads
 
 A `Thread` represents a conversation thread on any platform. It provides methods for posting messages, managing subscriptions, and accessing message history.

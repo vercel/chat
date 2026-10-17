@@ -25,7 +25,7 @@ Scaffold a minimal Next.js bot app with `create-chat-sdk`:
 npx create-chat-sdk@latest my-bot
 ```
 
-The CLI generates your `Chat` configuration, webhook route, `.env.example` file, dependencies, and optional Web adapter route from the adapter catalog. See the [CLI docs](https://chat-sdk.dev/docs/create-chat-sdk) for options and non-interactive usage.
+The CLI generates your `Chat` configuration, webhook route, `.env.example` file, dependencies, and optional Web adapter route from the [adapter catalog](#adapter-catalog). See the [CLI docs](https://chat-sdk.dev/docs/create-chat-sdk) for options and non-interactive usage.
 
 ## Usage
 
@@ -57,6 +57,30 @@ See the [Getting Started guide](https://chat-sdk.dev/docs/getting-started) for a
 ## Adapters
 
 Browse official, vendor-official, and community adapters on [chat-sdk.dev/adapters](https://chat-sdk.dev/adapters). Learn how to [build your own adapter](https://chat-sdk.dev/docs/contributing/building).
+
+## Adapter catalog
+
+[`@chat-adapter/catalog`](packages/catalog) lists every adapter on chat-sdk.dev with its npm package, maintainer, and supported capabilities. Official and vendor-official entries also include the factory export, peer dependencies, and environment variables needed to set them up. It has no dependencies and imports no adapter code, so you can use it in websites, setup screens, build scripts, and CLIs. chat-sdk.dev and `create-chat-sdk` both read from it.
+
+```bash
+npm i @chat-adapter/catalog
+```
+
+```typescript
+import {
+  getFeatureSupport,
+  getSecretEnvVars,
+  listAdapters,
+} from "@chat-adapter/catalog";
+
+const streamingAdapters = listAdapters({ type: "platform" }).filter(
+  (adapter) => getFeatureSupport(adapter, "streaming").status === "yes"
+);
+
+const slackSecrets = getSecretEnvVars("slack").map((envVar) => envVar.key);
+```
+
+See the [Adapter Catalog docs](https://chat-sdk.dev/docs/adapter-catalog) for the full API.
 
 ## Features
 

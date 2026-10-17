@@ -6,54 +6,15 @@ slug: slack
 type: platform
 logo: slack
 tagline: Build bots for Slack workspaces with full support for threads, reactions, Agent Sessions, native streaming, scheduled messages, modals, and slash commands.
-beta: true
-features:
-  postMessage: yes
-  editMessage: yes
-  deleteMessage: yes
-  fileUploads: yes
-  streaming:
-    status: yes
-    label: Native
-  scheduledMessages:
-    status: yes
-    label: Native
-  cardFormat:
-    status: yes
-    label: Block Kit
-  buttons: yes
-  linkButtons: yes
-  selectMenus: yes
-  tables:
-    status: yes
-    label: Block Kit
-  charts:
-    status: yes
-    label: Block Kit
-  fields: yes
-  imagesInCards: yes
-  modals: yes
-  slashCommands: yes
-  mentions: yes
-  addReactions: yes
-  removeReactions: yes
-  typingIndicator: yes
-  messageUpdatedEvents: yes
-  messageDeletedEvents: yes
-  directMessages: yes
-  ephemeralMessages:
-    status: yes
-    label: Native
-  userLookup: yes
-  customApiEndpoint: yes
-  fetchMessages: yes
-  fetchSingleMessage: yes
-  fetchThreadInfo: yes
-  fetchChannelMessages: yes
-  listThreads: yes
-  fetchChannelInfo: yes
-  postChannelMessage: yes
 ---
+
+## Create a new bot
+
+Scaffold a Next.js bot with the Slack adapter using [`create-chat-sdk`](/docs/create-chat-sdk):
+
+<CreateChatSdk adapters="slack memory" />
+
+The generated app uses the [Memory state adapter](/adapters/official/memory) for local development. To add the adapter to an existing app, start at [Install](#install).
 
 ## Install
 
@@ -183,6 +144,17 @@ createSlackAdapter({
 
 This is equivalent to passing a `botToken` resolver that calls `getToken` and a `webhookVerifier` that validates the Vercel OIDC token Connect attaches. Omit `signingSecret` / `SLACK_SIGNING_SECRET` when using it.
 
+Create the connector and attach it to your project with the [Vercel CLI](https://vercel.com/docs/cli/connect). `--trigger-path` registers the Slack webhook route as the trigger destination, and `vercel env pull` downloads a development OIDC token for local runs:
+
+```bash
+vercel link
+vercel connect create slack --name acme-slack --triggers
+vercel connect attach slack/acme-slack --triggers --trigger-path /api/webhooks/slack
+vercel env pull
+```
+
+Without `--trigger-branch`, Connect forwards webhooks to your production deployment. See [Vercel Connect](/docs/vercel-connect#set-up-a-connector) for the full setup.
+
 ### Single-workspace mode
 
 For an app installed in one workspace, the adapter reads `SLACK_BOT_TOKEN` and `SLACK_SIGNING_SECRET` from the environment:
@@ -268,6 +240,12 @@ await slackAdapter.withBotToken(
 ```
 
 `withBotToken` uses `AsyncLocalStorage`, so concurrent calls with different tokens stay isolated. In multi-workspace deployments, pass `installationId` so per-user caches are scoped to that installation and don't bleed across tenants. `installationId` is the key the installation was stored under: the `team_id`, or the `enterprise_id` for org-wide installs.
+
+Message deduplication, locks, queues, concurrency limits, and turn cancellation are scoped to the resolved installation. An org-wide installation shares one scope across its workspaces, because a single token covers all of them. Two installations in the same Slack Connect channel use separate queues and cannot cancel each other's turns. Public thread IDs stay unchanged, and channel members still include external users. This does not establish that recipients are trusted or isolate subscription, thread state, or history keys.
+
+To call `bot.abortTurn(threadId)` outside webhook handling, use `withBotToken` with the same `installationId`. Multi-workspace message dispatch and cancellation throw `AuthenticationError` when authentication context is unavailable. In multi-workspace mode, a `withBotToken` call without `installationId` uses a hashed token scope, which does not match installation-scoped webhook turns and changes when the token rotates. In single-workspace mode, where `botToken` is configured, these keys are never scoped, including inside `withBotToken`.
+
+Upgrade `chat` and `@chat-adapter/slack` together and restart all workers. Previously queued multi-workspace messages use unscoped keys and are not migrated into installation-scoped queues. Replay pending messages that you need to retain.
 
 #### Token encryption
 
@@ -666,7 +644,7 @@ Threads without streaming context fall back to post-and-edit (`chat.update` delt
 const slack = createSlackAdapter({ nativeStreaming: false });
 ```
 
-Slack expires a native stream after roughly five minutes. A reply that streams longer than that is finalized and continued in a new message: once a segment is four minutes old (`streamSegmentMaxAgeMs`, default `240000`; `Infinity` disables rotation), the adapter rotates at the next paragraph break, or after at most 30 more seconds if none arrives. Across the boundary an open code fence is closed and reopened, a table that continues gets its header repeated, the plan title and any task cards still in progress are replayed so later updates land on them, and with `agentView` the session stays in `processing`. The finalized message keeps its task cards in their last state, and a list split across the boundary restarts its numbering. The `SentMessage` returned by `thread.post()` refers to the last message of the reply. If Slack expires a segment during a long idle gap anyway, the adapter continues in a new message with any text Slack had not confirmed rather than failing the reply.
+Slack expires a native stream after roughly five minutes. A reply that streams longer than that is finalized and continued in a new message: once a segment is four minutes old (`streamSegmentMaxAgeMs`, default `240000`; `Infinity` disables rotation), the adapter rotates at the next paragraph break, or after at most 30 more seconds if none arrives. Across the boundary an open code fence is closed and reopened, a table that continues gets its header repeated, the plan title and any task cards still in progress are replayed so later updates land on them, and with `agentView` the session stays in `processing`. Because the work continues in the new message, task cards still open at the boundary are marked complete in the finalized message, and later updates to them appear only in the new message. A list split across the boundary restarts its numbering. The `SentMessage` returned by `thread.post()` refers to the last message of the reply. To reach every message, call `adapter.stream()` directly: its result has `messageIds`, which lists the messages of the reply in order. Outside DMs, pass `recipientUserId` and `recipientTeamId` in its options, or it returns `null` without streaming. If Slack expires a segment during a long idle gap anyway, the adapter continues in a new message with any text Slack had not confirmed rather than failing the reply.
 
 ### Feedback buttons
 
@@ -832,6 +810,12 @@ The downloader still validates each URL, limits redirects, sends credentials onl
 Socket Mode receives `agent`, `tls`, and `apiUrl`, but only `agent` reaches the WebSocket itself; `tls` and `apiUrl` apply to its HTTP calls. The Slack SDK opens the WebSocket with the agent alone, so a custom CA or other TLS settings for that connection must be configured on the agent. App-token authentication, headers, and retry options remain SDK defaults, since Web API headers are not Socket Mode headers. Configure routing/bypass in your fetch implementation if the forwarded webhook uses an internal application URL. The adapter does not close caller-owned agents or dispatchers; close them when your application shuts down.
 
 Standalone `@chat-adapter/slack/api` functions have their own `options.fetch` parameter and do not inherit adapter configuration. Application callbacks, token resolvers, installation providers, and state adapters also own their network configuration. Proxy authentication, CA trust, WebSocket support, and destination policy must be configured for your deployment.
+
+## Thread history
+
+[Slack returns thread replies oldest-first](https://docs.slack.dev/reference/methods/conversations.replies/#pagination), so a backward read follows every Slack API page in the thread before it returns the newest messages in chronological order. Each read makes one `conversations.replies` call per page, even when `limit` is small. Pass `nextCursor` to fetch the preceding messages; each of those reads also starts from the beginning of the thread. See the [History API reference](/docs/api/history#bothistorythread).
+
+Slack limits [new commercially distributed apps outside the Slack Marketplace and new installations of existing apps](https://docs.slack.dev/changelog/2025/05/29/rate-limit-changes-for-non-marketplace-apps/) to one `conversations.replies` request per minute and 15 messages per page. Existing installations, Marketplace apps, and internal customer-built apps are exempt from these stricter limits. For affected installations, a backward read of a 400-message thread can take about 30 minutes, because `@slack/web-api` waits out each rate limit by default. Use `direction: "forward"` to read incrementally through Slack's native pagination.
 
 ## Direct API client
 

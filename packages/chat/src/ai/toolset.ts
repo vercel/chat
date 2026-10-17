@@ -174,14 +174,18 @@ export interface ChatToolsBaseOptions {
    * threads within that channel. Set {@link ChatToolsBaseOptions.strictScope}
    * to tighten a thread scope to that thread alone.
    *
-   * Defaults to the conversation being handled, so tools created inside a
-   * handler are already confined to it. Set this when the agent runs outside
-   * a handler and still acts on a user's behalf, or pass a channel id to
-   * operate channel-wide.
+   * Defaults to the conversation being handled when a tool is called, so
+   * tools called inside a handler are confined to it. The scope resolves at
+   * call time, not when the tools are created: a call that runs later outside
+   * a handler, such as an approval resumed in another request, has no
+   * conversation and runs workspace-wide with a warning. Set this when the
+   * agent runs outside a handler and still acts on a user's behalf, or pass a
+   * channel id to operate channel-wide.
    *
-   * Pass `false` to reach every conversation the bot can see. When no
-   * scope resolves (outside a handler, no explicit scope), tools run
-   * workspace-wide and a warning is logged.
+   * Pass `false` to reach every conversation the bot can see. When no scope
+   * resolves inside a handler that has no conversation (an action in App Home
+   * or inside a modal, options load, a modal opened outside a thread), calls
+   * reject before accessing the platform. Outside any handler they run workspace-wide and log a warning.
    *
    * @example
    * ```ts

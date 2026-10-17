@@ -6,57 +6,15 @@ slug: xchat
 type: platform
 logo: xchat
 tagline: Hold encrypted 1:1 and group conversations on XChat, with all cryptography handled inside the adapter.
-beta: true
-features:
-  postMessage: yes
-  editMessage:
-    status: partial
-    label: Own text messages, age-gated
-  deleteMessage:
-    status: partial
-    label: Own messages
-  fileUploads: yes
-  streaming:
-    status: partial
-    label: Age-gated edits
-  scheduledMessages: no
-  cardFormat:
-    status: partial
-    label: Plain text + URL preview
-  buttons: no
-  linkButtons:
-    status: partial
-    label: Tappable URLs
-  selectMenus: no
-  tables:
-    status: partial
-    label: ASCII
-  fields:
-    status: partial
-    label: Plain text
-  imagesInCards: no
-  modals: no
-  slashCommands: no
-  mentions: yes
-  addReactions: yes
-  removeReactions: yes
-  typingIndicator: yes
-  markAsRead: yes
-  messageUpdatedEvents: no
-  messageDeletedEvents: no
-  directMessages: yes
-  ephemeralMessages: no
-  customApiEndpoint:
-    status: partial
-    label: Media REST calls
-  fetchMessages: yes
-  fetchSingleMessage: no
-  fetchThreadInfo: yes
-  fetchChannelMessages: no
-  listThreads: no
-  fetchChannelInfo: no
-  postChannelMessage: no
 ---
+
+## Create a new bot
+
+Scaffold a Next.js bot with the XChat adapter using [`create-chat-sdk`](/docs/create-chat-sdk):
+
+<CreateChatSdk adapters="xchat memory" />
+
+The generated app uses the [Memory state adapter](/adapters/official/memory) for local development. To add the adapter to an existing app, start at [Install](#install).
 
 ## Install
 
@@ -258,7 +216,7 @@ Every XChat conversation is encrypted, and the adapter handles the whole crypto 
 
 ## Mention behavior in groups
 
-`bot.onNewMention(handler)` fires for group messages that mention the bot. A group message counts as a mention when its rich-text mention entities include the bot's @handle or user ID, when it is a swipe-reply to one of the bot's own messages, or when its plain text contains `@handle` (fallback when no entities are present). To reply to every group message instead, register a catch-all `bot.onNewMessage(/.+/, handler)`.
+`bot.onNewMention(handler)` fires for group messages that mention the bot. A group message counts as a mention when its rich-text mention entities include the bot's @handle or user ID, when it is a swipe-reply to one of the bot's own messages, or when its plain text contains `@handle` (fallback when no entities are present). To also reply to group messages that don't mention the bot, register `bot.onNewMessage(handler)` without a pattern.
 
 ## Open DM
 

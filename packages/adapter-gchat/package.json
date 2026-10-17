@@ -1,6 +1,6 @@
 {
   "name": "@chat-adapter/gchat",
-  "version": "4.41.1",
+  "version": "4.42.0",
   "description": "Google Chat adapter for Chat SDK — service account auth, Card v2, dialogs, and Workspace Events",
   "type": "module",
   "engines": {
@@ -37,7 +37,7 @@
     "@types/node": "^25.3.2",
     "tsup": "^8.3.5",
     "typescript": "^5.7.2",
-    "vitest": "^4.0.18"
+    "vitest": "^5.0.3"
   },
   "repository": {
     "type": "git",

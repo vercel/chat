@@ -242,6 +242,13 @@ Adaptive Card v1.5 JSON. Notable mappings:
   options).
 - `<Divider>` → `Container` with a top border.
 - `<Table>` → `Table` (Adaptive Card 1.5+).
+- `<TextInput>` → `Input.Text` (required unless `optional`; Teams validates
+  every input on the card before it lets any `Action.Submit` through, so
+  `actionType="modal"` buttons set `associatedInputs: "none"`). Its value
+  comes back merged into the submit payload, so `cardInputValues` skips
+  `BUTTON_SUBMIT_KEYS` (or `AUTO_SUBMIT_KEYS` for the auto-injected submit)
+  to tell inputs from the adapter's own keys. A card input whose ID is in
+  `BUTTON_SUBMIT_KEYS` throws at render time; modals don't have that limit.
 
 `modals.ts` handles Task Modules: `Modal.title` / `submitLabel` map to
 `title` / `value` of the surrounding `task/fetch` response. Submit

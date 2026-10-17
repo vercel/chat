@@ -9,48 +9,15 @@ community: true
 vendorOfficial: true
 author: Kapso
 mdxBody: true
-features:
-  postMessage: yes
-  editMessage: no
-  deleteMessage: no
-  fileUploads:
-    status: yes
-    label: Images, video, audio, documents, stickers
-  streaming: no
-  scheduledMessages: no
-  cardFormat:
-    status: partial
-    label: WhatsApp-compatible text and actions
-  buttons:
-    status: yes
-    label: Up to 3 reply buttons
-  linkButtons: yes
-  selectMenus: no
-  tables: no
-  fields: no
-  imagesInCards:
-    status: partial
-    label: Sent as media
-  modals: no
-  slashCommands: no
-  mentions: no
-  addReactions: yes
-  removeReactions: yes
-  typingIndicator: no
-  messageUpdatedEvents: no
-  messageDeletedEvents: no
-  directMessages: yes
-  ephemeralMessages: no
-  userLookup: no
-  customApiEndpoint: yes
-  fetchMessages: yes
-  fetchSingleMessage: no
-  fetchThreadInfo: yes
-  fetchChannelMessages: no
-  listThreads: no
-  fetchChannelInfo: no
-  postChannelMessage: no
 ---
+
+## Create a new bot
+
+Scaffold a Next.js bot with the Kapso adapter using [`create-chat-sdk`](/docs/create-chat-sdk):
+
+<CreateChatSdk adapters="kapso memory" />
+
+The generated app uses the [Memory state adapter](/adapters/official/memory) for local development. To add the adapter to an existing app, start at [Install](#install).
 
 ## Install
 

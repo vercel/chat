@@ -9,8 +9,6 @@ related:
   - /docs/testing
 ---
 
-## Testing philosophy
-
 Chat SDK adapters are the trust boundary between your application and a platform. High test coverage is expected: unit tests for every public method, and integration tests that wire up the full `Chat` → `Adapter` → handler pipeline.
 
 All adapters in this repo use [vitest](https://vitest.dev) with `@vitest/coverage-v8`. Community adapters should follow the same convention.

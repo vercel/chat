@@ -3,13 +3,10 @@ import {
   listPlatformAdapters,
   listStateAdapters,
   type CatalogAdapter,
-} from "chat/adapters";
+} from "@chat-adapter/catalog";
 
-const adapterHref = (adapter: CatalogAdapter): string => {
-  const group =
-    adapter.group === "vendor-official" ? "vendor-official" : "official";
-  return `/[lang]/adapters/${group}/${adapter.slug}`;
-};
+const adapterHref = (adapter: CatalogAdapter): string =>
+  `/[lang]/adapters/${adapter.group}/${adapter.slug}`;
 
 const byName = (first: CatalogAdapter, second: CatalogAdapter): number =>
   first.name.localeCompare(second.name);
@@ -34,7 +31,7 @@ const getGroups = () => [
 ];
 
 /**
- * Collapsible adapter slug list sourced from the `chat/adapters` catalog.
+ * Collapsible adapter slug list sourced from `@chat-adapter/catalog`.
  */
 export const AdapterSlugList = () => {
   const groups = getGroups();

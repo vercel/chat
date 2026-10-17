@@ -1,6 +1,15 @@
+import type { AdapterGroup } from "@chat-adapter/catalog";
 import { type Adapter, getAuthor } from "./adapter-readme";
-
-const BASE_URL = "https://chat-sdk.dev";
+import {
+  absoluteUrl,
+  breadcrumbNode,
+  jsonLdGraph,
+  MIT_LICENSE_URL,
+  npmPackageUrl,
+  ORGANIZATION_ID,
+  softwareReference,
+  webPageNode,
+} from "./jsonld";
 
 export const ADAPTERS_LISTING_DESCRIPTION =
   "Browse official Chat SDK platform and state adapters, plus community and vendor-built integrations. Connect your bot to Slack, Teams, Discord, and more.";
@@ -9,13 +18,7 @@ export const ADAPTERS_LISTING_DESCRIPTION =
 export const ADAPTERS_LISTING_JSON_LD_DESCRIPTION =
   "Official Chat SDK platform and state adapters for Slack, Teams, Google Chat, Discord, WhatsApp, and more.";
 
-type AdapterGroup = "official" | "community" | "vendor-official";
-
-const VERCEL_AUTHOR = {
-  "@type": "Organization",
-  name: "Vercel",
-  url: "https://vercel.com",
-};
+const ADAPTERS_CRUMB = { name: "Adapters", url: "/adapters" };
 
 interface AdapterJsonLdInput {
   adapter?: Adapter;
@@ -27,9 +30,9 @@ interface AdapterJsonLdInput {
 }
 
 /**
- * Build JSON-LD for an adapter detail page: a `SoftwareSourceCode` node
- * describing the adapter package and a `BreadcrumbList` for the page's
- * position in the site hierarchy.
+ * Build JSON-LD for an adapter detail page: a `WebPage` whose main entity is
+ * a `SoftwareSourceCode` node describing the adapter package, plus a
+ * `BreadcrumbList` for the page's position in the site hierarchy.
  */
 export const getAdapterJsonLd = ({
   adapter,
@@ -39,55 +42,62 @@ export const getAdapterJsonLd = ({
   tagline,
   title,
 }: AdapterJsonLdInput) => {
-  const pageUrl = `${BASE_URL}/adapters/${group}/${slug}`;
+  const pagePath = `/adapters/${group}/${slug}`;
+  const pageUrl = absoluteUrl(pagePath);
+  const softwareId = `${pageUrl}#software`;
+  const imageUrl = absoluteUrl(`${pagePath}/og`);
   const authorName = adapter ? getAuthor(adapter) : undefined;
+  const isOfficial = group === "official";
 
   // Only official adapters are authored by Vercel. Community/vendor-official
   // adapters use their declared author, and omit the field entirely when none
   // is declared — never fall back to Vercel.
   let author: Record<string, string> | undefined;
-  if (group === "official") {
-    author = VERCEL_AUTHOR;
+  if (isOfficial) {
+    author = { "@id": ORGANIZATION_ID };
   } else if (authorName) {
     author = { "@type": "Organization", name: authorName };
   }
 
   const softwareSourceCode = {
-    "@context": "https://schema.org",
     "@type": "SoftwareSourceCode",
+    "@id": softwareId,
     name: packageName,
+    alternateName: `${title} adapter for Chat SDK`,
     description: tagline,
     url: pageUrl,
+    image: imageUrl,
     programmingLanguage: "TypeScript",
     runtimePlatform: "Node.js",
+    sameAs: [npmPackageUrl(packageName)],
     ...(author ? { author } : {}),
     ...(adapter?.readme ? { codeRepository: adapter.readme } : {}),
-    ...(group === "official"
-      ? { license: "https://opensource.org/licenses/MIT" }
+    // Official adapters live in the Chat SDK monorepo under the MIT license.
+    ...(isOfficial
+      ? {
+          isPartOf: softwareReference,
+          license: MIT_LICENSE_URL,
+          publisher: { "@id": ORGANIZATION_ID },
+        }
       : {}),
   };
 
-  const breadcrumb = {
-    "@context": "https://schema.org",
-    "@type": "BreadcrumbList",
-    itemListElement: [
-      { "@type": "ListItem", position: 1, name: "Chat SDK", item: BASE_URL },
-      {
-        "@type": "ListItem",
-        position: 2,
-        name: "Adapters",
-        item: `${BASE_URL}/adapters`,
-      },
-      { "@type": "ListItem", position: 3, name: title, item: pageUrl },
-    ],
-  };
-
-  return [softwareSourceCode, breadcrumb];
+  return jsonLdGraph([
+    webPageNode({
+      description: tagline,
+      image: imageUrl,
+      mainEntityId: softwareId,
+      name: title,
+      url: pageUrl,
+    }),
+    softwareSourceCode,
+    breadcrumbNode(pageUrl, [ADAPTERS_CRUMB, { name: title, url: pagePath }]),
+  ]);
 };
 
 interface ListingAdapter {
-  community?: boolean;
   description: string;
+  group: AdapterGroup;
   name: string;
   slug: string;
 }
@@ -96,19 +106,27 @@ interface ListingAdapter {
  * Build JSON-LD for the adapters listing page: a `CollectionPage` with an
  * `ItemList` of official (Vercel-maintained) adapters and state packages.
  */
-export const getAdaptersListingJsonLd = (adapters: ListingAdapter[]) => {
-  const officialAdapters = adapters.filter((adapter) => !adapter.community);
-  const adaptersUrl = `${BASE_URL}/adapters`;
+export const getAdaptersListingJsonLd = (
+  adapters: readonly ListingAdapter[]
+) => {
+  const officialAdapters = adapters.filter(
+    (adapter) => adapter.group === "official"
+  );
+  const adaptersUrl = absoluteUrl(ADAPTERS_CRUMB.url);
+  const itemListId = `${adaptersUrl}#adapters`;
 
-  const collectionPage = {
-    "@context": "https://schema.org",
-    "@type": "CollectionPage",
-    "@id": adaptersUrl,
-    name: "Adapters",
-    description: ADAPTERS_LISTING_JSON_LD_DESCRIPTION,
-    url: adaptersUrl,
-    mainEntity: {
+  return jsonLdGraph([
+    webPageNode({
+      description: ADAPTERS_LISTING_JSON_LD_DESCRIPTION,
+      image: absoluteUrl("/opengraph-image.png"),
+      mainEntityId: itemListId,
+      name: "Adapters",
+      type: "CollectionPage",
+      url: adaptersUrl,
+    }),
+    {
       "@type": "ItemList",
+      "@id": itemListId,
       name: "Official Chat SDK platform and state adapters",
       numberOfItems: officialAdapters.length,
       itemListElement: officialAdapters.map((adapter, index) => ({
@@ -116,24 +134,9 @@ export const getAdaptersListingJsonLd = (adapters: ListingAdapter[]) => {
         position: index + 1,
         name: adapter.name,
         description: adapter.description,
-        url: `${BASE_URL}/adapters/official/${adapter.slug}`,
+        url: absoluteUrl(`/adapters/official/${adapter.slug}`),
       })),
     },
-  };
-
-  const breadcrumb = {
-    "@context": "https://schema.org",
-    "@type": "BreadcrumbList",
-    itemListElement: [
-      { "@type": "ListItem", position: 1, name: "Chat SDK", item: BASE_URL },
-      {
-        "@type": "ListItem",
-        position: 2,
-        name: "Adapters",
-        item: adaptersUrl,
-      },
-    ],
-  };
-
-  return [collectionPage, breadcrumb];
+    breadcrumbNode(adaptersUrl, [ADAPTERS_CRUMB]),
+  ]);
 };

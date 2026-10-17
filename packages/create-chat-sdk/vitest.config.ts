@@ -4,13 +4,9 @@ export default defineProject({
   resolve: {
     alias: [
       {
-        find: "chat/adapters",
-        replacement: new URL("../chat/src/adapters/index.ts", import.meta.url)
+        find: "@chat-adapter/catalog",
+        replacement: new URL("../catalog/src/index.ts", import.meta.url)
           .pathname,
-      },
-      {
-        find: "chat",
-        replacement: new URL("../chat/src/index.ts", import.meta.url).pathname,
       },
     ],
   },

@@ -698,6 +698,9 @@ export abstract class BaseFormatConverter implements FormatConverter {
         return tableElementToAscii(child.headers, child.rows);
       case "chart":
         return chartElementToFallbackText(child);
+      case "text_input":
+        // An empty box carries no text of its own.
+        return child.label;
       case "section":
         return child.children
           .map((c) => this.cardChildToFallbackText(c))

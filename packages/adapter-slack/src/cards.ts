@@ -32,7 +32,7 @@ import {
   chartElementToFallbackText,
   tableElementToAscii,
 } from "chat";
-import { markdownBoldToSlackMrkdwn } from "./format";
+import { escapeSlackText, markdownBoldToSlackMrkdwn } from "./format";
 
 /**
  * Convert emoji placeholders in text to Slack format.
@@ -58,6 +58,7 @@ interface SlackButtonElement {
   text: SlackTextObject;
   type: "button";
   value?: string;
+  visible_to_user_ids?: string[];
 }
 
 interface SlackLinkButtonElement {
@@ -66,6 +67,7 @@ interface SlackLinkButtonElement {
   text: SlackTextObject;
   type: "button";
   url: string;
+  visible_to_user_ids?: string[];
 }
 
 interface SlackOptionObject {
@@ -101,7 +103,10 @@ export function cardToBlockKit(card: CardElement): SlackBlock[] {
       type: "header",
       text: {
         type: "plain_text",
-        text: convertEmoji(card.title),
+        text: truncateSlackText(
+          convertEmoji(card.title),
+          HEADER_TEXT_MAX_CHARS
+        ),
         emoji: true,
       },
     });
@@ -114,7 +119,10 @@ export function cardToBlockKit(card: CardElement): SlackBlock[] {
       elements: [
         {
           type: "mrkdwn",
-          text: convertEmoji(card.subtitle),
+          text: truncateSlackMrkdwn(
+            convertEmoji(card.subtitle),
+            CONTEXT_TEXT_MAX_CHARS
+          ),
         },
       ],
     });
@@ -125,7 +133,9 @@ export function cardToBlockKit(card: CardElement): SlackBlock[] {
     blocks.push({
       type: "image",
       image_url: card.imageUrl,
-      alt_text: card.title || "Card image",
+      alt_text: card.title
+        ? truncateSlackText(card.title, IMAGE_ALT_TEXT_MAX_CHARS)
+        : "Card image",
     });
   }
 
@@ -172,10 +182,31 @@ function convertChildToBlocks(
       return convertTableToBlocks(child, state);
     case "chart":
       return [convertChartToBlock(child, state)];
+    case "text_input":
+      return [
+        {
+          type: "section",
+          text: {
+            type: "mrkdwn",
+            text: truncateSlackMrkdwn(
+              escapeSlackText(convertEmoji(child.label)),
+              SECTION_TEXT_MAX_CHARS
+            ),
+          },
+        },
+      ];
     default: {
       const text = cardChildToFallbackText(child);
       if (text) {
-        return [{ type: "section", text: { type: "mrkdwn", text } }];
+        return [
+          {
+            type: "section",
+            text: {
+              type: "mrkdwn",
+              text: truncateSlackMrkdwn(text, SECTION_TEXT_MAX_CHARS),
+            },
+          },
+        ];
       }
       return [];
     }
@@ -184,35 +215,37 @@ function convertChildToBlocks(
 
 export function convertTextToBlock(element: TextElement): SlackBlock {
   const text = markdownBoldToSlackMrkdwn(convertEmoji(element.content));
-  let formattedText = text;
 
-  // Apply style
-  if (element.style === "bold") {
-    formattedText = `*${text}*`;
-  } else if (element.style === "muted") {
+  if (element.style === "muted") {
     // Slack doesn't have a muted style, use context block
     return {
       type: "context",
-      elements: [{ type: "mrkdwn", text }],
+      elements: [
+        {
+          type: "mrkdwn",
+          text: truncateSlackMrkdwn(text, CONTEXT_TEXT_MAX_CHARS),
+        },
+      ],
     };
   }
 
+  const formattedText =
+    element.style === "bold"
+      ? `*${truncateSlackMrkdwn(text, SECTION_TEXT_MAX_CHARS - 2)}*`
+      : truncateSlackMrkdwn(text, SECTION_TEXT_MAX_CHARS);
+
   return {
     type: "section",
-    text: {
-      type: "mrkdwn",
-      text: formattedText,
-    },
+    text: { type: "mrkdwn", text: formattedText },
   };
 }
 
 function convertLinkToBlock(element: LinkElement): SlackBlock {
+  const labelBudget = SECTION_TEXT_MAX_CHARS - element.url.length - 3;
+  const label = truncateSlackMrkdwn(convertEmoji(element.label), labelBudget);
   return {
     type: "section",
-    text: {
-      type: "mrkdwn",
-      text: `<${element.url}|${convertEmoji(element.label)}>`,
-    },
+    text: { type: "mrkdwn", text: `<${element.url}|${label}>` },
   };
 }
 
@@ -220,7 +253,9 @@ function convertImageToBlock(element: ImageElement): SlackBlock {
   return {
     type: "image",
     image_url: element.url,
-    alt_text: element.alt || "Image",
+    alt_text: element.alt
+      ? truncateSlackText(element.alt, IMAGE_ALT_TEXT_MAX_CHARS)
+      : "Image",
   };
 }
 
@@ -259,7 +294,10 @@ function convertButtonToElement(button: ButtonElement): SlackButtonElement {
     type: "button",
     text: {
       type: "plain_text",
-      text: convertEmoji(button.label),
+      text: truncateSlackText(
+        convertEmoji(button.label),
+        BUTTON_TEXT_MAX_CHARS
+      ),
       emoji: true,
     },
     action_id: button.id,
@@ -274,6 +312,10 @@ function convertButtonToElement(button: ButtonElement): SlackButtonElement {
     element.style = style as "primary" | "danger";
   }
 
+  if (button.visibleTo?.length) {
+    element.visible_to_user_ids = button.visibleTo;
+  }
+
   return element;
 }
 
@@ -284,7 +326,10 @@ function convertLinkButtonToElement(
     type: "button",
     text: {
       type: "plain_text",
-      text: convertEmoji(button.label),
+      text: truncateSlackText(
+        convertEmoji(button.label),
+        BUTTON_TEXT_MAX_CHARS
+      ),
       emoji: true,
     },
     action_id: button.id ?? `link-${button.url.slice(0, 200)}`,
@@ -296,19 +341,29 @@ function convertLinkButtonToElement(
     element.style = style as "primary" | "danger";
   }
 
+  if (button.visibleTo?.length) {
+    element.visible_to_user_ids = button.visibleTo;
+  }
+
   return element;
 }
 
 function convertSelectToElement(select: SelectElement): SlackSelectElement {
   const options: SlackOptionObject[] = select.options.map((opt) => {
     const option: SlackOptionObject = {
-      text: { type: "plain_text" as const, text: convertEmoji(opt.label) },
+      text: {
+        type: "plain_text" as const,
+        text: truncateSlackText(convertEmoji(opt.label), OPTION_TEXT_MAX_CHARS),
+      },
       value: opt.value,
     };
     if (opt.description) {
       option.description = {
         type: "plain_text",
-        text: convertEmoji(opt.description),
+        text: truncateSlackText(
+          convertEmoji(opt.description),
+          OPTION_TEXT_MAX_CHARS
+        ),
       };
     }
     return option;
@@ -321,7 +376,10 @@ function convertSelectToElement(select: SelectElement): SlackSelectElement {
   if (select.placeholder) {
     element.placeholder = {
       type: "plain_text",
-      text: convertEmoji(select.placeholder),
+      text: truncateSlackText(
+        convertEmoji(select.placeholder),
+        SELECT_PLACEHOLDER_MAX_CHARS
+      ),
     };
   }
   if (select.initialOption) {
@@ -339,13 +397,22 @@ function convertRadioSelectToElement(
   const limitedOptions = radioSelect.options.slice(0, 10);
   const options: SlackOptionObject[] = limitedOptions.map((opt) => {
     const option: SlackOptionObject = {
-      text: { type: "mrkdwn" as const, text: convertEmoji(opt.label) },
+      text: {
+        type: "mrkdwn" as const,
+        text: truncateSlackMrkdwn(
+          convertEmoji(opt.label),
+          OPTION_TEXT_MAX_CHARS
+        ),
+      },
       value: opt.value,
     };
     if (opt.description) {
       option.description = {
         type: "mrkdwn",
-        text: convertEmoji(opt.description),
+        text: truncateSlackMrkdwn(
+          convertEmoji(opt.description),
+          OPTION_TEXT_MAX_CHARS
+        ),
       };
     }
     return option;
@@ -367,8 +434,77 @@ function convertRadioSelectToElement(
   return element;
 }
 
+const ELLIPSIS = "…";
+const CODE_FENCE = "```";
+const CODE_FENCE_PATTERN = /```/g;
+// A mention, channel, or special token, or a link whose scheme may itself be cut
+const UNCLOSED_TOKEN_PATTERN = /<(?:[@#!]|[a-z][a-z\d+.-]*(?::|$))[^>]*$/i;
+const PARTIAL_ENTITY_PATTERN = /&(?:lt?|gt?|a(?:mp?)?)?$/;
+// Slack's header block text limit
+const HEADER_TEXT_MAX_CHARS = 150;
+// Slack's button element text limit
+const BUTTON_TEXT_MAX_CHARS = 75;
 // Slack's section text object limit
 const SECTION_TEXT_MAX_CHARS = 3000;
+// Slack's section block per-field text limit
+const FIELD_TEXT_MAX_CHARS = 2000;
+// Slack's text object limit (the context block page sets no lower one)
+const CONTEXT_TEXT_MAX_CHARS = 3000;
+// Slack's image block alt_text limit
+const IMAGE_ALT_TEXT_MAX_CHARS = 2000;
+// Slack's option object text and description limit
+const OPTION_TEXT_MAX_CHARS = 75;
+// Slack's static select placeholder limit
+const SELECT_PLACEHOLDER_MAX_CHARS = 150;
+
+function truncateSlackText(text: string, maxLength: number): string {
+  if (text.length <= maxLength) {
+    return text;
+  }
+  if (maxLength <= 0) {
+    return "";
+  }
+
+  let end = maxLength - ELLIPSIS.length;
+  const boundary = text.charCodeAt(end - 1);
+  if (end > 0 && boundary >= 0xd800 && boundary <= 0xdbff) {
+    end -= 1;
+  }
+
+  return `${text.slice(0, end)}${ELLIPSIS}`;
+}
+
+/**
+ * Cut mrkdwn without leaving a partial `<...>` token or HTML entity, and
+ * close an open code fence when the closing fence still fits.
+ */
+function truncateSlackMrkdwn(text: string, maxLength: number): string {
+  if (text.length <= maxLength || maxLength <= 0) {
+    return truncateSlackText(text, maxLength);
+  }
+
+  const kept = keepMrkdwnPrefix(text, maxLength);
+  const closing = `\n${CODE_FENCE}`;
+  if (!hasOpenFence(kept) || maxLength <= closing.length + ELLIPSIS.length) {
+    return `${kept}${ELLIPSIS}`;
+  }
+  const shorter = keepMrkdwnPrefix(text, maxLength - closing.length);
+  return hasOpenFence(shorter)
+    ? `${shorter}${ELLIPSIS}${closing}`
+    : `${shorter}${ELLIPSIS}`;
+}
+
+/** The text a cut to `maxLength` keeps before its ellipsis. */
+function keepMrkdwnPrefix(text: string, maxLength: number): string {
+  return truncateSlackText(text, maxLength)
+    .slice(0, -ELLIPSIS.length)
+    .replace(PARTIAL_ENTITY_PATTERN, "")
+    .replace(UNCLOSED_TOKEN_PATTERN, "");
+}
+
+function hasOpenFence(text: string): boolean {
+  return (text.match(CODE_FENCE_PATTERN)?.length ?? 0) % 2 === 1;
+}
 
 /**
  * Wrap ASCII fallback content in a fenced code block inside a section,
@@ -376,12 +512,9 @@ const SECTION_TEXT_MAX_CHARS = 3000;
  * 3,000-character limit while keeping the closing fence intact.
  */
 function asciiFallbackBlock(content: string): SlackBlock {
-  const fence = (body: string) => `\`\`\`\n${body}\n\`\`\``;
+  const fence = (body: string) => `${CODE_FENCE}\n${body}\n${CODE_FENCE}`;
   const budget = SECTION_TEXT_MAX_CHARS - fence("").length;
-  const text =
-    content.length > budget
-      ? fence(`${content.slice(0, budget - 1)}…`)
-      : fence(content);
+  const text = fence(truncateSlackText(content, budget));
   return { type: "section", text: { type: "mrkdwn", text } };
 }
 
@@ -603,12 +736,15 @@ function convertSectionToBlocks(
 export function convertFieldsToBlock(element: FieldsElement): SlackBlock {
   const fields: SlackTextObject[] = [];
 
+  // Room for the `*` pair around the label and the newline
+  const budget = FIELD_TEXT_MAX_CHARS - 3;
   for (const field of element.children) {
-    // Add label and value as separate field items
-    fields.push({
-      type: "mrkdwn",
-      text: `*${markdownBoldToSlackMrkdwn(convertEmoji(field.label))}*\n${markdownBoldToSlackMrkdwn(convertEmoji(field.value))}`,
-    });
+    const rawLabel = markdownBoldToSlackMrkdwn(convertEmoji(field.label));
+    const rawValue = markdownBoldToSlackMrkdwn(convertEmoji(field.value));
+    const valueReserve = Math.min(rawValue.length, Math.floor(budget / 2));
+    const label = truncateSlackMrkdwn(rawLabel, budget - valueReserve);
+    const value = truncateSlackMrkdwn(rawValue, budget - label.length);
+    fields.push({ type: "mrkdwn", text: `*${label}*\n${value}` });
   }
 
   return {

@@ -43,9 +43,14 @@ export function encodeThreadId(platformData: TeamsThreadId): string {
   );
   const conversationType = platformData.conversationType;
   const legacyIsDM = !platformData.conversationId.startsWith("19:");
+  const legacyIsChannel = platformData.conversationId
+    .split(";")[0]
+    ?.endsWith("@thread.tacv2");
   const explicitIsDM = conversationType === "personal";
   const needsConversationType =
-    conversationType !== undefined && explicitIsDM !== legacyIsDM;
+    conversationType !== undefined &&
+    (explicitIsDM !== legacyIsDM ||
+      (!explicitIsDM && (conversationType === "channel") !== legacyIsChannel));
 
   return needsConversationType
     ? `teams:${encodedConversationId}:${encodedServiceUrl}:${conversationType}`

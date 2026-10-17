@@ -1,6 +1,6 @@
 import { createMemoryState } from "@chat-adapter/state-memory";
 import { createTeamsAdapter, type TeamsAdapter } from "@chat-adapter/teams";
-import { Chat, type Logger } from "chat";
+import { Card, Chat, type Logger } from "chat";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   createMockTeamsApp,
@@ -67,6 +67,64 @@ describe("Teams Integration", () => {
 
   afterEach(async () => {
     await chat.shutdown();
+  });
+
+  describe.each(["text", "card"] as const)("%s channel receipts", (kind) => {
+    it.each([
+      ["19:channel@thread.tacv2", undefined, true],
+      ["19:channel@thread.tacv2", "channel", true],
+      ["19:opaque", "channel", true],
+      ["19:channel@thread.skype", "channel", true],
+      ["a:channel", "channel", true],
+      ["19:group@thread.v2", undefined, false],
+      ["19:group@thread.v2", "groupChat", false],
+      ["19:group@thread.tacv2", "groupChat", false],
+      ["a:personal", "personal", false],
+      ["19:personal@thread.tacv2", "personal", false],
+    ] as const)("routes posts in %s with type %s", async (conversationId, conversationType, channel) => {
+      await chat.initialize();
+      const target = {
+        conversationId,
+        conversationType,
+        serviceUrl: DEFAULT_TEAMS_SERVICE_URL,
+      };
+      const id = teamsAdapter.encodeThreadId(target);
+      const root = "1767297849909";
+      mockTeamsApp.sendTo.mockResolvedValue({ id: root, type: "message" });
+
+      const sent = await chat
+        .channel(id)
+        .post(kind === "card" ? Card({ title: "Root" }) : "Root");
+      const expected = channel
+        ? `${conversationId};messageid=${root}`
+        : conversationId;
+      const receipt = teamsAdapter.decodeThreadId(sent.threadId);
+      expect(receipt.conversationId).toBe(expected);
+      expect(sent.toJSON().threadId).toBe(sent.threadId);
+
+      await chat.thread(sent.threadId).post("Follow-up");
+      expect(mockTeamsApp.sendTo).toHaveBeenNthCalledWith(
+        2,
+        receipt,
+        expect.anything()
+      );
+
+      await sent.edit("Edited");
+      expect(mockTeamsApp.apiFor).toHaveBeenCalledWith(target.serviceUrl);
+      expect(mockTeamsApp.api.conversations.activities).toHaveBeenCalledWith(
+        expected
+      );
+      expect(mockTeamsApp.updatedActivities).toContainEqual(
+        expect.objectContaining({ text: "Edited" })
+      );
+
+      await chat.thread(sent.threadId).channel.post("New root");
+      expect(mockTeamsApp.sendTo).toHaveBeenNthCalledWith(
+        3,
+        teamsAdapter.decodeThreadId(id),
+        expect.anything()
+      );
+    });
   });
 
   describe("message handling", () => {

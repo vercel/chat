@@ -10,6 +10,7 @@ import {
   Field,
   Fields,
   Table,
+  TextInput,
 } from "chat";
 import { describe, expect, it } from "vitest";
 import {
@@ -91,6 +92,15 @@ describe("mapButtonStyle", () => {
 });
 
 describe("cardToFallbackText", () => {
+  it("converts emoji in a text input's label", () => {
+    const card = Card({
+      children: [TextInput({ id: "notes", label: "{{emoji:memo}} Notes" })],
+    });
+    expect(cardToFallbackText(card, { platform: "slack" })).toBe(
+      ":memo: Notes"
+    );
+  });
+
   it("formats title with bold", () => {
     const card = Card({ title: "Test Title" });
     expect(cardToFallbackText(card)).toBe("*Test Title*");

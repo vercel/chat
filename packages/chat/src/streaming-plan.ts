@@ -12,6 +12,11 @@ import type {
 
 export interface StreamingPlanOptions {
   /**
+   * Mark the streamed message as AI-generated. Adapters with a native AI
+   * label (currently Teams) show it; others ignore it.
+   */
+  aiGenerated?: boolean;
+  /**
    * Block Kit elements to attach when the stream stops (Slack only).
    * Useful for adding feedback buttons after a streamed response.
    */

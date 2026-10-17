@@ -3,6 +3,7 @@ import { configDefaults, defineConfig } from "vitest/config";
 export default defineConfig({
   test: {
     projects: [
+      "packages/catalog",
       "packages/chat",
       "packages/adapter-discord",
       "packages/adapter-gchat",

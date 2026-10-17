@@ -54,6 +54,7 @@ import {
 import type {
   TwilioAdapterConfig,
   TwilioRawMessage,
+  TwilioTemplateMessage,
   TwilioThreadId,
 } from "./types";
 import { attachmentType, senderFields, twimlResponse } from "./utils";
@@ -231,18 +232,7 @@ export class TwilioAdapter
           );
         }
         if (contentSid) {
-          const raw = await sendTwilioMessage({
-            ...this.apiOptions(),
-            contentSid,
-            statusCallbackUrl: this.statusCallbackUrl,
-            to: thread.recipient,
-            ...senderFields(thread.sender),
-          });
-          return {
-            id: raw.sid,
-            raw,
-            threadId: this.threadIdForResource(raw, thread),
-          };
+          return this.sendContent(thread, contentSid);
         }
       }
     }
@@ -265,6 +255,78 @@ export class TwilioAdapter
       ...senderFields(thread.sender),
     });
 
+    return {
+      id: raw.sid,
+      raw,
+      threadId: this.threadIdForResource(raw, thread),
+    };
+  }
+
+  /**
+   * Send a pre-created Twilio Content API template by its ContentSid.
+   *
+   * Use this for approved WhatsApp templates, which are the only message
+   * WhatsApp accepts outside the 24-hour customer service window, or for
+   * RCS templates you manage yourself. The send is routed like
+   * `postMessage`: `MG…` senders use `MessagingServiceSid`, everything else
+   * uses `From`, so WhatsApp threads need a `whatsapp:` sender or a
+   * Messaging Service with a WhatsApp sender.
+   *
+   * `contentVariables` takes an object keyed by placeholder, or a
+   * pre-serialized JSON object string. Quick-reply taps on templates sent
+   * this way are not decoded as Chat SDK actions: taps that carry a message
+   * body arrive as regular messages, and taps without one reach `onAction`
+   * with the raw ButtonPayload as `actionId`.
+   *
+   * @example
+   * ```typescript
+   * const threadId = adapter.encodeThreadId({
+   *   sender: "whatsapp:+15550000001",
+   *   recipient: "whatsapp:+15551234567",
+   * });
+   * await adapter.sendTemplate(threadId, {
+   *   contentSid: "HXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX",
+   *   contentVariables: { "1": "Tomorrow at 2pm" },
+   * });
+   * ```
+   *
+   * @see https://www.twilio.com/docs/content
+   */
+  async sendTemplate(
+    threadId: string,
+    template: TwilioTemplateMessage
+  ): Promise<RawMessage<TwilioRawMessage>> {
+    const contentSid = template.contentSid?.trim();
+    if (!contentSid) {
+      throw new ValidationError("twilio", "contentSid is required");
+    }
+    if (!contentSid.startsWith("HX")) {
+      throw new ValidationError(
+        "twilio",
+        `Invalid contentSid: ${contentSid} (Content SIDs start with HX)`
+      );
+    }
+    validateContentVariables(template.contentVariables);
+    return this.sendContent(
+      this.decodeThreadId(threadId),
+      contentSid,
+      template.contentVariables
+    );
+  }
+
+  private async sendContent(
+    thread: TwilioThreadId,
+    contentSid: string,
+    contentVariables?: TwilioTemplateMessage["contentVariables"]
+  ): Promise<RawMessage<TwilioRawMessage>> {
+    const raw = await sendTwilioMessage({
+      ...this.apiOptions(),
+      contentSid,
+      contentVariables,
+      statusCallbackUrl: this.statusCallbackUrl,
+      to: thread.recipient,
+      ...senderFields(thread.sender),
+    });
     return {
       id: raw.sid,
       raw,
@@ -634,6 +696,26 @@ function dateFromTwilio(value: string | null | undefined): Date {
   return Number.isNaN(parsed.getTime()) ? new Date() : parsed;
 }
 
+function validateContentVariables(
+  contentVariables: TwilioTemplateMessage["contentVariables"]
+): void {
+  if (typeof contentVariables !== "string") {
+    return;
+  }
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(contentVariables);
+  } catch {
+    parsed = undefined;
+  }
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+    throw new ValidationError(
+      "twilio",
+      "contentVariables must be an object or a JSON object string"
+    );
+  }
+}
+
 export type { TwilioContentBody, TwilioRcsContentResult } from "./cards";
 export {
   cardToTwilioRcs,
@@ -653,5 +735,6 @@ export { TwilioFormatConverter } from "./markdown";
 export type {
   TwilioAdapterConfig,
   TwilioRawMessage,
+  TwilioTemplateMessage,
   TwilioThreadId,
 } from "./types";

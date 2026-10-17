@@ -156,4 +156,81 @@ describe("Gateway client configuration", () => {
     controller.abort();
     await listenerPromise;
   });
+
+  it.each([
+    { channel: "channel456", thread: false, cyclic: false },
+    { channel: "unregistered999", thread: false, cyclic: false },
+    { channel: "thread789", thread: true, cyclic: false },
+    { channel: "channel456", thread: false, cyclic: true },
+    { channel: "unregistered999", thread: false, cyclic: true },
+    { channel: "thread789", thread: true, cyclic: true },
+  ])("snapshots $channel before mutation (cyclic: $cyclic)", async (scenario) => {
+    mockClientInstance.on.mockClear();
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue(new Response(null, { status: 200 }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const adapter = createDiscordAdapter({
+      botToken: "test-token",
+      publicKey: "a".repeat(64),
+      applicationId: "test-app-id",
+      logger: mockLogger,
+      respondToChannelIds: ["channel456"],
+    });
+    await adapter.initialize(createMockChatInstance());
+
+    const controller = new AbortController();
+    let listenerPromise: Promise<unknown> | undefined;
+    await adapter.startGatewayListener(
+      {
+        waitUntil: (promise) => {
+          listenerPromise = promise as Promise<unknown>;
+        },
+      },
+      1000,
+      controller.signal,
+      "https://example.com/webhook"
+    );
+
+    const packet = {
+      t: "MESSAGE_CREATE",
+      d: {
+        channel_id: scenario.channel,
+        author: { bot: false },
+        member: {} as Record<string, unknown>,
+      },
+    };
+
+    mockClientInstance.channels.fetch.mockResolvedValue({
+      id: scenario.channel,
+      parentId: "channel456",
+      isThread: () => scenario.thread,
+    });
+
+    const rawHandler = mockClientInstance.on.mock.calls.find(
+      ([event]) => event === "raw"
+    )?.[1] as (packet: { t: string; d: unknown }) => Promise<void>;
+    const forwarded = rawHandler(packet);
+    // Stands in for discord.js, which handles the packet as soon as the `raw`
+    // listeners return (`Message.js`: `Object.assign(data.member, { user })`).
+    Object.assign(packet.d.member, { user: { id: "u1", username: "bob" } });
+    if (scenario.cyclic) {
+      packet.d.member.user = packet.d;
+    }
+    await forwarded;
+
+    const request = fetchMock.mock.calls[0]?.[1] as RequestInit;
+    expect(JSON.parse(request.body as string).data).toEqual({
+      channel_id: scenario.channel,
+      author: { bot: false },
+      member: {},
+      ...(scenario.thread
+        ? { thread: { id: scenario.channel, parent_id: "channel456" } }
+        : {}),
+    });
+
+    controller.abort();
+    await listenerPromise;
+  });
 });

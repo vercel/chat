@@ -1,0 +1,58 @@
+import { env, secretEnv } from "../../env";
+import type { CatalogAdapter } from "../../types";
+
+export const lark = {
+  author: "Lark / Feishu",
+  description:
+    "Lark / Feishu adapter for Chat SDK with native cardkit streaming, interactive cards, and reactions.",
+  env: {
+    optional: [env("LARK_BOT_USERNAME", "Bot display name.")],
+    required: [
+      env("LARK_APP_ID", "Lark app ID."),
+      secretEnv("LARK_APP_SECRET", "Lark app secret."),
+    ],
+  },
+  factoryExport: "createLarkAdapter",
+  features: {
+    postMessage: "yes",
+    editMessage: "yes",
+    deleteMessage: "yes",
+    fileUploads: { status: "partial", label: "Via SDK channel.send" },
+    streaming: { status: "yes", label: "Native cardkit typewriter" },
+    scheduledMessages: "no",
+    cardFormat: { status: "yes", label: "Lark interactive cards" },
+    buttons: "yes",
+    linkButtons: "yes",
+    selectMenus: { status: "yes", label: "Card select / overflow" },
+    tables: { status: "partial", label: "Markdown tables" },
+    fields: { status: "yes", label: "Card section fields" },
+    imagesInCards: { status: "yes", label: "ImageElement" },
+    modals: "no",
+    slashCommands: "no",
+    mentions: "yes",
+    addReactions: "yes",
+    removeReactions: "yes",
+    typingIndicator: "no",
+    messageUpdatedEvents: "no",
+    messageDeletedEvents: "no",
+    directMessages: "yes",
+    ephemeralMessages: "no",
+    userLookup: "no",
+    customApiEndpoint: "no",
+    fetchMessages: "yes",
+    fetchSingleMessage: "yes",
+    fetchThreadInfo: "yes",
+    fetchChannelMessages: "yes",
+    listThreads: { status: "yes", label: "Client-side grouping" },
+    fetchChannelInfo: "yes",
+    postChannelMessage: "no",
+  },
+  group: "vendor-official",
+  name: "Lark / Feishu",
+  packageName: "@larksuite/vercel-chat-adapter",
+  peerDeps: [],
+  readme:
+    "https://github.com/larksuite/node-sdk/tree/cbc4adf13cbcb93b389db01faf428e3b3cef053c/docs/vercel-chat-adapter",
+  slug: "lark",
+  type: "platform",
+} as const satisfies CatalogAdapter;

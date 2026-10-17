@@ -2,8 +2,7 @@
   "extends": "../../tsconfig.base.json",
   "compilerOptions": {
     "paths": {
-      "chat": ["../chat/src/index.ts"],
-      "chat/adapters": ["../chat/src/adapters/index.ts"]
+      "@chat-adapter/catalog": ["../catalog/src/index.ts"]
     },
     "rootDir": "../..",
     "outDir": "./dist",

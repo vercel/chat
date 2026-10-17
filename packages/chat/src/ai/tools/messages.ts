@@ -1,5 +1,6 @@
 import { z } from "zod";
-import type { ChatBinding, ToolOptions } from "../types";
+import type { PostableMarkdown, PostableRaw } from "../../types";
+import type { ChatBinding, ToolSpecOptions } from "../types";
 import type { ChatToolSpec } from "./spec";
 
 const POSTABLE_INPUT = z
@@ -27,7 +28,7 @@ const POST_MESSAGE_INPUT = z.object({
 
 export const postMessageSpec = (
   chat: ChatBinding,
-  { needsApproval = true, guard }: ToolOptions = {}
+  { needsApproval = true, guard }: ToolSpecOptions = {}
 ): ChatToolSpec<
   z.infer<typeof POST_MESSAGE_INPUT>,
   { messageId: string; threadId: string }
@@ -55,7 +56,7 @@ const POST_CHANNEL_MESSAGE_INPUT = z.object({
 
 export const postChannelMessageSpec = (
   chat: ChatBinding,
-  { needsApproval = true, guard }: ToolOptions = {}
+  { needsApproval = true, guard }: ToolSpecOptions = {}
 ): ChatToolSpec<
   z.infer<typeof POST_CHANNEL_MESSAGE_INPUT>,
   { messageId: string; threadId: string }
@@ -85,7 +86,7 @@ const SEND_DIRECT_MESSAGE_INPUT = z.object({
 
 export const sendDirectMessageSpec = (
   chat: ChatBinding,
-  { needsApproval = true }: ToolOptions = {}
+  { needsApproval = true }: ToolSpecOptions = {}
 ): ChatToolSpec<
   z.infer<typeof SEND_DIRECT_MESSAGE_INPUT>,
   { messageId: string; threadId: string }
@@ -115,7 +116,7 @@ const EDIT_MESSAGE_INPUT = z.object({
 
 export const editMessageSpec = (
   chat: ChatBinding,
-  { needsApproval = true, guard }: ToolOptions = {}
+  { needsApproval = true, guard }: ToolSpecOptions = {}
 ): ChatToolSpec<
   z.infer<typeof EDIT_MESSAGE_INPUT>,
   { messageId: string; threadId: string }
@@ -146,7 +147,7 @@ const DELETE_MESSAGE_INPUT = z.object({
 
 export const deleteMessageSpec = (
   chat: ChatBinding,
-  { needsApproval = true, guard }: ToolOptions = {}
+  { needsApproval = true, guard }: ToolSpecOptions = {}
 ): ChatToolSpec<
   z.infer<typeof DELETE_MESSAGE_INPUT>,
   { deleted: boolean; messageId: string; threadId: string }
@@ -167,14 +168,16 @@ export const deleteMessageSpec = (
   },
 });
 
+// Plain strings stay unlabeled: wrapping them in an object would change how
+// some adapters render them.
 function toPostable(
   input: PostableInput
-): string | { markdown: string } | { raw: string } {
+): string | PostableMarkdown | PostableRaw {
   if (typeof input === "string") {
     return input;
   }
   if ("markdown" in input) {
-    return { markdown: input.markdown };
+    return { markdown: input.markdown, aiGenerated: true };
   }
-  return { raw: input.raw };
+  return { raw: input.raw, aiGenerated: true };
 }
