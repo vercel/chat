@@ -364,6 +364,22 @@ export function applyTelegramEntities(
 }
 
 /**
+ * The forum topic a message belongs to, or `undefined` outside topics.
+ *
+ * Only a topic message (`is_topic_message`) gets its own thread. In a regular
+ * supergroup Telegram also sets `message_thread_id` on a reply, to the id of
+ * the message it answers. That is a reply chain inside the chat, not a topic,
+ * so the reply stays in the chat's thread.
+ */
+function getTopicThreadId(
+  message: Pick<TelegramMessage, "is_topic_message" | "message_thread_id">
+): number | undefined {
+  return message.is_topic_message === true
+    ? message.message_thread_id
+    : undefined;
+}
+
+/**
  * Describe the message kinds Telegram sends with no text and no file:
  * locations, venues, shared contacts, polls and dice.
  *
@@ -981,7 +997,7 @@ export class TelegramAdapter
         update.message,
         this.encodeThreadId({
           chatId: String(update.message.chat.id),
-          messageThreadId: update.message.message_thread_id,
+          messageThreadId: getTopicThreadId(update.message),
         }),
         options
       );
@@ -1175,7 +1191,7 @@ export class TelegramAdapter
 
     const threadId = this.encodeThreadId({
       chatId: String(telegramMessage.chat.id),
-      messageThreadId: telegramMessage.message_thread_id,
+      messageThreadId: getTopicThreadId(telegramMessage),
     });
 
     if (telegramMessage.media_group_id) {
@@ -1419,7 +1435,7 @@ export class TelegramAdapter
 
     const threadId = this.encodeThreadId({
       chatId: String(callbackQuery.message.chat.id),
-      messageThreadId: callbackQuery.message.message_thread_id,
+      messageThreadId: getTopicThreadId(callbackQuery.message),
       businessConnectionId: callbackQuery.message.business_connection_id,
     });
 
@@ -1692,7 +1708,7 @@ export class TelegramAdapter
         this.encodeThreadId({
           chatId: String(rawMessage.chat.id),
           messageThreadId:
-            rawMessage.message_thread_id ?? parsedThread.messageThreadId,
+            getTopicThreadId(rawMessage) ?? parsedThread.messageThreadId,
           businessConnectionId: parsedThread.businessConnectionId,
         }),
         rich
@@ -1855,7 +1871,7 @@ export class TelegramAdapter
 
     const resultingThreadId = this.encodeThreadId({
       chatId: String(result.chat.id),
-      messageThreadId: result.message_thread_id ?? parsedThread.messageThreadId,
+      messageThreadId: getTopicThreadId(result) ?? parsedThread.messageThreadId,
       businessConnectionId: parsedThread.businessConnectionId,
     });
 
@@ -2352,7 +2368,7 @@ export class TelegramAdapter
         const resultingThreadId = this.encodeThreadId({
           chatId: String(raw.chat.id),
           messageThreadId:
-            raw.message_thread_id ?? parsedThread.messageThreadId,
+            getTopicThreadId(raw) ?? parsedThread.messageThreadId,
           businessConnectionId: parsedThread.businessConnectionId,
         });
         const formatted = this.formatConverter.toAst(accumulated);
@@ -2388,7 +2404,7 @@ export class TelegramAdapter
     );
     const resultingThreadId = this.encodeThreadId({
       chatId: String(raw.chat.id),
-      messageThreadId: raw.message_thread_id ?? parsedThread.messageThreadId,
+      messageThreadId: getTopicThreadId(raw) ?? parsedThread.messageThreadId,
       businessConnectionId: parsedThread.businessConnectionId,
     });
     const message = this.parseTelegramMessage(raw, resultingThreadId);
@@ -2633,7 +2649,7 @@ export class TelegramAdapter
   parseMessage(raw: TelegramRawMessage): Message<TelegramRawMessage> {
     const threadId = this.encodeThreadId({
       chatId: String(raw.chat.id),
-      messageThreadId: raw.message_thread_id,
+      messageThreadId: getTopicThreadId(raw),
     });
 
     const message = this.parseTelegramMessage(raw, threadId);
