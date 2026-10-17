@@ -2,6 +2,8 @@
 
 import { useChat } from "@chat-adapter/web/react";
 import { type FormEvent, useEffect, useRef, useState } from "react";
+import { Streamdown } from "streamdown";
+import "streamdown/styles.css";
 
 export default function ChatPage() {
   const { messages, sendMessage, status, stop, error } = useChat();
@@ -70,10 +72,14 @@ export default function ChatPage() {
                     </div>
                   ) : (
                     <div
-                      className="whitespace-pre-wrap py-2 text-sm leading-relaxed"
+                      className="py-2 text-sm leading-relaxed"
                       style={{ color: "var(--foreground)" }}
                     >
-                      {text}
+                      {text && (
+                        <Streamdown isAnimating={isStreaming}>
+                          {text}
+                        </Streamdown>
+                      )}
                       {isStreaming && !text && (
                         <span
                           className="inline-block h-4 w-0.5"
