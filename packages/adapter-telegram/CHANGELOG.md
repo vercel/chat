@@ -1,5 +1,13 @@
 # @chat-adapter/telegram
 
+## 4.42.1
+
+### Patch Changes
+
+- Updated dependencies [36325f3]
+  - @chat-adapter/shared@4.42.1
+  - chat@4.42.1
+
 ## 4.42.0
 
 ### Patch Changes
