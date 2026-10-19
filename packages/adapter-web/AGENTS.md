@@ -170,6 +170,14 @@ bot.onDirectMessage(async (thread, message) => {
 The adapter honours `request.signal`, so the iterator is short-
 circuited as soon as the browser disconnects.
 
+`streamChunkToDataPart` in `adapter.ts` maps `task_update` and
+`plan_update` chunks to `data-*` parts; keep it in sync with
+`WebDataParts` in `types.ts`. `reasoning` chunks stream as
+`reasoning-*` events. At most one text or reasoning part is open at a
+time: a data part closes it, and text and reasoning close each other.
+The next text part gets the id `{messageId}-{n}` (the first keeps the
+message id), and reasoning parts get `{messageId}-reasoning-{n}`.
+
 ## Format conversion
 
 `WebFormatConverter` (in `format-converter.ts`) maps mdast to plain

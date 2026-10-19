@@ -11,6 +11,7 @@ import { ValidationError } from "@chat-adapter/shared";
 import {
   createUIMessageStream,
   createUIMessageStreamResponse,
+  type DataUIPart,
   isTextUIPart,
   type UIMessage,
 } from "ai";
@@ -24,10 +25,12 @@ import {
   type FetchResult,
   type FormattedContent,
   type Logger,
+  type MarkdownTextChunk,
   Message,
   NotImplementedError,
   parseMarkdown,
   type RawMessage,
+  type ReasoningChunk,
   type StreamChunk,
   type StreamOptions,
   type ThreadInfo,
@@ -35,7 +38,7 @@ import {
 } from "chat";
 import { requireWebRequestContext, webRequestContext } from "./als";
 import { WebFormatConverter } from "./format-converter";
-import type { WebAdapterConfig, WebUser } from "./types";
+import type { WebAdapterConfig, WebDataParts, WebUser } from "./types";
 
 /** Decoded thread id components for the Web adapter. */
 export interface WebThreadIdData {
@@ -304,20 +307,71 @@ export class WebAdapter implements Adapter<WebThreadIdData, UIMessage> {
     const ctx = requireWebRequestContext();
     const id = generateId();
     let fullText = "";
-    ctx.writer.write({ type: "text-start", id });
+    // At most one text or reasoning part is open at a time, so parts keep
+    // the order the handler yielded them in.
+    let open: { id: string; kind: "text" | "reasoning" } | null = null;
+    let nextTextPart = 0;
+    let nextReasoningPart = 0;
+
+    const closePart = () => {
+      if (open) {
+        ctx.writer.write({ type: `${open.kind}-end`, id: open.id });
+        open = null;
+      }
+    };
+    const openPart = (kind: "text" | "reasoning"): string => {
+      if (open?.kind === kind) {
+        return open.id;
+      }
+      closePart();
+      let partId: string;
+      if (kind === "text") {
+        // The first text part reuses the message id.
+        partId = nextTextPart === 0 ? id : `${id}-${nextTextPart}`;
+        nextTextPart++;
+      } else {
+        partId = `${id}-reasoning-${nextReasoningPart}`;
+        nextReasoningPart++;
+      }
+      ctx.writer.write({ type: `${kind}-start`, id: partId });
+      open = { id: partId, kind };
+      return partId;
+    };
+
     try {
       for await (const chunk of iterable) {
         if (ctx.signal.aborted) {
           break;
         }
-        const text = streamChunkToText(chunk);
-        if (text) {
-          fullText += text;
-          ctx.writer.write({ type: "text-delta", id, delta: text });
+        if (typeof chunk === "string" || chunk.type === "markdown_text") {
+          const text = typeof chunk === "string" ? chunk : chunk.text;
+          if (text) {
+            fullText += text;
+            const partId = openPart("text");
+            ctx.writer.write({ type: "text-delta", id: partId, delta: text });
+          }
+          continue;
         }
+        if (chunk.type === "reasoning") {
+          if (chunk.text) {
+            const partId = openPart("reasoning");
+            ctx.writer.write({
+              type: "reasoning-delta",
+              id: partId,
+              delta: chunk.text,
+            });
+          }
+          continue;
+        }
+        closePart();
+        ctx.writer.write(streamChunkToDataPart(chunk, id));
       }
     } finally {
-      ctx.writer.write({ type: "text-end", id });
+      // A stream that yields no text still produces one (empty) text part.
+      if (nextTextPart === 0) {
+        openPart("text");
+      }
+      closePart();
     }
     return {
       id,
@@ -457,16 +511,29 @@ function extractTextFromUIMessage(message: UIMessage): string {
     .join("\n");
 }
 
-function streamChunkToText(chunk: string | StreamChunk): string {
-  if (typeof chunk === "string") {
-    return chunk;
+/** Map a structured chunk to the `data-*` part useChat stores on the message. */
+function streamChunkToDataPart(
+  chunk: Exclude<StreamChunk, MarkdownTextChunk | ReasoningChunk>,
+  messageId: string
+): DataUIPart<WebDataParts> & { id: string } {
+  // Each case destructures on its own: TypeScript doesn't narrow a rest
+  // element through a destructured discriminant.
+  switch (chunk.type) {
+    case "task_update": {
+      const { type: _, ...data } = chunk;
+      // Keyed by task id, so each update replaces that task's previous state.
+      return { type: "data-task", id: data.id, data };
+    }
+    case "plan_update": {
+      const { type: _, ...data } = chunk;
+      // A streamed message has one plan, keyed by the message id.
+      return { type: "data-plan", id: messageId, data };
+    }
+    default: {
+      const _exhaustive: never = chunk;
+      return _exhaustive;
+    }
   }
-  if (chunk.type === "markdown_text") {
-    return chunk.text;
-  }
-  // task_update / plan_update — no native v1 representation in UIMessage.
-  // Future: emit as data-* parts. For now ignored so the stream stays clean.
-  return "";
 }
 
 function adapterPostableToText(

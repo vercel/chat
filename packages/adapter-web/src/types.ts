@@ -1,4 +1,30 @@
-import type { Logger } from "chat";
+import type { UIMessage } from "ai";
+import type { Logger, PlanUpdateChunk, TaskUpdateChunk } from "chat";
+
+/**
+ * Payload of a `data-task` part: a `task_update` chunk without its `type`.
+ * The part's `id` is the task id, so each update replaces the previous one.
+ */
+export type WebTaskData = Omit<TaskUpdateChunk, "type">;
+
+/**
+ * Payload of a `data-plan` part: a `plan_update` chunk without its `type`.
+ * The part's `id` is the message id, so each update replaces the previous one.
+ */
+export type WebPlanData = Omit<PlanUpdateChunk, "type">;
+
+/**
+ * Data parts the Web adapter streams for structured `StreamChunk`s, keyed by
+ * the part name after `data-`.
+ */
+// biome-ignore lint/style/useConsistentTypeDefinitions: UIMessage constrains its data-parts type to Record<string, unknown>, which an interface doesn't satisfy without an index signature that would erase the part names.
+export type WebDataParts = {
+  plan: WebPlanData;
+  task: WebTaskData;
+};
+
+/** A `UIMessage` typed with the data parts the Web adapter streams. */
+export type WebUIMessage = UIMessage<unknown, WebDataParts>;
 
 /** Identity resolved from an inbound web request. */
 export interface WebUser {

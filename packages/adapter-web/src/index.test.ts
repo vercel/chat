@@ -1,6 +1,6 @@
 import { ValidationError } from "@chat-adapter/shared";
 import { createMemoryState } from "@chat-adapter/state-memory";
-import type { UIMessage } from "ai";
+import { readUIMessageStream, type UIMessage, type UIMessageChunk } from "ai";
 import { Chat, type StreamChunk } from "chat";
 import { describe, expect, it, vi } from "vitest";
 import { createWebAdapter, WebAdapter } from "./index";
@@ -476,9 +476,21 @@ describe("WebAdapter — end-to-end handler dispatch", () => {
     const ctrl = new AbortController();
     const seen: string[] = [];
     chat.onDirectMessage(async (thread) => {
-      async function* gen() {
+      async function* gen(): AsyncGenerator<string | StreamChunk> {
         yield "first";
+        yield {
+          type: "task_update",
+          id: "t1",
+          title: "Work",
+          status: "pending",
+        };
         ctrl.abort();
+        yield {
+          type: "task_update",
+          id: "t1",
+          title: "Work",
+          status: "complete",
+        };
         yield "second";
         yield "third";
       }
@@ -497,33 +509,42 @@ describe("WebAdapter — end-to-end handler dispatch", () => {
     const events = (await readSseEvents(response)) as Array<{
       type: string;
       delta?: string;
+      data?: { status?: string };
     }>;
     const deltas = events
       .filter((e) => e.type === "text-delta")
       .map((e) => e.delta);
     expect(deltas.join("")).toBe("first");
+    expect(
+      events.filter((e) => e.type === "data-task").map((e) => e.data?.status)
+    ).toEqual(["pending"]);
     expect(events.filter((e) => e.type === "text-end")).toHaveLength(1);
     expect(seen).toEqual(["done"]);
   });
 
-  it("drops non-text StreamChunks (task_update / plan_update) silently", async () => {
+  it("streams task_update and plan_update chunks as data parts in order", async () => {
     const { chat } = buildChat({});
+    const captured: { id?: string } = {};
     chat.onDirectMessage(async (thread) => {
       async function* gen(): AsyncGenerator<string | StreamChunk> {
+        yield { type: "plan_update", title: "Research" };
         yield "before";
         yield {
           type: "task_update",
           id: "t1",
-          title: "tool call",
+          title: "Search",
           status: "in_progress",
         };
+        yield { type: "markdown_text", text: "after" };
         yield {
-          type: "plan_update",
-          title: "step 1",
+          type: "task_update",
+          id: "t1",
+          title: "Search",
+          status: "complete",
         };
-        yield "after";
       }
-      await thread.post(gen());
+      const sent = await thread.post(gen());
+      captured.id = sent.id;
     });
 
     const response = await chat.webhooks.web(
@@ -536,13 +557,156 @@ describe("WebAdapter — end-to-end handler dispatch", () => {
 
     const events = (await readSseEvents(response)) as Array<{
       type: string;
-      delta?: string;
     }>;
-    const deltas = events
-      .filter((e) => e.type === "text-delta")
-      .map((e) => e.delta);
-    expect(deltas.join("")).toBe("beforeafter");
-    expect(deltas).toHaveLength(2);
+    const id = captured.id;
+    expect(
+      events.filter(
+        (e) => e.type.startsWith("text-") || e.type.startsWith("data-")
+      )
+    ).toEqual([
+      {
+        type: "data-plan",
+        id,
+        data: { title: "Research" },
+      },
+      { type: "text-start", id },
+      { type: "text-delta", id, delta: "before" },
+      { type: "text-end", id },
+      {
+        type: "data-task",
+        id: "t1",
+        data: { id: "t1", title: "Search", status: "in_progress" },
+      },
+      { type: "text-start", id: `${id}-1` },
+      { type: "text-delta", id: `${id}-1`, delta: "after" },
+      { type: "text-end", id: `${id}-1` },
+      {
+        type: "data-task",
+        id: "t1",
+        data: { id: "t1", title: "Search", status: "complete" },
+      },
+    ]);
+  });
+
+  it("streams reasoning chunks as reasoning parts that close when text resumes", async () => {
+    const { chat } = buildChat({});
+    const captured: { id?: string; text?: string } = {};
+    chat.onDirectMessage(async (thread) => {
+      async function* gen(): AsyncGenerator<string | StreamChunk> {
+        yield { type: "reasoning", text: "Let me " };
+        yield { type: "reasoning", text: "think." };
+        yield "Answer";
+        yield { type: "reasoning", text: "Check a tool." };
+        yield {
+          type: "task_update",
+          id: "t1",
+          title: "Search",
+          status: "complete",
+        };
+        yield { type: "reasoning", text: "Done." };
+      }
+      const sent = await thread.post(gen());
+      captured.id = sent.id;
+      captured.text = sent.text;
+    });
+
+    const response = await chat.webhooks.web(
+      makeWebRequest({
+        id: "conv-reasoning",
+        messages: [makeUserMessage("trigger")],
+      })
+    );
+
+    const events = (await readSseEvents(response)) as Array<{
+      type: string;
+    }>;
+    const id = captured.id;
+    expect(
+      events.filter(
+        (e) =>
+          e.type.startsWith("text-") ||
+          e.type.startsWith("reasoning-") ||
+          e.type.startsWith("data-")
+      )
+    ).toEqual([
+      { type: "reasoning-start", id: `${id}-reasoning-0` },
+      { type: "reasoning-delta", id: `${id}-reasoning-0`, delta: "Let me " },
+      { type: "reasoning-delta", id: `${id}-reasoning-0`, delta: "think." },
+      { type: "reasoning-end", id: `${id}-reasoning-0` },
+      { type: "text-start", id },
+      { type: "text-delta", id, delta: "Answer" },
+      { type: "text-end", id },
+      { type: "reasoning-start", id: `${id}-reasoning-1` },
+      {
+        type: "reasoning-delta",
+        id: `${id}-reasoning-1`,
+        delta: "Check a tool.",
+      },
+      { type: "reasoning-end", id: `${id}-reasoning-1` },
+      {
+        type: "data-task",
+        id: "t1",
+        data: { id: "t1", title: "Search", status: "complete" },
+      },
+      { type: "reasoning-start", id: `${id}-reasoning-2` },
+      { type: "reasoning-delta", id: `${id}-reasoning-2`, delta: "Done." },
+      { type: "reasoning-end", id: `${id}-reasoning-2` },
+    ]);
+    // Reasoning stays out of the message text.
+    expect(captured.text).toBe("Answer");
+
+    // The AI SDK client assembles the parts in the order they were yielded.
+    let message: UIMessage | undefined;
+    for await (const snapshot of readUIMessageStream({
+      stream: new ReadableStream<UIMessageChunk>({
+        start(controller) {
+          for (const event of events) {
+            controller.enqueue(event as UIMessageChunk);
+          }
+          controller.close();
+        },
+      }),
+    })) {
+      message = snapshot;
+    }
+    expect(
+      message?.parts.flatMap((part) => {
+        if (part.type === "reasoning" || part.type === "text") {
+          return [{ type: part.type, text: part.text, state: part.state }];
+        }
+        return part.type === "data-task" ? [{ type: part.type }] : [];
+      })
+    ).toEqual([
+      { type: "reasoning", text: "Let me think.", state: "done" },
+      { type: "text", text: "Answer", state: "done" },
+      { type: "reasoning", text: "Check a tool.", state: "done" },
+      { type: "data-task" },
+      { type: "reasoning", text: "Done.", state: "done" },
+    ]);
+  });
+
+  it("emits one empty text part for a stream with no text", async () => {
+    const { chat } = buildChat({});
+    chat.onDirectMessage(async (thread) => {
+      const empty: AsyncIterable<string> = {
+        [Symbol.asyncIterator]: () => ({
+          next: () =>
+            Promise.resolve({ done: true as const, value: undefined }),
+        }),
+      };
+      await thread.post(empty);
+    });
+
+    const response = await chat.webhooks.web(
+      makeWebRequest({
+        id: "conv-empty",
+        messages: [makeUserMessage("trigger")],
+      })
+    );
+    const events = (await readSseEvents(response)) as Array<{ type: string }>;
+    expect(
+      events.filter((e) => e.type.startsWith("text-")).map((e) => e.type)
+    ).toEqual(["text-start", "text-end"]);
   });
 
   it("propagates handler errors as an error chunk", async () => {
