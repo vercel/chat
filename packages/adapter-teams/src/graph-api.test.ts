@@ -10,13 +10,17 @@ import { createTeamsAdapter } from "./index";
 import { TeamsFormatConverter } from "./markdown";
 import { decodeThreadId, encodeThreadId, isDM } from "./thread-id";
 
+function createAttachmentFetchers() {
+  return {
+    createAnonymousFetchData: vi.fn(),
+    fetchAuthenticated: vi.fn(),
+    fetchGraphFile: vi.fn(),
+  };
+}
+
 function createTestReader(): TeamsGraphReader {
   return new TeamsGraphReader({
-    attachmentFetchers: {
-      createAnonymousFetchData: vi.fn(),
-      fetchAuthenticated: vi.fn(),
-      fetchGraphFile: vi.fn(),
-    },
+    attachmentFetchers: createAttachmentFetchers(),
     botId: "test-app",
     graph: new GraphClient(),
     formatConverter: new TeamsFormatConverter(),
@@ -339,11 +343,7 @@ describe("listThreads", () => {
       })),
     };
     const reader = new TeamsGraphReader({
-      attachmentFetchers: {
-        createAnonymousFetchData: vi.fn(),
-        fetchAuthenticated: vi.fn(),
-        fetchGraphFile: vi.fn(),
-      },
+      attachmentFetchers: createAttachmentFetchers(),
       botId: "test-app",
       graph: graph as unknown as GraphClient,
       formatConverter: new TeamsFormatConverter(),
@@ -417,6 +417,7 @@ describe("channel pagination", () => {
       },
     };
     const reader = new TeamsGraphReader({
+      attachmentFetchers: createAttachmentFetchers(),
       botId: "test-app",
       graph: graph as unknown as GraphClient,
       formatConverter: new TeamsFormatConverter(),
@@ -552,6 +553,7 @@ describe("channel pagination", () => {
       call: vi.fn(async () => ({ value: [roots[1], roots[0]] })),
     };
     const reader = new TeamsGraphReader({
+      attachmentFetchers: createAttachmentFetchers(),
       botId: "test-app",
       graph: graph as unknown as GraphClient,
       formatConverter: new TeamsFormatConverter(),
@@ -693,6 +695,7 @@ describe("channel reply pagination", () => {
       },
     };
     return new TeamsGraphReader({
+      attachmentFetchers: createAttachmentFetchers(),
       botId: "test-app",
       graph: graph as unknown as GraphClient,
       formatConverter: new TeamsFormatConverter(),
@@ -750,6 +753,7 @@ describe("channel reply pagination", () => {
     const logger = new ConsoleLogger("error");
     const warn = vi.spyOn(logger, "warn");
     const reader = new TeamsGraphReader({
+      attachmentFetchers: createAttachmentFetchers(),
       botId: "test-app",
       graph: graph as unknown as GraphClient,
       formatConverter: new TeamsFormatConverter(),
