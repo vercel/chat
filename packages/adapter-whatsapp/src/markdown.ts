@@ -22,13 +22,42 @@ import {
   tableToAscii,
   walkAst,
 } from "chat";
+
+type Handlers = NonNullable<
+  NonNullable<Parameters<typeof stringifyMarkdown>[1]>["handlers"]
+>;
+type StrongHandle = NonNullable<Handlers["strong"]>;
+
+/**
+ * Wrap phrasing content in a WhatsApp marker. `peek` returns the marker so
+ * the serializer does not render nested content twice to look ahead.
+ */
+function markerHandle(marker: string): StrongHandle {
+  const handle: StrongHandle = (node, _parent, state, info) =>
+    `${marker}${state.containerPhrasing(node, { ...info, before: marker, after: marker })}${marker}`;
+  return Object.assign(handle, { peek: () => marker });
+}
+
+/**
+ * WhatsApp has no escape syntax, so Markdown escapes such as `\~` show up
+ * as visible backslashes. Write text verbatim and emit WhatsApp's own
+ * markers from the AST, which leaves code content untouched.
+ */
+const whatsAppHandlers: Handlers = {
+  text: (node) => node.value,
+  break: () => "\n",
+  emphasis: markerHandle("_"),
+  strong: markerHandle("*"),
+  delete: markerHandle("~"),
+};
+
 export class WhatsAppFormatConverter extends BaseFormatConverter {
   /**
    * Convert an AST to WhatsApp markdown format.
    *
    * Transforms unsupported nodes (headings, thematic breaks, tables)
-   * into WhatsApp-compatible equivalents, then converts standard markdown
-   * bold/strikethrough to WhatsApp syntax.
+   * into WhatsApp-compatible equivalents, then serializes text and
+   * formatting directly in WhatsApp syntax.
    */
   fromAst(ast: Root): string {
     const transformed = walkAst(structuredClone(ast), (node: Content) => {
@@ -62,12 +91,10 @@ export class WhatsAppFormatConverter extends BaseFormatConverter {
       }
       return node;
     });
-    // Use _ for emphasis and - for bullets so the only * in output is **strong**
-    const markdown = stringifyMarkdown(transformed, {
-      emphasis: "_",
+    return stringifyMarkdown(transformed, {
       bullet: "-",
+      handlers: whatsAppHandlers,
     }).trim();
-    return this.toWhatsAppFormat(markdown);
   }
 
   /**
@@ -102,20 +129,6 @@ export class WhatsAppFormatConverter extends BaseFormatConverter {
       return this.fromAst(message.ast);
     }
     return super.renderPostable(message);
-  }
-
-  /**
-   * Convert remaining standard markdown markers to WhatsApp format.
-   * The stringifier already outputs _italic_ and - bullets.
-   * This only converts **bold** -> *bold* and ~~strike~~ -> ~strike~.
-   */
-  private toWhatsAppFormat(text: string): string {
-    let result = text;
-    // Convert **bold** -> *bold*
-    result = result.replace(/\*\*(.+?)\*\*/g, "*$1*");
-    // Convert ~~strikethrough~~ -> ~strikethrough~
-    result = result.replace(/~~(.+?)~~/g, "~$1~");
-    return result;
   }
 
   /**
