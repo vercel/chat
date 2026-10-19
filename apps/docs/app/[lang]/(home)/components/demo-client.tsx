@@ -301,6 +301,8 @@ const CodePanel = ({
     <pre
       className="flex-1 overflow-x-auto bg-background py-3 text-sm"
       style={style}
+      // biome-ignore lint/a11y/noNoninteractiveTabindex: scrollable code must be reachable by keyboard
+      tabIndex={0}
     >
       <div className="min-w-max space-y-3">
         {handlers.map((handler) => (

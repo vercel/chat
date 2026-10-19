@@ -45,7 +45,7 @@ const getCodePreview = async (code: string) => {
 
   const { tokens, rootStyle } = await codeToTokens(code, {
     lang: "tsx",
-    themes: { light: "github-light", dark: "github-dark" },
+    themes: { light: "github-light-default", dark: "github-dark" },
     defaultColor: false,
   });
 
