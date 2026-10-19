@@ -42,6 +42,17 @@ describe("compareMessagesByTime", () => {
       "b:2",
     ]);
   });
+
+  it("breaks ties with a custom sequence function", () => {
+    const messages = [message("a:1", 1000), message("a:3", 1000)];
+    expect(
+      ids(
+        messages.sort((x, y) =>
+          compareMessagesByTime(x, y, (id) => -messageSequence(id))
+        )
+      )
+    ).toEqual(["a:3", "a:1"]);
+  });
 });
 
 describe("upsertMessage", () => {

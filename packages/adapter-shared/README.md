@@ -53,7 +53,7 @@ For platforms whose API cannot list past messages, such as Messenger and Instagr
 
 - `upsertMessage(messages, message, compare?)` - insert or replace a message by ID and keep the list sorted
 - `paginateMessages(messages, options)` - page a sorted list with message-ID cursors
-- `compareMessagesByTime(a, b)` and `messageSequence(id)` - the default sort order
+- `compareMessagesByTime(a, b, sequence?)` and `messageSequence(id)` - the default sort order: send time, then the trailing `:{n}` in the message ID
 
 ### Meta platforms
 

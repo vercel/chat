@@ -756,7 +756,7 @@ export class MessengerAdapter
     a: Message<MessengerRawMessage>,
     b: Message<MessengerRawMessage>
   ): number {
-    return compareMessagesByTime(a, b);
+    return compareMessagesByTime(a, b, (id) => this.messageSequence(id));
   }
 
   protected messageSequence(messageId: string): number {

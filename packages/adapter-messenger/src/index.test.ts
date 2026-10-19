@@ -1916,6 +1916,29 @@ describe("MessengerAdapter", () => {
       );
     });
 
+    it("forwards Retry-After on rate-limit errors", async () => {
+      const adapter = createAdapter();
+      const chat = createMockChat();
+      mockFetch.mockResolvedValueOnce(
+        graphApiOk({ id: "PAGE_456", name: "Test Page" })
+      );
+      await adapter.initialize(chat);
+
+      mockFetch.mockResolvedValueOnce(
+        new Response(JSON.stringify({ error: { message: "Rate limited" } }), {
+          headers: { "retry-after": "30" },
+          status: 429,
+        })
+      );
+
+      await expect(
+        adapter.startTyping("messenger:USER_123")
+      ).rejects.toMatchObject({
+        name: "AdapterRateLimitError",
+        retryAfter: 30,
+      });
+    });
+
     it("throws AdapterRateLimitError on error code 4", async () => {
       const adapter = await initAndMockError(
         { error: { message: "Too many calls", code: 4 } },

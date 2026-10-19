@@ -18,18 +18,20 @@ export function messageSequence(messageId: string): number {
 }
 
 /**
- * Order messages by send time, breaking ties with {@link messageSequence}.
+ * Order messages by send time, breaking ties with `sequence` (defaults to
+ * {@link messageSequence}).
  */
 export function compareMessagesByTime<TRaw>(
   a: Message<TRaw>,
-  b: Message<TRaw>
+  b: Message<TRaw>,
+  sequence: (messageId: string) => number = messageSequence
 ): number {
   const timeDifference =
     a.metadata.dateSent.getTime() - b.metadata.dateSent.getTime();
   if (timeDifference !== 0) {
     return timeDifference;
   }
-  return messageSequence(a.id) - messageSequence(b.id);
+  return sequence(a.id) - sequence(b.id);
 }
 
 /**
