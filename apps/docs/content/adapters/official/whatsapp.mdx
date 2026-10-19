@@ -144,8 +144,10 @@ The route handles two kinds of request from Meta:
 
 Pass `{ markdown: text }` to convert standard Markdown to WhatsApp formatting:
 `**bold**` becomes `*bold*`, `_italic_` stays `_italic_`, and `~~strike~~` becomes
-`~strike~`. Literal text such as `(~80 % easy)` is sent without additional
-Markdown escapes. Code content and intentional backslashes are preserved.
+`~strike~`. Literal text such as `(~80 % easy)` is sent as written, and code
+content and intentional backslashes are preserved. WhatsApp has no escape syntax,
+so when escaped text like `\_word\_` or a line starting with `\>` would otherwise
+turn into formatting, the adapter keeps the backslash and it shows in the message.
 
 ## Interactive messages
 
