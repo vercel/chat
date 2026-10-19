@@ -12983,7 +12983,9 @@ describe("native stream rotation", () => {
       .fn()
       .mockImplementation(() => segments[chatStream.mock.calls.length - 1]);
     mockClientMethod(adapter, "chatStream", chatStream);
-    return { adapter, segments, chatStream };
+    const update = vi.fn().mockResolvedValue({ ok: true });
+    mockClientMethod(adapter, "chat.update", update);
+    return { adapter, segments, chatStream, update };
   }
 
   /** Runs `run` with a controllable Date.now(); `tick(ms)` sets the clock. */
@@ -13228,6 +13230,387 @@ describe("native stream rotation", () => {
       expect.stringContaining("stream-end blocks skipped"),
       expect.objectContaining({ skippedBlocks: 1 })
     );
+  });
+
+  describe("expired segment repair", () => {
+    it.each([
+      "rotation",
+      "stop",
+      "delivered",
+    ] as const)("repairs confirmed text after %s expiration", async (path) => {
+      await withClock(async (tick) => {
+        const { adapter, segments, update } = setup();
+        segments[0].append
+          .mockResolvedValueOnce({ ok: true })
+          .mockResolvedValue(null);
+        segments[0].stop.mockRejectedValue(expiredStreamError());
+        async function* stream() {
+          yield "confirmed\n";
+          if (path !== "delivered") {
+            yield "buffered\n";
+          }
+          if (path === "rotation") {
+            tick(MAX_AGE + 1);
+            yield "pending\n\ntail\n";
+          }
+        }
+
+        const result = await adapter.stream(THREAD, stream());
+
+        expect(update).toHaveBeenCalledExactlyOnceWith({
+          channel: "D123",
+          ts: "1234567890.0",
+          token: TOKEN,
+          markdown_text: "confirmed\n",
+        });
+        expect(result?.messageIds).toEqual(
+          path === "delivered"
+            ? ["1234567890.0"]
+            : ["1234567890.0", "1234567890.1"]
+        );
+        if (path === "stop") {
+          expect(segments[1].stop).toHaveBeenCalledWith({
+            token: TOKEN,
+            markdown_text: "buffered\n",
+          });
+        }
+      });
+    });
+
+    it.each([
+      "rotation",
+      "stop",
+    ] as const)("continues after an update failure during %s", async (path) => {
+      await withClock(async (tick) => {
+        const { adapter, segments, update } = setup();
+        const failure = new Error("update failed");
+        update.mockRejectedValue(failure);
+        segments[0].append
+          .mockResolvedValueOnce({ ok: true })
+          .mockResolvedValue(null);
+        segments[0].stop.mockRejectedValue(expiredStreamError());
+        async function* stream() {
+          yield "confirmed\n";
+          yield "buffered\n";
+          if (path === "rotation") {
+            tick(MAX_AGE + 1);
+            yield "pending\n\ntail\n";
+          }
+        }
+        const result = await adapter.stream(THREAD, stream());
+        expect(result?.id).toBe("1234567890.1");
+        expect(result?.messageIds).toEqual(["1234567890.0", "1234567890.1"]);
+        if (path === "rotation") {
+          expect(segments[1].append).toHaveBeenCalledExactlyOnceWith({
+            token: TOKEN,
+            chunks: [],
+            markdown_text: "buffered\npending\n\ntail\n",
+          });
+          expect(segments[1].stop).toHaveBeenCalledExactlyOnceWith({
+            token: TOKEN,
+          });
+        } else {
+          expect(segments[1].append).not.toHaveBeenCalled();
+          expect(segments[1].stop).toHaveBeenCalledExactlyOnceWith({
+            token: TOKEN,
+            markdown_text: "buffered\n",
+          });
+        }
+        expect(update).toHaveBeenCalledTimes(1);
+        expect(mockLogger.warn).toHaveBeenCalledWith(
+          expect.stringContaining("expired stream segment repair failed"),
+          expect.objectContaining({ error: failure })
+        );
+      });
+    });
+
+    it.each([
+      "rotation",
+      "stop",
+      "delivered",
+    ] as const)("preserves missing-timestamp behavior during %s", async (path) => {
+      await withClock(async (tick) => {
+        const { adapter, segments, update } = setup();
+        Object.defineProperty(segments[0], "ts", { value: undefined });
+        const expiry = expiredStreamError();
+        segments[0].stop.mockRejectedValue(expiry);
+        segments[0].append
+          .mockResolvedValueOnce({ ok: true })
+          .mockResolvedValue(null);
+        async function* stream() {
+          yield "confirmed\n";
+          if (path !== "delivered") {
+            yield "buffered\n";
+          }
+          if (path === "rotation") {
+            tick(MAX_AGE + 1);
+            yield "pending\n\ntail\n";
+          }
+        }
+        const result = adapter.stream(THREAD, stream());
+        if (path === "delivered") {
+          await expect(result).rejects.toBe(expiry);
+        } else {
+          await expect(result).resolves.toMatchObject({
+            id: "1234567890.1",
+            messageIds: ["1234567890.1"],
+          });
+        }
+        expect(update).not.toHaveBeenCalled();
+      });
+    });
+
+    it.each([
+      "```ts",
+      "~~~~ts",
+    ])("closes the confirmed %s fence without including buffered text", async (opening) => {
+      const { adapter, segments, update } = setup();
+      segments[0].append
+        .mockResolvedValueOnce({ ok: true })
+        .mockResolvedValue(null);
+      segments[0].stop.mockRejectedValue(expiredStreamError());
+      async function* stream() {
+        yield `${opening}\nconfirmed`;
+        yield "\nbuffered\n";
+      }
+      await adapter.stream(THREAD, stream());
+      expect(update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          markdown_text: `${opening}\nconfirmed\n${opening.startsWith("`") ? "```" : "~~~~"}`,
+        })
+      );
+    });
+
+    it("repairs only the later segment and retains its reopened fence", async () => {
+      await withClock(async (tick) => {
+        const { adapter, segments, update } = setup();
+        segments[1].stop.mockRejectedValue(expiredStreamError());
+        async function* stream() {
+          yield "```ts\nearlier\n";
+          tick(MAX_AGE + 1);
+          yield "boundary\n\ncurrent\n";
+        }
+        const result = await adapter.stream(THREAD, stream());
+        expect(update).toHaveBeenCalledExactlyOnceWith({
+          channel: "D123",
+          ts: "1234567890.1",
+          token: TOKEN,
+          markdown_text: "```ts\ncurrent\n```",
+        });
+        expect(result?.messageIds).toEqual(["1234567890.0", "1234567890.1"]);
+      });
+    });
+
+    it("retains a repeated table header when repairing a later segment", async () => {
+      await withClock(async (tick) => {
+        const { adapter, segments, update } = setup();
+        segments[1].stop.mockRejectedValue(expiredStreamError());
+        async function* stream() {
+          yield "| a | b |\n|---|---|\n| 1 | 2 |\n";
+          tick(PAST_GRACE);
+          yield "| 3 | 4 |\n";
+          yield "| 5 | 6 |\n";
+        }
+        await adapter.stream(THREAD, stream());
+        expect(update).toHaveBeenCalledWith(
+          expect.objectContaining({
+            ts: "1234567890.1",
+            markdown_text: "| a | b |\n|---|---|\n| 5 | 6 |\n",
+          })
+        );
+      });
+    });
+
+    it("repairs a later rotation without copying earlier messages or the failed stop text", async () => {
+      await withClock(async (tick) => {
+        const { adapter, segments, update } = setup();
+        segments[1].stop.mockRejectedValue(expiredStreamError());
+        async function* stream() {
+          yield "earlier\n";
+          tick(MAX_AGE + 1);
+          yield "boundary\n\ncurrent\n";
+          tick(2 * MAX_AGE + 2);
+          yield "pending\n\ntail\n";
+        }
+        const result = await adapter.stream(THREAD, stream());
+        expect(update).toHaveBeenCalledExactlyOnceWith({
+          channel: "D123",
+          ts: "1234567890.1",
+          token: TOKEN,
+          markdown_text: "current\n",
+        });
+        expect(segments[2].append).toHaveBeenCalledWith({
+          token: TOKEN,
+          chunks: [],
+          markdown_text: "pending\n\ntail\n",
+        });
+        expect(result?.messageIds).toEqual([
+          "1234567890.0",
+          "1234567890.1",
+          "1234567890.2",
+        ]);
+      });
+    });
+
+    it("includes buffered text only after a later append confirms the flush", async () => {
+      const { adapter, segments, update } = setup();
+      segments[0].append
+        .mockResolvedValueOnce(null)
+        .mockResolvedValueOnce({ ok: true })
+        .mockResolvedValue(null);
+      segments[0].stop.mockRejectedValue(expiredStreamError());
+      async function* stream() {
+        yield "buffered first\n";
+        yield "confirmed together\n";
+        yield "still buffered\n";
+      }
+      await adapter.stream(THREAD, stream());
+      expect(update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          markdown_text: "buffered first\nconfirmed together\n",
+        })
+      );
+    });
+
+    it.each([
+      "plan",
+      "complete task",
+    ])("does not overwrite a segment containing a %s", async (kind) => {
+      const { adapter, segments, update } = setup();
+      segments[0].stop.mockRejectedValue(expiredStreamError());
+      async function* stream() {
+        yield "confirmed\n";
+        if (kind === "plan") {
+          yield { type: "plan_update" as const, title: "Plan" };
+        } else {
+          yield {
+            type: "task_update" as const,
+            id: "task",
+            title: "Done",
+            status: "complete" as const,
+          };
+        }
+      }
+      await adapter.stream(THREAD, stream());
+      expect(update).not.toHaveBeenCalled();
+    });
+
+    it("uses the current enterprise and shared-channel request context for repair", async () => {
+      const { adapter, segments, update } = setup();
+      segments[0].stop.mockRejectedValue(expiredStreamError());
+      const contextAdapter = adapter as unknown as {
+        requestContext: {
+          run<T>(context: Record<string, unknown>, callback: () => T): T;
+        };
+      };
+      async function* stream() {
+        yield "confirmed\n";
+      }
+      const result = await contextAdapter.requestContext.run(
+        {
+          token: "xoxb-org-context",
+          isEnterpriseInstall: true,
+          teamId: "T_EVENT",
+          contextTeamId: "T_AWAY",
+          contextChannel: "D123",
+        },
+        () => adapter.stream(THREAD, stream())
+      );
+      expect(update).toHaveBeenCalledExactlyOnceWith({
+        channel: "D123",
+        ts: "1234567890.0",
+        token: "xoxb-org-context",
+        team_id: "T_EVENT",
+        client_context_team_id: "T_AWAY",
+        markdown_text: "confirmed\n",
+      });
+      expect(result?.messageIds).toEqual(["1234567890.0"]);
+    });
+
+    it("continues with the exact suffix when repair token resolution fails", async () => {
+      const failure = new Error("token provider failed");
+      const provider = vi
+        .fn()
+        .mockResolvedValueOnce(TOKEN)
+        .mockRejectedValue(failure);
+      const { adapter, segments, update } = setup({ botToken: provider });
+      segments[0].append
+        .mockResolvedValueOnce({ ok: true })
+        .mockResolvedValue(null);
+      segments[0].stop.mockRejectedValue(expiredStreamError());
+      async function* stream() {
+        yield "confirmed\n";
+        yield "buffered\n";
+      }
+      const result = await adapter.stream(THREAD, stream());
+      expect(provider).toHaveBeenCalledTimes(2);
+      expect(update).not.toHaveBeenCalled();
+      expect(segments[1].stop).toHaveBeenCalledExactlyOnceWith({
+        token: TOKEN,
+        markdown_text: "buffered\n",
+      });
+      expect(result?.messageIds).toEqual(["1234567890.0", "1234567890.1"]);
+      expect(mockLogger.warn).toHaveBeenCalledWith(
+        expect.stringContaining("expired stream segment repair failed"),
+        expect.objectContaining({ error: failure })
+      );
+    });
+
+    it("repairs a replacement of exactly 12000 UTF-16 code units", async () => {
+      const { adapter, segments, update } = setup();
+      const markdown = `${"🙂".repeat(5999)}x\n`;
+      expect(markdown.length).toBe(12_000);
+      segments[0].stop.mockRejectedValue(expiredStreamError());
+      async function* stream() {
+        yield markdown;
+      }
+      const result = await adapter.stream(THREAD, stream());
+      expect(update).toHaveBeenCalledExactlyOnceWith({
+        channel: "D123",
+        ts: "1234567890.0",
+        token: TOKEN,
+        markdown_text: markdown,
+      });
+      expect(result?.messageIds).toEqual(["1234567890.0"]);
+    });
+
+    it("skips repair when the fence closer pushes the replacement over 12000", async () => {
+      const { adapter, segments, update } = setup();
+      const confirmed = `\`\`\`ts\n${"x".repeat(11_991)}\n`;
+      expect(confirmed.length).toBe(11_998);
+      segments[0].append
+        .mockResolvedValueOnce({ ok: true })
+        .mockResolvedValue(null);
+      segments[0].stop.mockRejectedValue(expiredStreamError());
+      async function* stream() {
+        yield confirmed;
+        yield "buffered\n";
+      }
+      const result = await adapter.stream(THREAD, stream());
+      expect(update).not.toHaveBeenCalled();
+      expect(segments[1].stop).toHaveBeenCalledExactlyOnceWith({
+        token: TOKEN,
+        markdown_text: "```ts\nbuffered\n",
+      });
+      expect(result?.messageIds).toEqual(["1234567890.0", "1234567890.1"]);
+      expect(mockLogger.warn).toHaveBeenCalledWith(
+        expect.stringContaining("expired stream segment repair skipped"),
+        expect.objectContaining({
+          reason: "markdown_text exceeds 12000 characters",
+        })
+      );
+    });
+
+    it("skips repair rather than truncating an oversized segment", async () => {
+      const { adapter, segments, update } = setup();
+      segments[0].stop.mockRejectedValue(expiredStreamError());
+      async function* stream() {
+        yield `${"x".repeat(12_000)}\n`;
+      }
+      const result = await adapter.stream(THREAD, stream());
+      expect(result?.id).toBe("1234567890.0");
+      expect(update).not.toHaveBeenCalled();
+    });
   });
 
   it("still propagates non-expiry failures during rotation", async () => {
