@@ -24,6 +24,7 @@ export default defineConfig({
       "packages/adapter-whatsapp",
       "packages/adapter-x",
       "packages/create-chat-sdk",
+      "packages/managed-agents",
       "packages/state-ioredis",
       "packages/state-memory",
       {

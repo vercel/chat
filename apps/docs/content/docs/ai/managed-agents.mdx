@@ -1,0 +1,184 @@
+---
+title: Managed agents
+description: Run Claude Managed Agents, Cursor agents, or the OpenAI Agents API in any chat thread, with one provider session per thread, streamed replies, and tool approvals.
+type: guide
+prerequisites:
+  - /docs/usage
+related:
+  - /docs/streaming
+  - /docs/concurrency
+  - /docs/state-adapters
+  - /docs/actions
+---
+
+`@chat-adapter/managed-agents` connects a hosted agent to your bot. The provider runs the agent loop, tools, and sandbox. The package handles the chat side:
+
+- One provider session per thread, stored in [thread state](/docs/threads-messages-channels)
+- Streamed replies, with tool calls shown as task progress on platforms that support it
+- Approve/Deny cards when the agent asks to run a tool
+- Interrupting the provider run when the turn is stopped, for example with Slack's stop button
+
+## Install
+
+Install the package and the SDK for your provider.
+
+<PackageInstall package="@chat-adapter/managed-agents @anthropic-ai/sdk" />
+
+| Provider | Driver | Peer dependency |
+| --- | --- | --- |
+| [Claude Managed Agents](https://platform.claude.com/docs/en/managed-agents/overview) | `@chat-adapter/managed-agents/claude` | `@anthropic-ai/sdk` |
+| [Cursor agents](https://cursor.com/docs/sdk/typescript) | `@chat-adapter/managed-agents/cursor` | `@cursor/sdk` |
+| [OpenAI Agents API](https://developers.openai.com/api/docs/guides/agents-api/overview) | `@chat-adapter/managed-agents/openai` | `openai` |
+
+For a runnable version, see the [Next.js managed agents example](https://github.com/vercel/chat/tree/main/examples/nextjs-managed-agents), a Slack bot that switches between Claude, Cursor, and OpenAI with the `AGENT_PROVIDER` environment variable.
+
+## Usage
+
+```typescript title="lib/bot.ts" lineNumbers
+import { createManagedAgent } from "@chat-adapter/managed-agents";
+import { createClaudeDriver } from "@chat-adapter/managed-agents/claude";
+import { createRedisState } from "@chat-adapter/state-redis";
+import { Chat } from "chat";
+
+const agent = createManagedAgent({
+  // Reads ANTHROPIC_API_KEY, CLAUDE_AGENT_ID, and CLAUDE_ENVIRONMENT_ID.
+  driver: createClaudeDriver(),
+});
+
+export const bot = new Chat({
+  adapters,
+  concurrency: "queue",
+  state: createRedisState(),
+  userName: "agent",
+});
+
+bot.onNewMention(async (thread, message, context) => {
+  await thread.subscribe();
+  await agent.reply(thread, message, context);
+});
+
+bot.onSubscribedMessage((thread, message, context) =>
+  agent.reply(thread, message, context)
+);
+
+bot.onAction([...agent.actionIds], (event) => agent.handleAction(event));
+```
+
+`agent.reply` creates a session the first time a thread talks to the agent and reuses it for follow-ups. If a stored session is gone or belongs to a different agent, it starts a new one and tells the thread that earlier context was lost.
+
+Use the `queue` [concurrency strategy](/docs/concurrency) so turns on a thread run in order. Messages that arrive while the agent is busy reach the handler as `context.skipped`, and `agent.reply` sends them to the agent together with the latest message.
+
+Use a persistent [state adapter](/docs/state-adapters). The session ID lives in thread state, so the memory adapter forgets it on restart.
+
+## Tool progress in Slack
+
+Tool calls stream as `task_update` chunks. Slack shows them as task cards when the reply uses [native streaming](/docs/streaming), which needs the agent/assistant feature and the `assistant:write` scope in your Slack app manifest. Without them, or on platforms without structured chunks, the reply streams as text only.
+
+Set `taskDisplay: "plan"` to group the tool calls into one plan block instead of separate cards:
+
+```typescript
+createManagedAgent({ driver, taskDisplay: "plan" });
+```
+
+Providers sometimes send a complete message that differs from the text they streamed. When that happens, the posted message is edited to the complete text. If the message already shows task cards, it is left as streamed, because an edit replaces the whole message and would remove the cards. The same applies when `taskDisplay` is set, because those streams can't be edited after they finish.
+
+## Claude Managed Agents
+
+Create the agent and environment once, outside the request path. With no options, the driver reads these environment variables:
+
+| Variable | Option |
+| --- | --- |
+| `ANTHROPIC_API_KEY` | `apiKey`, or pass a configured `client` |
+| `CLAUDE_AGENT_ID` | `agentId` |
+| `CLAUDE_ENVIRONMENT_ID` | `environmentId` |
+
+Options you pass take precedence. `createClaudeDriver()` throws if the agent ID or environment ID is missing from both.
+
+```typescript
+createClaudeDriver({
+  sessionParams: { vault_ids: [process.env.CLAUDE_VAULT_ID!] },
+});
+```
+
+Sessions are tagged with `metadata.chat_thread_id`. A stored session is only reused if it belongs to `agentId` and is not archived or terminated.
+
+When the agent's permission policy asks before running a tool, the thread gets an approval card listing the tools and their input. The decision is sent back as a tool confirmation and the rest of the turn streams into the thread. Each approval is sent once, even if its card is clicked again. Custom tools that need results from your code are not supported yet.
+
+## Cursor agents
+
+```typescript
+import { createCursorDriver } from "@chat-adapter/managed-agents/cursor";
+
+createCursorDriver({
+  agent: {
+    apiKey: process.env.CURSOR_API_KEY!,
+    model: { id: "composer-2.5" },
+    cloud: { repos: [{ url: "https://github.com/acme/app" }] },
+  },
+});
+```
+
+Each thread gets one Cursor agent, and each message is one run. Use the `cloud` runtime on serverless platforms, because local agents keep their conversation on the machine that created them. The `agent` options are passed to both `Agent.create()` and `Agent.resume()`. Set per-run options such as `mode` with `send`.
+
+The Cursor SDK has no approval API, so a run that asks for approval is cancelled and the thread is told why. Gate tools with Cursor hooks or sandboxing instead.
+
+## OpenAI Agents API
+
+```typescript
+import { createOpenAIDriver } from "@chat-adapter/managed-agents/openai";
+
+// Reads OPENAI_API_KEY, OPENAI_AGENT_ID, and OPENAI_ENVIRONMENT_ID.
+createOpenAIDriver();
+```
+
+With no options, the driver reads these environment variables:
+
+| Variable | Option |
+| --- | --- |
+| `OPENAI_API_KEY` | `apiKey`, or pass a configured `client` |
+| `OPENAI_AGENT_ID` | `agentId`, or configure the agent inline with `agent` |
+| `OPENAI_ENVIRONMENT_ID` | `environment`. Without either, sessions use `{ type: "none" }` |
+
+Each thread gets one Agents API session, tagged with `metadata.chat_thread_id`. A stored session is only reused if it belongs to `agentId` and has not failed.
+
+The Agents API asks for client input through required actions: computer-use approvals, client function calls, and environment connections. None of these fit an Approve/Deny button, so a turn that needs one stops and the thread is told which action it needed. The Agents API is in beta and its endpoints are not eligible for Zero Data Retention.
+
+## Customizing messages
+
+Override any message the agent posts:
+
+```typescript
+createManagedAgent({
+  driver,
+  messages: {
+    approvalTitle: "Allow this action?",
+    sessionLost: "Starting fresh. I no longer have the earlier context.",
+  },
+});
+```
+
+Call `agent.resetSession(thread)` to start a new session on the next message, for example from a `/reset` [slash command](/docs/slash-commands).
+
+## Writing a driver
+
+A driver implements `ManagedAgentDriver`: create a session, check that a stored session can be reused, and stream one turn as `ManagedAgentEvent`s. Each turn must end with `turn-end`, `approval-request`, or `session-ended`. A stream that ends without one is reported as a dropped connection.
+
+```typescript
+import type { ManagedAgentDriver } from "@chat-adapter/managed-agents";
+
+const driver: ManagedAgentDriver = {
+  name: "my-provider",
+  createSession: async ({ threadId, title }) => createProviderSession(threadId, title),
+  resumeSession: async (sessionId) => isProviderSessionActive(sessionId),
+  async *runTurn({ sessionId, text, signal }) {
+    for await (const event of sendProviderMessage(sessionId, text, signal)) {
+      if (event.kind === "token") {
+        yield { type: "text-delta", messageId: event.messageId, text: event.text };
+      }
+    }
+    yield { type: "turn-end", reason: "complete" };
+  },
+};
+```
+
+Emit a `message` event with the complete text when the provider has one. If it differs from the streamed preview, the posted message is replaced with the complete text. Implement `respondToApproval` to support approval cards.

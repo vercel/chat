@@ -1,0 +1,51 @@
+display_information:
+  name: Managed Agent
+  description: A hosted agent in Slack, built with Chat SDK
+  background_color: "#1a1a2e"
+
+features:
+  # Slack's Agent messaging experience: native streaming with task cards and
+  # a stop button that interrupts the agent.
+  agent_view:
+    agent_description: A hosted agent in Slack, built with Chat SDK
+  bot_user:
+    display_name: Managed Agent
+    always_online: true
+
+oauth_config:
+  scopes:
+    bot:
+      - app_mentions:read
+      - assistant:write
+      - channels:history
+      - channels:read
+      - chat:write
+      - groups:history
+      - groups:read
+      - im:history
+      - im:read
+      - mpim:history
+      - mpim:read
+      - users:read
+
+settings:
+  event_subscriptions:
+    # Set this to your deployed webhook URL
+    request_url: https://your-deployment.vercel.app/api/webhooks/slack
+    bot_events:
+      - app_mention
+      - message.channels
+      - message.groups
+      - message.im
+      - message.mpim
+      - app_home_opened
+      - app_context_changed
+      - agent_session_stopped
+      - agent_session_title_changed
+  interactivity:
+    # Needed for the Approve/Deny buttons on approval cards
+    is_enabled: true
+    request_url: https://your-deployment.vercel.app/api/webhooks/slack
+  org_deploy_enabled: false
+  socket_mode_enabled: false
+  token_rotation_enabled: false
