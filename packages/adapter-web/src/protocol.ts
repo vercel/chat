@@ -7,13 +7,24 @@
  * so the server needs no client SDK at runtime.
  */
 
-import type { WebMessage, WebMessagePart, WebProtocolName } from "./types";
+import type {
+  WebMessage,
+  WebMessagePart,
+  WebPlanData,
+  WebProtocolName,
+  WebTaskData,
+} from "./types";
 
 /** Protocol-neutral events emitted while the handler runs. */
 export type WebStreamEvent =
   | { type: "text-start"; id: string }
   | { type: "text-delta"; id: string; delta: string }
-  | { type: "text-end"; id: string };
+  | { type: "text-end"; id: string }
+  | { type: "reasoning-start"; id: string }
+  | { type: "reasoning-delta"; id: string; delta: string }
+  | { type: "reasoning-end"; id: string }
+  | { type: "data-task"; id: string; data: WebTaskData }
+  | { type: "data-plan"; id: string; data: WebPlanData };
 
 /** What a protocol extracts from the request body. */
 export interface WebProtocolRequest {
@@ -41,8 +52,8 @@ export interface WebProtocol {
   begin(run: WebRunContext): unknown[];
   /** Raw SSE frame written after the last event, if the protocol has one. */
   readonly doneFrame?: string;
-  /** Payload for one stream event. */
-  encode(event: WebStreamEvent): unknown;
+  /** Payloads for one stream event. */
+  encode(event: WebStreamEvent): unknown[];
   /** Payloads to send when the response ends, with `errorText` on failure. */
   end(run: WebRunContext, errorText?: string): unknown[];
   readonly headers: Record<string, string>;
@@ -99,7 +110,8 @@ const aiSdkProtocol: WebProtocol = {
     { type: "start-step" },
   ],
 
-  encode: (event) => event,
+  // The neutral events already match AI SDK UI message stream chunks.
+  encode: (event) => [event],
 
   end: (_run, errorText) => [
     { type: "finish-step" },
@@ -152,19 +164,52 @@ const agUiProtocol: WebProtocol = {
   encode(event) {
     switch (event.type) {
       case "text-start":
-        return {
-          type: "TEXT_MESSAGE_START",
-          messageId: event.id,
-          role: "assistant",
-        };
+        return [
+          {
+            type: "TEXT_MESSAGE_START",
+            messageId: event.id,
+            role: "assistant",
+          },
+        ];
       case "text-delta":
-        return {
-          type: "TEXT_MESSAGE_CONTENT",
-          messageId: event.id,
-          delta: event.delta,
-        };
+        return [
+          {
+            type: "TEXT_MESSAGE_CONTENT",
+            messageId: event.id,
+            delta: event.delta,
+          },
+        ];
       case "text-end":
-        return { type: "TEXT_MESSAGE_END", messageId: event.id };
+        return [{ type: "TEXT_MESSAGE_END", messageId: event.id }];
+      case "reasoning-start":
+        return [
+          { type: "REASONING_START", messageId: event.id },
+          {
+            type: "REASONING_MESSAGE_START",
+            messageId: event.id,
+            role: "reasoning",
+          },
+        ];
+      case "reasoning-delta":
+        return [
+          {
+            type: "REASONING_MESSAGE_CONTENT",
+            messageId: event.id,
+            delta: event.delta,
+          },
+        ];
+      case "reasoning-end":
+        return [
+          { type: "REASONING_MESSAGE_END", messageId: event.id },
+          { type: "REASONING_END", messageId: event.id },
+        ];
+      // AG-UI has no message part for these, so they travel as CUSTOM events
+      // (TanStack AI surfaces them through `onCustomEvent`). The payload
+      // carries the task id, so clients can replace a task's earlier state.
+      case "data-task":
+        return [{ type: "CUSTOM", name: "task", value: event.data }];
+      case "data-plan":
+        return [{ type: "CUSTOM", name: "plan", value: event.data }];
       default: {
         const unhandled: never = event;
         throw new Error(

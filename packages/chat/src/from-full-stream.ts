@@ -4,6 +4,7 @@ const STREAM_CHUNK_TYPES = new Set([
   "markdown_text",
   "task_update",
   "plan_update",
+  "reasoning",
 ]);
 
 /**
@@ -19,7 +20,8 @@ const STREAM_CHUNK_TYPES = new Set([
  *   `chat()`) — extracts `TEXT_MESSAGE_CONTENT` deltas and injects `"\n\n"`
  *   separators after each `TEXT_MESSAGE_END`, since every model turn in the
  *   tool loop is its own text message.
- * - **StreamChunk objects** (`task_update`, `plan_update`, `markdown_text`) —
+ * - **StreamChunk objects** (`task_update`, `plan_update`, `markdown_text`,
+ *   `reasoning`) —
  *   passed through as-is for adapters with native structured chunk support.
  *
  * This is used internally by `thread.post()`, so you can pass any of these
@@ -54,7 +56,15 @@ export async function* fromFullStream(
       type: string;
     };
 
-    // Pass through StreamChunk objects (task_update, plan_update, markdown_text)
+    // AI SDK v4 full streams emit `{ type: "reasoning", textDelta }`, which
+    // shares its type with a reasoning StreamChunk but has no `text`. Skip
+    // it like the other reasoning events below.
+    if (typed.type === "reasoning" && typeof typed.text !== "string") {
+      continue;
+    }
+
+    // Pass through StreamChunk objects (task_update, plan_update,
+    // markdown_text, reasoning)
     if (STREAM_CHUNK_TYPES.has(typed.type)) {
       yield event as StreamChunk;
       continue;

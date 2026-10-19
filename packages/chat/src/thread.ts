@@ -38,7 +38,6 @@ import type {
   StreamEvent,
   StreamOptions,
   Thread,
-  TypingOptions,
 } from "./types";
 import { ChatError, NotImplementedError, THREAD_STATE_TTL_MS } from "./types";
 
@@ -839,7 +838,7 @@ export class ThreadImpl<TState = Record<string, unknown>>
                 } else if (value.type === "markdown_text") {
                   accumulated += value.text;
                 }
-                // task_update and plan_update chunks don't contribute to accumulated text
+                // task_update, plan_update, and reasoning chunks don't contribute to accumulated text
               }
               return result;
             },
@@ -889,7 +888,7 @@ export class ThreadImpl<TState = Record<string, unknown>>
               if (value.type === "markdown_text") {
                 return { value: value.text, done: false };
               }
-              // Skip non-text chunks (task_update, plan_update) in fallback mode
+              // Skip non-text chunks (task_update, plan_update, reasoning) in fallback mode
             }
           },
         };
@@ -940,18 +939,13 @@ export class ThreadImpl<TState = Record<string, unknown>>
   }
 
   async startTyping(status?: string): Promise<void> {
-    const options: TypingOptions = {};
-    if (this._currentMessage?.author.userId) {
-      options.initiatorUserId = this._currentMessage.author.userId;
+    const initiatorUserId = this._currentMessage?.author.userId;
+    if (initiatorUserId) {
+      await this.adapter.startTyping(this.id, status, { initiatorUserId });
+      this._typingStarted = true;
+      return;
     }
-    if (this._currentMessage?.id) {
-      options.messageId = this._currentMessage.id;
-    }
-    if (options.initiatorUserId || options.messageId) {
-      await this.adapter.startTyping(this.id, status, options);
-    } else {
-      await this.adapter.startTyping(this.id, status);
-    }
+    await this.adapter.startTyping(this.id, status);
     this._typingStarted = true;
   }
 
