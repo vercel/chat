@@ -91,10 +91,6 @@ export interface AdapterListing {
    */
   author?: string;
   /**
-   * Whether the adapter is in beta.
-   */
-  beta?: boolean;
-  /**
    * One-line summary of what the adapter connects to.
    */
   description: string;

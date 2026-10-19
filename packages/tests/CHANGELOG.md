@@ -1,5 +1,20 @@
 # @chat-adapter/tests
 
+## 4.42.0
+
+### Minor Changes
+
+- 403b6ea: Support Vitest 5. The custom matchers now augment Vitest's `Matchers<R, T>` interface, and the `vitest` peer dependency is now `^5.0.0`. Projects that use `@chat-adapter/tests` must upgrade to Vitest 5.
+
+### Patch Changes
+
+- 10764f9: Tighten the shared contract suites so they fail for the behavior they describe:
+  
+  - `connectWebhookContract` checks that the verifier receives the exact raw request body, and its `401` cases now require the verifier to have run, so a rejection from another gate no longer counts as a pass. The redundant "constructs with a webhookVerifier" case is removed.
+  - `selfMessageContract` fails when a bot-authored message reaches any `process*` handler or `handleIncomingMessage`, not only `dispatchHandler`.
+  - `threadIdContract` throws when given no cases, registers "matches pinned encoded strings" only when a case pins an `encoded` value, and names the offending id when the prefix check fails.
+  - `toHaveDispatched` accepts `processAgentSessionStopped` and `processAgentSessionTitleChanged`.
+
 ## 4.41.1
 
 ## 4.41.0

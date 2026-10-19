@@ -2,7 +2,6 @@ import { redisUrlEnv } from "../../env";
 import type { CatalogAdapter } from "../../types";
 
 export const redis = {
-  beta: true,
   description:
     "Production-ready state adapter using Redis for persistence and distributed locking.",
   env: {

@@ -8,7 +8,6 @@ import { BuildYourOwnCard } from "./build-your-own-card";
 import { type FilterTab, FilterTabs } from "./filter-tabs";
 
 interface Adapter {
-  beta?: boolean;
   description: string;
   group: AdapterGroup;
   icon?: string;

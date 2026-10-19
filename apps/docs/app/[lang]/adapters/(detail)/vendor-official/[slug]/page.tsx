@@ -5,6 +5,7 @@ import { notFound } from "next/navigation";
 import { AdapterHero } from "@/components/geistdocs/adapter-hero";
 import { DocsBody, DocsPage } from "@/components/geistdocs/docs-page";
 import { FeatureSupport } from "@/components/geistdocs/feature-support";
+import { JsonLd } from "@/components/geistdocs/json-ld";
 import { getMDXComponents } from "@/components/geistdocs/mdx-components";
 import { Upsell } from "@/components/geistdocs/upsell";
 import { getAdapterJsonLd } from "@/lib/geistdocs/adapter-jsonld";
@@ -158,11 +159,7 @@ const Page = async ({ params }: { params: Promise<PageParams> }) => {
       toc={page.data.toc}
     >
       <DocsBody>
-        <script
-          // biome-ignore lint/security/noDangerouslySetInnerHtml: static JSON-LD, not user input
-          dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }}
-          type="application/ld+json"
-        />
+        <JsonLd data={jsonLd} />
         {/* biome-ignore lint/a11y/useAnchorContent: intentionally aria-hidden hint surfacing the markdown URL for AI/LLM crawlers, not for screen readers */}
         <a
           aria-hidden="true"

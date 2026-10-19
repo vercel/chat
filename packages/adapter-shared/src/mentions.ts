@@ -123,11 +123,8 @@ function findCodeEnd(text: string, index: number, end: number): number {
   if (close === -1 || close >= end) {
     return index;
   }
-  if (!fence) {
-    const newline = text.indexOf("\n", start);
-    if (newline !== -1 && newline < close) {
-      return index;
-    }
+  if (!fence && text.slice(start, close).includes("\n")) {
+    return index;
   }
   return close + marker.length;
 }

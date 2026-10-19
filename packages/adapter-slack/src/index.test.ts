@@ -22,8 +22,18 @@ import type {
   Message,
   StateAdapter,
 } from "chat";
-import { Chat } from "chat";
+import {
+  Actions,
+  Button,
+  Card,
+  CardText,
+  Chat,
+  Field,
+  Fields,
+  Image,
+} from "chat";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { cardToBlockKit, cardToFallbackText } from "./cards";
 import type {
   SlackAdapterConfig,
   SlackEvent,
@@ -1909,6 +1919,430 @@ describe("parseMessage", () => {
     for (const message of [sync, async]) {
       expect(message.text).toBe(expected);
     }
+  });
+
+  it("renders layout blocks as the body instead of the fallback text", async () => {
+    // Slack renders the blocks; `text` is only the notification fallback.
+    const event: SlackEvent = {
+      type: "message",
+      user: "U123",
+      channel: "C456",
+      text: "Deploy finished",
+      ts: "1786120899.208430",
+      blocks: [
+        { type: "header", text: { type: "plain_text", text: "Deploy *prod*" } },
+        {
+          type: "section",
+          text: { type: "mrkdwn", text: "*Status:* succeeded" },
+          fields: [
+            { type: "mrkdwn", text: "*Region:* iad1" },
+            { type: "plain_text", text: "Duration: 2m" },
+          ],
+        },
+        { type: "divider" },
+        {
+          type: "context",
+          elements: [{ type: "mrkdwn", text: "Triggered by CI" }],
+        },
+      ] as SlackEvent["blocks"],
+    };
+
+    const sync = adapter.parseMessage(event);
+    const internals = adapter as unknown as {
+      parseSlackMessage(
+        value: SlackEvent,
+        threadId: string
+      ): Promise<Message<unknown>>;
+    };
+    const async = await internals.parseSlackMessage(
+      event,
+      "slack:C456:1786120899.208430"
+    );
+
+    for (const message of [sync, async]) {
+      expect(message.text).toBe(
+        "Deploy *prod*\n\nStatus: succeeded\n\nRegion: iad1\n\nDuration: 2m\n\nTriggered by CI"
+      );
+    }
+  });
+
+  it("keeps the text body when a block type has no layout rendering", async () => {
+    // The markdown block's content only reaches the message through `text`.
+    const event: SlackEvent = {
+      type: "message",
+      user: "U123",
+      channel: "C456",
+      text: "Release notes\n\nAdded dark mode",
+      ts: "1786120899.208432",
+      blocks: [
+        {
+          type: "section",
+          text: { type: "mrkdwn", text: "Release notes" },
+        },
+        { type: "markdown", text: "**Added** dark mode" },
+      ] as SlackEvent["blocks"],
+    };
+
+    const sync = adapter.parseMessage(event);
+    const internals = adapter as unknown as {
+      parseSlackMessage(
+        value: SlackEvent,
+        threadId: string
+      ): Promise<Message<unknown>>;
+    };
+    const async = await internals.parseSlackMessage(
+      event,
+      "slack:C456:1786120899.208432"
+    );
+
+    for (const message of [sync, async]) {
+      expect(message.text).toBe("Release notes\n\nAdded dark mode");
+    }
+  });
+
+  it("keeps the text body when rich_text sits next to a section block", async () => {
+    // Mixed rich_text and layout blocks are not rendered from blocks; the
+    // fallback text stays the body even though it omits the section.
+    const event: SlackEvent = {
+      type: "message",
+      user: "U123",
+      channel: "C456",
+      text: "Typed by a person",
+      ts: "1786120899.208433",
+      blocks: [
+        {
+          type: "rich_text",
+          elements: [
+            {
+              type: "rich_text_section",
+              elements: [{ type: "text", text: "Typed by a person" }],
+            },
+          ],
+        },
+        {
+          type: "section",
+          text: { type: "mrkdwn", text: "Added by an app" },
+        },
+      ] as SlackEvent["blocks"],
+    };
+
+    const sync = adapter.parseMessage(event);
+    const internals = adapter as unknown as {
+      parseSlackMessage(
+        value: SlackEvent,
+        threadId: string
+      ): Promise<Message<unknown>>;
+    };
+    const async = await internals.parseSlackMessage(
+      event,
+      "slack:C456:1786120899.208433"
+    );
+
+    for (const message of [sync, async]) {
+      expect(message.text).toBe("Typed by a person");
+    }
+  });
+
+  it("renders a table between layout blocks in block order", async () => {
+    const event: SlackEvent = {
+      type: "message",
+      user: "U123",
+      channel: "C456",
+      text: "Weekly report",
+      ts: "1786120899.208434",
+      blocks: [
+        { type: "section", text: { type: "mrkdwn", text: "Summary" } },
+        {
+          type: "data_table",
+          rows: [
+            [
+              { type: "raw_text", text: "Region" },
+              { type: "raw_text", text: "Units" },
+            ],
+            [
+              { type: "raw_text", text: "us-east" },
+              { type: "raw_text", text: "3" },
+            ],
+          ],
+        },
+        { type: "section", text: { type: "mrkdwn", text: "Footer note" } },
+      ] as SlackEvent["blocks"],
+    };
+
+    const sync = adapter.parseMessage(event);
+    const internals = adapter as unknown as {
+      parseSlackMessage(
+        value: SlackEvent,
+        threadId: string
+      ): Promise<Message<unknown>>;
+    };
+    const async = await internals.parseSlackMessage(
+      event,
+      "slack:C456:1786120899.208434"
+    );
+
+    for (const message of [sync, async]) {
+      expect(message.formatted.children.map((node) => node.type)).toEqual([
+        "paragraph",
+        "table",
+        "paragraph",
+      ]);
+      expect(message.text).toBe(
+        "Summary\n\nRegion\tUnits\nus-east\t3\n\nFooter note"
+      );
+    }
+  });
+
+  it("reads links from layout block text and not from the fallback text", async () => {
+    const event: SlackEvent = {
+      type: "message",
+      user: "U123",
+      channel: "C456",
+      text: "Incident update <https://fallback.example.com>",
+      ts: "1786120899.208435",
+      blocks: [
+        {
+          type: "section",
+          text: {
+            type: "mrkdwn",
+            text: "See the <https://status.example.com|status page>",
+          },
+        },
+      ] as SlackEvent["blocks"],
+    };
+
+    const sync = adapter.parseMessage(event);
+    const internals = adapter as unknown as {
+      parseSlackMessage(
+        value: SlackEvent,
+        threadId: string
+      ): Promise<Message<unknown>>;
+    };
+    const async = await internals.parseSlackMessage(
+      event,
+      "slack:C456:1786120899.208435"
+    );
+
+    for (const message of [sync, async]) {
+      expect(message.links.map((link) => link.url)).toEqual([
+        "https://status.example.com",
+      ]);
+    }
+  });
+
+  it("renders an image title but not its alt text", async () => {
+    const event: SlackEvent = {
+      type: "message",
+      user: "U123",
+      channel: "C456",
+      text: "New chart",
+      ts: "1786120899.208436",
+      blocks: [
+        {
+          type: "image",
+          image_url: "https://example.com/latency.png",
+          alt_text: "Line chart of p95 latency",
+          title: { type: "plain_text", text: "Latency this week" },
+        },
+      ] as SlackEvent["blocks"],
+    };
+
+    const sync = adapter.parseMessage(event);
+    const internals = adapter as unknown as {
+      parseSlackMessage(
+        value: SlackEvent,
+        threadId: string
+      ): Promise<Message<unknown>>;
+    };
+    const async = await internals.parseSlackMessage(
+      event,
+      "slack:C456:1786120899.208436"
+    );
+
+    for (const message of [sync, async]) {
+      expect(message.text).toBe("Latency this week");
+      expect(message.text).not.toContain("p95");
+    }
+  });
+
+  it("renders layout blocks when an image has no title", async () => {
+    const event: SlackEvent = {
+      type: "message",
+      user: "U123",
+      channel: "C456",
+      text: "New chart",
+      ts: "1786120899.208437",
+      blocks: [
+        {
+          type: "image",
+          image_url: "https://example.com/latency.png",
+          alt_text: "Line chart of p95 latency",
+        },
+        {
+          type: "section",
+          text: { type: "mrkdwn", text: "p95 latency is back under 200ms" },
+        },
+      ] as SlackEvent["blocks"],
+    };
+
+    const sync = adapter.parseMessage(event);
+    const internals = adapter as unknown as {
+      parseSlackMessage(
+        value: SlackEvent,
+        threadId: string
+      ): Promise<Message<unknown>>;
+    };
+    const async = await internals.parseSlackMessage(
+      event,
+      "slack:C456:1786120899.208437"
+    );
+
+    for (const message of [sync, async]) {
+      expect(message.text).toBe("p95 latency is back under 200ms");
+    }
+  });
+
+  it("renders each layout text object as its own paragraph", async () => {
+    const event: SlackEvent = {
+      type: "message",
+      user: "U123",
+      channel: "C456",
+      text: "Standup",
+      ts: "1786120899.208438",
+      blocks: [
+        { type: "header", text: { type: "plain_text", text: "Standup" } },
+        {
+          type: "context",
+          elements: [{ type: "plain_text", text: "Posted by the standup bot" }],
+        },
+        {
+          type: "section",
+          text: { type: "plain_text", text: "No blockers today" },
+        },
+      ] as SlackEvent["blocks"],
+    };
+
+    const sync = adapter.parseMessage(event);
+    const internals = adapter as unknown as {
+      parseSlackMessage(
+        value: SlackEvent,
+        threadId: string
+      ): Promise<Message<unknown>>;
+    };
+    const async = await internals.parseSlackMessage(
+      event,
+      "slack:C456:1786120899.208438"
+    );
+
+    for (const message of [sync, async]) {
+      expect(message.formatted.children).toHaveLength(3);
+      expect(message.formatted.children.map((node) => node.type)).toEqual([
+        "paragraph",
+        "paragraph",
+        "paragraph",
+      ]);
+      expect(message.text).toBe(
+        "Standup\n\nPosted by the standup bot\n\nNo blockers today"
+      );
+    }
+  });
+
+  it("renders plain_text layout text literally without decoding entities", async () => {
+    // Slack shows plain_text as typed, so `&amp;` stays `&amp;`.
+    const event: SlackEvent = {
+      type: "message",
+      user: "U123",
+      channel: "C456",
+      text: "A & B",
+      ts: "1786120899.208439",
+      blocks: [
+        { type: "header", text: { type: "plain_text", text: "A &amp; B <c>" } },
+      ] as SlackEvent["blocks"],
+    };
+
+    const sync = adapter.parseMessage(event);
+    const internals = adapter as unknown as {
+      parseSlackMessage(
+        value: SlackEvent,
+        threadId: string
+      ): Promise<Message<unknown>>;
+    };
+    const async = await internals.parseSlackMessage(
+      event,
+      "slack:C456:1786120899.208439"
+    );
+
+    for (const message of [sync, async]) {
+      expect(message.text).toBe("A &amp; B <c>");
+    }
+  });
+
+  it("reads a bot card's blocks back into the message body", async () => {
+    const card = Card({
+      title: "Order shipped",
+      children: [
+        CardText("Your order is on its way."),
+        Fields([
+          Field({ label: "Tracking", value: "ABC123" }),
+          Field({ label: "ETA", value: "Dec 25" }),
+        ]),
+        Image({ url: "https://example.com/box.png", alt: "Package photo" }),
+        Actions([
+          Button({ id: "track", label: "Track package" }),
+          Button({ id: "cancel", label: "Cancel order" }),
+        ]),
+      ],
+    });
+    const event: SlackEvent = {
+      type: "message",
+      user: "U123",
+      channel: "C456",
+      text: cardToFallbackText(card),
+      ts: "1786120899.208440",
+      blocks: cardToBlockKit(card) as SlackEvent["blocks"],
+    };
+
+    const sync = adapter.parseMessage(event);
+    const internals = adapter as unknown as {
+      parseSlackMessage(
+        value: SlackEvent,
+        threadId: string
+      ): Promise<Message<unknown>>;
+    };
+    const async = await internals.parseSlackMessage(
+      event,
+      "slack:C456:1786120899.208440"
+    );
+
+    for (const message of [sync, async]) {
+      // Same content as the fallback, laid out the way Slack shows the
+      // blocks: each field keeps its label and value on separate lines.
+      expect(message.text).toBe(
+        "Order shipped\n\nYour order is on its way.\n\nTracking\nABC123\n\nETA\nDec 25"
+      );
+      expect(message.text).not.toContain("Track package");
+      expect(message.text).not.toContain("Cancel order");
+    }
+  });
+
+  it("keeps the text body when blocks carry no layout text", () => {
+    const message = adapter.parseMessage({
+      type: "message",
+      user: "U123",
+      channel: "C456",
+      text: "Build 421 is ready",
+      ts: "1786120899.208431",
+      blocks: [
+        {
+          type: "actions",
+          elements: [
+            { type: "button", text: { type: "plain_text", text: "Open" } },
+          ],
+        },
+      ] as SlackEvent["blocks"],
+    });
+
+    expect(message.text).toBe("Build 421 is ready");
   });
 
   it("falls back to attachment fallback only when nothing else carries content", () => {
@@ -8273,6 +8707,58 @@ describe("resolveInlineMentions", () => {
     expect(message.isMention).toBe(true);
   });
 
+  it("reads a mention in a section block into the message text", async () => {
+    // The fallback text omits the request that the section block shows.
+    const message = await parseIncoming({
+      type: "app_mention",
+      user: "U_SENDER",
+      channel: "C456",
+      text: "New request",
+      ts: "1234567890.202025",
+      blocks: [
+        {
+          type: "section",
+          text: { type: "mrkdwn", text: "<@U_BOT> please check the deploy" },
+        },
+      ],
+    });
+
+    expect(message.isMention).toBe(true);
+    expect(message.text).toBe("@Test Bot please check the deploy");
+  });
+
+  it("resolves a mention in a table cell of a layout body", async () => {
+    const message = await parseIncoming({
+      type: "message",
+      user: "U_SENDER",
+      channel: "C456",
+      text: "On-call rota",
+      ts: "1234567890.202026",
+      blocks: [
+        { type: "section", text: { type: "mrkdwn", text: "On-call rota" } },
+        {
+          type: "table",
+          rows: [
+            [
+              { type: "raw_text", text: "Primary" },
+              {
+                type: "rich_text",
+                elements: [
+                  {
+                    type: "rich_text_section",
+                    elements: [{ type: "user", user_id: "U777" }],
+                  },
+                ],
+              },
+            ],
+          ],
+        },
+      ],
+    });
+
+    expect(message.text).toBe("On-call rota\n\nPrimary\t@User");
+  });
+
   it("does not flag a bot id in a plain_text section block", async () => {
     const message = await parseIncoming({
       type: "message",
@@ -8289,6 +8775,26 @@ describe("resolveInlineMentions", () => {
     });
 
     expect(message.isMention).toBe(false);
+  });
+
+  it("flags a bot id in text beside blocks that do not show it", async () => {
+    // Block Kit other than rich_text is separate from `text`, so the token
+    // there is the mention Slack notifies for.
+    const message = await parseIncoming({
+      type: "message",
+      user: "U_SENDER",
+      channel: "C456",
+      text: "<@U_BOT> deploy prod",
+      ts: "1234567890.202025",
+      blocks: [
+        {
+          type: "header",
+          text: { type: "plain_text", text: "Deploy request" },
+        },
+      ],
+    });
+
+    expect(message.isMention).toBe(true);
   });
 
   it("does not read attachment fallback when the attachment has blocks", async () => {
@@ -8869,6 +9375,116 @@ describe("mention routing", () => {
     expect(messageHandler).toHaveBeenCalled();
   });
 
+  // Slack fires `app_mention` for the bot's token anywhere in `text`, while the
+  // blocks that clients render show these references as plain text with no
+  // bot id, so the bot is never shown as mentioned.
+  it.each([
+    {
+      name: "inline code",
+      text: "see `<@U_BOT>` for setup",
+      elements: [
+        {
+          type: "rich_text_section",
+          elements: [
+            { type: "text", text: "see " },
+            { type: "text", text: "@examplebot", style: { code: true } },
+            { type: "text", text: " for setup" },
+          ],
+        },
+      ],
+    },
+    {
+      name: "inline code beside another person's mention",
+      text: "<@U_OTHER> see `<@U_BOT>` for setup",
+      elements: [
+        {
+          type: "rich_text_section",
+          elements: [
+            { type: "user", user_id: "U_OTHER" },
+            { type: "text", text: " see " },
+            {
+              type: "text",
+              text: "@examplebot",
+              style: { code: true },
+            },
+            { type: "text", text: " for setup" },
+          ],
+        },
+      ],
+    },
+    {
+      name: "a labeled token in inline code",
+      text: "see `<@U_BOT|examplebot>`",
+      elements: [
+        {
+          type: "rich_text_section",
+          elements: [
+            { type: "text", text: "see " },
+            { type: "text", text: "@examplebot", style: { code: true } },
+          ],
+        },
+      ],
+    },
+    {
+      name: "a preformatted block",
+      text: "setup:\n```<@U_BOT> deploy```",
+      elements: [
+        {
+          type: "rich_text_section",
+          elements: [{ type: "text", text: "setup:\n" }],
+        },
+        {
+          type: "rich_text_preformatted",
+          elements: [{ type: "text", text: "@examplebot deploy" }],
+        },
+      ],
+    },
+    {
+      name: "inline code in a quote",
+      text: "&gt; see `<@U_BOT>`",
+      elements: [
+        {
+          type: "rich_text_quote",
+          elements: [
+            { type: "text", text: "see " },
+            { type: "text", text: "@examplebot", style: { code: true } },
+          ],
+        },
+      ],
+    },
+    {
+      name: "plain text",
+      text: "ask <@U_BOT> later",
+      elements: [
+        {
+          type: "rich_text_section",
+          elements: [{ type: "text", text: "ask @examplebot later" }],
+        },
+      ],
+    },
+  ])("routes a reference whose blocks drop the bot id in $name to message handlers", async ({
+    text,
+    elements,
+  }) => {
+    const { adapter, bot } = await createRoutedBot();
+    const mentionHandler = vi.fn();
+    const messageHandler = vi.fn();
+    bot.onNewMention(mentionHandler);
+    bot.onNewMessage(ANY_TEXT_PATTERN, messageHandler);
+
+    await deliverWebhook(adapter, {
+      type: "app_mention",
+      user: "U_SENDER",
+      channel: "C456",
+      text,
+      ts: "1234567890.222223",
+      blocks: [{ type: "rich_text", elements }],
+    });
+
+    expect(mentionHandler).not.toHaveBeenCalled();
+    expect(messageHandler).toHaveBeenCalled();
+  });
+
   it("routes a raw_text table cell reference to message handlers", async () => {
     const { adapter, bot } = await createRoutedBot();
     const mentionHandler = vi.fn();
@@ -8947,6 +9563,229 @@ describe("mention routing", () => {
     });
 
     expect(mentionHandler).toHaveBeenCalled();
+  });
+
+  it("routes an id the adapter does not know that only appears in code to message handlers", async () => {
+    const { adapter, bot } = await createRoutedBot();
+    const mentionHandler = vi.fn();
+    const messageHandler = vi.fn();
+    bot.onNewMention(mentionHandler);
+    bot.onNewMessage(ANY_TEXT_PATTERN, messageHandler);
+
+    await deliverWebhook(adapter, {
+      type: "app_mention",
+      user: "U_SENDER",
+      channel: "C456",
+      text: "see `<@W_BOT_GRID>` for setup",
+      ts: "1234567890.252526",
+      blocks: [
+        {
+          type: "rich_text",
+          elements: [
+            {
+              type: "rich_text_section",
+              elements: [
+                { type: "text", text: "see " },
+                { type: "text", text: "@examplebot", style: { code: true } },
+                { type: "text", text: " for setup" },
+              ],
+            },
+          ],
+        },
+      ],
+    });
+
+    expect(mentionHandler).not.toHaveBeenCalled();
+    expect(messageHandler).toHaveBeenCalled();
+  });
+
+  it.each([
+    {
+      name: "an unknown id in section mrkdwn with separate fallback text",
+      text: "New alert",
+      blocks: [
+        {
+          type: "section",
+          text: { type: "mrkdwn", text: "<@W_BOT> please triage" },
+        },
+      ],
+      expected: true,
+    },
+    {
+      name: "a bot token in text beside header and actions blocks",
+      text: "<@U_BOT> deploy prod",
+      blocks: [
+        {
+          type: "header",
+          text: { type: "plain_text", text: "Deploy request" },
+        },
+        {
+          type: "actions",
+          elements: [
+            {
+              type: "button",
+              action_id: "approve",
+              text: { type: "plain_text", text: "Approve" },
+            },
+          ],
+        },
+      ],
+      expected: true,
+    },
+    {
+      name: "a bot token only in code in text beside a section block",
+      text: "see `<@U_BOT>` for setup",
+      blocks: [
+        {
+          type: "section",
+          text: { type: "mrkdwn", text: "Deploy notes" },
+        },
+      ],
+      expected: false,
+    },
+    {
+      name: "legacy text of an attachment that has blocks",
+      text: "see `<@W_BOT>` for setup",
+      attachments: [
+        {
+          text: "<@U_SOMEONE> fyi",
+          blocks: [
+            {
+              type: "section",
+              text: { type: "plain_text", text: "Build finished" },
+            },
+          ],
+        },
+      ],
+      expected: false,
+    },
+    {
+      name: "an unknown id that rich text renders as plain text",
+      text: "ask <@W_BOT> later",
+      blocks: [
+        {
+          type: "rich_text",
+          elements: [
+            {
+              type: "rich_text_section",
+              elements: [{ type: "text", text: "ask @examplebot later" }],
+            },
+          ],
+        },
+      ],
+      expected: false,
+    },
+    {
+      name: "an unknown id in a raw_text table cell",
+      text: "Import <@W_BOT>/passport",
+      blocks: [
+        {
+          type: "table",
+          rows: [
+            [
+              { type: "raw_text", text: "Import" },
+              { type: "raw_text", text: "<@W_BOT>/passport" },
+            ],
+          ],
+        },
+      ],
+      expected: false,
+    },
+    {
+      name: "an unknown id in a plain_text section",
+      text: "hey <@W_BOT> take a look",
+      blocks: [
+        {
+          type: "section",
+          text: { type: "plain_text", text: "hey <@W_BOT> take a look" },
+        },
+      ],
+      expected: false,
+    },
+    {
+      // Indistinguishable from a real `<@W_BOT> see `<@U_X>`` mention, where
+      // the blocks show the W id as a user element and the other id in code.
+      name: "an unknown id in code beside another person's mention",
+      text: "<@U_OTHER> see `<@W_BOT>` for setup",
+      blocks: [
+        {
+          type: "rich_text",
+          elements: [
+            {
+              type: "rich_text_section",
+              elements: [
+                { type: "user", user_id: "U_OTHER" },
+                { type: "text", text: " see " },
+                { type: "text", text: "@examplebot", style: { code: true } },
+                { type: "text", text: " for setup" },
+              ],
+            },
+          ],
+        },
+      ],
+      expected: true,
+    },
+    {
+      name: "a code-only reference when the bot id is unresolved",
+      botUserId: null,
+      text: "see `<@U_BOT>` for setup",
+      expected: false,
+    },
+    {
+      name: "a rendered mention when the bot id is unresolved",
+      botUserId: null,
+      text: "<@U_BOT> help me",
+      blocks: [
+        {
+          type: "rich_text",
+          elements: [
+            {
+              type: "rich_text_section",
+              elements: [
+                { type: "user", user_id: "U_BOT" },
+                { type: "text", text: " help me" },
+              ],
+            },
+          ],
+        },
+      ],
+      expected: true,
+    },
+  ])("classifies app_mention evidence: $name", async ({
+    botUserId,
+    text,
+    blocks,
+    attachments,
+    expected,
+  }: {
+    attachments?: unknown[];
+    blocks?: unknown[];
+    botUserId?: string | null;
+    expected: boolean;
+    text: string;
+  }) => {
+    const { adapter, bot } = await createRoutedBot({ botUserId });
+    const mentionHandler = vi.fn();
+    const messageHandler = vi.fn();
+    bot.onNewMention(mentionHandler);
+    bot.onNewMessage(ANY_TEXT_PATTERN, messageHandler);
+
+    await deliverWebhook(adapter, {
+      type: "app_mention",
+      user: "U_SENDER",
+      channel: "C456",
+      text,
+      ts: "1234567890.262626",
+      ...(blocks ? { blocks } : {}),
+      ...(attachments ? { attachments } : {}),
+    });
+
+    if (expected) {
+      expect(mentionHandler).toHaveBeenCalled();
+    } else {
+      expect(mentionHandler).not.toHaveBeenCalled();
+      expect(messageHandler).toHaveBeenCalled();
+    }
   });
 
   it("trusts app_mention when the bot id is unresolved", async () => {
@@ -12192,7 +13031,31 @@ describe("native stream rotation", () => {
         token: TOKEN,
       });
       expect(segments[1].stop).toHaveBeenCalledWith({ token: TOKEN });
-      expect(result).toMatchObject({ id: "1234567890.1" });
+      expect(result).toMatchObject({
+        id: "1234567890.1",
+        messageIds: ["1234567890.0", "1234567890.1"],
+      });
+    });
+  });
+
+  it("returns the message IDs of every segment in order", async () => {
+    await withClock(async (tick) => {
+      const { adapter, chatStream } = setup();
+      async function* stream() {
+        yield "first\n";
+        tick(MAX_AGE + 1);
+        yield "second\n\nthird\n";
+        tick(2 * MAX_AGE + 2);
+        yield "fourth\n\nfifth\n";
+      }
+
+      const result = await adapter.stream(THREAD, stream());
+
+      expect(chatStream).toHaveBeenCalledTimes(3);
+      expect(result).toMatchObject({
+        id: "1234567890.2",
+        messageIds: ["1234567890.0", "1234567890.1", "1234567890.2"],
+      });
     });
   });
 
@@ -12237,7 +13100,10 @@ describe("native stream rotation", () => {
       expect(chatStream).toHaveBeenCalledTimes(1);
       expect(segments[0].stop).toHaveBeenCalledTimes(1);
       expect(segments[0].stop).toHaveBeenCalledWith({ token: TOKEN });
-      expect(result).toMatchObject({ id: "1234567890.0" });
+      expect(result).toMatchObject({
+        id: "1234567890.0",
+        messageIds: ["1234567890.0"],
+      });
     });
   });
 
@@ -12306,7 +13172,10 @@ describe("native stream rotation", () => {
         token: TOKEN,
         chunks: [],
       });
-      expect(result).toMatchObject({ id: "1234567890.1" });
+      expect(result).toMatchObject({
+        id: "1234567890.1",
+        messageIds: ["1234567890.0", "1234567890.1"],
+      });
       expect(mockLogger.warn).toHaveBeenCalledWith(
         expect.stringContaining("expired before rotation"),
         expect.anything()
@@ -12332,7 +13201,10 @@ describe("native stream rotation", () => {
       token: TOKEN,
       markdown_text: "second\n",
     });
-    expect(result).toMatchObject({ id: "1234567890.1" });
+    expect(result).toMatchObject({
+      id: "1234567890.1",
+      messageIds: ["1234567890.0", "1234567890.1"],
+    });
   });
 
   it("returns the finalized message when the last segment expired with everything delivered", async () => {
@@ -12348,7 +13220,10 @@ describe("native stream rotation", () => {
 
     // No empty message is posted just to carry the feedback buttons.
     expect(chatStream).toHaveBeenCalledTimes(1);
-    expect(result).toMatchObject({ id: "1234567890.0" });
+    expect(result).toMatchObject({
+      id: "1234567890.0",
+      messageIds: ["1234567890.0"],
+    });
     expect(mockLogger.warn).toHaveBeenCalledWith(
       expect.stringContaining("stream-end blocks skipped"),
       expect.objectContaining({ skippedBlocks: 1 })
@@ -12371,7 +13246,7 @@ describe("native stream rotation", () => {
     });
   });
 
-  it("replays the plan and open task cards into the new segment", async () => {
+  it("completes open task cards before replaying them into the new segment", async () => {
     await withClock(async (tick) => {
       const { adapter, segments } = setup();
       const plan = { type: "plan_update" as const, title: "Plan" };
@@ -12399,7 +13274,10 @@ describe("native stream rotation", () => {
 
       await adapter.stream(THREAD, stream());
 
-      expect(segments[0].stop).toHaveBeenCalledWith({ token: TOKEN });
+      expect(segments[0].stop).toHaveBeenCalledWith({
+        chunks: [{ ...oneInProgress, status: "complete" }],
+        token: TOKEN,
+      });
       expect(segments[1].append).toHaveBeenNthCalledWith(1, {
         chunks: [plan, oneInProgress],
         token: TOKEN,
@@ -12408,6 +13286,110 @@ describe("native stream rotation", () => {
         chunks: [oneComplete],
         token: TOKEN,
       });
+    });
+  });
+
+  it("retries the rotation stop without task chunks when Slack rejects them", async () => {
+    await withClock(async (tick) => {
+      const { adapter, segments } = setup();
+      const task = {
+        type: "task_update" as const,
+        id: "t1",
+        title: "One",
+        status: "in_progress" as const,
+      };
+      segments[0].stop.mockRejectedValueOnce(
+        Object.assign(new Error("invalid_chunks"), {
+          code: "slack_webapi_platform_error",
+          data: { error: "invalid_chunks" },
+        })
+      );
+      async function* stream() {
+        yield task;
+        yield "first\n";
+        tick(MAX_AGE + 1);
+        yield "second\n\nthird\n";
+        yield { ...task, status: "complete" as const };
+      }
+
+      const result = await adapter.stream(THREAD, stream());
+
+      expect(segments[0].stop).toHaveBeenCalledTimes(2);
+      expect(segments[0].stop).toHaveBeenNthCalledWith(1, {
+        chunks: [{ ...task, status: "complete" }],
+        markdown_text: "second\n\n",
+        token: TOKEN,
+      });
+      // The streamer kept the text from the rejected call, so the retry
+      // must not send it again.
+      expect(segments[0].stop.mock.calls[1][0]).toStrictEqual({
+        token: TOKEN,
+      });
+      // Structured chunks are off for the rest of the stream.
+      expect(segments[1].append).not.toHaveBeenCalledWith(
+        expect.objectContaining({ chunks: expect.arrayContaining([task]) })
+      );
+      expect(result).toMatchObject({
+        id: "1234567890.1",
+        messageIds: ["1234567890.0", "1234567890.1"],
+      });
+      expect(mockLogger.warn).toHaveBeenCalledWith(
+        expect.stringContaining("Structured streaming chunk failed"),
+        expect.objectContaining({ chunkType: "task_update" })
+      );
+    });
+  });
+
+  it("does not retry the rotation stop after an error Slack may have applied", async () => {
+    await withClock(async (tick) => {
+      const { adapter, segments } = setup();
+      const task = {
+        type: "task_update" as const,
+        id: "t1",
+        title: "One",
+        status: "in_progress" as const,
+      };
+      segments[0].stop.mockRejectedValueOnce(
+        Object.assign(new Error("internal_error"), {
+          code: "slack_webapi_platform_error",
+          data: { error: "internal_error" },
+        })
+      );
+      async function* stream() {
+        yield task;
+        yield "first\n";
+        tick(MAX_AGE + 1);
+        yield "second\n\nthird\n";
+      }
+
+      await expect(adapter.stream(THREAD, stream())).rejects.toThrow(
+        "internal_error"
+      );
+      expect(segments[0].stop).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  it("does not retry the rotation stop after a transport error", async () => {
+    await withClock(async (tick) => {
+      const { adapter, segments } = setup();
+      const task = {
+        type: "task_update" as const,
+        id: "t1",
+        title: "One",
+        status: "in_progress" as const,
+      };
+      segments[0].stop.mockRejectedValueOnce(new Error("socket hang up"));
+      async function* stream() {
+        yield task;
+        yield "first\n";
+        tick(MAX_AGE + 1);
+        yield "second\n\nthird\n";
+      }
+
+      await expect(adapter.stream(THREAD, stream())).rejects.toThrow(
+        "socket hang up"
+      );
+      expect(segments[0].stop).toHaveBeenCalledTimes(1);
     });
   });
 
@@ -12662,7 +13644,10 @@ describe("native streaming fallback", () => {
 
     expect(postSpy).toHaveBeenCalledTimes(1);
     expect(stop).not.toHaveBeenCalled();
-    expect(result).toMatchObject({ id: "fallback-ts" });
+    expect(result).toMatchObject({
+      id: "fallback-ts",
+      messageIds: ["fallback-ts"],
+    });
     // Whatever the throttle did mid-stream, the final forced flush must have
     // delivered the full text — via the initial post or a closing edit.
     const lastPosted = editSpy.mock.calls.length

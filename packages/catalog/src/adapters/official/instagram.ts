@@ -2,7 +2,6 @@ import { env, secretEnv } from "../../env";
 import type { CatalogAdapter } from "../../types";
 
 export const instagram = {
-  beta: true,
   description:
     "Build bots for Instagram Direct with DMs, media, quick replies, reactions, and story replies.",
   env: {

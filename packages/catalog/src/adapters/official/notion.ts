@@ -2,7 +2,6 @@ import { env, secretEnv } from "../../env";
 import type { CatalogAdapter } from "../../types";
 
 export const notion = {
-  beta: true,
   description:
     "Participate in Notion page and block comment discussions via webhooks and the Comments API.",
   env: {

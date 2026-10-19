@@ -132,6 +132,14 @@ const NUMERIC_REGEX = /^\d+$/;
 const DEDUPE_TTL_MS = 10 * 60 * 1000; // 10 minutes
 const MODAL_CONTEXT_TTL_MS = 24 * 60 * 60 * 1000; // 24 hours
 
+function modalStaysOpen(response: ModalResponse | undefined): boolean {
+  return (
+    response?.action === "errors" ||
+    response?.action === "update" ||
+    response?.action === "push"
+  );
+}
+
 /** Server-side stored modal context */
 interface StoredModalContext {
   callbackUrl?: string;
@@ -1269,19 +1277,21 @@ export class Chat<
       ),
     ];
 
-    for (const { handler } of matchingHandlers) {
-      try {
-        const options = await handler(event);
-        if (options) {
-          return options;
+    return await runInConversation(undefined, async () => {
+      for (const { handler } of matchingHandlers) {
+        try {
+          const options = await handler(event);
+          if (options) {
+            return options;
+          }
+        } catch (err) {
+          this.logger.error("Options load handler error", {
+            error: err,
+            actionId: event.actionId,
+          });
         }
-      } catch (err) {
-        this.logger.error("Options load handler error", {
-          error: err,
-          actionId: event.actionId,
-        });
       }
-    }
+    });
   }
 
   async processModalSubmit(
@@ -1324,9 +1334,20 @@ export class Chat<
       }
       return;
     };
-    const result = await runInConversation(conversationId, runHandlers);
+    let result: ModalResponse | undefined;
+    try {
+      result = await runInConversation(conversationId, runHandlers);
+    } finally {
+      if (!modalStaysOpen(result)) {
+        await this.deleteModalContext(event.adapter.name, contextId);
+      }
+    }
 
-    if (callbackUrl && result?.action !== "errors") {
+    if (
+      callbackUrl &&
+      result?.action !== "errors" &&
+      (await this.claimModalCallback(event.adapter.name, contextId))
+    ) {
       const task = postToCallbackUrl(callbackUrl, {
         type: "modal_submit",
         callbackId: event.callbackId,
@@ -1386,7 +1407,11 @@ export class Chat<
           }
         }
       };
-      await runInConversation(conversationId, runHandlers);
+      try {
+        await runInConversation(conversationId, runHandlers);
+      } finally {
+        await this.deleteModalContext(event.adapter.name, contextId);
+      }
     })().catch((err) => {
       this.logger.error("Modal close handler error", {
         error: err,
@@ -1482,7 +1507,13 @@ export class Chat<
   }
 
   async abortTurn(threadId: string): Promise<void> {
-    const localControllers = this.activeTurnControllers.get(threadId);
+    const adapter = this.resolveAdapterForThread(threadId);
+    const key = this.concurrencyKey(
+      adapter,
+      threadId,
+      this.resolveConcurrencyScope(adapter)
+    );
+    const localControllers = this.activeTurnControllers.get(key);
     if (localControllers) {
       for (const controller of localControllers.values()) {
         controller.abort();
@@ -1490,11 +1521,11 @@ export class Chat<
     }
 
     const activeTurnId = await this._stateAdapter.get<string>(
-      this.activeTurnKey(threadId)
+      this.activeTurnKey(key)
     );
     if (activeTurnId) {
       await this._stateAdapter.set(
-        this.abortTurnKey(threadId),
+        this.abortTurnKey(key),
         activeTurnId,
         ACTIVE_TURN_TTL_MS
       );
@@ -1758,9 +1789,47 @@ export class Chat<
     }
   }
 
+  private async deleteModalContext(
+    adapterName: string,
+    contextId: string | undefined
+  ): Promise<void> {
+    if (!contextId) {
+      return;
+    }
+    try {
+      await this._stateAdapter.delete(
+        `modal-context:${adapterName}:${contextId}`
+      );
+    } catch (err) {
+      this.logger.error("Failed to delete modal context", {
+        contextId,
+        error: err,
+      });
+    }
+  }
+
   /**
-   * Retrieve and delete modal context from server-side storage.
+   * Atomically claim the one POST to a modal's callbackUrl, so concurrent
+   * submits that both read the stored context do not both resume the hook.
+   */
+  private async claimModalCallback(
+    adapterName: string,
+    contextId: string | undefined
+  ): Promise<boolean> {
+    if (!contextId) {
+      return false;
+    }
+    return await this._stateAdapter.setIfNotExists(
+      `modal-callback:${adapterName}:${contextId}`,
+      true,
+      MODAL_CONTEXT_TTL_MS
+    );
+  }
+
+  /**
+   * Retrieve modal context from server-side storage.
    * Called when processing modal submit/close to reconstruct thread/message/channel.
+   * The context is deleted separately once the modal closes.
    */
   private async retrieveModalContext(
     adapterName: string,
@@ -1771,29 +1840,22 @@ export class Chat<
     relatedMessage: SentMessage | undefined;
     relatedChannel: Channel | undefined;
   }> {
+    const empty = {
+      callbackUrl: undefined,
+      relatedThread: undefined,
+      relatedMessage: undefined,
+      relatedChannel: undefined,
+    };
     if (!contextId) {
-      return {
-        callbackUrl: undefined,
-        relatedThread: undefined,
-        relatedMessage: undefined,
-        relatedChannel: undefined,
-      };
+      return empty;
     }
 
     const key = `modal-context:${adapterName}:${contextId}`;
     const stored = await this._stateAdapter.get<StoredModalContext>(key);
 
     if (!stored) {
-      return {
-        callbackUrl: undefined,
-        relatedThread: undefined,
-        relatedMessage: undefined,
-        relatedChannel: undefined,
-      };
+      return empty;
     }
-
-    // Clean up stored context after retrieval (one-time use)
-    await this._stateAdapter.delete(key);
 
     const adapter = this.adapters.get(adapterName);
 
@@ -2296,6 +2358,11 @@ export class Chat<
    * ```
    */
   thread(threadId: string): Thread<TState> {
+    const adapter = this.resolveAdapterForThread(threadId);
+    return this.createThread(adapter, threadId, undefined, false);
+  }
+
+  private resolveAdapterForThread(threadId: string): Adapter {
     const adapterName = threadId.split(":")[0];
     if (!adapterName) {
       throw new ChatError(
@@ -2312,7 +2379,7 @@ export class Chat<
       );
     }
 
-    return this.createThread(adapter, threadId, undefined, false);
+    return adapter;
   }
 
   /**
@@ -2394,12 +2461,14 @@ export class Chat<
 
   /**
    * Resolve the lock key for a message based on lock scope.
-   * With 'thread' scope, returns threadId. With 'channel' scope,
-   * returns channelId (derived via adapter.channelIdFromThreadId).
+   * With 'thread' scope, uses threadId. With 'channel' scope,
+   * uses channelId (derived via adapter.channelIdFromThreadId).
+   * Adapters can namespace the key with their authenticated tenant scope.
    */
   private async getLockKey(
     adapter: Adapter,
-    threadId: string
+    threadId: string,
+    concurrencyScope: string | undefined
   ): Promise<string> {
     const channelId = adapter.channelIdFromThreadId(threadId);
 
@@ -2416,7 +2485,25 @@ export class Chat<
       scope = this._lockScope ?? adapter.lockScope ?? "thread";
     }
 
-    return scope === "channel" ? channelId : threadId;
+    return this.concurrencyKey(
+      adapter,
+      scope === "channel" ? channelId : threadId,
+      concurrencyScope
+    );
+  }
+
+  private resolveConcurrencyScope(adapter: Adapter): string | undefined {
+    return adapter.getConcurrencyScope?.();
+  }
+
+  private concurrencyKey(
+    adapter: Adapter,
+    key: string,
+    scope: string | undefined
+  ): string {
+    return scope === undefined
+      ? key
+      : `concurrency:${JSON.stringify([adapter.name, scope, key])}`;
   }
 
   /**
@@ -2465,14 +2552,20 @@ export class Chat<
       return;
     }
 
+    const scope = this.resolveConcurrencyScope(adapter);
+
     if (!deduplicate) {
-      await this.dispatchIncomingMessage(adapter, threadId, message);
+      await this.dispatchIncomingMessage(adapter, threadId, message, scope);
       return;
     }
 
     // Deduplicate messages atomically - same message can arrive via multiple paths
     // (e.g., Slack message + app_mention events, GChat direct webhook + Pub/Sub)
-    const dedupeKey = `dedupe:${adapter.name}:${message.id}`;
+    const dedupeKey = this.concurrencyKey(
+      adapter,
+      `dedupe:${adapter.name}:${message.id}`,
+      scope
+    );
     const isFirstProcess = await this._stateAdapter.setIfNotExists(
       dedupeKey,
       true,
@@ -2486,13 +2579,14 @@ export class Chat<
       return;
     }
 
-    await this.dispatchIncomingMessage(adapter, threadId, message);
+    await this.dispatchIncomingMessage(adapter, threadId, message, scope);
   }
 
   private async dispatchIncomingMessage(
     adapter: Adapter,
     threadId: string,
-    message: Message
+    message: Message,
+    scope: string | undefined
   ): Promise<void> {
     // Persist incoming message BEFORE acquiring the lock.
     // If the lock is already held (e.g., bot is processing a previous message),
@@ -2507,13 +2601,13 @@ export class Chat<
     }
 
     // Resolve lock key based on lock scope (thread vs channel)
-    const lockKey = await this.getLockKey(adapter, threadId);
+    const lockKey = await this.getLockKey(adapter, threadId, scope);
 
     // Route to the appropriate concurrency strategy
     const strategy = this._concurrencyStrategy;
 
     if (strategy === "concurrent") {
-      await this.handleConcurrent(adapter, threadId, message);
+      await this.handleConcurrent(adapter, threadId, message, scope);
       return;
     }
 
@@ -2527,13 +2621,14 @@ export class Chat<
         threadId,
         lockKey,
         message,
-        strategy
+        strategy,
+        scope
       );
       return;
     }
 
     // Default: 'drop' strategy (original behavior)
-    await this.handleDrop(adapter, threadId, lockKey, message);
+    await this.handleDrop(adapter, threadId, lockKey, message, scope);
   }
 
   /**
@@ -2626,7 +2721,8 @@ export class Chat<
     adapter: Adapter,
     threadId: string,
     lockKey: string,
-    message: Message
+    message: Message,
+    scope: string | undefined
   ): Promise<void> {
     let lock = await this._stateAdapter.acquireLock(
       lockKey,
@@ -2667,7 +2763,7 @@ export class Chat<
     });
 
     await this.withHeldLock(lock, threadId, lockKey, () =>
-      this.dispatchToHandlers(adapter, threadId, message)
+      this.dispatchToHandlers(adapter, threadId, message, scope)
     );
   }
 
@@ -2679,7 +2775,8 @@ export class Chat<
     threadId: string,
     lockKey: string,
     message: Message,
-    strategy: "queue" | "debounce" | "burst"
+    strategy: "queue" | "debounce" | "burst",
+    scope: string | undefined
   ): Promise<void> {
     const { maxQueueSize, queueEntryTtlMs, onQueueFull, debounceMs } =
       this._concurrencyConfig;
@@ -2756,7 +2853,7 @@ export class Chat<
           messageId: message.id,
           debounceMs,
         });
-        await this.debounceLoop(heartbeat, adapter, lockKey);
+        await this.debounceLoop(heartbeat, adapter, lockKey, scope);
       } else if (strategy === "burst") {
         await this._stateAdapter.enqueue(
           lockKey,
@@ -2774,11 +2871,11 @@ export class Chat<
           debounceMs,
         });
         await sleep(debounceMs);
-        await this.drainQueue(heartbeat, adapter, lockKey);
+        await this.drainQueue(heartbeat, adapter, lockKey, scope);
       } else {
         // Queue: process our message immediately, then drain any queued messages
-        await this.dispatchToHandlers(adapter, threadId, message);
-        await this.drainQueue(heartbeat, adapter, lockKey);
+        await this.dispatchToHandlers(adapter, threadId, message, scope);
+        await this.drainQueue(heartbeat, adapter, lockKey, scope);
       }
     });
   }
@@ -2795,7 +2892,7 @@ export class Chat<
     lockKey: string,
     fn: (heartbeat: LockHeartbeat) => Promise<void>
   ): Promise<void> {
-    const heartbeat = this.startLockHeartbeat(lock);
+    const heartbeat = this.startLockHeartbeat(lock, threadId);
     try {
       await fn(heartbeat);
     } finally {
@@ -2805,7 +2902,7 @@ export class Chat<
     }
   }
 
-  private startLockHeartbeat(lock: Lock): LockHeartbeat {
+  private startLockHeartbeat(lock: Lock, threadId: string): LockHeartbeat {
     const { maxLockLifetimeMs } = this._concurrencyConfig;
     const startedAt = Date.now();
     let stopped = false;
@@ -2828,7 +2925,8 @@ export class Chat<
         this.logger.warn(
           "Lock heartbeat reached maxLockLifetimeMs — the lock will lapse at its TTL",
           {
-            threadId: lock.threadId,
+            threadId,
+            lockKey: lock.threadId,
             token: lock.token,
             maxLockLifetimeMs,
           }
@@ -2848,7 +2946,8 @@ export class Chat<
             this.logger.warn(
               "Lock heartbeat stopped after ownership was lost",
               {
-                threadId: lock.threadId,
+                threadId,
+                lockKey: lock.threadId,
                 token: lock.token,
               }
             );
@@ -2865,14 +2964,16 @@ export class Chat<
               "Lock lapsed while the heartbeat could not reach the state backend",
               {
                 error,
-                threadId: lock.threadId,
+                threadId,
+                lockKey: lock.threadId,
                 token: lock.token,
               }
             );
           } else {
             this.logger.warn("Lock heartbeat failed", {
               error,
-              threadId: lock.threadId,
+              threadId,
+              lockKey: lock.threadId,
               token: lock.token,
             });
           }
@@ -2902,7 +3003,8 @@ export class Chat<
   private async debounceLoop(
     heartbeat: LockHeartbeat,
     adapter: Adapter,
-    lockKey: string
+    lockKey: string,
+    scope: string | undefined
   ): Promise<void> {
     const { debounceMs } = this._concurrencyConfig;
     const skipped: Message[] = [];
@@ -2971,10 +3073,16 @@ export class Chat<
         messageId: latest.message.id,
       });
       await runInConversation(messageThreadId, () =>
-        this.dispatchToHandlers(adapter, messageThreadId, latest.message, {
-          skipped: messageSkipped,
-          totalSinceLastHandler: messageSkipped.length + 1,
-        })
+        this.dispatchToHandlers(
+          adapter,
+          messageThreadId,
+          latest.message,
+          scope,
+          {
+            skipped: messageSkipped,
+            totalSinceLastHandler: messageSkipped.length + 1,
+          }
+        )
       );
       skipped.length = 0;
       // Loop again: a message enqueued while the handler ran must be
@@ -2989,7 +3097,8 @@ export class Chat<
   private async drainQueue(
     heartbeat: LockHeartbeat,
     adapter: Adapter,
-    lockKey: string
+    lockKey: string,
+    scope: string | undefined
   ): Promise<void> {
     while (true) {
       if (heartbeat.isOwnershipLost()) {
@@ -3052,6 +3161,7 @@ export class Chat<
           adapter,
           messageThreadId,
           latest.message,
+          scope,
           context
         )
       );
@@ -3068,20 +3178,22 @@ export class Chat<
   private async handleConcurrent(
     adapter: Adapter,
     threadId: string,
-    message: Message
+    message: Message,
+    scope: string | undefined
   ): Promise<void> {
     const { maxConcurrent } = this._concurrencyConfig;
 
     if (!Number.isFinite(maxConcurrent)) {
-      await this.dispatchToHandlers(adapter, threadId, message);
+      await this.dispatchToHandlers(adapter, threadId, message, scope);
       return;
     }
 
-    await this.acquireConcurrentSlot(threadId, maxConcurrent);
+    const key = this.concurrencyKey(adapter, threadId, scope);
+    await this.acquireConcurrentSlot(key, maxConcurrent);
     try {
-      await this.dispatchToHandlers(adapter, threadId, message);
+      await this.dispatchToHandlers(adapter, threadId, message, scope);
     } finally {
-      this.releaseConcurrentSlot(threadId);
+      this.releaseConcurrentSlot(key);
     }
   }
 
@@ -3128,21 +3240,23 @@ export class Chat<
     adapter: Adapter,
     threadId: string,
     message: Message,
+    scope: string | undefined,
     context?: MessageContext
   ): Promise<void> {
     const turnId = randomUUID();
     const controller = new AbortController();
-    let controllers = this.activeTurnControllers.get(threadId);
+    const key = this.concurrencyKey(adapter, threadId, scope);
+    let controllers = this.activeTurnControllers.get(key);
     if (!controllers) {
       controllers = new Map();
-      this.activeTurnControllers.set(threadId, controllers);
+      this.activeTurnControllers.set(key, controllers);
     }
     controllers.set(turnId, controller);
 
     if (adapter.supportsTurnCancellation) {
       try {
         await this._stateAdapter.set(
-          this.activeTurnKey(threadId),
+          this.activeTurnKey(key),
           turnId,
           ACTIVE_TURN_TTL_MS
         );
@@ -3156,7 +3270,13 @@ export class Chat<
 
     const monitorStop = new AbortController();
     const monitor = adapter.supportsTurnCancellation
-      ? this.monitorTurnAbort(threadId, turnId, controller, monitorStop.signal)
+      ? this.monitorTurnAbort(
+          threadId,
+          key,
+          turnId,
+          controller,
+          monitorStop.signal
+        )
       : Promise.resolve();
     try {
       await this.dispatchToHandlersWithSignal(
@@ -3171,10 +3291,10 @@ export class Chat<
       await monitor;
       controllers.delete(turnId);
       if (controllers.size === 0) {
-        this.activeTurnControllers.delete(threadId);
+        this.activeTurnControllers.delete(key);
       }
       if (adapter.supportsTurnCancellation) {
-        await this.clearTurnMarkers(threadId, turnId);
+        await this.clearTurnMarkers(threadId, key, turnId);
       }
     }
   }
@@ -3189,6 +3309,7 @@ export class Chat<
 
   private async monitorTurnAbort(
     threadId: string,
+    turnKey: string,
     turnId: string,
     controller: AbortController,
     stopSignal: AbortSignal
@@ -3196,7 +3317,7 @@ export class Chat<
     while (!(stopSignal.aborted || controller.signal.aborted)) {
       try {
         const abortedTurnId = await this._stateAdapter.get<string>(
-          this.abortTurnKey(threadId)
+          this.abortTurnKey(turnKey)
         );
         if (abortedTurnId === turnId) {
           controller.abort();
@@ -3217,20 +3338,21 @@ export class Chat<
 
   private async clearTurnMarkers(
     threadId: string,
+    turnKey: string,
     turnId: string
   ): Promise<void> {
     try {
       const activeTurnId = await this._stateAdapter.get<string>(
-        this.activeTurnKey(threadId)
+        this.activeTurnKey(turnKey)
       );
       if (activeTurnId === turnId) {
-        await this._stateAdapter.delete(this.activeTurnKey(threadId));
+        await this._stateAdapter.delete(this.activeTurnKey(turnKey));
       }
       const abortedTurnId = await this._stateAdapter.get<string>(
-        this.abortTurnKey(threadId)
+        this.abortTurnKey(turnKey)
       );
       if (abortedTurnId === turnId) {
-        await this._stateAdapter.delete(this.abortTurnKey(threadId));
+        await this._stateAdapter.delete(this.abortTurnKey(turnKey));
       }
     } catch (error) {
       this.logger.warn("Could not clear turn cancellation state", {

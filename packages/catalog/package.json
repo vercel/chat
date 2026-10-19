@@ -1,6 +1,6 @@
 {
   "name": "@chat-adapter/catalog",
-  "version": "4.41.1",
+  "version": "4.42.0",
   "description": "Catalog of Chat SDK adapters: packages, capabilities, and setup requirements, with no adapter dependencies",
   "type": "module",
   "engines": {

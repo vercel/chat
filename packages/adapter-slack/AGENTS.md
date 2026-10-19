@@ -282,8 +282,9 @@ works in segments: once a segment is `streamSegmentMaxAgeMs` old (the
 clock starts at the first call Slack accepts, not at construction), the
 next paragraph break (or, after a 30 s grace, the next line break)
 finalizes it and a new `chatStream` continues the reply. Rotation closes
-and reopens an open code fence, repeats a table header, replays the plan
-and open task cards, and keeps `session_status: "processing"` with
+open task cards in the retired segment, replays them into the new segment,
+closes and reopens an open code fence, repeats a table header, replays the
+plan, and keeps `session_status: "processing"` with
 `agentView`. Tests drive this with a mocked `Date.now()`; see the
 "native stream rotation" describe block.
 
@@ -335,9 +336,9 @@ When adding a feature, prefer extending an existing fixture in
 
 - All exports are `export function`, `export const`, or `export class`
   — no default exports.
-- Public types live alongside the implementation in `src/index.ts` and
-  are re-exported from the package entry. Internal-only types stay in
-  their dedicated module (`crypto.ts`, `modals.ts`).
+- Public types live in `src/types.ts` and are re-exported from
+  `src/index.ts`. Internal-only types stay in their dedicated module
+  (`crypto.ts`, `modals.ts`).
 - The adapter never calls `process.env` outside the
   `createSlackAdapter` factory; runtime code receives explicit config.
 - Webhook handlers must return `Response` synchronously; long work

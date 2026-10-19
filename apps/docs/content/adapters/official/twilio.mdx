@@ -6,8 +6,15 @@ slug: twilio
 type: platform
 logo: twilio
 tagline: Build SMS, MMS, and RCS bots with Twilio Messaging webhooks and the Messages API.
-beta: true
 ---
+
+## Create a new bot
+
+Scaffold a Next.js bot with the Twilio adapter using [`create-chat-sdk`](/docs/create-chat-sdk):
+
+<CreateChatSdk adapters="twilio memory" />
+
+The generated app uses the [Memory state adapter](/adapters/official/memory) for local development. To add the adapter to an existing app, start at [Install](#install).
 
 ## Install
 
@@ -111,6 +118,11 @@ See [RCS](#rcs) for how the adapter behaves once RCS is enabled.
       type: "string",
       description:
         "Override the Twilio Content API base URL. Defaults to `apiUrl` when that is set, otherwise `https://content.twilio.com`.",
+    },
+    messagingApiUrl: {
+      type: "string",
+      description:
+        "Override the Twilio Messaging API base URL used for typing indicators. Defaults to `apiUrl` when that is set, otherwise `https://messaging.twilio.com`.",
     },
     webhookUrl: {
       type: "string | ((request: Request) => string | Promise<string>)",
@@ -225,6 +237,24 @@ Create templates in the Twilio Console under Messaging → Content Template Buil
 
 Chat SDK did not render the quick-reply buttons in templates sent with `sendTemplate`, so it does not decode their taps as actions. A tap that carries a message body, which WhatsApp quick replies do, arrives as a regular message, so handle it in your message handlers. A tap without a body reaches `onAction` with the raw ButtonPayload as `actionId`.
 
+## Typing indicators
+
+WhatsApp and RCS support typing indicators through `thread.startTyping()` or `adapter.startTyping(threadId)`. Twilio uses one endpoint with different JSON per channel: WhatsApp needs `{ channel: "WHATSAPP", messageId }`, and RCS needs `{ channel: "RCS", from, to, event: "START" }` with `rcs:` addresses.
+
+```typescript title="typing.ts" lineNumbers
+await thread.startTyping();
+
+await thread.post({
+  markdown: "Thanks, I am checking that now.",
+});
+```
+
+On WhatsApp, the indicator points at the message being handled, or the latest inbound message when `startTyping()` is called outside a message handler. Twilio also marks that message as read in the user's WhatsApp client, so calling `startTyping()` sends a read receipt.
+
+WhatsApp shows the indicator for up to 25 seconds or until the reply is delivered, and RCS for up to 20 seconds. Custom status text is ignored. If Twilio rejects the request, the adapter logs a warning and `startTyping()` still resolves, so a failed indicator never blocks the reply.
+
+SMS has no typing API, so `startTyping()` does nothing on threads keyed by a phone number. Threads keyed by a Messaging Service SID (`MG…`) can be SMS or RCS. The adapter sends RCS typing on them only when `rcsSenderId` is set and the thread has an inbound message, because inbound RCS is the only traffic keyed by `MG…`. Threads keyed by an `rcs:` sender always use RCS.
+
 ## Media
 
 Inbound MMS media is exposed as message attachments. Twilio media URLs are not treated as public files, so each attachment includes `fetchData()` and `fetchMetadata` for authenticated downloads and queue rehydration.
@@ -313,7 +343,7 @@ Example: `twilio:%2B15555550123:%2B15555550100`.
 
 ## Limitations
 
-- Twilio does not support message edits, reactions, modals, or typing indicators for SMS.
+- Twilio does not support message edits, reactions, or modals. Typing indicators work on WhatsApp and RCS; SMS/MMS has no typing API.
 - Cards render as rich RCS content only when the sender is a Messaging Service (`MG…`) or RCS address; otherwise they fall back to plain text.
 - RCS read receipts (`EventType=READ`) are parsed and logged but not surfaced to Chat SDK handlers, because no delivery API exists today.
 - `fetchMessages` uses the Messages API and is best for phone-number based threads. Messaging Service history can be less precise because inbound webhooks identify the receiving phone number, not only the Messaging Service SID.

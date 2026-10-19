@@ -388,6 +388,7 @@ export interface Adapter<TThreadId = unknown, TRawMessage = unknown> {
    * @returns The channel visibility scope
    */
   getChannelVisibility?(threadId: string): ChannelVisibility;
+  getConcurrencyScope?(): string | undefined;
 
   /**
    * Look up user information by user ID.
@@ -694,6 +695,8 @@ export type AgentSessionStatus =
 export interface TypingOptions {
   /** User who initiated the current turn, when known. */
   initiatorUserId?: string;
+  /** ID of the message that started the current turn, when known. */
+  messageId?: string;
 }
 
 /** Internal interface for Chat instance passed to adapters */

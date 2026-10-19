@@ -2,7 +2,6 @@ import { env, secretEnv, urlEnv } from "../../env";
 import type { CatalogAdapter } from "../../types";
 
 export const discord = {
-  beta: true,
   description:
     "Create Discord bots with slash commands, threads, and rich embeds.",
   env: {

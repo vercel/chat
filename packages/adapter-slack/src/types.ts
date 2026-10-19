@@ -4,7 +4,7 @@
 
 import type { AttachmentTransport } from "@chat-adapter/shared";
 import type { WebClientOptions } from "@slack/web-api";
-import type { AppContextEntity, Logger } from "chat";
+import type { AppContextEntity, Logger, RawMessage } from "chat";
 import type { SlackFetch } from "./fetch";
 import type { SlackWebhookVerifier } from "./webhook/index";
 
@@ -91,6 +91,15 @@ export type SlackSuggestedPrompts =
       | null
       | undefined
       | Promise<SlackSuggestedPromptsOptions | null | undefined>);
+
+/**
+ * Result of `SlackAdapter.stream()`. A reply that streams longer than
+ * `streamSegmentMaxAgeMs` is split into several Slack messages; `id` is the
+ * last one and `messageIds` lists all of them in order, ending with `id`.
+ */
+export interface SlackStreamResult extends RawMessage<unknown> {
+  messageIds: string[];
+}
 
 /** Context passed to a dynamic agent-session title resolver. */
 export interface SlackSessionTitleContext {

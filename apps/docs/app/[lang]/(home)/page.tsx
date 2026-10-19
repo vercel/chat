@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { JsonLd } from "@/components/geistdocs/json-ld";
 import {
   CommandPromptContent,
   CommandPromptCopy,
@@ -10,6 +11,18 @@ import {
   CommandPromptTriggerDivider,
   CommandPromptViewport,
 } from "@/components/ui/command-prompt";
+import {
+  absoluteUrl,
+  jsonLdGraph,
+  MIT_LICENSE_URL,
+  npmPackageUrl,
+  ORGANIZATION_ID,
+  REPOSITORY_URL,
+  SITE_NAME,
+  SITE_URL,
+  SOFTWARE_ID,
+  webPageNode,
+} from "@/lib/geistdocs/jsonld";
 import { CodeSection } from "./components/code-section";
 import { Demo } from "./components/demo";
 import { GetStartedSection } from "./components/get-started-section";
@@ -91,32 +104,37 @@ const { text } = await generateText({
   },
 ];
 
-const jsonLd = {
-  "@context": "https://schema.org",
-  "@type": "SoftwareSourceCode",
-  name: "Chat SDK",
-  description: heroDescription,
-  url: "https://chat-sdk.dev",
-  codeRepository: "https://github.com/vercel/chat",
-  programmingLanguage: "TypeScript",
-  runtimePlatform: "Node.js",
-  license: "https://opensource.org/licenses/MIT",
-  author: {
-    "@type": "Organization",
-    name: "Vercel",
-    url: "https://vercel.com",
+const jsonLd = jsonLdGraph([
+  webPageNode({
+    description: heroDescription,
+    hasBreadcrumb: false,
+    image: absoluteUrl("/opengraph-image.png"),
+    mainEntityId: SOFTWARE_ID,
+    name: metadataTitle,
+    url: absoluteUrl("/"),
+  }),
+  {
+    "@type": "SoftwareSourceCode",
+    "@id": SOFTWARE_ID,
+    name: SITE_NAME,
+    description: heroDescription,
+    url: SITE_URL,
+    image: absoluteUrl("/opengraph-image.png"),
+    codeRepository: REPOSITORY_URL,
+    programmingLanguage: "TypeScript",
+    runtimePlatform: "Node.js",
+    license: MIT_LICENSE_URL,
+    author: { "@id": ORGANIZATION_ID },
+    publisher: { "@id": ORGANIZATION_ID },
+    sameAs: [REPOSITORY_URL, npmPackageUrl("chat")],
   },
-};
+]);
 
 const HomePage = () => (
   // Single gutter for the whole page; sections are flush so their content lines
   // up with the navbar's content edges.
   <div className="mx-auto w-full max-w-[1448px] px-4 pb-12 sm:px-6 sm:pb-16">
-    <script
-      // biome-ignore lint/security/noDangerouslySetInnerHtml: static JSON-LD, not user input
-      dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }}
-      type="application/ld+json"
-    />
+    <JsonLd data={jsonLd} />
     <Hero description={heroDescription} title={heroTitleDisplay}>
       <CommandPromptRoot className="mt-2" defaultValue="humans">
         <CommandPromptList>

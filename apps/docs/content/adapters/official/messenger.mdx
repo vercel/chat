@@ -6,12 +6,19 @@ slug: messenger
 type: platform
 logo: messenger
 tagline: Build bots for Facebook Messenger with templates, buttons, reactions, and postbacks.
-beta: true
 ---
 
 <Callout type="info">
 Building for Instagram Direct Messages? Use the [Instagram adapter](/adapters/official/instagram) instead. It connects through Instagram API with Instagram Login and does not require a Facebook Page.
 </Callout>
+
+## Create a new bot
+
+Scaffold a Next.js bot with the Messenger adapter using [`create-chat-sdk`](/docs/create-chat-sdk):
+
+<CreateChatSdk adapters="messenger memory" />
+
+The generated app uses the [Memory state adapter](/adapters/official/memory) for local development. To add the adapter to an existing app, start at [Install](#install).
 
 ## Install
 

@@ -190,6 +190,9 @@ export const CLI_SCAFFOLD_SPEC = {
     },
     invocation: { kind: "zero-arg" },
   },
+  gitlab: {
+    invocation: { kind: "zero-arg" },
+  },
   ioredis: {
     // createIoRedisState needs an explicit url (no REDIS_URL auto-detection).
     // The logger is optional and defaults to a console logger when omitted.

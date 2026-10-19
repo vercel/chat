@@ -6,8 +6,15 @@ slug: redis
 type: state
 logo: redis
 tagline: Production state adapter for Chat SDK using the official `redis` client, with persistent subscriptions, distributed locking, and a key-value cache.
-beta: true
 ---
+
+## Create a new bot
+
+Scaffold a Next.js bot that stores state in Redis with [`create-chat-sdk`](/docs/create-chat-sdk). Replace `slack` with your platform adapter:
+
+<CreateChatSdk adapters="slack redis" />
+
+The CLI adds `@chat-adapter/state-redis`, wires `createRedisState()` into `src/lib/bot.ts`, and lists `REDIS_URL` in `.env.example`. To add the adapter to an existing app, start at [Install](#install).
 
 ## Install
 
@@ -29,6 +36,31 @@ const bot = new Chat({
 ```
 
 If you already use ioredis or need Redis Sentinel, see [when to choose ioredis vs redis](/adapters/official/ioredis#when-to-choose-ioredis-vs-redis).
+
+## Vercel Marketplace
+
+Upstash Redis and Redis Cloud are both available on the [Vercel Marketplace](https://vercel.com/marketplace/category/storage). From your project directory, link the project and add an integration with the Vercel CLI. `vercel integration add` creates the database, connects it to the linked project, adds its credentials as environment variables, and pulls them into your local env file.
+
+<CodeBlockTabs defaultValue="upstash">
+  <CodeBlockTabsList>
+    <CodeBlockTabsTrigger value="upstash">Upstash Redis</CodeBlockTabsTrigger>
+    <CodeBlockTabsTrigger value="redis-cloud">Redis Cloud</CodeBlockTabsTrigger>
+  </CodeBlockTabsList>
+  <CodeBlockTab value="upstash">
+```bash
+vercel link
+vercel integration add upstash/upstash-kv
+```
+  </CodeBlockTab>
+  <CodeBlockTab value="redis-cloud">
+```bash
+vercel link
+vercel integration add redis
+```
+  </CodeBlockTab>
+</CodeBlockTabs>
+
+Upstash Redis adds `REDIS_URL` to your project, and `createRedisState()` reads it with no extra configuration. If your provider stores the connection URL under another name, pass that variable as `url`.
 
 ## Configuration
 
@@ -105,7 +137,7 @@ createRedisState({
 - Set explicit memory limits.
 - For Redis Sentinel, use [`@chat-adapter/state-ioredis`](/adapters/official/ioredis). This adapter accepts a single `redis` client. Neither adapter supports Redis Cluster.
 
-For serverless deployments such as Vercel or AWS Lambda, use a serverless-compatible Redis provider such as [Upstash](https://upstash.com).
+For serverless deployments such as Vercel or AWS Lambda, use a serverless-compatible Redis provider. On Vercel, you can provision Upstash Redis or Redis Cloud from the [Vercel Marketplace](#vercel-marketplace).
 
 ## Feature support
 

@@ -6,8 +6,15 @@ slug: twitch
 type: platform
 logo: twitch
 tagline: Read and reply in Twitch channel chat, and hold whisper conversations with viewers.
-beta: true
 ---
+
+## Create a new bot
+
+Scaffold a Next.js bot with the Twitch adapter using [`create-chat-sdk`](/docs/create-chat-sdk):
+
+<CreateChatSdk adapters="twitch memory" />
+
+The generated app uses the [Memory state adapter](/adapters/official/memory) for local development. To add the adapter to an existing app, start at [Install](#install).
 
 ## Install
 
