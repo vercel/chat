@@ -29,6 +29,8 @@ function normalizeServiceUrl(serviceUrl: string): string {
  * helpers instead of the app-wide default.
  */
 export class TeamsApp extends App {
+  private readonly tenantGraphClients = new Map<string, GraphClient>();
+
   /**
    * An explicit `apiUrl` (`TEAMS_API_URL`) pins every outbound call to that
    * endpoint, for example a gateway or emulator. Without one the SDK default
@@ -64,10 +66,15 @@ export class TeamsApp extends App {
     if (!tenantId || tenantId === this.options.tenantId) {
       return this.graph;
     }
-    return new GraphClient(
-      this.client.clone({ token: () => this.getAppGraphToken(tenantId) }),
-      { baseUrlRoot: this.graphBaseUrl }
-    );
+    let client = this.tenantGraphClients.get(tenantId);
+    if (!client) {
+      client = new GraphClient(
+        this.client.clone({ token: () => this.getAppGraphToken(tenantId) }),
+        { baseUrlRoot: this.graphBaseUrl }
+      );
+      this.tenantGraphClients.set(tenantId, client);
+    }
+    return client;
   }
 
   /** Send an activity to the conversation a Teams thread ID points at. */

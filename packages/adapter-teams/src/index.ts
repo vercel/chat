@@ -250,10 +250,6 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
     this.app.on("card.action", async (ctx) => {
       this.cacheUserContext(ctx.activity);
       await this.handleAdaptiveCardAction(ctx);
-      // Teams rejects an empty activity.message value and retries the invoke,
-      // which re-delivers the action (duplicate onAction). Ack with a non-empty
-      // Adaptive Card invoke response so the client stops retrying.
-      // https://learn.microsoft.com/en-us/adaptive-cards/authoring-cards/universal-action-model#response-format
       return CARD_ACTION_INVOKE_ACK;
     });
 
@@ -1066,11 +1062,7 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
     try {
       downloadUrl = await this.graphReader.resolveFileDownloadUrl(url);
     } catch (error) {
-      throw new NetworkError(
-        "teams",
-        "Failed to resolve shared file through Microsoft Graph",
-        error instanceof Error ? error : undefined
-      );
+      handleTeamsError(error, "fetchGraphFile");
     }
     return this.createFetchDataFn(downloadUrl)();
   }
@@ -1151,18 +1143,17 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
     }
 
     try {
-      const aadObjectId = await this.chat
-        .getState()
-        .get<string>(`teams:aadObjectId:${userId}`);
+      const state = this.chat.getState();
+      const [aadObjectId, tenantId] = await Promise.all([
+        state.get<string>(`teams:aadObjectId:${userId}`),
+        state.get<string>(`teams:tenantId:${userId}`),
+      ]);
 
       if (!aadObjectId) {
         this.logger.debug("No cached aadObjectId for user", { userId });
         return null;
       }
 
-      const tenantId = await this.chat
-        .getState()
-        .get<string>(`teams:tenantId:${userId}`);
       return await this.getUserByAadObjectId(
         userId,
         aadObjectId,

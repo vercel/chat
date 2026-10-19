@@ -400,9 +400,8 @@ export class TeamsGraphReader {
           !(response.value ?? []).some((msg) => !!msg.id) &&
           response["@odata.nextLink"]
         ) {
-          response = await this.fetchChannelRootContinuation(
-            response["@odata.nextLink"],
-            graphContext
+          response = await this.graphGetNextLink<GraphMessagePage>(
+            response["@odata.nextLink"]
           );
         }
         nextCursor = response["@odata.nextLink"] ?? undefined;
@@ -560,20 +559,18 @@ export class TeamsGraphReader {
       "chatMessage-id": threadMessageId,
     };
 
-    let parentMessage: GraphMessage | null = null;
-    try {
-      parentMessage = await this.deps.graph.call(
-        teams.channels.messages.get,
-        channelMsgParams
-      );
-    } catch (err) {
-      this.deps.logger.warn("Failed to fetch parent message", {
-        threadMessageId,
-        err,
-      });
-    }
-
-    const allReplies = await this.fetchAllChannelReplies(channelMsgParams);
+    const [parentMessage, allReplies] = await Promise.all([
+      this.deps.graph
+        .call(teams.channels.messages.get, channelMsgParams)
+        .catch((err: unknown): GraphMessage | null => {
+          this.deps.logger.warn("Failed to fetch parent message", {
+            threadMessageId,
+            err,
+          });
+          return null;
+        }),
+      this.fetchAllChannelReplies(channelMsgParams),
+    ]);
     const allMessages = parentMessage
       ? [parentMessage, ...allReplies]
       : allReplies;
@@ -652,16 +649,14 @@ export class TeamsGraphReader {
       : undefined;
     const sorted = graphMessages
       .filter((msg) => !!msg.id)
+      .map((msg) => ({ msg, position: this.channelMessagePosition(msg) }))
       .sort((left, right) =>
-        this.compareChannelMessagePositions(
-          this.channelMessagePosition(left),
-          this.channelMessagePosition(right)
-        )
+        this.compareChannelMessagePositions(left.position, right.position)
       );
     const remaining = boundary
-      ? sorted.filter((msg) => {
+      ? sorted.filter(({ position }) => {
           const comparison = this.compareChannelMessagePositions(
-            this.channelMessagePosition(msg),
+            position,
             boundary
           );
           return direction === "forward" ? comparison > 0 : comparison < 0;
@@ -674,9 +669,15 @@ export class TeamsGraphReader {
     const edge = direction === "forward" ? page.at(-1) : page[0];
     const nextCursor =
       remaining.length > limit && edge
-        ? `teams-channel-history:${Buffer.from(JSON.stringify(this.channelMessagePosition(edge))).toString("base64url")}`
+        ? `teams-channel-history:${Buffer.from(JSON.stringify(edge.position)).toString("base64url")}`
         : undefined;
-    return { messages: this.mapGraphMessages(page, channelId), nextCursor };
+    return {
+      messages: this.mapGraphMessages(
+        page.map(({ msg }) => msg),
+        channelId
+      ),
+      nextCursor,
+    };
   }
 
   private async fetchAllChannelRoots(
@@ -692,9 +693,8 @@ export class TeamsGraphReader {
     );
     const messages = [...(page.value ?? [])];
     while (page["@odata.nextLink"]) {
-      page = await this.fetchChannelRootContinuation(
-        page["@odata.nextLink"],
-        context
+      page = await this.graphGetNextLink<GraphMessagePage>(
+        page["@odata.nextLink"]
       );
       messages.push(...(page.value ?? []));
     }
@@ -705,7 +705,17 @@ export class TeamsGraphReader {
     cursor: string,
     context: TeamsChannelContext
   ): Promise<GraphMessagePage> {
-    const url = new URL(cursor);
+    let url: URL;
+    let pathname: string;
+    try {
+      url = new URL(cursor);
+      pathname = decodeURIComponent(url.pathname);
+    } catch {
+      throw new ValidationError(
+        "teams",
+        "Invalid channel thread continuation cursor"
+      );
+    }
     const expectedPath = `/v1.0/teams/${context.teamId}/channels/${context.channelId}/messages`;
     if (
       url.protocol !== "https:" ||
@@ -713,7 +723,7 @@ export class TeamsGraphReader {
       url.username ||
       url.password ||
       url.port ||
-      decodeURIComponent(url.pathname) !== expectedPath
+      pathname.toLowerCase() !== expectedPath.toLowerCase()
     ) {
       throw new ValidationError(
         "teams",

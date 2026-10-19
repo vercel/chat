@@ -1,3 +1,4 @@
+import { PermissionError, ValidationError } from "@chat-adapter/shared";
 import { createMockChatInstance, createMockState } from "@chat-adapter/tests";
 import { Client as GraphClient } from "@microsoft/teams.graph";
 import { chats, shares } from "@microsoft/teams.graph-endpoints";
@@ -277,6 +278,51 @@ describe("TeamsAdapter.fetchMessages Graph routing", () => {
       "sharedDriveItem-id": `u!${Buffer.from(fileUrl).toString("base64url")}`,
     });
     expect(createFetchDataFn).toHaveBeenCalledWith(downloadUrl);
+  });
+
+  it("maps Graph permission failures when resolving a file reference", async () => {
+    const adapter = createTeamsAdapter({
+      appId: "bot-id",
+      appPassword: "test",
+      logger: new ConsoleLogger("error"),
+    });
+    const app = (adapter as unknown as { app: TeamsApp }).app;
+    vi.spyOn(app, "initialize").mockResolvedValue(undefined);
+    vi.spyOn(app.graph, "call")
+      .mockResolvedValueOnce({
+        value: [
+          {
+            id: "1747634491000",
+            body: { content: "summarize this", contentType: "html" },
+            attachments: [
+              {
+                contentType: "reference",
+                contentUrl:
+                  "https://contoso.sharepoint.com/sites/team/report.pdf",
+                name: "report.pdf",
+              },
+            ],
+          },
+        ],
+      })
+      .mockRejectedValueOnce(
+        Object.assign(new Error("Forbidden"), { statusCode: 403 })
+      );
+    await adapter.initialize(
+      createMockChatInstance({ state: createMockState() })
+    );
+
+    const result = await adapter.fetchMessages(
+      adapter.encodeThreadId({
+        conversationId: "19:group-chat@thread.v2",
+        conversationType: "groupChat",
+        serviceUrl: "https://smba.trafficmanager.net/teams/",
+      })
+    );
+
+    await expect(
+      result.messages[0]?.attachments[0]?.fetchData?.()
+    ).rejects.toThrow(PermissionError);
   });
 });
 
@@ -566,11 +612,44 @@ describe("channel pagination", () => {
     "http://graph.microsoft.com/v1.0/teams/team-id/channels/channel/messages",
     "https://graph.microsoft.com/v1.0/users",
     "https://graph.microsoft.com/v1.0/teams/another-team/channels/channel/messages",
+    "not a url",
+    "https://graph.microsoft.com/v1.0/teams/team-id/channels/%E0%A4%A/messages",
   ])("rejects a continuation outside this Graph collection: %s", async (cursor) => {
     const { reader, graph } = fixture();
-    await expect(reader.listThreads(channelId, { cursor })).rejects.toThrow();
+    await expect(reader.listThreads(channelId, { cursor })).rejects.toThrow(
+      ValidationError
+    );
     expect(graph.call).not.toHaveBeenCalled();
     expect(graph.http.get).not.toHaveBeenCalled();
+  });
+
+  it("accepts the unencoded channel ID form Graph documents for continuations", async () => {
+    const { reader, graph } = fixture();
+    const cursor = `https://graph.microsoft.com/v1.0/teams/TEAM-ID/channels/${context.channelId}/messages?$skiptoken=3`;
+    const result = await reader.listThreads(channelId, { cursor });
+    expect(result.threads.map((thread) => thread.rootMessage.id)).toEqual([
+      roots[4].id,
+      roots[1].id,
+    ]);
+    expect(graph.http.get).toHaveBeenCalledExactlyOnceWith(cursor);
+  });
+
+  it("follows Graph-issued continuations without matching them to the collection path", async () => {
+    const { reader, graph } = fixture();
+    const otherForm = "https://graph.microsoft.com/beta/teams/x/messages";
+    graph.call.mockResolvedValueOnce({
+      value: [roots[0]],
+      "@odata.nextLink": `${otherForm}?$skiptoken=3`,
+    });
+    const result = await reader.fetchChannelMessages(channelId);
+    expect(result.messages.map((message) => message.id)).toEqual([
+      roots[0].id,
+      roots[1].id,
+      roots[4].id,
+    ]);
+    expect(graph.http.get).toHaveBeenCalledExactlyOnceWith(
+      `${otherForm}?$skiptoken=3`
+    );
   });
 });
 
@@ -657,5 +736,36 @@ describe("channel reply pagination", () => {
     });
     expect(result.messages).toEqual([]);
     expect(result.nextCursor).toBeUndefined();
+  });
+
+  it("returns replies when the parent message cannot be fetched", async () => {
+    const graph = {
+      call: vi.fn(async (_endpoint: unknown, params: { $top?: number }) => {
+        if (!params.$top) {
+          throw new Error("Not found");
+        }
+        return { value: [messages[2], messages[1]] };
+      }),
+    };
+    const logger = new ConsoleLogger("error");
+    const warn = vi.spyOn(logger, "warn");
+    const reader = new TeamsGraphReader({
+      botId: "test-app",
+      graph: graph as unknown as GraphClient,
+      formatConverter: new TeamsFormatConverter(),
+      getGraphContext: async () => context,
+      logger,
+    });
+
+    const result = await reader.fetchMessages(threadId);
+
+    expect(result.messages.map((message) => message.id)).toEqual([
+      messages[1].id,
+      messages[2].id,
+    ]);
+    expect(warn).toHaveBeenCalledExactlyOnceWith(
+      "Failed to fetch parent message",
+      expect.objectContaining({ threadMessageId: messages[0].id })
+    );
   });
 });

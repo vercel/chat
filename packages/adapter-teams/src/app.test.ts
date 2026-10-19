@@ -49,6 +49,17 @@ describe("TeamsApp.graphFor", () => {
 
     expect(getGraphToken).toHaveBeenCalledWith("tenant-b");
   });
+
+  it("reuses the client for a tenant across calls", () => {
+    const app = createApp();
+    const clone = vi.spyOn(app.client, "clone");
+
+    const client = app.graphFor("tenant-b");
+
+    expect(app.graphFor("tenant-b")).toBe(client);
+    expect(app.graphFor("tenant-c")).not.toBe(client);
+    expect(clone).toHaveBeenCalledTimes(2);
+  });
 });
 
 describe("TeamsApp with an explicit apiUrl", () => {

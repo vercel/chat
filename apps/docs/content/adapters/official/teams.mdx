@@ -256,11 +256,6 @@ Incoming Teams mentions are supported. Outgoing `@name` text, including multi-wo
 
 Fetching message history requires `TEAMS_APP_TENANT_ID` and the right permissions depending on the conversation type:
 
-Channel history is returned in creation order. Pass the returned `nextCursor`
-unchanged to the next request to continue in the same direction. The cursor
-also retains the message ID, so messages created at the same time are not
-skipped.
-
 | Context | Permission | Type | Admin consent? |
 |---------|-----------|------|---------------|
 | Channel | `ChannelMessage.Read.Group` | RSC | No |
@@ -284,6 +279,10 @@ az ad app permission add \
 
 az ad app permission admin-consent --id <appId>
 ```
+
+Channel history is returned in creation order. Pass the returned `nextCursor` unchanged to the next request to continue in the same direction. The cursor also keeps the message ID, so messages created at the same time are not skipped.
+
+Microsoft Graph lists channel posts by the latest activity in each reply chain and can't sort them by creation time, so every channel history request reads all of the channel's root posts, 50 per Graph request, before it returns a page. In channels with thousands of posts, each request makes many Graph calls and can be [throttled](https://learn.microsoft.com/en-us/graph/throttling).
 
 ## Receiving all messages
 
@@ -493,6 +492,8 @@ bot.onNewMention(async (thread, message) => {
 ```
 
 This requires the [message history](#message-history) permissions for the conversation type, plus the `Files.ReadWrite.All` application permission with admin consent, which Microsoft Graph requires to [access shared files](https://learn.microsoft.com/en-us/graph/api/shares-get) from an app.
+
+`fetchData()` downloads the file with the app's tenant-wide `Files.ReadWrite.All` permission. It doesn't check whether the person who posted the message, or the person your bot replies to, can open the file, so only share file contents with people who should have access to them.
 
 ## Low-level APIs
 
