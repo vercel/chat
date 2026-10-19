@@ -1,5 +1,21 @@
 # chat
 
+## 4.43.0
+
+### Minor Changes
+
+- 115cd39: Add `@chat-adapter/gitlab` for merge request and issue comment threads on GitLab.com, GitLab Self-Managed, and GitLab Dedicated. It verifies webhooks with a signing token or secret token, replies inside each comment's discussion, handles emoji reactions, uploads files, and resolves `message.subject` to the parent merge request or issue. Registers the adapter in `@chat-adapter/catalog` and the `create-chat-sdk` CLI scaffold, and adds GitLab emoji platform support.
+- a32470e: Keep literal tildes, asterisks, underscores, and backslashes as written in outgoing WhatsApp messages. A backslash escape is kept only where the text would otherwise turn into WhatsApp formatting, such as `\_word\_` or a line starting with `\>`. Render bold, italic, and strikethrough from their AST nodes so formatting markers inside inline and fenced code stay unchanged, and send hard breaks as plain newlines. Add a `handlers` option to `stringifyMarkdown` for platform-specific serialization.
+- 228b30d: Pass the current message ID to `Adapter.startTyping` as `TypingOptions.messageId`.
+
+### Patch Changes
+
+- Updated dependencies [115cd39]
+- Updated dependencies [9ff2537]
+- Updated dependencies [228b30d]
+- Updated dependencies [2e7e0ef]
+  - @chat-adapter/catalog@4.43.0
+
 ## 4.42.0
 
 ### Minor Changes

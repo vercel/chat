@@ -1,5 +1,20 @@
 # @chat-adapter/twilio
 
+## 4.43.0
+
+### Minor Changes
+
+- 228b30d: Add WhatsApp and RCS typing indicators through Twilio's Messaging v3 Indicators API, with a `messagingApiUrl` option to override its base URL. On WhatsApp, Twilio marks the referenced message as read. `TwilioApiError` messages now include the Twilio error code and message when the response body is JSON.
+
+### Patch Changes
+
+- Updated dependencies [115cd39]
+- Updated dependencies [36325f3]
+- Updated dependencies [a32470e]
+- Updated dependencies [228b30d]
+  - chat@4.43.0
+  - @chat-adapter/shared@4.43.0
+
 ## 4.42.0
 
 ### Minor Changes

@@ -1,5 +1,20 @@
 # @chat-adapter/teams
 
+## 4.43.0
+
+### Patch Changes
+
+- 9ff2537: Look up users with a Graph token issued by their own tenant in `getUser()`, so users from other tenants of a multi-tenant bot are no longer resolved to `null`.
+- 9ff2537: Make files shared in Teams group chats and channels downloadable from messages fetched through Microsoft Graph. Graph `reference` attachments now report a MIME type inferred from the file name and expose `fetchData()`, which resolves the SharePoint or OneDrive file through Graph.
+- 9ff2537: Fix Teams Adaptive Card button clicks returning an empty invoke response, which caused Teams to retry and duplicate onAction delivery
+- 9ff2537: Paginate Teams channel roots and replies in creation order without repeating or skipping messages, and exhaust backward history at the parent boundary. Follow channel thread-list continuations and use message edit timestamps for Graph history edit metadata.
+- Updated dependencies [115cd39]
+- Updated dependencies [36325f3]
+- Updated dependencies [a32470e]
+- Updated dependencies [228b30d]
+  - chat@4.43.0
+  - @chat-adapter/shared@4.43.0
+
 ## 4.42.0
 
 ### Minor Changes
