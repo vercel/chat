@@ -605,9 +605,10 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
         (e.mentioned.id === this.app.id ||
           e.mentioned.id.endsWith(`:${this.app.id}`))
     );
-    if (isMention) {
-      message.isMention = true;
-    }
+    // Set false too: Chat only guesses from `@userName` in the text when this
+    // is unset, and that guess matches mentions of other bots whose display
+    // name starts with ours ("@Bot Dev" for a bot named "Bot").
+    message.isMention = isMention;
 
     // For DMs, capture ctx.stream and await processing so the stream stays
     // alive for native streaming via emit(). Group chats use fire-and-forget.

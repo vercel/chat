@@ -2390,6 +2390,43 @@ describe("TeamsAdapter", () => {
       expect(message?.author.email).toBeUndefined();
     });
 
+    it("marks a mention of this bot from its entity", async () => {
+      const { adapter, chat, getMemberById } = await setup(
+        new Error("Forbidden")
+      );
+
+      await adapter.handleIncoming(
+        {
+          ...activity(),
+          text: "<at>Bot</at> hello",
+          entities: [{ type: "mention", mentioned: { id: "28:test" } }],
+        },
+        getMemberById
+      );
+
+      const message = vi.mocked(chat.processMessage).mock.calls[0]?.[2];
+      expect(message?.isMention).toBe(true);
+    });
+
+    it("marks a mention of another bot whose name starts with ours as not a mention", async () => {
+      const { adapter, chat, getMemberById } = await setup(
+        new Error("Forbidden")
+      );
+
+      await adapter.handleIncoming(
+        {
+          ...activity(),
+          text: "<at>bot Dev</at> hello",
+          entities: [{ type: "mention", mentioned: { id: "28:other-app" } }],
+        },
+        getMemberById
+      );
+
+      const message = vi.mocked(chat.processMessage).mock.calls[0]?.[2];
+      expect(message?.text).toBe("@bot Dev hello");
+      expect(message?.isMention).toBe(false);
+    });
+
     it("hydrates email on the DM path and completes processing", async () => {
       const { adapter, chat, getMemberById } = await setup({
         email: "alice@example.com",
