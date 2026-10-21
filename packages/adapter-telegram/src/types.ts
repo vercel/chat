@@ -53,6 +53,15 @@ export interface TelegramAdapterConfig {
    * post-and-edit regardless of this setting.
    */
   nativeStreaming?: boolean;
+  /**
+   * Persist incoming messages in the Chat state adapter so `thread.messages`
+   * and `channel.messages` return earlier turns. Telegram has no Bot API for
+   * reading chat history, so with `false` handlers see only the messages this
+   * process has cached. Turn it off when the app keeps its own transcript and
+   * does not want a second copy of every message in the state store. Defaults
+   * to `true`.
+   */
+  persistThreadHistory?: boolean;
   /** Webhook secret token checked against x-telegram-bot-api-secret-token. Required in webhook mode unless unverified webhooks are explicitly allowed. Defaults to TELEGRAM_WEBHOOK_SECRET_TOKEN env var. */
   secretToken?: string;
   /**
