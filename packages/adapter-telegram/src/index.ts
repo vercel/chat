@@ -490,7 +490,7 @@ export class TelegramAdapter
 {
   readonly name = "telegram";
   readonly lockScope = "channel" as const;
-  readonly persistThreadHistory = true;
+  readonly persistThreadHistory: boolean;
 
   protected readonly allowedUserIds?: Set<string>;
   protected readonly allowUnverifiedWebhooks: boolean;
@@ -582,6 +582,7 @@ export class TelegramAdapter
     this.hasExplicitUserName = Boolean(userName);
     this.mode = config.mode ?? "auto";
     this.nativeStreaming = config.nativeStreaming ?? false;
+    this.persistThreadHistory = config.persistThreadHistory ?? true;
     this.streamingEditIntervalMs =
       typeof config.streamingEditIntervalMs !== "number" ||
       !Number.isFinite(config.streamingEditIntervalMs)

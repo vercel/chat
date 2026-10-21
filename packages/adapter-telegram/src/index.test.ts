@@ -259,6 +259,23 @@ describe("createTelegramAdapter", () => {
     expect(adapter.name).toBe("telegram");
   });
 
+  it("persists thread history by default", () => {
+    const adapter = createTelegramAdapter({
+      botToken: "token",
+      logger: mockLogger,
+    });
+    expect(adapter.persistThreadHistory).toBe(true);
+  });
+
+  it("turns thread history persistence off when configured", () => {
+    const adapter = createTelegramAdapter({
+      botToken: "token",
+      logger: mockLogger,
+      persistThreadHistory: false,
+    });
+    expect(adapter.persistThreadHistory).toBe(false);
+  });
+
   it("accepts an async bot token resolver", () => {
     const adapter = createTelegramAdapter({
       botToken: async () => "resolved-token",
