@@ -601,9 +601,8 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
     const isMention = entities.some(
       (e: { type?: string; mentioned?: { id?: string } }) =>
         e.type === "mention" &&
-        e.mentioned?.id &&
-        (e.mentioned.id === this.app.id ||
-          e.mentioned.id.endsWith(`:${this.app.id}`))
+        !!e.mentioned?.id &&
+        this.isBotAccountId(e.mentioned.id)
     );
     // Set false too: Chat only guesses from `@userName` in the text when this
     // is unset, and that guess matches mentions of other bots whose display

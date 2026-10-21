@@ -2390,7 +2390,7 @@ describe("TeamsAdapter", () => {
       expect(message?.author.email).toBeUndefined();
     });
 
-    it("marks a mention of this bot from its entity", async () => {
+    it("marks a mention of this bot when the entity ID casing differs", async () => {
       const { adapter, chat, getMemberById } = await setup(
         new Error("Forbidden")
       );
@@ -2399,7 +2399,7 @@ describe("TeamsAdapter", () => {
         {
           ...activity(),
           text: "<at>Bot</at> hello",
-          entities: [{ type: "mention", mentioned: { id: "28:test" } }],
+          entities: [{ type: "mention", mentioned: { id: "28:TEST" } }],
         },
         getMemberById
       );
