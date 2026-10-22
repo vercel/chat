@@ -275,6 +275,23 @@ createSlackAdapter({
 
 The provider is read-only. `setInstallation`, `deleteInstallation`, and `handleOAuthCallback` still write to the internal state adapter.
 
+### Uninstalls
+
+When a workspace uninstalls your app, Slack sends an `app_uninstalled` event and the adapter calls your `bot.onUninstalled` handlers. To receive it, add `app_uninstalled` to `bot_events` in your app manifest. The event requires no scopes.
+
+`event.conversationId` is the key the installation is stored under: the `team_id`, or the `enterprise_id` for org-wide installs. The adapter doesn't delete the installation, so remove it in your handler, or clean up the matching record in your external store:
+
+```typescript title="lib/bot.ts"
+bot.onUninstalled(async (event) => {
+  if (event.adapter.name !== "slack") return;
+  await slackAdapter.deleteInstallation(event.conversationId);
+});
+```
+
+Slack revokes the app's tokens before it sends the event, so the adapter dispatches it without resolving a bot token, even when your `installationProvider` no longer returns the installation. The bot can't post after an uninstall, and Slack doesn't report who removed the app, so the event has no `channelId` or `userId`. `event.action` is `"remove"`, and `event.id` is the Slack `event_id`. For HTTP deliveries, `event.raw` is the full event envelope. In Socket Mode, it contains the adapter's reconstructed envelope, which omits fields such as `api_app_id`.
+
+`tokens_revoked` events don't call `onUninstalled`, because Slack also sends them when a user revokes their own authorization or the bot token is revoked while the app stays installed. A full uninstall sends both events in no guaranteed order, and `onUninstalled` runs once, for `app_uninstalled`. Retried deliveries are deduplicated by `event_id`, but keep the handler idempotent.
+
 ## Configuration
 
 <TypeTable

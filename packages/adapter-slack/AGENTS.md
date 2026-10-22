@@ -313,6 +313,11 @@ falling back to `appToken`).
   them with a "View more" actions row.
 - **Reaction events** include both `reaction_added` and `reaction_removed`
   — keep `addReaction` / `removeReaction` symmetric.
+- **Uninstalls arrive after token revocation.** `app_uninstalled` is
+  dispatched to `onUninstalled` without resolving an installation token, so
+  a missing installation can't drop it. `tokens_revoked` is not an uninstall
+  signal: Slack also sends it when a user token or the bot token is revoked
+  while the app stays installed.
 - **Token encryption-at-rest** is opt-in. `encryptionKey` must be a
   base64-encoded 32-byte key; rotate it by reading old installations,
   re-encrypting, and writing back.

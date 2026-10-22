@@ -119,3 +119,17 @@ The next `app_mention` was posted through `chat.postMessage` with a `section` bl
   body: '{"token":"xAbCdEfGhIjKlMnOpQrStUvW","team_id":"T00FAKE00AA","api_app_id":"A00FAKEAPP01","event":{"type":"app_mention","user":"U00FAKEUSER1","ts":"1789700000.000200","text":"New request","team":"T00FAKE00AA","blocks":[{"type":"section","block_id":"cD2eF","text":{"type":"mrkdwn","text":"<@U00FAKEBOT01> please check the deploy","verbatim":false}}],"channel":"C00FAKECHAN1","event_ts":"1789700000.000200"},"type":"event_callback","event_id":"Ev0ASECTION01","event_time":1789700000,"authorizations":[{"enterprise_id":null,"team_id":"T00FAKE00AA","user_id":"U00FAKEBOT01","is_bot":true,"is_enterprise_install":false}],"is_ext_shared_channel":false}'
 }
 ```
+
+The next two payloads have the shape of Slack's documented `app_uninstalled` and `tokens_revoked` examples, with sanitized ids. No captured uninstall traffic exists. A full uninstall sends both events in no guaranteed order; the `tokens_revoked` envelope carries no `authorizations`. The adapter dispatches `app_uninstalled` to `onUninstalled` and does not dispatch `tokens_revoked`.
+
+```log
+[chat-sdk:slack] Slack webhook raw body {
+  body: '{"token":"xAbCdEfGhIjKlMnOpQrStUvW","team_id":"T00FAKE00AA","api_app_id":"A00FAKEAPP01","event":{"type":"app_uninstalled"},"type":"event_callback","authorizations":[{"team_id":"T00FAKE00AA","user_id":"U00FAKEUSER1","is_bot":false,"is_enterprise_install":false}],"event_id":"Ev0UNINSTALL1","event_time":1789900000}'
+}
+```
+
+```log
+[chat-sdk:slack] Slack webhook raw body {
+  body: '{"token":"xAbCdEfGhIjKlMnOpQrStUvW","team_id":"T00FAKE00AA","api_app_id":"A00FAKEAPP01","event":{"type":"tokens_revoked","tokens":{"oauth":["U00FAKEUSER1"],"bot":["U00FAKEBOT01"]}},"type":"event_callback","event_id":"Ev0REVOKED01","event_time":1789900000}'
+}
+```

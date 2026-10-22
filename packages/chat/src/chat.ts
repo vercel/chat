@@ -1057,7 +1057,7 @@ export class Chat<
     this.installedHandlers.push(handler);
   }
 
-  /** Handle bot removal, including upgrades that remove the bot (currently Teams only). */
+  /** Handle bot removal, including upgrades that remove the bot (currently Teams and Slack). */
   onUninstalled(handler: UninstalledHandler): void {
     this.uninstalledHandlers.push(handler);
   }

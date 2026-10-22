@@ -192,6 +192,17 @@ await slackAdapter.withBotToken(
 await slackAdapter.deleteInstallation(teamId);
 ```
 
+When a workspace uninstalls the app, Slack sends `app_uninstalled` and the adapter calls `bot.onUninstalled`. Add `app_uninstalled` to your manifest's `bot_events` to receive it. `event.conversationId` is the installation key (the `team_id`, or `enterprise_id` for org-wide installs), and the adapter doesn't delete the installation itself:
+
+```typescript
+bot.onUninstalled(async (event) => {
+  if (event.adapter.name !== "slack") return;
+  await slackAdapter.deleteInstallation(event.conversationId);
+});
+```
+
+`tokens_revoked` doesn't call `onUninstalled`, because Slack also sends it for revocations that leave the app installed. See [Uninstalls](https://chat-sdk.dev/adapters/official/slack#uninstalls).
+
 #### Token encryption
 
 Pass a base64-encoded 32-byte key as `encryptionKey` to encrypt bot tokens at rest using AES-256-GCM:

@@ -614,6 +614,10 @@ bot.onUninstalled(async (event) => {
 records with `event.raw.channelData.team.id` as well as `conversationId`, which
 can differ between installation and removal. See the [Teams persistence example](/adapters/official/teams#installation-lifecycle).
 
+The Slack adapter also emits `onUninstalled`, with `action` set to `"remove"`,
+when a workspace or org uninstalls the app. `conversationId` is the Slack
+installation key. See [Slack uninstalls](/adapters/official/slack#uninstalls).
+
 ## Utility methods
 
 ### abortTurn

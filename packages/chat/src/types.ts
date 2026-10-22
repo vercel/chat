@@ -2810,7 +2810,10 @@ export type InstallationAction =
   | "remove"
   | "remove-upgrade";
 
-/** Installation lifecycle metadata. Currently emitted by the Teams adapter. */
+/**
+ * Installation lifecycle metadata. Currently emitted by the Teams adapter, and
+ * by the Slack adapter for uninstalls.
+ */
 export interface InstallationEvent {
   action: InstallationAction;
   adapter: Adapter;
