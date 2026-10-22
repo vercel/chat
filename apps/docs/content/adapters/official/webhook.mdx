@@ -1,0 +1,343 @@
+---
+title: Webhook
+description: Generic adapter for any platform that delivers messages as HTTP webhooks and accepts replies over HTTP.
+packageName: "@chat-adapter/webhook"
+slug: webhook
+type: platform
+logo: webhook
+tagline: Connect platforms that have no dedicated adapter, such as self-hosted messengers and HTTP bridges, by describing how to read their webhooks and send their replies.
+---
+
+The Webhook adapter runs your Chat SDK handlers on any platform that can POST a webhook to your app and accept replies over HTTP. You supply two functions: `parse` turns a verified request into messages, and `send` delivers replies. The adapter handles signature verification, thread IDs, Markdown, and routing to your handlers.
+
+Use a dedicated adapter when one exists for your platform. It covers cards, reactions, history, and other features that the Webhook adapter leaves to you.
+
+## Create a new bot
+
+Scaffold a Next.js bot with the Webhook adapter using [`create-chat-sdk`](/docs/create-chat-sdk):
+
+<CreateChatSdk adapters="webhook memory" />
+
+The generated app uses the [Memory state adapter](/adapters/official/memory) for local development and contains placeholder `parse` and `send` functions to fill in for your platform. To add the adapter to an existing app, start at [Install](#install).
+
+## Install
+
+<PackageInstall package="@chat-adapter/webhook @chat-adapter/state-memory" />
+
+## Quick start
+
+This example connects a platform that posts `{ chatId, messageId, text, sender }` and accepts replies at `https://api.example.com/messages`. Replace the payload type, field names, and API call with your platform's.
+
+<Callout type="info">
+The adapter auto-detects `WEBHOOK_SECRET` from the environment and rejects requests whose signature doesn't match. See [Verification](#verification).
+</Callout>
+
+```typescript title="lib/bot.ts" lineNumbers
+import { Chat } from "chat";
+import { createWebhookAdapter } from "@chat-adapter/webhook";
+import { createMemoryState } from "@chat-adapter/state-memory";
+
+interface PlatformEvent {
+  chatId: string;
+  messageId: string;
+  text: string;
+  sender: { id: string; name: string };
+}
+
+export const bot = new Chat({
+  userName: "mybot",
+  adapters: {
+    webhook: createWebhookAdapter({
+      parse: (event: PlatformEvent) => ({
+        id: event.messageId,
+        channelId: event.chatId,
+        text: event.text,
+        author: { userId: event.sender.id, fullName: event.sender.name },
+      }),
+      send: async ({ channelId, text }) => {
+        const response = await fetch("https://api.example.com/messages", {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${process.env.PLATFORM_TOKEN}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({ chatId: channelId, text }),
+        });
+        const sent = (await response.json()) as { id: string };
+        return { id: sent.id, raw: sent };
+      },
+    }),
+  },
+  state: createMemoryState(),
+});
+
+bot.onNewMention(async (thread, message) => {
+  await thread.subscribe();
+  await thread.post(`You said: ${message.text}`);
+});
+```
+
+The memory state adapter keeps subscriptions, locks, and thread history in process memory, which suits local development. Use [Redis](/adapters/official/redis) or [PostgreSQL](/adapters/official/postgres) in production.
+
+```typescript title="app/api/webhooks/webhook/route.ts" lineNumbers
+import { after } from "next/server";
+import { bot } from "@/lib/bot";
+
+export async function POST(request: Request) {
+  return bot.webhooks.webhook(request, {
+    waitUntil: (task) => after(() => task),
+  });
+}
+```
+
+Point your platform's webhook at `https://your-domain.com/api/webhooks/webhook`.
+
+## Inbound messages
+
+`parse` receives the JSON-decoded request body and a context with the raw `body` and the `request`. It returns one message, an array of messages, or `null` to acknowledge the request without processing anything, for example a delivery receipt.
+
+<TypeTable
+  type={{
+    channelId: {
+      type: "string",
+      required: true,
+      description: "Conversation identifier on the platform, such as a chat or room ID.",
+    },
+    threadId: {
+      type: "string",
+      description: "Sub-thread inside the conversation, for platforms with threads or topics.",
+    },
+    text: {
+      type: "string",
+      required: true,
+      description: "Message text, parsed as Markdown into `message.formatted`.",
+    },
+    author: {
+      type: "{ userId: string; userName?: string; fullName?: string; isBot?: boolean; isMe?: boolean }",
+      required: true,
+      description: "Message author. `userName` and `fullName` default to `userId`.",
+    },
+    id: {
+      type: "string",
+      description: "Platform message ID. Chat SDK uses it to drop duplicate deliveries. A random UUID is used when omitted.",
+    },
+    isMention: {
+      type: "boolean",
+      description: "Whether the bot was mentioned. Leave unset to let Chat SDK detect `@userName` in the text.",
+    },
+    timestamp: {
+      type: "Date | number | string",
+      description: "When the message was sent. Defaults to the time the webhook arrived.",
+    },
+    attachments: {
+      type: "Attachment[]",
+      description: "Attachments to expose on `message.attachments`.",
+    },
+  }}
+/>
+
+The original payload is available as `message.raw` in your handlers.
+
+Many HTTP bridges also deliver the bot's own outbound messages. Set `author.isMe: true` for those, or return `null`, so your handlers don't reply to the bot.
+
+```typescript
+parse: (event: BridgeEvent) =>
+  event.fromMe
+    ? null
+    : {
+        id: event.id,
+        channelId: event.chatId,
+        text: event.body,
+        author: { userId: event.from },
+        isMention: true,
+      },
+```
+
+In threads the bot hasn't subscribed to, Chat SDK calls `onNewMention` only when the bot is mentioned. For one-to-one platforms where every message is meant for the bot, set `isMention: true`.
+
+## Outbound messages
+
+`send` receives the conversation and the rendered message:
+
+| Field | Description |
+| --- | --- |
+| `channelId` | Conversation identifier from the thread |
+| `threadId` | Sub-thread, when the thread has one |
+| `thread` | Full Chat SDK thread ID |
+| `text` | Message rendered as Markdown. Cards are rendered as fallback text. |
+| `message` | The message as passed to `thread.post()`, for files, cards, and other rich content |
+
+Return `{ id, raw }` so Chat SDK can reference the sent message later, for example to edit it. Without an `id`, the adapter uses a random UUID.
+
+If your platform doesn't support Markdown, convert `text` before sending it.
+
+### Editing, deleting, and typing
+
+Add optional callbacks for features your platform supports:
+
+```typescript
+createWebhookAdapter({
+  parse,
+  send,
+  edit: async ({ channelId, messageId, text }) => {
+    await platform.editMessage(channelId, messageId, text);
+  },
+  delete: async ({ channelId, messageId }) => {
+    await platform.deleteMessage(channelId, messageId);
+  },
+  startTyping: async ({ channelId }) => {
+    await platform.sendTyping(channelId);
+  },
+});
+```
+
+Without `edit` or `delete`, `editMessage` and `deleteMessage` throw `NotImplementedError`. Without `startTyping`, `thread.startTyping()` does nothing. Reactions are not supported.
+
+### Streaming
+
+Without an `edit` callback, streamed responses are buffered and sent once complete. With one, Chat SDK posts a message and edits it as more text arrives.
+
+## Verification
+
+By default, the adapter computes an HMAC-SHA256 digest of the raw request body with `WEBHOOK_SECRET` and compares it with the `x-webhook-signature` header. The header value is a hex digest, with or without a `sha256=` prefix. Requests that fail verification get a `401` response.
+
+Use `signatureHeader` when your platform sends the same kind of signature under a different header:
+
+```typescript
+createWebhookAdapter({
+  signatureHeader: "x-hub-signature-256",
+  parse,
+  send,
+});
+```
+
+For any other scheme, such as a bearer token or a timestamped signature, pass `verify`. It replaces the built-in check and receives the request and its raw body:
+
+```typescript
+import { timingSafeEqual } from "node:crypto";
+
+const token = process.env.BRIDGE_TOKEN;
+if (!token) {
+  throw new Error("BRIDGE_TOKEN is required to verify webhook requests.");
+}
+const expected = Buffer.from(`Bearer ${token}`);
+
+createWebhookAdapter({
+  verify: (request) => {
+    const received = Buffer.from(request.headers.get("authorization") ?? "");
+    return (
+      received.length === expected.length && timingSafeEqual(received, expected)
+    );
+  },
+  parse,
+  send,
+});
+```
+
+`createWebhookAdapter` throws when neither `secret` nor `verify` is set, so the endpoint never accepts unauthenticated requests by accident. A custom `verify` function is only as strict as you write it: fail at startup when its credential is missing, as the example does, so an unset variable can't turn into a guessable value such as `Bearer undefined`.
+
+The adapter accepts POST requests only and answers other methods with `405`. If your platform needs a GET handshake when you register the webhook, answer it in your route before calling `bot.webhooks.webhook`.
+
+## Multiple platforms
+
+Register one adapter per platform. Set `name` to the key you register it under, because Chat SDK routes thread IDs by their prefix:
+
+```typescript
+const bot = new Chat({
+  userName: "mybot",
+  adapters: {
+    matrix: createWebhookAdapter({ name: "matrix", parse, send }),
+    support: createWebhookAdapter({ name: "support", parse, send }),
+  },
+  state: createMemoryState(),
+});
+```
+
+Each adapter then has its own route, such as `bot.webhooks.matrix`.
+
+## Configuration
+
+<TypeTable
+  type={{
+    parse: {
+      type: "(payload, { body, request }) => WebhookInboundMessage | WebhookInboundMessage[] | null",
+      required: true,
+      description: "Map a verified request to inbound messages. Can be async.",
+    },
+    send: {
+      type: "(message: WebhookOutboundMessage) => Promise<{ id?: string; raw?: unknown } | void>",
+      required: true,
+      description: "Deliver an outbound message to the platform.",
+    },
+    edit: {
+      type: "(message: WebhookEditMessage) => Promise<{ id?: string; raw?: unknown } | void>",
+      description: "Edit a sent message.",
+    },
+    delete: {
+      type: "(message: WebhookDeleteMessage) => Promise<void>",
+      description: "Delete a sent message.",
+    },
+    startTyping: {
+      type: "(target: WebhookTarget) => Promise<void>",
+      description: "Show a typing indicator.",
+    },
+    secret: {
+      type: "string",
+      description: "Shared secret for HMAC-SHA256 signatures. Auto-detected from `WEBHOOK_SECRET`. Ignored when `verify` is set.",
+    },
+    signatureHeader: {
+      type: "string",
+      default: '"x-webhook-signature"',
+      description: "Header that carries the HMAC signature.",
+    },
+    verify: {
+      type: "(request: Request, body: string) => boolean | Promise<boolean>",
+      description: "Custom request verification. Return `false` to reject the request.",
+    },
+    name: {
+      type: "string",
+      default: '"webhook"',
+      description: "Adapter name and thread ID prefix. Must match the key in `adapters`.",
+    },
+    userName: {
+      type: "string",
+      description: "Bot username. Defaults to the `userName` passed to `Chat`.",
+    },
+    logger: {
+      type: "Logger",
+      description: "Logger instance. Defaults to a console logger.",
+    },
+  }}
+/>
+
+### Environment variables
+
+| Variable | Required | Description |
+| --- | --- | --- |
+| `WEBHOOK_SECRET` | Unless `secret` or `verify` is set | Shared secret for HMAC-SHA256 signature verification |
+
+## Message history
+
+HTTP platforms rarely expose a history API, so the adapter sets `persistThreadHistory` and Chat SDK stores each thread's messages in your state adapter. `thread.messages` and `thread.allMessages` read from that store.
+
+## Thread IDs
+
+```
+{name}:{base64url(channelId)}
+{name}:{base64url(channelId)}:{base64url(threadId)}
+```
+
+Example: `webhook:Y2hhdC0x` for channel `chat-1`.
+
+The adapter base64url-encodes both segments, so platform IDs can contain colons and other special characters.
+
+## Limitations
+
+- Only POST requests with JSON bodies are accepted. Answer GET verification handshakes in your route before calling the adapter, and override the protected `parseBody` method in a subclass to accept other body formats.
+- Reactions, interactive actions, and modals are not supported.
+- Direct messages are not detected. Set `isMention: true` in `parse` for platforms where every message is meant for the bot.
+- Thread history includes only messages Chat SDK has stored in your state adapter, not messages sent before the bot was connected.
+
+## Feature support
+
+<FeatureSupport />
