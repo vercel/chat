@@ -285,6 +285,12 @@ Incoming media groups are delivered as one message after the album settles, with
 
 Multiple `files` or compatible `attachments` are sent as Telegram media groups. `files` upload as documents; `attachments` preserve image, audio, video, or file media type.
 
+## Threads
+
+Each Telegram chat is one thread, `telegram:{chatId}`. In a forum supergroup, each topic is its own thread, `telegram:{chatId}:{messageThreadId}`.
+
+Replies in a regular supergroup stay in the chat's thread. Telegram sets `message_thread_id` on those replies too, but the adapter only treats a message as part of a topic when `is_topic_message` is `true`. A bot subscribed to the chat receives the replies in `onSubscribedMessage`.
+
 ## Business mode
 
 Telegram [Connected Business Bots](https://core.telegram.org/api/bots/connected-business-bots) let a bot reply to customer messages on behalf of a business account. Enable it with `businessMode: true`:

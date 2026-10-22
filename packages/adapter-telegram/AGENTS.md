@@ -96,6 +96,13 @@ telegram:{chatId}:{messageThreadId}     # topic in a forum group
 telegram:biz:{connectionId}:{chatId}    # Connected Business Bot chat
 ```
 
+Only a message with `is_topic_message: true` gets the topic form. In a
+regular supergroup Telegram also sets `message_thread_id` on a reply, to
+the id of the message it answers. That is a reply chain, not a topic, so
+`getTopicThreadId` drops it and the reply stays on `telegram:{chatId}`.
+Sent messages fall back to the target thread's topic when the Bot API
+response omits `is_topic_message`.
+
 `isDM(threadId)` returns `true` when `chat.type === "private"`.
 
 Business threads are their own channel: `channelIdFromThreadId` returns

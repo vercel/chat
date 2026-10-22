@@ -735,6 +735,78 @@ describe("TelegramAdapter", () => {
     ).toBe(false);
   });
 
+  it.each([
+    {
+      // Outside forums, Telegram sets message_thread_id on a reply to the id
+      // of the message it answers and omits is_topic_message. That reply
+      // belongs to the chat's thread, where the bot is subscribed.
+      name: "keeps a reply in a regular supergroup in the chat thread",
+      topic: {},
+      expected: "telegram:-100123",
+    },
+    {
+      name: "routes a forum topic message to its topic thread",
+      topic: { is_topic_message: true },
+      expected: "telegram:-100123:5",
+    },
+  ])("$name", async ({ topic, expected }) => {
+    mockFetch.mockResolvedValueOnce(
+      telegramOk({
+        id: 999,
+        is_bot: true,
+        first_name: "Bot",
+        username: "mybot",
+      })
+    );
+
+    const adapter = createTelegramAdapter({
+      botToken: "token",
+      mode: "webhook",
+      logger: mockLogger,
+      userName: "mybot",
+    });
+
+    const chat = createMockChat();
+    await adapter.initialize(chat);
+
+    const supergroup = {
+      id: -100123,
+      type: "supergroup",
+      title: "General",
+    } as const;
+    await adapter.handleWebhook(
+      new Request("https://example.com/webhook", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          update_id: 1,
+          message: sampleMessage({
+            chat: supergroup,
+            text: "and the second one?",
+            message_thread_id: 5,
+            ...topic,
+            reply_to_message: sampleMessage({
+              message_id: 5,
+              chat: supergroup,
+            }),
+          }),
+        }),
+      })
+    );
+
+    const processMessage = chat.processMessage as ReturnType<typeof vi.fn>;
+    expect(processMessage).toHaveBeenCalledTimes(1);
+
+    const [, threadId, parsedMessage] = processMessage.mock.calls[0] as [
+      unknown,
+      string,
+      { threadId: string },
+    ];
+
+    expect(threadId).toBe(expected);
+    expect(parsedMessage.threadId).toBe(expected);
+  });
+
   it("deduplicates sequential and concurrent webhook updates", async () => {
     mockFetch.mockImplementation(() =>
       Promise.resolve(
@@ -6351,6 +6423,33 @@ describe("reply", () => {
       String((mockFetch.mock.calls[1]?.[1] as RequestInit).body)
     );
     expect(body.reply_parameters).toEqual(expectedReplyParameters);
+  });
+
+  it("keeps a reply in a regular supergroup on the chat thread", async () => {
+    // The sent reply comes back with message_thread_id set to the replied-to
+    // message and no is_topic_message. It still lives in the chat's thread.
+    mockFetch
+      .mockResolvedValueOnce(
+        telegramOk({ id: 1, is_bot: true, username: "mybot" })
+      )
+      .mockResolvedValueOnce(
+        telegramOk(
+          sampleMessage({
+            message_id: 11,
+            message_thread_id: 7,
+            chat: { id: -100123, type: "supergroup", title: "General" },
+          })
+        )
+      );
+
+    const adapter = createReplyAdapter();
+    await adapter.initialize(createMockChat());
+
+    const posted = await adapter.reply("telegram:-100123", "-100123:7", {
+      markdown: "hello",
+    });
+
+    expect(posted.threadId).toBe("telegram:-100123");
   });
 
   it("threads a plain string message through sendMessage", async () => {
