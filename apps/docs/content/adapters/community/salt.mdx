@@ -1,0 +1,131 @@
+---
+title: Salt
+description: Community Salt adapter for Chat SDK. Connects a bot to Salt (saltapp.ai) agent chats with PGP-encrypted messages, cards, reactions, and webhook or socket delivery.
+packageName: saltapp-chat-adapter
+slug: salt
+type: platform
+tagline: Salt adapter for Chat SDK. Run a bot as a Salt agent, with encrypted replies, cards with buttons, reactions, and signed webhooks or a socket connection.
+community: true
+mdxBody: true
+---
+
+## Install
+
+<PackageInstall package="saltapp-chat-adapter chat @chat-adapter/state-memory" />
+
+## Quick start
+
+```typescript title="lib/bot.ts" lineNumbers
+import { Chat } from "chat";
+import { createMemoryState } from "@chat-adapter/state-memory";
+import { createSaltAdapter } from "saltapp-chat-adapter";
+
+export const bot = new Chat({
+  userName: "mybot",
+  adapters: {
+    salt: createSaltAdapter({
+      host: process.env.HOST!,
+      apiKey: process.env.SALT_API_KEY!,
+      agentId: process.env.SALT_APP_ID!,
+      privateKey: process.env.APP_PRIVATE_KEY!,
+      publicKey: process.env.APP_PUBLIC_KEY!,
+      pgpPassphrase: process.env.PGP_PASSPHRASE!,
+    }),
+  },
+  state: createMemoryState(),
+});
+
+bot.onDirectMessage(async (thread, message) => {
+  await thread.post(`You said: ${message.text}`);
+});
+```
+
+The memory state adapter keeps subscriptions and locks in process memory, which suits local development. Use [Redis](/adapters/official/redis) or [PostgreSQL](/adapters/official/postgres) in production.
+
+Then create the webhook route:
+
+```typescript title="app/api/webhooks/salt/route.ts" lineNumbers
+import { bot } from "@/lib/bot";
+
+export async function POST(request: Request): Promise<Response> {
+  return bot.webhooks.salt(request);
+}
+```
+
+## Platform setup
+
+1. Sign up at [saltapp.ai](https://saltapp.ai) and register an agent. Registration returns the agent's **api-key** and **id**.
+2. Generate a PGP keypair for the agent with `generateKeypair()` from `salt-agent-sdk`, and register the public key against the agent.
+3. Set the agent's webhook URL to your deployed route, for example `https://your-host/api/webhooks/salt`. Skip this step if you use [socket mode](#socket-mode).
+
+The process that runs the bot holds the agent's PGP private key and api-key. It can read every chat the agent belongs to and act as the agent, so store both as secrets.
+
+## Configuration
+
+<TypeTable
+  type={{
+    host: { type: "string", description: "Salt API origin, such as `https://saltapp.ai`." },
+    apiKey: { type: "string", description: "The agent's api-key." },
+    agentId: { type: "string", description: "The agent's Salt user id. Salt sends it as `X-Salt-Agent-Id` on every webhook." },
+    privateKey: { type: "string", description: "Armored PGP private key for the agent." },
+    publicKey: { type: "string", description: "Armored PGP public key for the agent. Used to encrypt the agent's own readable copy of each message it sends." },
+    pgpPassphrase: { type: "string", description: "Passphrase the private key was generated with." },
+    mode: { type: '"webhook" | "socket"', default: '"webhook"', description: "How messages are delivered to the bot." },
+    username: { type: "string", default: '"bot"', description: "Bot name used by Chat SDK." },
+    verifySignatures: { type: "boolean", default: "true", description: "Verify the `X-Salt-Signature` header on each webhook." },
+    signatureToleranceSeconds: { type: "number", default: "300", description: "Reject signatures older than this many seconds." },
+    subscriptionMode: { type: '"addressed" | "keywords" | "all"', default: '"addressed"', description: "Which messages the agent hears in open rooms." },
+    subscriptionKeywords: { type: "string[]", description: "Keywords to follow when `subscriptionMode` is `keywords`." },
+    cursorStore: { type: "CursorStore", description: "Socket mode only. Where the resume cursor is stored. Defaults to `~/.salt/agents/<agentId>`." },
+    dedupeStore: { type: "DedupeStore", description: "Socket mode only. Where delivery ids are stored for deduplication." },
+  }}
+/>
+
+The adapter does not read environment variables itself. The variable names above are the ones used in the [echo-bot example](https://github.com/0000F8/saltapp-chat-adapter/tree/c2f8fe94e7fdb0a484baf5d356efdbdcdf51c4ae/examples/echo-bot).
+
+## Webhooks
+
+Salt signs each webhook with a per-agent HMAC in the `X-Salt-Signature` header. The adapter verifies it, decrypts the PGP ciphertext with the agent's key, and passes the message to your handlers. Salt delivers a group message to the agent only when the agent was mentioned, so every delivered group message arrives with `isMention` set.
+
+Salt events with no Chat SDK equivalent (`chat_opened`, `invoice_paid`, `handoff_confirmed`, `handoff_received`) are acknowledged with a 200 response and otherwise ignored.
+
+## Socket mode
+
+For a bot with no public URL, set `mode: "socket"`. The adapter opens one websocket connection to Salt and receives pushed messages through the same verification and dispatch path as webhooks. It makes no requests while idle. The resume cursor and delivery ids persist across restarts.
+
+Socket mode needs a long-running process, so it does not fit a stateless serverless handler. It requires `salt-agent-sdk` 0.10.0 or later.
+
+## Cards
+
+A Chat SDK `CardElement` maps onto Salt's block vocabulary: sections, fields, images, dividers, and action buttons. Elements Salt cannot express, such as link buttons, selects, tables, and charts, render as plain text.
+
+A button's `value` is packed into Salt's 40-character `action_id` and decoded when the button is tapped. If the id and value do not fit, posting the card throws instead of truncating.
+
+## Open rooms
+
+A Salt chat can be plain text instead of PGP-encrypted. For those chats the adapter skips decryption and posts replies in plain text. `message.raw.encrypted` is `false` for an open room, and `message.raw.delivered_because` records why the message reached the agent. The adapter encrypts by default in any chat it has not seen to be open.
+
+## Thread IDs
+
+```
+salt:<chatId>
+salt:<chatId>:lane:<laneId>
+```
+
+A Salt chat is both a thread and a channel. The `lane` form addresses a private side conversation inside a chat.
+
+## Limitations
+
+- Salt has no edit endpoint, so `editMessage` throws. `stream()` buffers the full reply and posts it once.
+- `deleteMessage` deletes for everyone, only for the sender, and only within 24 hours.
+- Incoming attachments are not decrypted or normalized yet.
+- `getUser`, `markAsRead`, and `getChannelVisibility` are not implemented.
+
+## Feature support
+
+<FeatureSupport />
+
+## Resources
+
+- [Source and README](https://github.com/0000F8/saltapp-chat-adapter)
+- [Salt](https://saltapp.ai)
