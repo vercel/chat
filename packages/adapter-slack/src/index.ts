@@ -7,7 +7,6 @@ import {
   downloadAttachment,
   extractCard,
   extractFiles,
-  maskCodeSpans,
   NetworkError,
   replaceBareMentions,
   toBuffer,
@@ -74,7 +73,7 @@ import {
   type SlackAppContext,
   type SlackAppContextChangedEvent,
 } from "./agent-context";
-import { cardToBlockKit, cardToFallbackText, type SlackBlock } from "./cards";
+import { cardToBlockKit, cardToFallbackText } from "./cards";
 import type { EncryptedTokenData } from "./crypto";
 import {
   decodeKey,
@@ -82,10 +81,26 @@ import {
   encryptToken,
   isEncryptedTokenData,
 } from "./crypto";
+import {
+  attachmentContent,
+  authorAttachments,
+  collectMentionIds,
+  isForeignAttachment,
+  isRecord,
+  SLACK_USER_ID_PATTERN,
+  type SlackAttachmentContent,
+  type SlackAttachmentPart,
+  type SlackEvent,
+  type SlackMessageBlock,
+  type SlackTableData,
+  TABLE_BLOCK_TYPES,
+  tableData,
+} from "./event";
 import type { SlackFetch } from "./fetch";
 import { isSlackAuthUrl } from "./file";
 import { escapeSlackText, unescapeSlackText } from "./format";
 import { SlackFormatConverter } from "./markdown";
+import { classifySelfMention } from "./mention";
 import {
   decodeModalMetadata,
   encodeModalMetadata,
@@ -95,7 +110,6 @@ import {
 } from "./modals";
 import { verifySlackRequest } from "./webhook/index";
 
-const SLACK_USER_ID_PATTERN = /^[A-Z0-9_]+$/;
 // Enterprise Grid users can have W-prefixed IDs anywhere a U-prefixed ID appears
 const SLACK_USER_ID_EXACT_PATTERN = /^[UW][A-Z0-9]+$/;
 const SLACK_RESPONSE_URL_HOSTS = new Set([
@@ -198,43 +212,6 @@ function findNextMention(text: string): number {
 interface SlackMentionNames {
   channels: Map<string, string>;
   users: Map<string, string>;
-}
-
-function escapeRegExp(value: string): string {
-  return value.replace(/[.*+?${}()|[\]\\]/g, "\\$&");
-}
-
-/**
- * Collect the user and channel IDs referenced by `<@U…>` / `<#C…>` tokens.
- * Parses by splitting on angle brackets to avoid ReDoS.
- */
-function collectMentionIds(
-  text: string,
-  userIds: Set<string>,
-  channelIds: Set<string>
-): void {
-  for (const segment of text.split("<")) {
-    const end = segment.indexOf(">");
-    if (end === -1) {
-      continue;
-    }
-    const inner = segment.slice(0, end);
-    if (inner.startsWith("@")) {
-      const rest = inner.slice(1);
-      const pipeIdx = rest.indexOf("|");
-      const uid = pipeIdx >= 0 ? rest.slice(0, pipeIdx) : rest;
-      if (SLACK_USER_ID_PATTERN.test(uid)) {
-        userIds.add(uid);
-      }
-    } else if (inner.startsWith("#")) {
-      const rest = inner.slice(1);
-      const pipeIdx = rest.indexOf("|");
-      // Only collect bare channel IDs (no label already present)
-      if (pipeIdx === -1 && SLACK_USER_ID_PATTERN.test(rest)) {
-        channelIds.add(rest);
-      }
-    }
-  }
 }
 
 /**
@@ -552,439 +529,17 @@ export interface SlackThreadId {
   threadTs: string;
 }
 
-/**
- * Block inside a Slack message event (`event.blocks` or `attachment.blocks`).
- * Extends the open Block Kit shape with the fields the parser reads directly;
- * everything else stays reachable through the index signature.
- */
-export interface SlackMessageBlock extends SlackBlock {
-  elements?: SlackMessageBlock[];
-  rows?: unknown;
-  /** `{ code: true }` marks an inline-code text element. */
-  style?: { code?: boolean };
-  text?: string;
-  url?: string;
-  user_id?: string;
-}
-
-/**
- * Slack's user-mention syntax for `userId`: `<@U…>` or `<@U…|name>`. Used for
- * mrkdwn content, where a mention is a token in the text. Slack escapes `<` in
- * message text, so a label stops at the next `<`; excluding it keeps the scan
- * linear on text with many unclosed tokens.
- */
-function mentionTokenPattern(userId: string): RegExp {
-  return new RegExp(`<@!?${escapeRegExp(userId)}(?:\\|[^<>]*)?>`, "i");
-}
-
-/** The user ids referenced by `<@U…>` tokens in `text`. */
-function userMentionIds(text: string): Set<string> {
-  const userIds = new Set<string>();
-  collectMentionIds(text, userIds, new Set());
-  return userIds;
-}
-
-/**
- * Which users to look for: `matchesId` tests a structured `user` element,
- * `matchesText` tests a string for a mention token.
- */
-interface SlackMentionMatcher {
-  matchesId(userId: string): boolean;
-  matchesText(text: string): boolean;
-}
-
-/**
- * Matches one user. Ids compare case-insensitively, the way the token
- * pattern matches.
- */
-function mentionMatcher(userId: string): SlackMentionMatcher {
-  const token = mentionTokenPattern(userId);
-  const upper = userId.toUpperCase();
-  return {
-    matchesId: (id) => id.toUpperCase() === upper,
-    matchesText: (text) => token.test(text),
-  };
-}
-
-/** Matches any user. */
-const ANY_USER_MATCHER: SlackMentionMatcher = {
-  matchesId: () => true,
-  matchesText: (text) => userMentionIds(text).size > 0,
-};
-
-/**
- * How a piece of content refers to the matched users: as a mention Slack
- * renders, as a literal token (inside code or display text), or not at all.
- * `literal` explains an `app_mention` event without making it an invocation;
- * `none` leaves the event unexplained.
- */
-type SlackMentionEvidence = "literal" | "mention" | "none";
-
-/** `mention` if any piece is one, else `literal` if any piece is one. */
-function combineEvidence(
-  evidence: Iterable<SlackMentionEvidence>
-): SlackMentionEvidence {
-  let result: SlackMentionEvidence = "none";
-  for (const item of evidence) {
-    if (item === "mention") {
-      return "mention";
-    }
-    if (item === "literal") {
-      result = "literal";
-    }
-  }
-  return result;
-}
-
-/** Classify a mrkdwn string, where code is carried as backticks. */
-function classifyMrkdwnMention(
-  text: string,
-  matcher: SlackMentionMatcher
-): SlackMentionEvidence {
-  if (!matcher.matchesText(text)) {
-    return "none";
-  }
-  return matcher.matchesText(maskCodeSpans(text)) ? "mention" : "literal";
-}
-
-/**
- * Classify one legacy attachment part. Literal parts render only Slack
- * control sequences, so a `<@U…>` token there is a mention; mrkdwn parts
- * carry code as backticks.
- */
-function classifyAttachmentPart(
-  part: SlackAttachmentPart,
-  matcher: SlackMentionMatcher
-): SlackMentionEvidence {
-  if ("mrkdwn" in part) {
-    return classifyMrkdwnMention(part.mrkdwn, matcher);
-  }
-  return matcher.matchesText(part.literal) ? "mention" : "none";
-}
-
-/**
- * Classify how blocks refer to the matched users.
- *
- * Slack renders a mention from a `user` element, and from a `<@U…>` token in a
- * text object explicitly typed `mrkdwn`. A rich-text `text` element, a link
- * label, and a `raw_text` table cell are display text: a token there stays
- * literal. Inline code (`style.code`) and preformatted elements render
- * literally too, whatever they hold.
- *
- * `blocktext` renders table cells from the same element types; the two must
- * agree on which ones carry a mention, or `message.text` shows a mention the
- * message is not classified as.
- */
-function classifyBlocksMention(
-  blocks: SlackMessageBlock[],
-  matcher: SlackMentionMatcher
-): SlackMentionEvidence {
-  let literal = false;
-
-  const visit = (value: unknown, inCode: boolean): boolean => {
-    if (Array.isArray(value)) {
-      return value.some((item) => visit(item, inCode));
-    }
-    if (!isRecord(value)) {
-      return false;
-    }
-
-    const isCode =
-      inCode ||
-      value.type === "rich_text_preformatted" ||
-      (isRecord(value.style) && value.style.code === true);
-
-    if (
-      value.type === "user" &&
-      typeof value.user_id === "string" &&
-      matcher.matchesId(value.user_id)
-    ) {
-      if (!isCode) {
-        return true;
-      }
-      literal = true;
-    } else if (
-      typeof value.text === "string" &&
-      matcher.matchesText(value.text)
-    ) {
-      if (
-        !isCode &&
-        value.type === "mrkdwn" &&
-        matcher.matchesText(maskCodeSpans(value.text))
-      ) {
-        return true;
-      }
-      literal = true;
-    }
-
-    return (
-      visit(value.elements, isCode) ||
-      visit(value.rows, isCode) ||
-      visit(value.fields, isCode) ||
-      visit(value.text, isCode)
-    );
-  };
-
-  if (blocks.some((block) => visit(block, false))) {
-    return "mention";
-  }
-  return literal ? "literal" : "none";
-}
-
-/**
- * Classify the message body: its blocks and the `text` field.
- *
- * A `rich_text` block is the client-authored copy of `text`, so with one
- * present the blocks decide, and a token in `text` they do not render refers
- * to the user literally. Other blocks are separate from `text`: blocks that
- * show the user decide, and otherwise `text` is classified as mrkdwn.
- */
-function classifyBodyMention(
-  blocks: SlackMessageBlock[],
-  rawText: string,
-  matcher: SlackMentionMatcher
-): SlackMentionEvidence {
-  if (blocks.length === 0) {
-    return classifyMrkdwnMention(rawText, matcher);
-  }
-  const fromBlocks = classifyBlocksMention(blocks, matcher);
-  if (fromBlocks !== "none") {
-    return fromBlocks;
-  }
-  if (blocks.some((block) => block.type === "rich_text")) {
-    return matcher.matchesText(rawText) ? "literal" : "none";
-  }
-  return classifyMrkdwnMention(rawText, matcher);
-}
-
-/**
- * Classify one attachment. Structured content is authoritative for its
- * attachment, so with blocks present the legacy parts are not read.
- */
-function classifyAttachmentMention(
-  attachment: SlackAttachmentContent,
-  matcher: SlackMentionMatcher
-): SlackMentionEvidence {
-  if (attachment.blocks.length > 0) {
-    return classifyBlocksMention(attachment.blocks, matcher);
-  }
-  return combineEvidence(
-    attachment.parts.map((part) => classifyAttachmentPart(part, matcher))
-  );
-}
-
-/**
- * Every user id the blocks reference, as a `user` element or a token in any
- * text, uppercased.
- */
-function blockUserIds(blocks: SlackMessageBlock[]): Set<string> {
-  const ids = new Set<string>();
-  classifyBlocksMention(blocks, {
-    matchesId: (id) => {
-      ids.add(id.toUpperCase());
-      return false;
-    },
-    matchesText: (text) => {
-      for (const id of userMentionIds(text)) {
-        ids.add(id);
-      }
-      return false;
-    },
-  });
-  return ids;
-}
-
-/**
- * Whether the rendered message shows a mention of any user. A token in `text`
- * counts only without a `rich_text` block, and only for an id the blocks do
- * not show literally, matching `classifyBodyMention` for that id.
- */
-function rendersAnyUserMention(
-  blocks: SlackMessageBlock[],
-  rawText: string,
-  attachments: SlackAttachmentContent[]
-): boolean {
-  if (classifyBlocksMention(blocks, ANY_USER_MATCHER) === "mention") {
-    return true;
-  }
-  if (!blocks.some((block) => block.type === "rich_text")) {
-    // The blocks render no mention, so every id they reference is literal.
-    const literalIds = blockUserIds(blocks);
-    for (const userId of userMentionIds(maskCodeSpans(rawText))) {
-      if (!literalIds.has(userId)) {
-        return true;
-      }
-    }
-  }
-  return attachments.some(
-    (attachment) =>
-      classifyAttachmentMention(attachment, ANY_USER_MATCHER) === "mention"
-  );
-}
-
 type SlackContentNode = FormattedContent["children"][number];
 type SlackTable = Extract<SlackContentNode, { type: "table" }>;
 type SlackTableRow = SlackTable["children"][number];
 type SlackTableCell = SlackTableRow["children"][number];
 type SlackPhrasing = SlackTableCell["children"][number];
 
-/** Table extracted from a Slack table block, one mrkdwn string per cell. */
-interface SlackTableData {
-  /**
-   * True when the source rows carry no header styling. GFM tables always
-   * render their first row as a header, so headerless tables get an empty
-   * header row prepended instead of promoting the first data row.
-   */
-  headerless: boolean;
-  rows: string[][];
-}
-
-const TABLE_BLOCK_TYPES = new Set(["table", "data_table"]);
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null;
-}
-
-function str(value: unknown): string | undefined {
-  return typeof value === "string" ? value : undefined;
-}
-
-/**
- * Flatten a table cell (or any rich text element inside one) to mrkdwn.
- * Mentions, channels, and links are emitted as mrkdwn tokens so the format
- * converter renders them the same way it renders body text.
- */
-function blocktext(value: unknown): string {
-  if (!(isRecord(value) && typeof value.type === "string")) {
-    return "";
-  }
-
-  const text = str(value.text);
-  switch (value.type) {
-    case "raw_text":
-      // A raw_text cell is plain text: Slack reserves mentions and links for
-      // rich_text cells, so its control characters render literally. Keep it
-      // aligned with `classifyBlocksMention`, which does not scan these cells.
-      return escapeSlackText(text ?? "");
-    case "link": {
-      const url = str(value.url);
-      if (!url) {
-        return text ?? "";
-      }
-      return text ? `<${url}|${text}>` : `<${url}>`;
-    }
-    case "emoji": {
-      const name = str(value.name);
-      return name ? `:${name}:` : "";
-    }
-    case "user": {
-      const userId = str(value.user_id);
-      return userId ? `<@${userId}>` : "";
-    }
-    case "broadcast": {
-      const range = str(value.range);
-      return range ? `@${range}` : "";
-    }
-    case "channel": {
-      const channelId = str(value.channel_id);
-      return channelId ? `<#${channelId}>` : "";
-    }
-    case "usergroup": {
-      const usergroupId = str(value.usergroup_id);
-      return usergroupId ? `<!subteam^${usergroupId}>` : "";
-    }
-    case "date": {
-      const fallback = str(value.fallback);
-      if (fallback) {
-        return fallback;
-      }
-      // Format the timestamp rather than leaking the raw format template
-      // (e.g. "{date_num}") when Slack omits the fallback.
-      return typeof value.timestamp === "number"
-        ? new Date(value.timestamp * 1000).toISOString().slice(0, 10)
-        : "";
-    }
-    case "color":
-      return str(value.value) ?? "";
-    case "team":
-      return str(value.team_id) ?? "";
-    default:
-      break;
-  }
-  if (text !== undefined) {
-    return text;
-  }
-  const fallback = str(value.label) ?? str(value.url) ?? str(value.file_id);
-  if (fallback !== undefined) {
-    return fallback;
-  }
-  // Raw value cells (raw_number, raw_date, raw_currency, raw_percent,
-  // raw_boolean, …) carry a primitive value when text is absent.
-  if (
-    typeof value.value === "number" ||
-    typeof value.value === "string" ||
-    typeof value.value === "boolean"
-  ) {
-    return String(value.value);
-  }
-  if (!Array.isArray(value.elements)) {
-    return "";
-  }
-
-  const separator =
-    value.type === "rich_text" || value.type === "rich_text_list" ? "\n" : "";
-  return value.elements.map(blocktext).join(separator);
-}
-
-function hasBoldText(value: unknown): boolean {
-  if (!isRecord(value)) {
-    return false;
-  }
-  if (isRecord(value.style) && value.style.bold === true) {
-    return true;
-  }
-  return Array.isArray(value.elements) && value.elements.some(hasBoldText);
-}
-
-function tableData(block: SlackMessageBlock): SlackTableData | null {
-  if (!(TABLE_BLOCK_TYPES.has(block.type) && Array.isArray(block.rows))) {
-    return null;
-  }
-
-  const sourceRows = block.rows.filter(
-    (row): row is unknown[] => Array.isArray(row) && row.length > 0
-  );
-  if (sourceRows.length === 0) {
-    return null;
-  }
-
-  // data_table rows always start with a header row (the outbound renderer in
-  // blocks/index.ts relies on this); pasted `table` blocks mark headers only
-  // via bold cell styling.
-  const headerless = block.type === "table" && !sourceRows[0].some(hasBoldText);
-  return { headerless, rows: sourceRows.map((row) => row.map(blocktext)) };
-}
-
 interface SlackEventTables {
   /** Tables that appear before any other block, rendered above the text. */
   leading: SlackTableData[];
   /** All remaining tables, rendered below the text. */
   trailing: SlackTableData[];
-}
-
-/**
- * Skip attachments that carry someone else's content (link unfurls, app
- * unfurls) — their blocks must not be attributed to the message author.
- */
-function isForeignAttachment(
-  attachment: NonNullable<SlackEvent["attachments"]>[number]
-): boolean {
-  return Boolean(
-    attachment.is_msg_unfurl ||
-      attachment.is_app_unfurl ||
-      attachment.from_url ||
-      attachment.original_url
-  );
 }
 
 /**
@@ -1011,102 +566,6 @@ function eventTables(event: SlackEvent): SlackEventTables {
     leading: parse(blocks.slice(0, splitIdx)),
     trailing: parse(blocks.slice(splitIdx)),
   };
-}
-
-/**
- * Attachments authored by the message sender, in attachment order. Unfurls
- * are excluded everywhere author attachments are read — content, tables, and
- * links alike — because their content is not the author's.
- */
-function authorAttachments(
-  event: SlackEvent
-): NonNullable<SlackEvent["attachments"]> {
-  return (event.attachments ?? []).filter(
-    (attachment) => !isForeignAttachment(attachment)
-  );
-}
-
-/**
- * One piece of attachment text. `mrkdwn` parts go through the format
- * converter (formatting characters are markup); `literal` parts render as
- * plain text where only Slack control sequences (`<@U…>`, `<url|label>`,
- * entity escapes) are honored, so literal `*`/`_`/backticks survive.
- */
-type SlackAttachmentPart = { literal: string } | { mrkdwn: string };
-
-/** Renderable content of one attachment. */
-interface SlackAttachmentContent {
-  /** Structured content. When present, Slack renders only the blocks. */
-  blocks: SlackMessageBlock[];
-  parts: SlackAttachmentPart[];
-  tables: SlackTableData[];
-}
-
-/**
- * Content of a legacy attachment. Alerting integrations (Sentry, PagerDuty,
- * GitHub) put the real payload in `pretext`/`title`/`text`/`fields`, so
- * without this the normalized message keeps only the one-line summary.
- *
- * Slack renders these fields as plain text unless they are listed in the
- * attachment's `mrkdwn_in` array; the parts mirror that so alert text
- * containing shell commands or globs isn't reinterpreted as formatting.
- * `title` is always plain text and links to `title_link` when present.
- *
- * When the attachment carries blocks, Slack renders only the blocks and
- * ignores the legacy fields — mirrored here by preferring extracted tables.
- * Block types the parser can't render fall back to the legacy fields, and
- * `fallback` (the attachment's plain-text stand-in) fills in last so an
- * attachment never silently contributes nothing.
- */
-function attachmentContent(
-  attachment: NonNullable<SlackEvent["attachments"]>[number]
-): SlackAttachmentContent {
-  const blocks = attachment.blocks ?? [];
-  const tables = blocks.flatMap((block) => {
-    const parsed = tableData(block);
-    return parsed ? [parsed] : [];
-  });
-
-  const parts: SlackAttachmentPart[] = [];
-  if (tables.length === 0) {
-    const mrkdwnIn = new Set(attachment.mrkdwn_in ?? []);
-    const push = (value: string | undefined, mrkdwn: boolean) => {
-      const trimmed = value?.trim();
-      if (trimmed) {
-        parts.push(mrkdwn ? { mrkdwn: trimmed } : { literal: trimmed });
-      }
-    };
-
-    push(attachment.pretext, mrkdwnIn.has("pretext"));
-    const title = attachment.title?.trim();
-    if (attachment.title_link) {
-      // Fold the link in as a control sequence so the title renders as a
-      // link node and the URL survives into the normalized message.
-      push(
-        title
-          ? `<${attachment.title_link}|${escapeSlackText(title)}>`
-          : `<${attachment.title_link}>`,
-        false
-      );
-    } else {
-      push(title, false);
-    }
-    push(attachment.text, mrkdwnIn.has("text"));
-    for (const field of attachment.fields ?? []) {
-      const fieldTitle = field.title?.trim();
-      const value = field.value?.trim();
-      push(
-        fieldTitle && value ? `${fieldTitle}: ${value}` : fieldTitle || value,
-        mrkdwnIn.has("fields")
-      );
-    }
-
-    if (parts.length === 0) {
-      push(attachment.fallback, false);
-    }
-  }
-
-  return { blocks, parts, tables };
 }
 
 /** One piece of a layout block body, in block order. */
@@ -1297,69 +756,6 @@ function literalPhrasing(line: string): SlackPhrasing[] {
   }
   flushPlain();
   return children;
-}
-
-/** Slack event payload (raw message format) */
-export interface SlackEvent {
-  /** Legacy attachments (unfurl previews, app unfurls, etc.) */
-  attachments?: Array<{
-    blocks?: SlackMessageBlock[];
-    fallback?: string;
-    fields?: Array<{ title?: string; value?: string; short?: boolean }>;
-    from_url?: string;
-    image_url?: string;
-    is_app_unfurl?: boolean;
-    is_msg_unfurl?: boolean;
-    /** Field names Slack renders as mrkdwn ("pretext", "text", "fields") */
-    mrkdwn_in?: string[];
-    original_url?: string;
-    pretext?: string;
-    service_icon?: string;
-    service_name?: string;
-    text?: string;
-    thumb_url?: string;
-    title?: string;
-    title_link?: string;
-  }>;
-  /** Rich text blocks containing structured elements (links, mentions, etc.) */
-  blocks?: SlackMessageBlock[];
-  bot_id?: string;
-  bot_profile?: { user_id?: string };
-  channel?: string;
-  /** Channel type: "channel", "group", "mpim", or "im" (DM) */
-  channel_type?: string;
-  /** Deleted message timestamp on message_deleted events */
-  deleted_ts?: string;
-  edited?: { ts: string };
-  event_ts?: string;
-  files?: Array<{
-    id?: string;
-    mimetype?: string;
-    url_private?: string;
-    name?: string;
-    size?: number;
-    original_w?: number;
-    original_h?: number;
-  }>;
-  /** Hidden flag on message_changed events (true for unfurl-only updates) */
-  hidden?: boolean;
-  /** Timestamp of the latest reply (present on thread parent messages) */
-  latest_reply?: string;
-  /** Inner message on message_changed events */
-  message?: SlackEvent;
-  /** Previous message snapshot on message_deleted events */
-  previous_message?: SlackEvent;
-  /** Number of replies in the thread (present on thread parent messages) */
-  reply_count?: number;
-  subtype?: string;
-  team?: string;
-  team_id?: string;
-  text?: string;
-  thread_ts?: string;
-  ts?: string;
-  type: string;
-  user?: string;
-  username?: string;
 }
 
 /** Slack reaction event payload */
@@ -4829,33 +4225,7 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
     rawText: string,
     attachments: SlackAttachmentContent[]
   ): boolean | undefined {
-    const blocks = event.blocks ?? [];
-    const botUserId = this.botUserId;
-    if (!botUserId) {
-      return event.type === "app_mention"
-        ? rendersAnyUserMention(blocks, rawText, attachments)
-        : undefined;
-    }
-
-    const matcher = mentionMatcher(botUserId);
-    const evidence = combineEvidence([
-      classifyBodyMention(blocks, rawText, matcher),
-      ...attachments.map((attachment) =>
-        classifyAttachmentMention(attachment, matcher)
-      ),
-    ]);
-    if (evidence === "mention") {
-      return true;
-    }
-
-    if (event.type === "app_mention" && evidence === "none") {
-      return rendersAnyUserMention(blocks, rawText, attachments);
-    }
-
-    // Slack mentions are user-id tokens. With the content inspected, the
-    // absence of one is a definitive non-mention, so a display name in plain or
-    // code-styled text cannot fall through to the SDK's name matching.
-    return false;
+    return classifySelfMention(event, rawText, attachments, this.botUserId);
   }
 
   protected async parseSlackMessage(
@@ -8073,8 +7443,10 @@ export { cardToBlockKit, cardToFallbackText } from "./cards";
 export type { EncryptedTokenData } from "./crypto";
 // Re-export crypto utilities for advanced use
 export { decodeKey } from "./crypto";
+export type { SlackEvent, SlackMessageBlock } from "./event";
 // Re-export format converter for advanced use
 export {
   SlackFormatConverter,
   SlackFormatConverter as SlackMarkdownConverter,
 } from "./markdown";
+export { isBotMention } from "./mention";

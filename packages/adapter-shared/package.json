@@ -10,6 +10,10 @@
     ".": {
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js"
+    },
+    "./mentions": {
+      "types": "./dist/mentions.d.ts",
+      "import": "./dist/mentions.js"
     }
   },
   "main": "./dist/index.js",

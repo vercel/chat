@@ -347,6 +347,20 @@ Set `author.isMe` only when the message was sent by this adapter runtime and sho
 
 Set `isMention` only when the adapter can decide it from the platform's own metadata. Chat SDK uses the value as the mention decision: `true` and `false` are final, and only `undefined` makes it fall back to matching `@username` in `text`. Leave the field unset when the adapter has no mention information instead of reporting `false`. The one exception is direct messages: when no `onDirectMessage` handler is registered, Chat SDK marks every DM as a mention regardless of what the adapter reported.
 
+#### `isBotMention`
+
+Apps that route, acknowledge, or forward webhook events before a Chat SDK bot handles them need the same mention decision without an adapter instance. When a platform can notify the bot for a reference that is not an invocation, such as a bot token inside code, export `isBotMention` so those apps do not reimplement it:
+
+```typescript
+export function isBotMention(event: PlatformEvent, botUserId: string): boolean;
+```
+
+- **Same decision as `isMention`.** It returns `true` exactly when `parseMessage` would set `isMention: true` for that event. Implement both from one function so they cannot diverge.
+- **Raw inbound event.** `event` is the platform's own event object, the same value as the `raw` field of a payload from the adapter's webhook parser. `botUserId` is the bot's own platform user ID.
+- **Runtime-free entry point.** Export it from the adapter's low-level webhook subpath, such as `@chat-adapter/slack/webhook`, so routers can import it without loading the adapter. The package root may re-export it.
+
+The [Slack adapter](https://github.com/vercel/chat/blob/main/packages/adapter-slack/src/mention.ts) implements this contract.
+
 ```typescript title="src/adapter.ts" lineNumbers
 parseMessage(raw: unknown): Message<unknown> {
   const payload = raw as Record<string, unknown>;

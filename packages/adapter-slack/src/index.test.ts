@@ -43,6 +43,7 @@ import type {
 import {
   buildFeedbackButtonsBlock,
   createSlackAdapter,
+  isBotMention,
   SlackAdapter,
 } from "./index";
 import { incomingMessage } from "./test-fixtures";
@@ -15659,5 +15660,110 @@ describe("event routing via authorizations[]", () => {
       isEnterpriseInstall: true,
       token: "xoxb-org",
     });
+  });
+});
+
+describe("isBotMention", () => {
+  const richText = (...elements: Record<string, unknown>[]) => [
+    {
+      type: "rich_text",
+      elements: [{ type: "rich_text_section", elements }],
+    },
+  ];
+  const code = (text: string) => ({
+    type: "text",
+    text,
+    style: { code: true },
+  });
+
+  const cases: [string, Partial<SlackEvent>, boolean][] = [
+    [
+      "a mention outside code",
+      {
+        text: "<@U_BOT> help",
+        blocks: richText({
+          type: "user",
+          user_id: "U_BOT",
+        }) as SlackEvent["blocks"],
+      },
+      true,
+    ],
+    [
+      "a mention beside the bot in code",
+      {
+        text: "<@U_BOT> run `<@U_BOT>`",
+        blocks: richText(
+          { type: "user", user_id: "U_BOT" },
+          { type: "text", text: " run " },
+          code("@bot")
+        ) as SlackEvent["blocks"],
+      },
+      true,
+    ],
+    [
+      "a mention only in a section block",
+      {
+        text: "New request",
+        blocks: [
+          {
+            type: "section",
+            text: { type: "mrkdwn", text: "<@U_BOT> check the deploy" },
+          },
+        ] as SlackEvent["blocks"],
+      },
+      true,
+    ],
+    [
+      "a token only inside code whose blocks drop the bot id",
+      {
+        text: "see `<@U_BOT> skip tests`",
+        blocks: richText(code("@bot skip tests")) as SlackEvent["blocks"],
+      },
+      false,
+    ],
+    [
+      "a code-styled bot reference in the blocks",
+      {
+        text: "the app imports `<@U_BOT>/passport`",
+        blocks: richText(code("<@U_BOT>/passport")) as SlackEvent["blocks"],
+      },
+      false,
+    ],
+    [
+      "a token inside code in section mrkdwn",
+      {
+        text: "see `<@U_BOT>`",
+        blocks: [
+          { type: "section", text: { type: "mrkdwn", text: "see `<@U_BOT>`" } },
+        ] as SlackEvent["blocks"],
+      },
+      false,
+    ],
+    [
+      "a token inside code without blocks",
+      { text: "run `<@U_BOT>` to invoke the bot" },
+      false,
+    ],
+  ];
+
+  it.each(
+    cases
+  )("classifies %s like message.isMention", (_name, fields, expected) => {
+    const event = {
+      type: "app_mention",
+      user: "U_SENDER",
+      channel: "C456",
+      ts: "1234567890.303030",
+      ...fields,
+    } as SlackEvent;
+    const adapter = createSlackAdapter({
+      botToken: "xoxb-test-token",
+      signingSecret: "test-signing-secret",
+      logger: mockLogger,
+      botUserId: "U_BOT",
+    });
+
+    expect(isBotMention(event, "U_BOT")).toBe(expected);
+    expect(adapter.parseMessage(event).isMention).toBe(expected);
   });
 });
