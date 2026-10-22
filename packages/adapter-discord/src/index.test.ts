@@ -11,10 +11,28 @@ import {
   threadIdContract,
 } from "@chat-adapter/tests";
 import type { ChatInstance } from "chat";
-import { Actions, Button, Card, Select, SelectOption } from "chat";
+import {
+  Actions,
+  Button,
+  Card,
+  DEFAULT_MAX_INCOMING_PARSE_LENGTH,
+  paragraph,
+  root,
+  Select,
+  SelectOption,
+  text,
+} from "chat";
 import { type Client, Collection, Events } from "discord.js";
 import { InteractionType } from "discord-api-types/v10";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import {
+  afterEach,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  type MockInstance,
+  vi,
+} from "vitest";
 import {
   createDiscordAdapter,
   DiscordAdapter,
@@ -27,6 +45,9 @@ import {
 import { DiscordFormatConverter } from "./markdown";
 
 const AT_ME_REGEX = /\/@me$/;
+const MARKDOWN_BODY = "**bold** with [a link](https://example.com) and `code`";
+const MARKDOWN_PLAIN_TEXT = "bold with a link and code";
+const OVER_LIMIT_BODY = `**bold** ${"a".repeat(DEFAULT_MAX_INCOMING_PARSE_LENGTH)}`;
 
 // ============================================================================
 // Test Helpers
@@ -1820,6 +1841,74 @@ describe("formatted text extraction", () => {
 
     const message = adapter.parseMessage(rawMessage);
     expect(message.text).toContain("#987654");
+  });
+});
+
+describe("inbound markdown parsing", () => {
+  const adapter = createDiscordAdapter({
+    botToken: "test-token",
+    publicKey: testPublicKey,
+    applicationId: "test-app-id",
+    logger: mockLogger,
+  });
+  let toAstSpy: MockInstance<DiscordFormatConverter["toAst"]>;
+
+  beforeEach(() => {
+    toAstSpy = vi.spyOn(DiscordFormatConverter.prototype, "toAst");
+  });
+
+  afterEach(() => {
+    toAstSpy.mockRestore();
+  });
+
+  function rawMessage(content: string) {
+    return {
+      id: "message123",
+      channel_id: "channel456",
+      author: {
+        id: "user123",
+        username: "testuser",
+        discriminator: "0001",
+      },
+      content,
+      timestamp: "2021-01-01T00:00:00.000Z",
+      edited_timestamp: null,
+      tts: false,
+      mention_everyone: false,
+      mentions: [],
+      mention_roles: [],
+      attachments: [],
+      embeds: [],
+      pinned: false,
+      type: 0,
+    };
+  }
+
+  it("parses markdown once into text and formatted", () => {
+    const message = adapter.parseMessage(rawMessage(MARKDOWN_BODY));
+
+    expect(message.text).toBe(MARKDOWN_PLAIN_TEXT);
+    expect(message.formatted).toMatchObject({
+      children: [
+        {
+          type: "paragraph",
+          children: expect.arrayContaining([
+            expect.objectContaining({ type: "strong" }),
+          ]),
+        },
+      ],
+    });
+    expect(toAstSpy).toHaveBeenCalledOnce();
+  });
+
+  it("keeps an over-limit message verbatim without parsing", () => {
+    const message = adapter.parseMessage(rawMessage(OVER_LIMIT_BODY));
+
+    expect(message.text).toBe(OVER_LIMIT_BODY);
+    expect(message.formatted).toEqual(
+      root([paragraph([text(OVER_LIMIT_BODY)])])
+    );
+    expect(toAstSpy).not.toHaveBeenCalled();
   });
 });
 

@@ -1014,8 +1014,7 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
     return new Message({
       id: activity.id || "",
       threadId,
-      text: this.formatConverter.extractPlainText(normalizedText),
-      formatted: this.formatConverter.toAst(normalizedText),
+      ...this.formatConverter.parseIncoming(normalizedText),
       raw: activity,
       author: this.authorFromActivity(activity),
       metadata: {

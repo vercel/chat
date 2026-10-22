@@ -13,8 +13,23 @@ import {
   selfMessageContract,
   threadIdContract,
 } from "@chat-adapter/tests";
-import { type ChatInstance, getEmoji } from "chat";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import {
+  type ChatInstance,
+  DEFAULT_MAX_INCOMING_PARSE_LENGTH,
+  getEmoji,
+  paragraph,
+  root,
+  text,
+} from "chat";
+import {
+  afterEach,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  type MockInstance,
+  vi,
+} from "vitest";
 import {
   createGitLabAdapter,
   GitLabAdapter,
@@ -23,6 +38,7 @@ import {
   type GitLabNote,
   type GitLabNoteWebhookPayload,
 } from "./index";
+import { GitLabFormatConverter } from "./markdown";
 
 const API_URL = "https://gitlab.example.com/api/v4";
 const TOKEN = "glpat-test-token";
@@ -39,6 +55,9 @@ const AUTH_REQUIRED = /Authentication is required/;
 const BLANK_NOTE_REASON = /\(400\): Note can't be blank$/;
 const FIELD_ERRORS_REASON = /\(422\): note is too long, contains spam$/;
 const ERROR_FIELD_REASON = /\(400\): body is missing$/;
+const MARKDOWN_BODY = "**bold** with [a link](https://example.com) and `code`";
+const MARKDOWN_PLAIN_TEXT = "bold with a link and code";
+const OVER_LIMIT_BODY = `**bold** ${"a".repeat(DEFAULT_MAX_INCOMING_PARSE_LENGTH)}`;
 
 const ENV_KEYS = [
   "GITLAB_TOKEN",
@@ -715,6 +734,63 @@ describe("comment events", () => {
     );
     const [, , message] = vi.mocked(chat.processMessage).mock.calls[0];
     expect(message).toMatchObject({ author: { isBot: true, isMe: false } });
+  });
+});
+
+describe("inbound markdown parsing", () => {
+  let toAstSpy: MockInstance<GitLabFormatConverter["toAst"]>;
+
+  beforeEach(() => {
+    toAstSpy = vi.spyOn(GitLabFormatConverter.prototype, "toAst");
+  });
+
+  afterEach(() => {
+    toAstSpy.mockRestore();
+  });
+
+  async function receiveNote(note: string) {
+    const { adapter, chat } = await setup();
+    await adapter.handleWebhook(
+      webhookRequest(noteEvent({ attributes: { note } }))
+    );
+    const [, , message] = vi.mocked(chat.processMessage).mock.calls[0];
+    return message;
+  }
+
+  it("parses a markdown comment once into text and formatted", async () => {
+    const message = await receiveNote(MARKDOWN_BODY);
+
+    expect(message.text).toBe(MARKDOWN_PLAIN_TEXT);
+    expect(message.formatted).toMatchObject({
+      children: [
+        {
+          type: "paragraph",
+          children: expect.arrayContaining([
+            expect.objectContaining({ type: "strong" }),
+          ]),
+        },
+      ],
+    });
+    expect(toAstSpy).toHaveBeenCalledOnce();
+  });
+
+  it("keeps an over-limit comment verbatim without parsing", async () => {
+    const message = await receiveNote(OVER_LIMIT_BODY);
+
+    expect(message.text).toBe(OVER_LIMIT_BODY);
+    expect(message.formatted).toEqual(
+      root([paragraph([text(OVER_LIMIT_BODY)])])
+    );
+    expect(toAstSpy).not.toHaveBeenCalled();
+  });
+
+  it("detects a mention in an over-limit comment", async () => {
+    const message = await receiveNote(
+      `@project_42_bot_abc123 ${"a".repeat(DEFAULT_MAX_INCOMING_PARSE_LENGTH)}`
+    );
+
+    expect(message.isMention).toBe(true);
+    expect(toAstSpy).not.toHaveBeenCalled();
   });
 });
 

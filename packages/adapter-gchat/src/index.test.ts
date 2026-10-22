@@ -6,8 +6,25 @@ import {
   threadIdContract,
 } from "@chat-adapter/tests";
 import { auth } from "@googleapis/chat";
-import type { ChatInstance, Lock, StateAdapter } from "chat";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import {
+  type ChatInstance,
+  DEFAULT_MAX_INCOMING_PARSE_LENGTH,
+  type Lock,
+  type Message,
+  paragraph,
+  root,
+  type StateAdapter,
+  text,
+} from "chat";
+import {
+  afterEach,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  type MockInstance,
+  vi,
+} from "vitest";
 import {
   createGoogleChatAdapter,
   GoogleChatAdapter,
@@ -15,6 +32,7 @@ import {
   type GoogleChatMessage,
   type GoogleChatThreadId,
 } from "./index";
+import { GoogleChatFormatConverter } from "./markdown";
 import type {
   PubSubPushMessage,
   WorkspaceEventNotification,
@@ -22,6 +40,9 @@ import type {
 
 const FOREIGN_SPACE_REGEX = /does not belong to space/;
 const INVALID_MESSAGE_ID_REGEX = /Invalid Google Chat message id/;
+const MARKDOWN_BODY = "**bold** with [a link](https://example.com) and `code`";
+const MARKDOWN_PLAIN_TEXT = "bold with a link and code";
+const OVER_LIMIT_BODY = `**bold** ${"a".repeat(DEFAULT_MAX_INCOMING_PARSE_LENGTH)}`;
 
 const DM_SUFFIX_PATTERN = /:dm$/;
 const VERIFICATION_REQUIRED_PATTERN =
@@ -1520,6 +1541,102 @@ describe("GoogleChatAdapter", () => {
       expect(msg.attachments).toHaveLength(1);
       expect(msg.attachments[0].type).toBe("file");
       expect(msg.attachments[0].name).toBe("doc.pdf");
+    });
+  });
+
+  describe("inbound markdown parsing", () => {
+    let toAstSpy: MockInstance<GoogleChatFormatConverter["toAst"]>;
+
+    beforeEach(() => {
+      toAstSpy = vi.spyOn(GoogleChatFormatConverter.prototype, "toAst");
+    });
+
+    afterEach(() => {
+      toAstSpy.mockRestore();
+    });
+
+    const receivers: [string, (body: string) => Promise<Message<unknown>>][] = [
+      [
+        "a webhook message",
+        async (body) => {
+          const { adapter } = await createInitializedAdapter();
+          return adapter.parseMessage(makeMessageEvent({ messageText: body }));
+        },
+      ],
+      [
+        "a Pub/Sub message",
+        async (body) => {
+          const { adapter } = await createInitializedAdapter();
+          const notification: WorkspaceEventNotification = {
+            eventType: "google.workspace.chat.message.v1.created",
+            targetResource: "//chat.googleapis.com/spaces/ABC123",
+            message: {
+              name: "spaces/ABC123/messages/msg1",
+              sender: { name: "users/100", displayName: "User", type: "HUMAN" },
+              text: body,
+              createTime: new Date().toISOString(),
+            },
+          };
+          return (adapter as any).parsePubSubMessage(
+            notification,
+            "gchat:spaces/ABC123"
+          );
+        },
+      ],
+      [
+        "a fetched message",
+        async (body) => {
+          const { adapter } = await createInitializedAdapter();
+          const mockGet = vi.fn().mockResolvedValue({
+            data: {
+              name: "spaces/ABC123/messages/msg1",
+              text: body,
+              sender: { name: "users/1", displayName: "Alice", type: "HUMAN" },
+              createTime: "2024-01-01T00:00:00Z",
+            },
+          });
+          (adapter as any).chatApi = { spaces: { messages: { get: mockGet } } };
+          const message = await adapter.fetchMessage(
+            "gchat:spaces/ABC123",
+            "spaces/ABC123/messages/msg1"
+          );
+          if (!message) {
+            throw new Error("Expected fetchMessage to return a message");
+          }
+          return message;
+        },
+      ],
+    ];
+
+    it.each(
+      receivers
+    )("parses %s once into text and formatted", async (_, receive) => {
+      const message = await receive(MARKDOWN_BODY);
+
+      expect(message.text).toBe(MARKDOWN_PLAIN_TEXT);
+      expect(message.formatted).toMatchObject({
+        children: [
+          {
+            type: "paragraph",
+            children: expect.arrayContaining([
+              expect.objectContaining({ type: "strong" }),
+            ]),
+          },
+        ],
+      });
+      expect(toAstSpy).toHaveBeenCalledOnce();
+    });
+
+    it.each(
+      receivers
+    )("keeps %s over the limit verbatim without parsing", async (_, receive) => {
+      const message = await receive(OVER_LIMIT_BODY);
+
+      expect(message.text).toBe(OVER_LIMIT_BODY);
+      expect(message.formatted).toEqual(
+        root([paragraph([text(OVER_LIMIT_BODY)])])
+      );
+      expect(toAstSpy).not.toHaveBeenCalled();
     });
   });
 

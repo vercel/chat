@@ -286,6 +286,12 @@ export function getNodeValue(node: Content): string {
 }
 
 /**
+ * Default maximum length of inbound message text that
+ * `BaseFormatConverter.parseIncoming` parses as markdown.
+ */
+export const DEFAULT_MAX_INCOMING_PARSE_LENGTH = 16_384;
+
+/**
  * Parse markdown string into an AST.
  * Supports GFM (GitHub Flavored Markdown) for strikethrough, tables, etc.
  */
@@ -609,6 +615,31 @@ export abstract class BaseFormatConverter implements FormatConverter {
 
   extractPlainText(platformText: string): string {
     return toPlainText(this.toAst(platformText));
+  }
+
+  /**
+   * Maximum length, in UTF-16 code units, of inbound text that
+   * `parseIncoming` will parse as markdown. The markdown parser has
+   * superlinear worst cases, so longer text is kept verbatim in a single
+   * text node.
+   * Subclasses can override this to match their platform's limits.
+   */
+  protected maxIncomingParseLength = DEFAULT_MAX_INCOMING_PARSE_LENGTH;
+
+  /**
+   * Parse inbound platform text into the plain text and AST for a `Message`.
+   * Parses once, and skips markdown parsing for text longer than
+   * `maxIncomingParseLength`.
+   */
+  parseIncoming(platformText: string): { formatted: Root; text: string } {
+    if (platformText.length > this.maxIncomingParseLength) {
+      return {
+        text: platformText,
+        formatted: root([paragraph([text(platformText)])]),
+      };
+    }
+    const formatted = this.toAst(platformText);
+    return { text: toPlainText(formatted), formatted };
   }
 
   // Convenience methods for markdown string I/O

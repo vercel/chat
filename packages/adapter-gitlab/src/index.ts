@@ -829,12 +829,12 @@ export class GitLabAdapter
       noteableIid: raw.noteableIid,
       discussionId: raw.discussionId,
     });
-    const formatted = this.formatConverter.toAst(note.body);
+    const { formatted, text } = this.formatConverter.parseIncoming(note.body);
 
     return new Message({
       id,
       threadId,
-      text: this.formatConverter.extractPlainText(note.body),
+      text,
       formatted,
       raw,
       author: this.parseAuthor(note.author),

@@ -357,8 +357,7 @@ parseMessage(raw: unknown): Message<unknown> {
       roomId: payload.room_id as string,
       eventId: payload.thread_root_id as string | undefined,
     }),
-    text: payload.body as string,
-    formatted: this.converter.toAst(payload.body as string),
+    ...this.converter.parseIncoming(payload.body as string),
     raw,
     author: {
       userId: payload.sender as string,
@@ -600,6 +599,8 @@ export class MatrixFormatConverter extends BaseFormatConverter {
 ```
 
 For platforms with non-standard formatting, implement custom parsing in `toAst()` and rendering in `fromAst()`. See the [Discord adapter](https://github.com/vercel/chat/blob/main/packages/adapter-discord/src/markdown.ts) for an example of handling platform-specific mention syntax.
+
+Use `parseIncoming()` to build a message's `text` and `formatted` fields from incoming platform text. It calls `toAst()` once and derives the plain text from that AST. Very long text can be slow to parse, so text longer than `maxIncomingParseLength` (16,384 characters by default) skips `toAst()` and arrives as a single unformatted text node. Override `maxIncomingParseLength` in your converter if your platform needs a different limit.
 
 ## Optional methods
 

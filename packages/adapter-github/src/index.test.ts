@@ -9,8 +9,18 @@ import {
   selfMessageContract,
   threadIdContract,
 } from "@chat-adapter/tests";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { DEFAULT_MAX_INCOMING_PARSE_LENGTH, paragraph, root, text } from "chat";
+import {
+  afterEach,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  type MockInstance,
+  vi,
+} from "vitest";
 import { createGitHubAdapter, GitHubAdapter } from "./index";
+import { GitHubFormatConverter } from "./markdown";
 import type {
   GitHubThreadId,
   IssueCommentWebhookPayload,
@@ -96,6 +106,9 @@ const WEBHOOK_SECRET = "test-secret";
 const INSTALLATION_ERROR_PATTERN = /installation/i;
 const TEST_BOT_MENTION_WITH_WHITESPACE_REGEX = /@test-bot\s+hi there/;
 const EMPTY_INSTALLATION_TOKEN_PATTERN = /empty installation token/i;
+const MARKDOWN_BODY = "**bold** with [a link](https://example.com) and `code`";
+const MARKDOWN_PLAIN_TEXT = "bold with a link and code";
+const OVER_LIMIT_BODY = `**bold** ${"a".repeat(DEFAULT_MAX_INCOMING_PARSE_LENGTH)}`;
 const WEBHOOK_LOG_SENTINELS = [
   "secret-access-token",
   "secret-refresh-token",
@@ -2085,6 +2098,97 @@ describe("GitHubAdapter", () => {
       const message = adapter.parseMessage(raw);
       expect(message.metadata.edited).toBe(false);
       expect(message.metadata.editedAt).toBeUndefined();
+    });
+  });
+
+  describe("inbound markdown parsing (via parseMessage)", () => {
+    let toAstSpy: MockInstance<GitHubFormatConverter["toAst"]>;
+
+    beforeEach(() => {
+      toAstSpy = vi.spyOn(GitHubFormatConverter.prototype, "toAst");
+    });
+
+    afterEach(() => {
+      toAstSpy.mockRestore();
+    });
+
+    function issueComment(body: string) {
+      return {
+        type: "issue_comment" as const,
+        comment: {
+          id: 100,
+          body,
+          user: { id: 1, login: "testuser", type: "User" as const },
+          created_at: "2024-01-01T00:00:00Z",
+          updated_at: "2024-01-01T00:00:00Z",
+          html_url: "https://github.com/acme/app/pull/42#issuecomment-100",
+        },
+        repository: {
+          id: 1,
+          name: "app",
+          full_name: "acme/app",
+          owner: { id: 10, login: "acme", type: "User" as const },
+        },
+        prNumber: 42,
+      };
+    }
+
+    function reviewComment(body: string) {
+      return {
+        type: "review_comment" as const,
+        comment: {
+          id: 200,
+          body,
+          user: { id: 2, login: "reviewer", type: "User" as const },
+          created_at: "2024-01-01T00:00:00Z",
+          updated_at: "2024-01-01T00:00:00Z",
+          html_url: "https://github.com/acme/app/pull/42#discussion_r200",
+          path: "src/index.ts",
+          diff_hunk: "@@",
+          commit_id: "abc",
+          original_commit_id: "abc",
+        },
+        repository: {
+          id: 1,
+          name: "app",
+          full_name: "acme/app",
+          owner: { id: 10, login: "acme", type: "User" as const },
+        },
+        prNumber: 42,
+      };
+    }
+
+    it.each([
+      ["issue comment", issueComment],
+      ["review comment", reviewComment],
+    ])("parses %s markdown once into text and formatted", (_, build) => {
+      const message = adapter.parseMessage(build(MARKDOWN_BODY));
+
+      expect(message.text).toBe(MARKDOWN_PLAIN_TEXT);
+      expect(message.formatted).toMatchObject({
+        children: [
+          {
+            type: "paragraph",
+            children: expect.arrayContaining([
+              expect.objectContaining({ type: "strong" }),
+            ]),
+          },
+        ],
+      });
+      expect(toAstSpy).toHaveBeenCalledOnce();
+    });
+
+    it.each([
+      ["issue comment", issueComment],
+      ["review comment", reviewComment],
+    ])("keeps an over-limit %s verbatim without parsing", (_, build) => {
+      const message = adapter.parseMessage(build(OVER_LIMIT_BODY));
+
+      expect(message.text).toBe(OVER_LIMIT_BODY);
+      expect(message.formatted).toEqual(
+        root([paragraph([text(OVER_LIMIT_BODY)])])
+      );
+      expect(toAstSpy).not.toHaveBeenCalled();
     });
   });
 
