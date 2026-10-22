@@ -1,5 +1,19 @@
 # @chat-adapter/teams
 
+## 4.44.0
+
+### Patch Changes
+
+- 49e6833: Add `BaseFormatConverter.parseIncoming()`, which returns a message's `text` and `formatted` AST from a single markdown parse. Very long text can be slow to parse, so text longer than `maxIncomingParseLength` (default `DEFAULT_MAX_INCOMING_PARSE_LENGTH`, 16,384 characters) skips parsing: `text` holds the raw input and `formatted` holds it as a single text node. Subclasses can override `maxIncomingParseLength`.
+  
+  The Discord, Google Chat, GitHub, GitLab, and Teams adapters now use `parseIncoming()` for incoming messages, so they parse each message once instead of twice. Messages over the limit keep their content but lose markdown structure in `formatted`. In Teams, `text` for such a message also keeps the raw HTML tags, and in GitLab a mention inside a code block or quote in such a note counts as a mention.
+  
+  Upstream releases fix slow parsing of long lists in `mdast-util-from-markdown` 2.1.0 and of large tables in `micromark-extension-gfm-table` 2.1.2. Both are within the ranges Chat SDK's dependencies already accept, so update them in your lockfile to pick up the fixes. Keep `micromark` at 4.0.2, since 4.0.3 slows down parsing of block quotes, nested lists, and setext headings.
+- 5781d46: Set `message.isMention` to `false` when an incoming message's mention entities do not mention the bot. It was left unset, so Chat fell back to matching `@userName` in the text, and a bot named `Bot` also handled mentions of another bot named `Bot Dev`. The mention entity ID is now compared without case, and a plain-text `@bot` without a mention entity no longer counts as a mention in group chats or channels.
+- Updated dependencies [49e6833]
+  - chat@4.44.0
+  - @chat-adapter/shared@4.44.0
+
 ## 4.43.0
 
 ### Patch Changes
