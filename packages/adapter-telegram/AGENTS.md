@@ -94,6 +94,7 @@ adapter encodes both:
 telegram:{chatId}                       # plain chat / DM
 telegram:{chatId}:{messageThreadId}     # topic in a forum group
 telegram:biz:{connectionId}:{chatId}    # Connected Business Bot chat
+telegram:guest:{chatId}:{guestQueryId}  # one guest-mode call
 ```
 
 `isDM(threadId)` returns `true` when `chat.type === "private"`.
@@ -128,6 +129,10 @@ business thread under `telegram:biz`.
      connection from state (falling back to `getBusinessConnection`),
      drop owner-typed and `sender_business_bot` echoes, then route
      slash commands, media groups, and messages like `message`.
+   - `guest_message` → one thread per call, always a mention. The single
+     reply goes through `answerGuestQuery`; edits use the returned
+     `inline_message_id`. The bot is not a chat member, so typing,
+     reactions, deletes, and `getChat` are unavailable.
 3. **`waitUntil`** — outbound API calls (`sendMessage`,
    `editMessageText`, etc.) run inside `waitUntil` so the webhook
    response lands quickly.

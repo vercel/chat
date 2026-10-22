@@ -309,6 +309,22 @@ When polling, Business mode always sends an explicit `allowed_updates` list (the
 
 Business thread IDs start with `telegram:biz`, so state adapters that shard by the first two ID segments (such as [Cloudflare Agents](/adapters/vendor-official/cloudflare-agents#state-sharding)) place every business conversation in one shard. Override the sharder with a key that includes the connection ID if that matters for your deployment.
 
+## Guest mode
+
+With [guest mode](https://core.telegram.org/bots/features#guest-bots), users can mention your bot, or reply to one of its messages, in chats the bot isn't a member of. Turn it on in your bot's settings in BotFather. The adapter handles the resulting `guest_message` updates without extra configuration and routes each one to `onNewMention`.
+
+Each guest call is its own thread with the ID format `telegram:guest:{chatId}:{guestQueryId}`. Telegram allows one reply per call, which the adapter sends with `answerGuestQuery`. Edits address that reply by its `inline_message_id`, so a streamed `thread.post()`, or a post you later `edit()`, can keep updating the answer. Post once per thread and edit that message for anything that follows.
+
+The bot isn't a member of the chat, so a few Bot API limits apply to guest threads:
+
+- Replies are text only. Posting files or attachments throws a `ValidationError`.
+- `delete()`, `addReaction`, and `removeReaction` throw a `NotImplementedError`, and `startTyping()` does nothing.
+- `fetchThread()` returns the chat details from the guest message instead of calling `getChat`.
+- Clicks on inline keyboard buttons in a guest reply don't reach `onAction`.
+- Guest threads always use post-and-edit streaming, even with `nativeStreaming` on.
+
+Telegram sends `guest_message` updates by default. If you set `allowed_updates` yourself when registering a webhook or in `longPolling.allowedUpdates`, include `guest_message`. Business mode's explicit polling list already includes it.
+
 ## Limitations
 
 - Telegram does not expose full historical message APIs to bots. `fetchMessages` returns adapter-cached messages from the current process.

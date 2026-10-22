@@ -103,6 +103,11 @@ export interface TelegramThreadId {
   businessConnectionId?: string;
   /** Telegram chat ID. */
   chatId: string;
+  /**
+   * Guest query ID for a guest-mode call. Replies go through
+   * `answerGuestQuery` instead of `sendMessage`.
+   */
+  guestQueryId?: string;
   /** Optional forum topic ID for supergroup topics. */
   messageThreadId?: number;
 }
@@ -499,6 +504,8 @@ export interface TelegramMessage {
   entities?: TelegramMessageEntity[];
   from?: TelegramUser;
   game?: { description?: string; title: string };
+  /** Set on `guest_message` updates; answer it with `answerGuestQuery`. */
+  guest_query_id?: string;
   invoice?: {
     currency: string;
     description?: string;
@@ -567,6 +574,14 @@ export interface TelegramInlineKeyboardButton {
  */
 export interface TelegramInlineKeyboardMarkup {
   inline_keyboard: TelegramInlineKeyboardButton[][];
+}
+
+/**
+ * Telegram guest reply, returned by `answerGuestQuery`.
+ * @see https://core.telegram.org/bots/api#sentguestmessage
+ */
+export interface TelegramSentGuestMessage {
+  inline_message_id: string;
 }
 
 /**
@@ -646,6 +661,7 @@ export interface TelegramUpdate {
   edited_business_message?: TelegramMessage;
   edited_channel_post?: TelegramMessage;
   edited_message?: TelegramMessage;
+  guest_message?: TelegramMessage;
   message?: TelegramMessage;
   message_reaction?: TelegramMessageReactionUpdated;
   update_id: number;
