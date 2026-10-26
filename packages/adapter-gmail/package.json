@@ -44,7 +44,7 @@
     "jose": "^6.2.3",
     "mimetext": "^3.0.28",
     "postal-mime": "^3.0.0",
-    "zod": "^4.3.6"
+    "zod": "^4.6.6"
   },
   "devDependencies": {
     "@chat-adapter/state-memory": "workspace:*",
