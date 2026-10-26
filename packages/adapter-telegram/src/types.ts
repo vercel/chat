@@ -33,7 +33,8 @@ export interface TelegramAdapterConfig {
    * - split: send the full text as consecutive messages, each within the
    *   limit, broken at block, line, or word boundaries with formatting kept
    *   intact. Only the first part replies to `replyToMessageId`, and the
-   *   returned message is the last part.
+   *   returned message is the last part. A rate-limited part is sent again
+   *   after `retry_after` (up to 3 attempts, waiting at most 30 seconds).
    *
    * Applies to text-only posts. Cards, captions, edits, and streaming edits
    * still truncate.

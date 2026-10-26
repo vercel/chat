@@ -142,8 +142,27 @@ function splitChildren(node: ParentNode, wrap: Wrap, fits: Fits): Nodes[] {
   const children = node.children as Nodes[];
   const pieces: Nodes[] = [];
 
+  // Repeat a table's header row in every part, so later parts don't promote
+  // their first body row to the header. Skip it when the header can't share a
+  // part with a body row, since repeating it would split every row apart.
+  const [firstChild, secondChild] = children;
+  const header =
+    node.type === "table" &&
+    firstChild &&
+    secondChild &&
+    fits(wrap(withChildren(node, [firstChild, secondChild], 0)))
+      ? firstChild
+      : undefined;
+
+  const build = (items: Nodes[], firstIndex: number): Nodes =>
+    withChildren(
+      node,
+      header && firstIndex > 0 ? [header, ...items] : items,
+      firstIndex
+    );
+
   const fitsWith = (items: Nodes[], firstIndex: number): boolean =>
-    fits(wrap(withChildren(node, items, firstIndex)));
+    fits(wrap(build(items, firstIndex)));
 
   let index = 0;
   while (index < children.length) {
@@ -152,9 +171,7 @@ function splitChildren(node: ParentNode, wrap: Wrap, fits: Fits): Nodes[] {
       fitsWith(children.slice(start, start + n), start)
     );
     if (count > 0) {
-      pieces.push(
-        withChildren(node, children.slice(start, start + count), start)
-      );
+      pieces.push(build(children.slice(start, start + count), start));
       index += count;
       continue;
     }
@@ -163,11 +180,11 @@ function splitChildren(node: ParentNode, wrap: Wrap, fits: Fits): Nodes[] {
     const child = children[start] as Nodes;
     const childPieces = splitNode(
       child,
-      (piece) => wrap(withChildren(node, [piece], start)),
+      (piece) => wrap(build([piece], start)),
       fits
     );
     for (const piece of childPieces.slice(0, -1)) {
-      pieces.push(withChildren(node, [piece], start));
+      pieces.push(build([piece], start));
     }
 
     // The last piece may still share a part with the following siblings.
@@ -176,11 +193,7 @@ function splitChildren(node: ParentNode, wrap: Wrap, fits: Fits): Nodes[] {
       fitsWith([last, ...children.slice(start + 1, start + 1 + n)], start)
     );
     pieces.push(
-      withChildren(
-        node,
-        [last, ...children.slice(start + 1, start + 1 + extra)],
-        start
-      )
+      build([last, ...children.slice(start + 1, start + 1 + extra)], start)
     );
     index = start + 1 + extra;
   }

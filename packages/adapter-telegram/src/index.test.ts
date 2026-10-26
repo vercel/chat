@@ -8,6 +8,7 @@ import {
 } from "@chat-adapter/shared";
 import {
   createMockChatInstance,
+  createMockLogger,
   createMockState,
   mockLogger,
   threadIdContract,
@@ -8044,6 +8045,8 @@ describe("Telegram Business mode", () => {
   });
 });
 
+const SPLIT_TABLE_HEADER_LINE = /^Name\s+\|\s+Value\s*$/;
+
 // These tests parse and render the issue's ~10k character sample several
 // times per post. That takes well under a second locally but can pass the
 // default 5s timeout under CI coverage instrumentation.
@@ -8062,13 +8065,22 @@ describe("longMessages: split", { timeout: 20_000 }, () => {
       text?: string;
     };
     method: string;
+    ok: boolean;
   }
 
   let sent: SentCall[];
 
-  function mockTelegram(options: { rich?: boolean } = {}): void {
+  function mockTelegram(
+    options: {
+      rich?: boolean;
+      // Return a response to override a send, given the method and how many
+      // calls to that method came before it.
+      respond?: (method: string, priorCalls: number) => Response | undefined;
+    } = {}
+  ): void {
     sent = [];
     let nextMessageId = 100;
+    const callsByMethod = new Map<string, number>();
     mockFetch.mockImplementation(async (input, init) => {
       const method = String(input).split("/").pop() ?? "";
       if (method === "getMe") {
@@ -8080,10 +8092,18 @@ describe("longMessages: split", { timeout: 20_000 }, () => {
         });
       }
       const body = JSON.parse(String(init?.body)) as SentCall["body"];
-      sent.push({ method, body });
+      const priorCalls = callsByMethod.get(method) ?? 0;
+      callsByMethod.set(method, priorCalls + 1);
+      const override = options.respond?.(method, priorCalls);
+      if (override) {
+        sent.push({ method, body, ok: false });
+        return override;
+      }
       if (method === "sendRichMessage" && !options.rich) {
+        sent.push({ method, body, ok: false });
         return telegramError(404, 404, "Not Found: method not found");
       }
+      sent.push({ method, body, ok: true });
       nextMessageId += 1;
       return telegramOk(
         sampleMessage({ message_id: nextMessageId, text: body.text ?? "" })
@@ -8091,12 +8111,14 @@ describe("longMessages: split", { timeout: 20_000 }, () => {
     });
   }
 
-  async function createSplitAdapter(): Promise<TelegramAdapter> {
+  async function createSplitAdapter(
+    logger = mockLogger
+  ): Promise<TelegramAdapter> {
     const adapter = createTelegramAdapter({
       botToken: "token",
       longMessages: "split",
       mode: "webhook",
-      logger: mockLogger,
+      logger,
       userName: "mybot",
     });
     await adapter.initialize(createMockChat());
@@ -8104,7 +8126,22 @@ describe("longMessages: split", { timeout: 20_000 }, () => {
   }
 
   function sentMessages(): SentCall[] {
-    return sent.filter((call) => call.method === "sendMessage");
+    return sent.filter((call) => call.method === "sendMessage" && call.ok);
+  }
+
+  function stubSleep(adapter: TelegramAdapter) {
+    return vi
+      .spyOn(
+        adapter as unknown as { sleep: (delayMs: number) => Promise<void> },
+        "sleep"
+      )
+      .mockResolvedValue(undefined);
+  }
+
+  function rateLimited(retryAfter: number): Response {
+    return telegramError(429, 429, "Too Many Requests: retry later", {
+      retry_after: retryAfter,
+    });
   }
 
   it("rejects an unknown strategy", () => {
@@ -8235,5 +8272,171 @@ describe("longMessages: split", { timeout: 20_000 }, () => {
     expect(messages.map(({ body }) => body.text).join(" ")).toBe(
       words.join(" ")
     );
+  });
+
+  it("repeats a split table's header in every message", async () => {
+    mockTelegram();
+    const adapter = await createSplitAdapter();
+    const rows = Array.from(
+      { length: 400 },
+      (_, index) => `| row ${index} | value ${index} |`
+    );
+
+    await adapter.postMessage("telegram:123", {
+      markdown: `| Name | Value |\n|---|---|\n${rows.join("\n")}`,
+    });
+
+    const messages = sentMessages();
+    expect(messages.length).toBeGreaterThan(1);
+    const bodyLines: string[] = [];
+    for (const { body } of messages) {
+      const lines = (body.text ?? "").split("\n");
+      expect(body.text?.length).toBeLessThanOrEqual(TELEGRAM_MESSAGE_LIMIT);
+      expect(lines[0]).toBe("```");
+      expect(lines[1]).toMatch(SPLIT_TABLE_HEADER_LINE);
+      // Skip the fence, header, and separator lines and the closing fence.
+      bodyLines.push(...lines.slice(3, -1));
+    }
+    expect(bodyLines.map((line) => line.split("|")[0]?.trim())).toEqual(
+      Array.from({ length: 400 }, (_, index) => `row ${index}`)
+    );
+  });
+
+  describe("rate limits", () => {
+    const words = Array.from({ length: 2000 }, (_, index) => `w${index}`);
+
+    it("waits out retry_after and resends a rate-limited part once", async () => {
+      mockTelegram({
+        respond: (method, priorCalls) =>
+          method === "sendMessage" && priorCalls === 1
+            ? rateLimited(2)
+            : undefined,
+      });
+      const adapter = await createSplitAdapter(createMockLogger());
+      const sleep = stubSleep(adapter);
+
+      const result = await adapter.postMessage("telegram:123", words.join(" "));
+
+      expect(sleep).toHaveBeenCalledTimes(1);
+      expect(sleep).toHaveBeenCalledWith(2000);
+      const failed = sent.filter((call) => !call.ok);
+      expect(failed).toHaveLength(1);
+      // The rate-limited part is resent with the same text, right after.
+      const failedIndex = sent.indexOf(failed[0] as SentCall);
+      expect(sent[failedIndex + 1]?.body.text).toBe(failed[0]?.body.text);
+      // Nothing is lost or duplicated.
+      const messages = sentMessages();
+      expect(messages.map(({ body }) => body.text).join(" ")).toBe(
+        words.join(" ")
+      );
+      expect(result.id).toBe(`123:${100 + messages.length}`);
+    });
+
+    it("resends a rate-limited part after a rich send falls back", async () => {
+      mockTelegram({
+        respond: (method, priorCalls) =>
+          method === "sendMessage" && priorCalls === 1
+            ? rateLimited(0)
+            : undefined,
+      });
+      const adapter = await createSplitAdapter(createMockLogger());
+      const sleep = stubSleep(adapter);
+
+      await adapter.postMessage("telegram:123", { markdown: ISSUE_MARKDOWN });
+
+      expect(sent[0]?.method).toBe("sendRichMessage");
+      expect(sleep).toHaveBeenCalledWith(0);
+      const combined = sentMessages()
+        .map(({ body }) => body.text)
+        .join("\n\n");
+      expect(combined).toBe(
+        new TelegramFormatConverter().fromMarkdown(ISSUE_MARKDOWN)
+      );
+    });
+
+    it("resends a rate-limited rich part", async () => {
+      mockTelegram({
+        rich: true,
+        respond: (method, priorCalls) =>
+          method === "sendRichMessage" && priorCalls === 1
+            ? rateLimited(1)
+            : undefined,
+      });
+      const adapter = await createSplitAdapter(createMockLogger());
+      const sleep = stubSleep(adapter);
+      const paragraphs = Array.from(
+        { length: 1200 },
+        (_, index) => `Paragraph ${index} with some filler text to pad it out.`
+      );
+
+      await adapter.postMessage("telegram:123", {
+        markdown: paragraphs.join("\n\n"),
+      });
+
+      expect(sleep).toHaveBeenCalledWith(1000);
+      const delivered = sent
+        .filter((call) => call.ok)
+        .map(({ body }) => (body.rich_message?.markdown ?? "").trim());
+      expect(delivered.length).toBeGreaterThan(1);
+      expect(delivered.join("\n\n").split("\n\n")).toEqual(paragraphs);
+    });
+
+    it("rethrows when retry_after exceeds the cap and reports the partial send", async () => {
+      mockTelegram({
+        respond: (method, priorCalls) =>
+          method === "sendMessage" && priorCalls === 1
+            ? rateLimited(60)
+            : undefined,
+      });
+      const logger = createMockLogger();
+      const adapter = await createSplitAdapter(logger);
+      const sleep = stubSleep(adapter);
+
+      await expect(
+        adapter.postMessage("telegram:123", words.join(" "))
+      ).rejects.toBeInstanceOf(AdapterRateLimitError);
+
+      expect(sleep).not.toHaveBeenCalled();
+      expect(sentMessages()).toHaveLength(1);
+      expect(logger.warn).toHaveBeenCalledWith(
+        "Telegram split message only partly sent",
+        expect.objectContaining({ sentParts: 1, threadId: "telegram:123" })
+      );
+    });
+
+    it("gives up after three attempts at one part", async () => {
+      mockTelegram({
+        respond: (method, priorCalls) =>
+          method === "sendMessage" && priorCalls >= 1
+            ? rateLimited(0)
+            : undefined,
+      });
+      const adapter = await createSplitAdapter(createMockLogger());
+      const sleep = stubSleep(adapter);
+
+      await expect(
+        adapter.postMessage("telegram:123", words.join(" "))
+      ).rejects.toBeInstanceOf(AdapterRateLimitError);
+
+      expect(sentMessages()).toHaveLength(1);
+      expect(sent.filter((call) => !call.ok)).toHaveLength(3);
+      expect(sleep).toHaveBeenCalledTimes(2);
+    });
+
+    it("does not retry a rate-limited post that fits in one message", async () => {
+      mockTelegram({
+        respond: (method) =>
+          method === "sendMessage" ? rateLimited(0) : undefined,
+      });
+      const adapter = await createSplitAdapter(createMockLogger());
+      const sleep = stubSleep(adapter);
+
+      await expect(
+        adapter.postMessage("telegram:123", "hello")
+      ).rejects.toBeInstanceOf(AdapterRateLimitError);
+
+      expect(sent).toHaveLength(1);
+      expect(sleep).not.toHaveBeenCalled();
+    });
   });
 });

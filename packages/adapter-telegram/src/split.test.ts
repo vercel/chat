@@ -1,9 +1,17 @@
-import { parseMarkdown, type Root, stringifyMarkdown } from "chat";
+import { type Nodes, parseMarkdown, type Root, stringifyMarkdown } from "chat";
 import { describe, expect, it } from "vitest";
 import { TelegramFormatConverter } from "./markdown";
 import { splitMarkdownAst, splitText } from "./split";
 
 const converter = new TelegramFormatConverter();
+const TABLE_HEADER_LINE = /^Name\s+\|\s+Value$/;
+
+function textOf(node: Nodes): string {
+  if ("value" in node) {
+    return node.value;
+  }
+  return "children" in node ? node.children.map(textOf).join("") : "";
+}
 
 function fitsRendered(limit: number): (root: Root) => boolean {
   return (root) => converter.fromAst(root).length <= limit;
@@ -117,5 +125,90 @@ describe("splitMarkdownAst", () => {
         (_, index) => `${index + 1}\\. item number ${index + 1}`
       )
     );
+  });
+
+  describe("tables", () => {
+    const bodyRows = Array.from(
+      { length: 30 },
+      (_, index) => `| r${index} | v${index} |`
+    );
+    const tableMarkdown = `| Name | Value |\n|---|---|\n${bodyRows.join("\n")}`;
+
+    it("repeats the header row in every part", () => {
+      const parts = splitMarkdownAst(
+        parseMarkdown(tableMarkdown),
+        fitsRendered(200)
+      );
+
+      expect(parts.length).toBeGreaterThan(1);
+      const seenRows: string[] = [];
+      for (const part of parts) {
+        expect(converter.fromAst(part).length).toBeLessThanOrEqual(200);
+        const [table] = part.children;
+        expect(table?.type).toBe("table");
+        if (table?.type !== "table") {
+          continue;
+        }
+        const cells = table.children.map((row) =>
+          row.children.map((cell) => textOf(cell))
+        );
+        expect(cells[0]).toEqual(["Name", "Value"]);
+        for (const row of cells.slice(1)) {
+          seenRows.push(row.join("|"));
+        }
+      }
+      // Every body row is sent exactly once, in order.
+      expect(seenRows).toEqual(
+        Array.from({ length: 30 }, (_, index) => `r${index}|v${index}`)
+      );
+    });
+
+    it("renders the header first in every MarkdownV2 part", () => {
+      const parts = splitMarkdownAst(
+        parseMarkdown(tableMarkdown),
+        fitsRendered(200)
+      );
+
+      for (const part of parts) {
+        const lines = converter.fromAst(part).split("\n");
+        expect(lines[0]).toBe("```");
+        expect(lines[1]?.trim()).toMatch(TABLE_HEADER_LINE);
+      }
+    });
+
+    it("does not repeat a header that cannot fit next to a body row", () => {
+      // The header fits on its own (117 rendered characters) but not with a
+      // body row (250), so repeating it would force every row apart.
+      const wideHeader = "h".repeat(50);
+      const wideCell = "b".repeat(40);
+      const markdown = `| ${wideHeader} | x |\n|---|---|\n| a | ${wideCell} |\n| c | ${wideCell} |`;
+      const parts = splitMarkdownAst(
+        parseMarkdown(markdown),
+        fitsRendered(200)
+      );
+
+      const rendered = parts.map((part) => converter.fromAst(part));
+      for (const text of rendered) {
+        expect(text.length).toBeLessThanOrEqual(200);
+      }
+      expect(rendered.filter((text) => text.includes(wideHeader))).toHaveLength(
+        1
+      );
+      // Rows stay whole: no cell is cut across parts.
+      const rows = parts.flatMap((part) =>
+        part.children.flatMap((table) =>
+          table.type === "table"
+            ? table.children.map((row) =>
+                row.children.map((cell) => textOf(cell))
+              )
+            : []
+        )
+      );
+      expect(rows).toEqual([
+        [wideHeader, "x"],
+        ["a", wideCell],
+        ["c", wideCell],
+      ]);
+    });
   });
 });

@@ -179,6 +179,11 @@ const TELEGRAM_DEFAULT_STREAM_UPDATE_INTERVAL_MS = 250;
 const TELEGRAM_DEFAULT_PRIVATE_STREAMING_EDIT_INTERVAL_MS = 1100;
 const TELEGRAM_DEFAULT_NON_PRIVATE_STREAMING_EDIT_INTERVAL_MS = 3100;
 const TELEGRAM_STREAM_FINAL_EDIT_RETRY_CAP_MS = 5000;
+// A rate-limited part of a split long message waits out `retry_after` and is
+// sent again, so a long post isn't left half delivered. Waits longer than the
+// cap, or more attempts than the maximum, give up and rethrow.
+const TELEGRAM_SPLIT_PART_RETRY_CAP_MS = 30_000;
+const TELEGRAM_SPLIT_PART_MAX_ATTEMPTS = 3;
 const TELEGRAM_STREAM_PLACEHOLDER_TEXT = "...";
 const TELEGRAM_INCOMING_MEDIA_GROUP_BUFFER_TTL_MS = 30_000;
 const TELEGRAM_INCOMING_MEDIA_GROUP_LOCK_TTL_MS = 5_000;
@@ -1558,6 +1563,19 @@ export class TelegramAdapter
       }
     }
 
+    return await this.sendPostable(threadId, message, replyToMessageId, false);
+  }
+
+  /**
+   * Send one postable message. `splitPart` marks a part of a split long
+   * message, whose text sends wait out and retry rate limits.
+   */
+  protected async sendPostable(
+    threadId: string,
+    message: AdapterPostableMessage,
+    replyToMessageId: string | undefined,
+    splitPart: boolean
+  ): Promise<RawMessage<TelegramRawMessage>> {
     const parsedThread = this.resolveThreadId(threadId);
     // Resolve the reply target once so a malformed id fails before any
     // rendering or attachment downloads, and every send path threads it.
@@ -1665,8 +1683,8 @@ export class TelegramAdapter
             ? this.splitLongMessage(message, false)
             : null;
         if (!parts) {
-          return [
-            await this.sendRegularMessage(
+          const send = () =>
+            this.sendRegularMessage(
               parsedThread,
               text,
               plainText,
@@ -1674,7 +1692,11 @@ export class TelegramAdapter
               replyMarkup,
               threadId,
               replyParameters
-            ),
+            );
+          return [
+            splitPart
+              ? await this.retrySplitPartRateLimit(send, threadId)
+              : await send(),
           ];
         }
 
@@ -1683,31 +1705,41 @@ export class TelegramAdapter
           const partParseMode = this.resolveParseMode(part, null);
           const bodies = this.renderMessageBodies(part, null, partParseMode);
           sent.push(
-            await this.sendRegularMessage(
-              parsedThread,
-              bodies.text,
-              bodies.plainText,
-              partParseMode,
-              undefined,
-              threadId,
-              index === 0 ? replyParameters : undefined
+            await this.retrySplitPartRateLimit(
+              () =>
+                this.sendRegularMessage(
+                  parsedThread,
+                  bodies.text,
+                  bodies.plainText,
+                  partParseMode,
+                  undefined,
+                  threadId,
+                  index === 0 ? replyParameters : undefined
+                ),
+              threadId
             )
           );
         }
         return sent;
       };
 
+      const sendRich = (markdown: string) =>
+        this.telegramFetch<TelegramMessage>("sendRichMessage", {
+          ...this.buildChatTargetParams(parsedThread),
+          rich_message: { markdown },
+          reply_markup: replyMarkup,
+          reply_parameters: replyParameters,
+        });
+
       rawMessages = rich
         ? await this.withTelegramRichFallback(
             async () => [
-              await this.telegramFetch<TelegramMessage>("sendRichMessage", {
-                ...this.buildChatTargetParams(parsedThread),
-                rich_message: {
-                  markdown: rich.markdown,
-                },
-                reply_markup: replyMarkup,
-                reply_parameters: replyParameters,
-              }),
+              splitPart
+                ? await this.retrySplitPartRateLimit(
+                    () => sendRich(rich.markdown),
+                    threadId
+                  )
+                : await sendRich(rich.markdown),
             ],
             sendRegular,
             {
@@ -1774,16 +1806,68 @@ export class TelegramAdapter
   ): Promise<RawMessage<TelegramRawMessage>> {
     let sent: RawMessage<TelegramRawMessage> | undefined;
     for (const [index, part] of parts.entries()) {
-      sent = await this.postMessage(
-        threadId,
-        part,
-        index === 0 ? replyToMessageId : undefined
-      );
+      const replyTo = index === 0 ? replyToMessageId : undefined;
+      try {
+        // Rich messages may have become unavailable since the parts were
+        // sized, so a rich-sized part is split again for regular messages.
+        const subparts = this.splitLongMessage(
+          part,
+          this.richMessagesAvailable
+        );
+        sent = subparts
+          ? await this.postMessageParts(threadId, subparts, replyTo)
+          : await this.sendPostable(threadId, part, replyTo, true);
+      } catch (error) {
+        if (index > 0) {
+          this.logger.warn("Telegram split message only partly sent", {
+            error: String(error),
+            sentParts: index,
+            threadId,
+            totalParts: parts.length,
+          });
+        }
+        throw error;
+      }
     }
     if (!sent) {
       throw new ValidationError("telegram", "Message text cannot be empty");
     }
     return sent;
+  }
+
+  /**
+   * Send one part of a split long message, waiting out `retry_after` and
+   * trying again when Telegram rate limits it. Earlier parts are already
+   * delivered, so failing here would leave the post half sent.
+   */
+  protected async retrySplitPartRateLimit<T>(
+    send: () => Promise<T>,
+    threadId: string
+  ): Promise<T> {
+    let attempt = 1;
+    while (true) {
+      try {
+        return await send();
+      } catch (error) {
+        if (
+          !(error instanceof AdapterRateLimitError) ||
+          attempt >= TELEGRAM_SPLIT_PART_MAX_ATTEMPTS
+        ) {
+          throw error;
+        }
+        const retryAfterMs = (error.retryAfter ?? 1) * 1000;
+        if (retryAfterMs > TELEGRAM_SPLIT_PART_RETRY_CAP_MS) {
+          throw error;
+        }
+        this.logger.warn("Telegram rate limited a split message part", {
+          attempt,
+          retryAfterMs,
+          threadId,
+        });
+        await this.sleep(retryAfterMs);
+        attempt += 1;
+      }
+    }
   }
 
   /**

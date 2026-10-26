@@ -324,7 +324,9 @@ Set `longMessages: "split"` to send the full text as consecutive messages, each 
 const telegram = createTelegramAdapter({ longMessages: "split" });
 ```
 
-The adapter splits between blocks where possible, then at line breaks or spaces, and reopens formatting in the next message. Only the first message replies to the original message, and `post()` returns the last message. Cards, media captions, edits, and the message edited during post-and-edit streaming still truncate.
+The adapter splits between blocks where possible, then at line breaks or spaces, and reopens formatting in the next message. Split tables repeat their header row. Only the first message replies to the original message, and `post()` returns the last message. Cards, media captions, edits, and the message edited during post-and-edit streaming still truncate.
+
+A rate-limited message is sent again after Telegram's `retry_after` period, up to three attempts. If the wait would be longer than 30 seconds, or all three attempts are rate limited, `post()` throws an `AdapterRateLimitError` and the messages already sent stay in the chat.
 
 ## Notes
 
