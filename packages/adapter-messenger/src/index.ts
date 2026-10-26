@@ -1,9 +1,9 @@
 import {
   compareMessagesByTime,
+  messageSequence as defaultMessageSequence,
   extractCard,
-  messageSequence,
   NetworkError,
-  paginateMessages,
+  paginateMessages as paginateCachedMessages,
   parseRetryAfter,
   throwMetaGraphApiError,
   upsertMessage,
@@ -730,7 +730,7 @@ export class MessengerAdapter
     messages: Message<MessengerRawMessage>[],
     options: FetchOptions
   ): FetchResult<MessengerRawMessage> {
-    return paginateMessages(messages, options);
+    return paginateCachedMessages(messages, options);
   }
 
   protected cacheMessage(message: Message<MessengerRawMessage>): void {
@@ -760,7 +760,7 @@ export class MessengerAdapter
   }
 
   protected messageSequence(messageId: string): number {
-    return messageSequence(messageId);
+    return defaultMessageSequence(messageId);
   }
 
   protected async graphApiFetch<TResult>(

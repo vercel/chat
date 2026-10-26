@@ -483,14 +483,15 @@ export class WhatsAppAdapter
    * @see https://developers.facebook.com/docs/whatsapp/cloud-api/guides/set-up-webhooks
    */
   protected handleVerificationChallenge(request: Request): Response {
-    const challenge = verifyMetaWebhookChallenge(request, this.verifyToken);
+    const url = new URL(request.url);
+    const challenge = verifyMetaWebhookChallenge(url, this.verifyToken);
     if (challenge !== null) {
       this.logger.info("WhatsApp webhook verification succeeded");
       return new Response(challenge, { status: 200 });
     }
 
     this.logger.warn("WhatsApp webhook verification failed", {
-      mode: new URL(request.url).searchParams.get("hub.mode"),
+      mode: url.searchParams.get("hub.mode"),
     });
     return new Response("Forbidden", { status: 403 });
   }

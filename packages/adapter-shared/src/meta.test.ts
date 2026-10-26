@@ -64,6 +64,17 @@ describe("verifyMetaWebhookChallenge", () => {
     });
     expect(verifyMetaWebhookChallenge(request, "token")).toBeNull();
   });
+
+  it("accepts an already-parsed URL", () => {
+    const request = challengeRequest({
+      "hub.mode": "subscribe",
+      "hub.verify_token": "token",
+      "hub.challenge": "abc",
+    });
+    expect(verifyMetaWebhookChallenge(new URL(request.url), "token")).toBe(
+      "abc"
+    );
+  });
 });
 
 describe("verifyMetaSignature", () => {
