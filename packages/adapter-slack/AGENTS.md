@@ -178,7 +178,11 @@ manager. Cache inside the resolver if the lookup is expensive.
 `AsyncLocalStorage` is used to scope a bot token for a callback so
 out-of-webhook code (cron jobs, queues) can post to a specific
 workspace without mutating adapter state. Always wrap such code in
-`adapter.withBotToken(install.botToken, async () => { … })`.
+`adapter.withBotToken(install.botToken, async () => { … }, { installationId, botUserId: install.botUserId })`.
+In multi-workspace mode, omitting `installationId` leaves per-user caches
+unscoped, and omitting `botUserId` leaves `adapter.botUserId` undefined and
+parses the bot's own messages with `author.isMe: false`. Neither option is
+inherited from an outer `withBotToken` call.
 
 ### External installation provider
 

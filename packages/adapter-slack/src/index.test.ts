@@ -4352,16 +4352,97 @@ describe("withBotToken", () => {
       createMockChatInstance({ state: createMockState() })
     );
 
-    const inner = adapter.withBotToken(
+    const result = adapter.withBotToken(
       "xoxb-outer",
-      () =>
-        adapter.withBotToken("xoxb-inner", () => adapter.botUserId, {
+      () => ({
+        outer: adapter.botUserId,
+        inner: adapter.withBotToken("xoxb-inner", () => adapter.botUserId, {
           installationId: "T_INNER",
         }),
+      }),
       { installationId: "T_OUTER", botUserId: "U_OUTER_BOT" }
     );
 
-    expect(inner).toBeUndefined();
+    expect(result).toStrictEqual({ outer: "U_OUTER_BOT", inner: undefined });
+  });
+
+  it("prefers a botUserId passed to withBotToken over the configured one", async () => {
+    const adapter = createSlackAdapter({
+      botToken: "xoxb-test-token",
+      signingSecret: secret,
+      logger: mockLogger,
+      botUserId: "U_CONFIG",
+    });
+
+    const botUserId = adapter.withBotToken(
+      "xoxb-install",
+      () => adapter.botUserId,
+      {
+        botUserId: "U_CTX",
+      }
+    );
+
+    expect(botUserId).toBe("U_CTX");
+  });
+
+  it("recognizes the bot's own messages from fetchMessages in an async callback", async () => {
+    const adapter = createSlackAdapter({
+      signingSecret: secret,
+      logger: mockLogger,
+    });
+    mockClientMethod(
+      adapter,
+      "conversations.replies",
+      vi.fn().mockResolvedValue({
+        ok: true,
+        messages: [
+          {
+            type: "message",
+            user: "U_INSTALL_BOT",
+            bot_id: "B_INSTALL",
+            text: "Posted by the bot",
+            ts: "1000.000001",
+            channel: "C123",
+          },
+          {
+            type: "message",
+            user: "U_HUMAN",
+            text: "hey <@U_INSTALL_BOT>",
+            ts: "1000.000002",
+            channel: "C123",
+          },
+        ],
+        has_more: false,
+      })
+    );
+    mockClientMethod(
+      adapter,
+      "users.info",
+      vi.fn().mockResolvedValue({ ok: true, user: { name: "user" } })
+    );
+    await adapter.initialize(
+      createMockChatInstance({ state: createMockState() })
+    );
+
+    const result = await adapter.withBotToken(
+      "xoxb-install",
+      async () => {
+        await new Promise((resolve) => setTimeout(resolve, 1));
+        const { messages } = await adapter.fetchMessages(
+          "slack:C123:1000.000000"
+        );
+        return messages.map((message) => ({
+          isMe: message.author.isMe,
+          isMention: message.isMention,
+        }));
+      },
+      { installationId: "T123", botUserId: "U_INSTALL_BOT" }
+    );
+
+    expect(result).toStrictEqual([
+      { isMe: true, isMention: false },
+      { isMe: false, isMention: true },
+    ]);
   });
 });
 
