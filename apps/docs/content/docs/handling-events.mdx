@@ -20,7 +20,7 @@ When a message arrives, the SDK evaluates handlers in this order:
 1. Direct messages: if the thread is a DM and any `onDirectMessage` handlers are registered, they fire before `onSubscribedMessage`, `onNewMention`, and pattern handlers.
 2. Subscribed threads: if the thread is subscribed, `onSubscribedMessage` fires and no other message handler runs. DMs reach this step only when no `onDirectMessage` handlers are registered.
 3. Mentions: if the bot is @-mentioned in an unsubscribed thread, `onNewMention` fires. For backward compatibility, unsubscribed DMs are treated as mentions when no `onDirectMessage` handler is registered.
-4. Pattern matches: if the message text matches any `onNewMessage` regex patterns, those handlers fire.
+4. Pattern routing: `onNewMessage` handlers run one after another in registration order. Regex handlers fire when their pattern matches the message text. Handlers registered without a pattern fire for every message that reaches this step, including messages with empty text.
 
 Reactions, slash commands, actions, and modals have their own dedicated routing and are not affected by subscription state.
 
@@ -153,7 +153,7 @@ bot.onSubscribedMessage(async (thread, message) => {
 
 ## Handling pattern matches
 
-`onNewMessage` fires for messages matching a regex pattern in threads the bot is not subscribed to. Use it for keyword-triggered responses without requiring an @-mention.
+`onNewMessage` fires for messages in unsubscribed threads that aren't DMs and don't mention the bot. Pass a regex for keyword-triggered responses that don't need an @-mention:
 
 ```typescript title="lib/bot.ts" lineNumbers
 bot.onNewMessage(/^help$/i, async (thread, message) => {
@@ -161,7 +161,17 @@ bot.onNewMessage(/^help$/i, async (thread, message) => {
 });
 ```
 
-The first argument is a `RegExp` that's tested against the message text. Only messages in unsubscribed threads are evaluated.
+The regex is tested against the message text. To receive every message at this step, including attachment-only messages with empty text, pass only a handler:
+
+```typescript title="lib/bot.ts" lineNumbers
+bot.onNewMessage(async (thread, message) => {
+  await thread.post(`Received: ${message.text || "an attachment"}`);
+});
+```
+
+When several `onNewMessage` handlers apply to a message, they run one after another in registration order.
+
+The handler-only form doesn't receive DMs or mentions, even when no handler for them is registered. Use `onDirectMessage` and `onNewMention` for those, and `onSubscribedMessage` for threads the bot has subscribed to.
 
 ### Example: FAQ auto-responder
 

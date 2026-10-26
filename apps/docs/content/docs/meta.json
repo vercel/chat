@@ -16,6 +16,7 @@
     "...ai",
     "---Adapters---",
     "adapters",
+    "adapter-catalog",
     "platform-adapters",
     "state-adapters",
     "---Messaging---",

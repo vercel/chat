@@ -1,5 +1,39 @@
 # @chat-adapter/whatsapp
 
+## 4.43.0
+
+### Patch Changes
+
+- a32470e: Keep literal tildes, asterisks, underscores, and backslashes as written in outgoing WhatsApp messages. A backslash escape is kept only where the text would otherwise turn into WhatsApp formatting, such as `\_word\_` or a line starting with `\>`. Render bold, italic, and strikethrough from their AST nodes so formatting markers inside inline and fenced code stay unchanged, and send hard breaks as plain newlines. Add a `handlers` option to `stringifyMarkdown` for platform-specific serialization.
+- a32470e: Send replies, reactions, read receipts, typing indicators, and media uploads from the phone number encoded in the thread. Outbound calls now throw a `ValidationError` before making any request when the thread ID doesn't decode or its phone number ID isn't numeric.
+- Updated dependencies [115cd39]
+- Updated dependencies [36325f3]
+- Updated dependencies [a32470e]
+- Updated dependencies [228b30d]
+  - chat@4.43.0
+  - @chat-adapter/shared@4.43.0
+
+## 4.42.0
+
+### Patch Changes
+
+- 3aca83c: Treat empty `from` and `wa_id` values as absent, so messages from username users who hide their phone number reach handlers instead of being dropped.
+- Updated dependencies [2f1cfa2]
+- Updated dependencies [daaa0ac]
+- Updated dependencies [fd291b8]
+- Updated dependencies [19c7aa2]
+- Updated dependencies [08081fa]
+- Updated dependencies [19c7aa2]
+- Updated dependencies [80e7bae]
+- Updated dependencies [08081fa]
+- Updated dependencies [7b7d73c]
+- Updated dependencies [f8527b2]
+- Updated dependencies [9a83b22]
+- Updated dependencies [8178fdb]
+- Updated dependencies [f635dbe]
+  - chat@4.42.0
+  - @chat-adapter/shared@4.42.0
+
 ## 4.41.1
 
 ### Patch Changes

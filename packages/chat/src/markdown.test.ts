@@ -3,7 +3,7 @@
  */
 
 import type { Content, Root } from "mdast";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
   Actions,
   Button,
@@ -19,6 +19,7 @@ import {
   BaseFormatConverter,
   blockquote,
   codeBlock,
+  DEFAULT_MAX_INCOMING_PARSE_LENGTH,
   emphasis,
   getNodeChildren,
   getNodeValue,
@@ -51,6 +52,7 @@ import {
   toPlainText,
   walkAst,
 } from "./markdown";
+import { TextInput } from "./modals";
 
 const BOT_MENTION_WITH_WHITESPACE_REGEX = /@test-bot\s+hi there/;
 const LIST_ITEMS_WITH_WHITESPACE_REGEX = /one\s+two/;
@@ -517,6 +519,70 @@ describe("BaseFormatConverter", () => {
     });
   });
 
+  describe("parseIncoming", () => {
+    it("matches extractPlainText and toAst for markdown input", () => {
+      const input =
+        "# Title\n\n**bold** and _italic_ with `code`\n\n- one\n- two\n\n| a | b |\n| - | - |\n| 1 | 2 |";
+      const result = converter.parseIncoming(input);
+      expect(result.text).toBe(
+        "Title\n\nbold and italic with code\n\none\ntwo\n\na\tb\n1\t2"
+      );
+      expect(result.text).toBe(converter.extractPlainText(input));
+      expect(result.formatted).toEqual(parseMarkdown(input));
+    });
+
+    it("parses input once", () => {
+      const parsing = new TestConverter();
+      const toAst = vi.spyOn(parsing, "toAst");
+      parsing.parseIncoming("**bold** text");
+      expect(toAst).toHaveBeenCalledTimes(1);
+    });
+
+    it("defaults the length limit to 16,384 characters", () => {
+      expect(DEFAULT_MAX_INCOMING_PARSE_LENGTH).toBe(16_384);
+    });
+
+    it("parses input at the length limit", () => {
+      const parsing = new TestConverter();
+      const toAst = vi.spyOn(parsing, "toAst");
+      const input = `**bold**${"a".repeat(DEFAULT_MAX_INCOMING_PARSE_LENGTH - 8)}`;
+      const result = parsing.parseIncoming(input);
+      expect(toAst).toHaveBeenCalledTimes(1);
+      expect(result.text).toBe(
+        `bold${"a".repeat(DEFAULT_MAX_INCOMING_PARSE_LENGTH - 8)}`
+      );
+    });
+
+    it("keeps input over the length limit as a single text node", () => {
+      const parsing = new TestConverter();
+      const toAst = vi.spyOn(parsing, "toAst");
+      const input = `**bold**${"a".repeat(DEFAULT_MAX_INCOMING_PARSE_LENGTH - 7)}`;
+      const result = parsing.parseIncoming(input);
+      expect(toAst).not.toHaveBeenCalled();
+      expect(result.text).toBe(input);
+      expect(result.formatted).toEqual({
+        type: "root",
+        children: [
+          { type: "paragraph", children: [{ type: "text", value: input }] },
+        ],
+      });
+    });
+
+    it("respects a subclass length limit", () => {
+      class SmallLimitConverter extends TestConverter {
+        protected override maxIncomingParseLength = 5;
+      }
+      const parsing = new SmallLimitConverter();
+      const toAst = vi.spyOn(parsing, "toAst");
+      const result = parsing.parseIncoming("**bold**");
+      expect(toAst).not.toHaveBeenCalled();
+      expect(result).toEqual({
+        text: "**bold**",
+        formatted: root([paragraph([text("**bold**")])]),
+      });
+    });
+  });
+
   describe("fromMarkdown", () => {
     it("converts markdown to platform format", () => {
       const result = converter.fromMarkdown("**bold**");
@@ -709,6 +775,18 @@ describe("BaseFormatConverter", () => {
       const result = converter.renderPostable({ card });
       // Divider falls to default case and returns null, so only title
       expect(result).toBe("**With Divider**");
+    });
+
+    it("falls back to a text input's label", () => {
+      // Adapters that inherit this converter (github, instagram, linear,
+      // messenger, web) have no card-input rendering, so the label is the only
+      // thing that tells the reader what the card was asking for.
+      const card = Card({
+        title: "Deploy?",
+        children: [TextInput({ id: "notes", label: "Notes" })],
+      });
+      const result = converter.renderPostable({ card });
+      expect(result).toBe("**Deploy?**\nNotes");
     });
 
     it("handles card with mixed children including actions (excluded)", () => {

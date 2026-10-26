@@ -15,6 +15,8 @@ const PROCESS_HANDLERS = [
   "processUninstalled",
   "processMemberJoinedChannel",
   "processAppHomeOpened",
+  "processAgentSessionStopped",
+  "processAgentSessionTitleChanged",
   "processAssistantThreadStarted",
   "processAssistantContextChanged",
   "processAppContextChanged",
@@ -345,7 +347,7 @@ export const matchers = {
 };
 
 interface ChatMatchers<R = unknown> {
-  toBeSubscribedTo(threadId: string): Promise<R>;
+  toBeSubscribedTo(threadId: string): Promise<void>;
   toHaveDeleted(threadId: string, messageId: string): R;
   toHaveDispatched(handler: ChatHandler): R;
   toHaveEdited(
@@ -360,7 +362,6 @@ interface ChatMatchers<R = unknown> {
 }
 
 declare module "vitest" {
-  // biome-ignore lint/suspicious/noExplicitAny: matches Vitest's own augmentation pattern
-  interface Assertion<T = any> extends ChatMatchers<T> {}
-  interface AsymmetricMatchersContaining extends ChatMatchers {}
+  // Vitest 5 merges `Matchers` into `expect()`, `expect.*`, and asymmetric matchers.
+  interface Matchers<R, T> extends ChatMatchers<R> {}
 }

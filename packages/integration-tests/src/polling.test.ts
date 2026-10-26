@@ -219,10 +219,16 @@ describe("Telegram polling admission", () => {
         timeout: 5000,
       });
       expect(received.filter((id) => id === "telegram:2")).toHaveLength(100);
-      expect(await test.state.get(checkpoint)).toMatchObject({
-        offset: 104,
-        pending: [{ update }],
-      });
+      // The album handler runs before the loop saves the checkpoint that drops
+      // it from pending, so wait for the save instead of reading right away.
+      await vi.waitFor(
+        async () =>
+          expect(await test.state.get(checkpoint)).toMatchObject({
+            offset: 104,
+            pending: [{ update }],
+          }),
+        { timeout: 5000 }
+      );
     } finally {
       await test.stop();
     }

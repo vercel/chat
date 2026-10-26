@@ -4,6 +4,7 @@ import {
 } from "@tanstack/ai";
 import { beforeEach, describe, expect, it } from "vitest";
 import { Chat } from "../../chat";
+import { runInConversation } from "../../context";
 import {
   createMockAdapter,
   createMockState,
@@ -21,6 +22,7 @@ import {
 const REQUIRES_CHAT_INSTANCE_REGEX = /requires a `chat` instance/;
 const OUT_OF_SCOPE_REGEX = /tools are scoped to/;
 const NO_GET_USER_REGEX = /does not support getUser/;
+const MISSING_SCOPE_REGEX = /Tool call blocked: no conversation scope/;
 
 const ALL_TOOL_NAMES: ChatToolName[] = [
   "addReaction",
@@ -184,6 +186,7 @@ describe("createTanStackTools", () => {
     const tools = byName(
       createTanStackTools({
         chat,
+        scope: "slack:C123",
         requireApproval: false,
         overrides: {
           postMessage: {
@@ -208,7 +211,9 @@ describe("createTanStackTools", () => {
   });
 
   it("postMessage dispatches via the adapter's postMessage", async () => {
-    const tools = byName(createTanStackTools({ chat, requireApproval: false }));
+    const tools = byName(
+      createTanStackTools({ chat, scope: "slack:C123", requireApproval: false })
+    );
     const result = await tools.postMessage?.execute({
       threadId: "slack:C123:1234.5678",
       message: "hello",
@@ -221,7 +226,9 @@ describe("createTanStackTools", () => {
   });
 
   it("ignores the TanStack execution context argument", async () => {
-    const tools = byName(createTanStackTools({ chat, requireApproval: false }));
+    const tools = byName(
+      createTanStackTools({ chat, scope: "slack:C123", requireApproval: false })
+    );
     const result = await tools.postMessage?.execute(
       { threadId: "slack:C123:1234.5678", message: "hello" },
       { toolCallId: "call_1" }
@@ -242,6 +249,71 @@ describe("createTanStackTools", () => {
       })
     ).rejects.toThrow(OUT_OF_SCOPE_REGEX);
     expect(mockAdapter.fetchMessages).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    [
+      "fetchMessages",
+      { threadId: "slack:C123:1234.5678", limit: 1, direction: "backward" },
+    ],
+    [
+      "fetchChannelMessages",
+      { channelId: "slack:C123", limit: 1, direction: "backward" },
+    ],
+    ["fetchThread", { threadId: "slack:C123:1234.5678" }],
+    ["listThreads", { channelId: "slack:C123", limit: 1 }],
+    ["getThreadParticipants", { threadId: "slack:C123:1234.5678" }],
+    ["getChannelInfo", { channelId: "slack:C123" }],
+    ["startTyping", { threadId: "slack:C123:1234.5678" }],
+    ["postMessage", { threadId: "slack:C123:1234.5678", message: "hello" }],
+    ["postChannelMessage", { channelId: "slack:C123", message: "hello" }],
+    [
+      "editMessage",
+      {
+        threadId: "slack:C123:1234.5678",
+        messageId: "msg-1",
+        message: "hello",
+      },
+    ],
+    ["deleteMessage", { threadId: "slack:C123:1234.5678", messageId: "msg-1" }],
+    [
+      "addReaction",
+      {
+        threadId: "slack:C123:1234.5678",
+        messageId: "msg-1",
+        emoji: "thumbs_up",
+      },
+    ],
+    [
+      "removeReaction",
+      {
+        threadId: "slack:C123:1234.5678",
+        messageId: "msg-1",
+        emoji: "thumbs_up",
+      },
+    ],
+    ["subscribeThread", { threadId: "slack:C123:1234.5678" }],
+    ["unsubscribeThread", { threadId: "slack:C123:1234.5678" }],
+  ] as const)("blocks %s in a handler with no conversation even when approval is disabled", async (name, input) => {
+    const tools = byName(createTanStackTools({ chat, requireApproval: false }));
+    expect(tools[name]).toBeDefined();
+    await expect(
+      runInConversation(undefined, () => tools[name]?.execute(input))
+    ).rejects.toThrow(MISSING_SCOPE_REGEX);
+    expect(mockAdapter.fetchMessages).not.toHaveBeenCalled();
+    expect(mockAdapter.fetchChannelMessages).not.toHaveBeenCalled();
+    expect(mockAdapter.fetchThread).not.toHaveBeenCalled();
+    expect(mockAdapter.fetchChannelInfo).not.toHaveBeenCalled();
+    expect(mockAdapter.listThreads).not.toHaveBeenCalled();
+    expect(mockAdapter.postMessage).not.toHaveBeenCalled();
+    expect(mockAdapter.postChannelMessage).not.toHaveBeenCalled();
+    expect(mockAdapter.editMessage).not.toHaveBeenCalled();
+    expect(mockAdapter.deleteMessage).not.toHaveBeenCalled();
+    expect(mockAdapter.addReaction).not.toHaveBeenCalled();
+    expect(mockAdapter.removeReaction).not.toHaveBeenCalled();
+    expect(mockAdapter.startTyping).not.toHaveBeenCalled();
+    expect(mockState.subscribe).not.toHaveBeenCalled();
+    expect(mockState.unsubscribe).not.toHaveBeenCalled();
   });
 
   it("blocks a sibling thread when scoped to a single thread with strictScope", async () => {

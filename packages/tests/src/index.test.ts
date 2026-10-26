@@ -1,3 +1,4 @@
+import { Card, type QueueEntry } from "chat";
 import { describe, expect, it, vi } from "vitest";
 import {
   createMockAdapter,
@@ -6,12 +7,20 @@ import {
   createMockState,
   createTestMessage,
 } from "./factories";
-import { matchers } from "./matchers";
+import { type ChatHandler, matchers } from "./matchers";
 
 expect.extend(matchers);
 
 const HELLO_WORLD = /world/;
 const CHANNEL = /channel/;
+
+function queueEntry(id: string): QueueEntry {
+  return {
+    message: createTestMessage(id, "queued"),
+    enqueuedAt: 0,
+    expiresAt: Number.MAX_SAFE_INTEGER,
+  };
+}
 
 describe("createMockState", () => {
   it("supports get/set/delete round-trip via the cache", async () => {
@@ -45,7 +54,7 @@ describe("createMockState", () => {
     expect(await state.acquireLock("slack:C1:t1", 1000)).toBeNull();
   });
 
-  it("setIfNotExists is atomic-style", async () => {
+  it("setIfNotExists only writes keys that are not set", async () => {
     const state = createMockState();
     expect(await state.setIfNotExists("k", 1)).toBe(true);
     expect(await state.setIfNotExists("k", 2)).toBe(false);
@@ -62,12 +71,20 @@ describe("createMockState", () => {
 
   it("enqueue/dequeue is FIFO", async () => {
     const state = createMockState();
-    await state.enqueue("t1", { id: "1" } as never, 10);
-    await state.enqueue("t1", { id: "2" } as never, 10);
+    await state.enqueue("t1", queueEntry("1"), 10);
+    await state.enqueue("t1", queueEntry("2"), 10);
     expect(await state.queueDepth("t1")).toBe(2);
-    const first = await state.dequeue("t1");
-    expect((first as { id: string } | null)?.id).toBe("1");
-    expect(await state.queueDepth("t1")).toBe(1);
+    expect((await state.dequeue("t1"))?.message.id).toBe("1");
+    expect((await state.dequeue("t1"))?.message.id).toBe("2");
+    expect(await state.dequeue("t1")).toBeNull();
+  });
+
+  it("enqueue drops the oldest entries past maxSize", async () => {
+    const state = createMockState();
+    await state.enqueue("t1", queueEntry("1"), 2);
+    await state.enqueue("t1", queueEntry("2"), 2);
+    expect(await state.enqueue("t1", queueEntry("3"), 2)).toBe(2);
+    expect((await state.dequeue("t1"))?.message.id).toBe("2");
   });
 });
 
@@ -129,8 +146,19 @@ describe("createTestMessage", () => {
   it("parses text into formatted AST", () => {
     const message = createTestMessage("m1", "hello **world**");
     expect(message.text).toBe("hello **world**");
-    expect(message.formatted).toBeDefined();
     expect(message.id).toBe("m1");
+    expect(message.formatted).toMatchObject({
+      type: "root",
+      children: [
+        {
+          type: "paragraph",
+          children: [
+            { type: "text", value: "hello " },
+            { type: "strong", children: [{ type: "text", value: "world" }] },
+          ],
+        },
+      ],
+    });
   });
 });
 
@@ -160,7 +188,7 @@ describe("matcher: toHavePosted", () => {
     const adapter = createMockAdapter("slack");
     await adapter.postMessage("slack:C1:raw", { raw: "hello world" });
     await adapter.postMessage("slack:C1:card", {
-      card: {} as never,
+      card: Card({ title: "Greeting" }),
       fallbackText: "hello world",
     });
     expect(adapter).toHavePosted("slack:C1:raw", HELLO_WORLD);
@@ -177,13 +205,29 @@ describe("matcher: toHavePosted", () => {
 describe("matcher: toHaveDispatched", () => {
   it("passes when the named handler was called", () => {
     const chat = createMockChatInstance();
-    chat.processMessage({} as never, "slack:C1:t1", {} as never);
+    chat.processMessage(
+      createMockAdapter("slack"),
+      "slack:C1:t1",
+      createTestMessage("m1", "hello")
+    );
     expect(chat).toHaveDispatched("processMessage");
   });
 
   it("fails when the handler was not called", () => {
     const chat = createMockChatInstance();
     expect(chat).not.toHaveDispatched("processReaction");
+  });
+
+  it("recognizes every process* handler on the mock chat instance", () => {
+    const chat = createMockChatInstance();
+    const handlers = Object.keys(chat).filter((key) =>
+      key.startsWith("process")
+    );
+    expect(handlers.length).toBeGreaterThan(0);
+    for (const handler of handlers) {
+      (chat as unknown as Record<string, () => unknown>)[handler]();
+      expect(chat).toHaveDispatched(handler as ChatHandler);
+    }
   });
 });
 

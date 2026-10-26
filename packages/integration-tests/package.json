@@ -7,7 +7,7 @@
   "scripts": {
     "test": "vitest run --coverage",
     "test:watch": "vitest",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit && tsc -p tsconfig.exact-optional.json --noEmit"
   },
   "devDependencies": {
     "@changesets/config": "^3.1.2",
@@ -18,9 +18,10 @@
     "@manypkg/get-packages": "^1.1.3",
     "@types/node": "^25.3.2",
     "typescript": "^5.7.2",
-    "vitest": "^4.0.18"
+    "vitest": "^5.0.3"
   },
   "dependencies": {
+    "@chat-adapter/catalog": "workspace:*",
     "@chat-adapter/discord": "workspace:*",
     "@chat-adapter/gchat": "workspace:*",
     "@chat-adapter/github": "workspace:*",

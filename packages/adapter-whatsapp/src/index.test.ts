@@ -1,7 +1,7 @@
 import { createHmac } from "node:crypto";
 import type { IncomingMessage } from "node:http";
 import { Readable } from "node:stream";
-import { NetworkError } from "@chat-adapter/shared";
+import { NetworkError, ValidationError } from "@chat-adapter/shared";
 import {
   createMockChatInstance,
   createMockLogger,
@@ -1608,6 +1608,77 @@ describe("postMessage", () => {
     expect(result.id).toBe("wamid.sent123");
   });
 
+  it("accepts a recipient string in protected send helpers", async () => {
+    const adapter = createTestAdapter() as unknown as {
+      sendSingleTextMessage(
+        threadId: string,
+        to: string,
+        text: string
+      ): Promise<{ raw: { phoneNumberId: string } }>;
+    };
+    const result = await adapter.sendSingleTextMessage(
+      "whatsapp:222222222222:5519999999999",
+      "5519999999999",
+      "Hi"
+    );
+
+    const [url, init] = fetchSpy.mock.calls[0];
+    expect(String(url)).toContain("/222222222222/messages");
+    expect(JSON.parse(String(init?.body)).to).toBe("5519999999999");
+    expect(result.raw.phoneNumberId).toBe("222222222222");
+  });
+
+  it("sends a reply from the phone number that received the thread", async () => {
+    const adapter = createTestAdapter();
+    const result = await adapter.postMessage(
+      "whatsapp:222222222222:5519999999999",
+      { markdown: "Hi" }
+    );
+
+    const [url] = fetchSpy.mock.calls[0];
+    expect(String(url)).toContain("/222222222222/messages");
+    expect(result.raw.phoneNumberId).toBe("222222222222");
+  });
+
+  it("sends an interactive card from the phone number that received the thread", async () => {
+    const adapter = createTestAdapter();
+    const result = await adapter.postMessage(
+      "whatsapp:222222222222:5519999999999",
+      {
+        card: {
+          type: "card",
+          title: "Choose",
+          children: [
+            {
+              type: "actions",
+              children: [{ type: "button", id: "yes", label: "Yes" }],
+            },
+          ],
+        },
+      }
+    );
+
+    const [url, init] = fetchSpy.mock.calls[0];
+    expect(String(url)).toContain("/222222222222/messages");
+    const sent = JSON.parse(init?.body as string);
+    expect(sent.type).toBe("interactive");
+    expect(sent.to).toBe("5519999999999");
+    expect(result.raw.phoneNumberId).toBe("222222222222");
+  });
+
+  it.each([
+    "whatsapp:123?x=:15551234567",
+    "whatsapp:123/../456:15551234567",
+    "whatsapp:abc:15551234567",
+  ])("rejects %s without calling the Graph API", async (threadId) => {
+    const adapter = createTestAdapter();
+
+    await expect(
+      adapter.postMessage(threadId, { markdown: "Hi" })
+    ).rejects.toThrow(ValidationError);
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
   it.each([
     "US.13491208655302741918",
     "US.ENT.11815799212886844830",
@@ -1908,6 +1979,47 @@ describe("postMessage - file uploads", () => {
     );
     expect((sent.document as { filename: string }).filename).toBe("report.pdf");
     expect(result.id).toBe("wamid.msg1");
+  });
+
+  it("uploads and sends media from the phone number that received the thread", async () => {
+    const adapter = createTestAdapter();
+    const result = await adapter.postMessage(
+      "whatsapp:222222222222:5519999999999",
+      {
+        markdown: "Here is the report",
+        files: [
+          {
+            data: Buffer.from("pdf-content"),
+            filename: "report.pdf",
+            mimeType: "application/pdf",
+          },
+        ],
+      }
+    );
+
+    expect(String(fetchSpy.mock.calls[0][0])).toContain("/222222222222/media");
+    expect(String(fetchSpy.mock.calls[1][0])).toContain(
+      "/222222222222/messages"
+    );
+    expect(parseMessageBody(0).to).toBe("5519999999999");
+    expect(result.raw.phoneNumberId).toBe("222222222222");
+  });
+
+  it("rejects an invalid phone number ID before uploading media", async () => {
+    const adapter = createTestAdapter();
+
+    await expect(
+      adapter.postMessage("whatsapp:123/../456:15551234567", {
+        files: [
+          {
+            data: Buffer.from("pdf-content"),
+            filename: "report.pdf",
+            mimeType: "application/pdf",
+          },
+        ],
+      })
+    ).rejects.toThrow(ValidationError);
+    expect(fetchSpy).not.toHaveBeenCalled();
   });
 
   it("single JPEG maps to image message type", async () => {
@@ -2592,6 +2704,35 @@ describe("sendTemplate", () => {
     expect(result.id).toBe("wamid.template123");
   });
 
+  it("sends a template from the phone number that received the thread", async () => {
+    const adapter = createTestAdapter();
+    const result = await adapter.sendTemplate(
+      "whatsapp:222222222222:5519999999999",
+      { name: "appointment_reminder", language: "en" }
+    );
+
+    const [url, init] = fetchSpy.mock.calls[0];
+    expect(String(url)).toContain("/222222222222/messages");
+    expect(JSON.parse(init?.body as string).to).toBe("5519999999999");
+    expect(result.raw.phoneNumberId).toBe("222222222222");
+  });
+
+  it.each([
+    "whatsapp:123?x=:15551234567",
+    "whatsapp:123/../456:15551234567",
+    "whatsapp:abc:15551234567",
+  ])("rejects %s without calling the Graph API", async (threadId) => {
+    const adapter = createTestAdapter();
+
+    await expect(
+      adapter.sendTemplate(threadId, {
+        name: "appointment_reminder",
+        language: "en",
+      })
+    ).rejects.toThrow(ValidationError);
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
   it("includes components when provided", async () => {
     const adapter = createTestAdapter();
     await adapter.sendTemplate("whatsapp:123456789:15551234567", {
@@ -2809,6 +2950,48 @@ describe("addReaction / removeReaction", () => {
     expect(body.recipient).toBe("US.13491208655302741918");
     expect(body).not.toHaveProperty("to");
   });
+
+  it("addReaction reacts from the phone number that received the thread", async () => {
+    const adapter = createTestAdapter();
+    await adapter.addReaction(
+      "whatsapp:222222222222:5519999999999",
+      "wamid.msg1",
+      "👍"
+    );
+
+    const [url, init] = fetchSpy.mock.calls[0];
+    expect(String(url)).toContain("/222222222222/messages");
+    expect(JSON.parse(init?.body as string).to).toBe("5519999999999");
+  });
+
+  it("removeReaction removes from the phone number that received the thread", async () => {
+    const adapter = createTestAdapter();
+    await adapter.removeReaction(
+      "whatsapp:222222222222:5519999999999",
+      "wamid.msg1",
+      "👍"
+    );
+
+    const [url, init] = fetchSpy.mock.calls[0];
+    expect(String(url)).toContain("/222222222222/messages");
+    expect(JSON.parse(init?.body as string).to).toBe("5519999999999");
+  });
+
+  it.each([
+    "whatsapp:123?x=:15551234567",
+    "whatsapp:123/../456:15551234567",
+    "whatsapp:abc:15551234567",
+  ])("rejects %s without calling the Graph API", async (threadId) => {
+    const adapter = createTestAdapter();
+
+    await expect(
+      adapter.addReaction(threadId, "wamid.msg1", "👍")
+    ).rejects.toThrow(ValidationError);
+    await expect(
+      adapter.removeReaction(threadId, "wamid.msg1", "👍")
+    ).rejects.toThrow(ValidationError);
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
 });
 
 describe("markAsRead", () => {
@@ -2842,6 +3025,28 @@ describe("markAsRead", () => {
       status: "read",
       message_id: "wamid.inbound",
     });
+  });
+
+  it("marks a message read on the phone number that received the thread", async () => {
+    const adapter = createTestAdapter();
+
+    await adapter.markAsRead(
+      "whatsapp:222222222222:5519999999999",
+      "wamid.inbound"
+    );
+
+    expect(String(fetchSpy.mock.calls[0][0])).toContain(
+      "/222222222222/messages"
+    );
+  });
+
+  it("rejects an invalid phone number ID without calling the Graph API", async () => {
+    const adapter = createTestAdapter();
+
+    await expect(
+      adapter.markAsRead("whatsapp:123?x=:15551234567", "wamid.inbound")
+    ).rejects.toThrow(ValidationError);
+    expect(fetchSpy).not.toHaveBeenCalled();
   });
 
   it("preserves the adapter-level message id signature", async () => {
@@ -2950,6 +3155,53 @@ describe("startTyping", () => {
     expect(sent.status).toBe("read");
     expect(sent.message_id).toBe("wamid.inbound123");
     expect(sent.typing_indicator.type).toBe("text");
+  });
+
+  it("sends the typing indicator from the phone number that received the thread", async () => {
+    const adapter = createTestAdapter();
+    const threadId = "whatsapp:222222222222:5519999999999";
+
+    await adapter.initialize({
+      ...mockChat,
+      getState: () => ({
+        getList: vi.fn().mockResolvedValue([
+          {
+            _type: "chat:Message",
+            id: "wamid.inbound123",
+            threadId,
+            text: "Hi",
+            author: {
+              userId: "5519999999999",
+              userName: "User",
+              fullName: "User",
+              isMe: false,
+              isBot: false,
+            },
+            formatted: { type: "root", children: [] },
+            attachments: [],
+            metadata: { dateSent: new Date().toISOString(), edited: false },
+          },
+        ]),
+      }),
+    } as any);
+
+    await adapter.startTyping(threadId);
+
+    expect(fetchSpy).toHaveBeenCalledOnce();
+    const [url, init] = fetchSpy.mock.calls[0];
+    expect(String(url)).toContain("/222222222222/messages");
+    expect(JSON.parse(init?.body as string).message_id).toBe(
+      "wamid.inbound123"
+    );
+  });
+
+  it("rejects an invalid phone number ID without calling the Graph API", async () => {
+    const adapter = createTestAdapter();
+
+    await expect(
+      adapter.startTyping("whatsapp:abc:15551234567")
+    ).rejects.toThrow(ValidationError);
+    expect(fetchSpy).not.toHaveBeenCalled();
   });
 
   it("does nothing if no inbound message is found in history", async () => {

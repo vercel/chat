@@ -1,4 +1,5 @@
 @import "tailwindcss";
+@source "../../node_modules/streamdown/dist";
 
 :root {
   --background: #0a0a0a;
@@ -6,6 +7,17 @@
   --muted: #1a1a1a;
   --muted-foreground: #a1a1a1;
   --border: #262626;
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-border: var(--border);
+  --color-sidebar: var(--muted);
+  --color-primary: var(--foreground);
+  --color-primary-foreground: var(--background);
 }
 
 .hide-scrollbar::-webkit-scrollbar {

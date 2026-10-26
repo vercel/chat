@@ -1,4 +1,4 @@
-import { activeConversation } from "../context";
+import { activeConversation, inHandler } from "../context";
 import type { ChatBinding } from "./types";
 
 /**
@@ -31,8 +31,11 @@ function channelOf(chat: ChatBinding, id: string): string {
  * rejecting sibling threads and the parent channel; a channel scope is
  * unaffected and still allows any thread within it.
  *
- * When no scope resolves (no explicit scope and no conversation being handled,
- * e.g. a cron job or queued work), tools run workspace-wide but warn once.
+ * When no scope resolves inside a handler that has no conversation (an action
+ * in App Home or inside a modal, options load, a modal opened outside a
+ * thread), tools reject the call.
+ * Outside any handler (e.g. a cron job or queued work), tools run
+ * workspace-wide but warn once.
  */
 export function createScopeGuard(
   chat: ChatBinding,
@@ -44,8 +47,14 @@ export function createScopeGuard(
   }
 
   let explicit: string | undefined;
+  let explicitChannel: string | undefined;
   if (scope !== undefined) {
     explicit = typeof scope === "string" ? scope : scope.id;
+    if (!explicit) {
+      throw new Error(
+        "Invalid tool scope: `scope` is an empty id. Pass a thread or channel id, or `scope: false` to allow workspace-wide access."
+      );
+    }
   }
 
   let warnedUnscoped = false;
@@ -53,18 +62,29 @@ export function createScopeGuard(
   return (id: string) => {
     const active = explicit ?? activeConversation();
     if (!active) {
+      if (inHandler()) {
+        throw new Error(
+          "Tool call blocked: no conversation scope is available in this handler. Set `scope` to a thread or channel, or `scope: false` to allow workspace-wide access."
+        );
+      }
       if (!warnedUnscoped) {
         warnedUnscoped = true;
         chat
           .getLogger()
           .warn(
-            `Agent tool ran unscoped: "${id}" was accessed workspace-wide because no conversation is being handled and no \`scope\` was set. Pass \`scope\` to createChatTools to confine tools.`
+            `Agent tool ran unscoped: "${id}" was accessed workspace-wide because no conversation is being handled and no \`scope\` was set. Pass \`scope\` to confine tools.`
           );
       }
       return;
     }
 
-    const activeChannel = channelOf(chat, active);
+    let activeChannel: string;
+    if (explicit) {
+      explicitChannel ??= channelOf(chat, explicit);
+      activeChannel = explicitChannel;
+    } else {
+      activeChannel = channelOf(chat, active);
+    }
     const targetChannel = channelOf(chat, id);
 
     // Same channel is always required. Under strict a thread scope additionally

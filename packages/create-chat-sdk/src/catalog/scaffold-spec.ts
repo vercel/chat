@@ -1,4 +1,4 @@
-import { type AdapterSlug, isAdapterSlug } from "chat/adapters";
+import { type AdapterSlug, isAdapterSlug } from "@chat-adapter/catalog";
 import { AdapterSelectionError } from "../errors.js";
 
 /**
@@ -190,6 +190,9 @@ export const CLI_SCAFFOLD_SPEC = {
     },
     invocation: { kind: "zero-arg" },
   },
+  gitlab: {
+    invocation: { kind: "zero-arg" },
+  },
   ioredis: {
     // createIoRedisState needs an explicit url (no REDIS_URL auto-detection).
     // The logger is optional and defaults to a console logger when omitted.
@@ -349,6 +352,9 @@ export const CLI_SCAFFOLD_SPEC = {
     invocation: { kind: "zero-arg" },
   },
   twilio: {
+    invocation: { kind: "zero-arg" },
+  },
+  twitch: {
     invocation: { kind: "zero-arg" },
   },
   velt: {

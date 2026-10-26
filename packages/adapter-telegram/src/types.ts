@@ -505,6 +505,13 @@ export interface TelegramMessage {
     title: string;
     total_amount: number;
   };
+  /**
+   * True if the message is sent to a topic in a forum supergroup or a private
+   * chat with the bot. Absent for messages in
+   * regular (non-forum) supergroups, whose `message_thread_id` identifies a
+   * reply thread rather than a topic.
+   */
+  is_topic_message?: boolean;
   location?: TelegramLocation;
   media_group_id?: string;
   message_id: number;

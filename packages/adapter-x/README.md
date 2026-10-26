@@ -401,7 +401,7 @@ X_VERIFY_SIGNATURES=true           # Optional; set false to accept unverifiable 
 2. It is a **swipe-reply** to one of the bot's own messages, or
 3. Its plain text contains `@handle` (fallback when no entities are present).
 
-To reply to every group message instead, register a catch-all `chat.onNewMessage(/.+/, handler)`.
+To also reply to group messages that don't mention the bot, register `chat.onNewMessage(handler)` without a pattern.
 
 ### Thread ID format
 

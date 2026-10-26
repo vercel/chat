@@ -3,10 +3,12 @@ import { configDefaults, defineConfig } from "vitest/config";
 export default defineConfig({
   test: {
     projects: [
+      "packages/catalog",
       "packages/chat",
       "packages/adapter-discord",
       "packages/adapter-gchat",
       "packages/adapter-github",
+      "packages/adapter-gitlab",
       "packages/adapter-gmail",
       "packages/adapter-instagram",
       "packages/adapter-linear",
@@ -17,6 +19,7 @@ export default defineConfig({
       "packages/adapter-teams",
       "packages/adapter-telegram",
       "packages/adapter-twilio",
+      "packages/adapter-twitch",
       "packages/adapter-web",
       "packages/adapter-whatsapp",
       "packages/adapter-x",

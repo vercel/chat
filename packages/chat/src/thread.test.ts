@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { decodeCallbackValue } from "./callback-url";
 import { Actions, Button, Card, Text } from "./cards";
 import { jsx, jsxs } from "./jsx-runtime";
@@ -858,6 +858,153 @@ describe("ThreadImpl", () => {
         "slack:C123:1234.5678",
         "..."
       );
+      expect(mockAdapter.editMessage).toHaveBeenLastCalledWith(
+        "slack:C123:1234.5678",
+        "msg-1",
+        { markdown: "Hello World" }
+      );
+    });
+
+    it("should pass aiGenerated from StreamingPlan to adapter.stream", async () => {
+      const mockStream = vi.fn().mockResolvedValue({
+        id: "msg-stream",
+        threadId: "t1",
+        raw: "Hello",
+      });
+      mockAdapter.stream = mockStream;
+
+      const textStream = createTextStream(["Hello"]);
+      await thread.post(new StreamingPlan(textStream, { aiGenerated: true }));
+
+      expect(mockStream).toHaveBeenCalledWith(
+        "slack:C123:1234.5678",
+        expect.any(Object),
+        expect.objectContaining({ aiGenerated: true })
+      );
+    });
+
+    it("should label fallback edits and markdown posts when StreamingPlan has aiGenerated", async () => {
+      vi.useFakeTimers();
+      try {
+        mockAdapter.stream = undefined;
+
+        let releaseSecondChunk: () => void = () => undefined;
+        const gate = new Promise<void>((resolve) => {
+          releaseSecondChunk = resolve;
+        });
+        async function* gatedStream(): AsyncIterable<string> {
+          yield "Hello";
+          await gate;
+          yield " World";
+        }
+
+        const postPromise = thread.post(
+          new StreamingPlan(gatedStream(), {
+            aiGenerated: true,
+            updateIntervalMs: 100,
+          })
+        );
+
+        // Let the throttled edit fire with the first chunk
+        await vi.advanceTimersByTimeAsync(150);
+        releaseSecondChunk();
+        await vi.advanceTimersByTimeAsync(500);
+        await postPromise;
+
+        const postCalls = (mockAdapter.postMessage as ReturnType<typeof vi.fn>)
+          .mock.calls;
+        expect(postCalls[0]).toEqual(["slack:C123:1234.5678", "..."]);
+        for (const [, postable] of postCalls) {
+          if (typeof postable === "object" && "markdown" in postable) {
+            expect(postable).toHaveProperty("aiGenerated", true);
+          }
+        }
+
+        const editCalls = (mockAdapter.editMessage as ReturnType<typeof vi.fn>)
+          .mock.calls;
+        expect(editCalls.length).toBeGreaterThanOrEqual(2);
+        expect(editCalls[0][2]).toEqual({
+          markdown: "Hello",
+          aiGenerated: true,
+        });
+        for (const [, , postable] of editCalls) {
+          expect(postable).toHaveProperty("aiGenerated", true);
+        }
+        expect(mockAdapter.editMessage).toHaveBeenLastCalledWith(
+          "slack:C123:1234.5678",
+          "msg-1",
+          { markdown: "Hello World", aiGenerated: true }
+        );
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it("should label the first fallback post when placeholder is disabled and StreamingPlan has aiGenerated", async () => {
+      mockAdapter.stream = undefined;
+
+      const threadNoPlaceholder = new ThreadImpl({
+        id: "slack:C123:1234.5678",
+        adapter: mockAdapter,
+        channelId: "C123",
+        stateAdapter: mockState,
+        fallbackStreamingPlaceholderText: null,
+      });
+
+      await threadNoPlaceholder.post(
+        new StreamingPlan(createTextStream(["Hi"]), { aiGenerated: true })
+      );
+
+      expect(mockAdapter.postMessage).toHaveBeenNthCalledWith(
+        1,
+        "slack:C123:1234.5678",
+        { markdown: "Hi", aiGenerated: true }
+      );
+      for (const [, , postable] of (
+        mockAdapter.editMessage as ReturnType<typeof vi.fn>
+      ).mock.calls) {
+        expect(postable).toHaveProperty("aiGenerated", true);
+      }
+    });
+
+    it("should not add aiGenerated to fallback postables when the flag is not set", async () => {
+      mockAdapter.stream = undefined;
+
+      const threadNoPlaceholder = new ThreadImpl({
+        id: "slack:C123:1234.5678",
+        adapter: mockAdapter,
+        channelId: "C123",
+        stateAdapter: mockState,
+        fallbackStreamingPlaceholderText: null,
+      });
+
+      await threadNoPlaceholder.post(
+        new StreamingPlan(createTextStream(["Hi"]), { groupTasks: "plan" })
+      );
+      await thread.post(
+        new StreamingPlan(createTextStream(["Hello", " World"]), {
+          groupTasks: "plan",
+        })
+      );
+
+      expect(mockAdapter.postMessage).toHaveBeenNthCalledWith(
+        1,
+        "slack:C123:1234.5678",
+        { markdown: "Hi" }
+      );
+      const postCalls = (mockAdapter.postMessage as ReturnType<typeof vi.fn>)
+        .mock.calls;
+      for (const [, postable] of postCalls) {
+        if (typeof postable === "object") {
+          expect(postable).not.toHaveProperty("aiGenerated");
+        }
+      }
+      const editCalls = (mockAdapter.editMessage as ReturnType<typeof vi.fn>)
+        .mock.calls;
+      expect(editCalls.length).toBeGreaterThan(0);
+      for (const [, , postable] of editCalls) {
+        expect(postable).not.toHaveProperty("aiGenerated");
+      }
       expect(mockAdapter.editMessage).toHaveBeenLastCalledWith(
         "slack:C123:1234.5678",
         "msg-1",
@@ -2383,11 +2530,34 @@ describe("ThreadImpl", () => {
       expect(adapter.startTyping).toHaveBeenCalledWith(
         "slack:C123:1234.5678",
         undefined,
-        { initiatorUserId: currentMessage.author.userId }
+        {
+          initiatorUserId: currentMessage.author.userId,
+          messageId: "msg-1",
+        }
       );
       expect(adapter.endTyping).toHaveBeenCalledWith(
         "slack:C123:1234.5678",
         "active"
+      );
+    });
+
+    it("passes the current message ID", async () => {
+      const adapter = createMockAdapter();
+      const currentMessage = createTestMessage("msg-2", "Hello");
+      const thread = new ThreadImpl({
+        id: "slack:C123:1234.5678",
+        adapter,
+        channelId: "C123",
+        stateAdapter: createMockState(),
+        currentMessage,
+      });
+
+      await thread.startTyping("thinking...");
+
+      expect(adapter.startTyping).toHaveBeenCalledWith(
+        "slack:C123:1234.5678",
+        "thinking...",
+        expect.objectContaining({ messageId: "msg-2" })
       );
     });
   });
@@ -3655,6 +3825,40 @@ describe("ThreadImpl", () => {
         )
       ).toBe(false);
       expect(postedCard.children[0].children[0].value).toBe("keep");
+    });
+  });
+
+  describe("Workflow VM compatibility", () => {
+    afterEach(() => {
+      vi.unstubAllGlobals();
+      vi.resetModules();
+    });
+
+    it("loads and constructs without a global AbortController", async () => {
+      vi.stubGlobal("AbortController", undefined);
+      vi.resetModules();
+
+      const { ThreadImpl: IsolatedThreadImpl } = await import("./thread");
+      const thread = new IsolatedThreadImpl({
+        id: "slack:C123:1234.5678",
+        adapterName: "slack",
+        channelId: "slack:C123",
+      });
+
+      expect(thread.signal.aborted).toBe(false);
+      expect(() => thread.signal.throwIfAborted()).not.toThrow();
+    });
+
+    it("defaults to a real never-aborted AbortSignal when available", () => {
+      const thread = new ThreadImpl({
+        id: "slack:C123:1234.5678",
+        adapter: createMockAdapter(),
+        channelId: "slack:C123",
+        stateAdapter: createMockState(),
+      });
+
+      expect(thread.signal).toBeInstanceOf(AbortSignal);
+      expect(thread.signal.aborted).toBe(false);
     });
   });
 });

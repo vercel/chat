@@ -1,7 +1,7 @@
 {
   "name": "@chat-adapter/web",
-  "version": "4.41.1",
-  "description": "Web adapter for Chat SDK — browser chat UI via the AI SDK useChat stream protocol",
+  "version": "4.43.0",
+  "description": "Web adapter for Chat SDK — browser chat UI over the AI SDK or AG-UI (TanStack AI) stream protocols",
   "type": "module",
   "engines": {
     "node": ">=20"
@@ -52,6 +52,9 @@
     "vue": "^3"
   },
   "peerDependenciesMeta": {
+    "ai": {
+      "optional": true
+    },
     "@ai-sdk/react": {
       "optional": true
     },
@@ -79,13 +82,13 @@
     "@chat-adapter/tests": "workspace:*",
     "@types/node": "^25.3.2",
     "@types/react": "^19.0.1",
-    "@vitest/coverage-v8": "^4.0.18",
+    "@vitest/coverage-v8": "^5.0.3",
     "ai": "^7.0.0",
     "react": "^19.0.0",
     "svelte": "^5.55.7",
     "tsup": "^8.3.5",
     "typescript": "^5.7.2",
-    "vitest": "^4.0.18",
+    "vitest": "^5.0.3",
     "vue": "^3.5.13"
   },
   "repository": {
@@ -110,6 +113,8 @@
     "svelte",
     "useChat",
     "ai-sdk",
+    "ag-ui",
+    "tanstack-ai",
     "ai-agent",
     "bot",
     "adapter",

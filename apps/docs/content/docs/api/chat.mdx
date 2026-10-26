@@ -148,7 +148,7 @@ bot.onSubscribedMessage(async (thread, message) => {
 
 ### onNewMessage
 
-Fires for messages matching a regex pattern in unsubscribed threads.
+Fires for messages in unsubscribed threads that aren't DMs and don't mention the bot. Pass a regex to filter by message text, or pass only a handler to receive every such message, including attachment-only messages with empty text. All `onNewMessage` handlers run one after another in registration order.
 
 ```typescript
 bot.onNewMessage(/^!help/i, async (thread, message) => {
@@ -156,18 +156,26 @@ bot.onNewMessage(/^!help/i, async (thread, message) => {
 });
 ```
 
+```typescript
+bot.onNewMessage(async (thread, message) => {
+  await thread.post(`Received: ${message.text || "an attachment"}`);
+});
+```
+
 <TypeTable
   type={{
     pattern: {
-      description: 'Regular expression to match against message text.',
+      description: 'Optional regular expression tested against the message text. Omit it to receive every message that reaches pattern routing.',
       type: 'RegExp',
     },
     handler: {
-      description: 'Handler called when the pattern matches.',
-      type: '(thread: Thread, message: Message) => Promise<void>',
+      description: 'Handler called for each matching message. `context` is set by the `queue` and `burst` concurrency strategies. See [MessageContext](/docs/concurrency#messagecontext).',
+      type: '(thread: Thread, message: Message, context?: MessageContext) => Promise<void>',
     },
   }}
 />
+
+The handler-only form doesn't receive DMs or mentions, even when no `onDirectMessage` or `onNewMention` handler is registered. Passing arguments in the wrong order, a `pattern` that isn't a `RegExp`, or no handler throws a `ChatError` when the handler is registered.
 
 ### onReaction
 
@@ -248,6 +256,10 @@ bot.onAction(async (event) => { /* ... */ });
     'event.value': {
       description: 'Optional payload value from the button.',
       type: 'string | undefined',
+    },
+    'event.values': {
+      description: "The card's own input values, keyed by input ID. Absent where the platform has no card inputs.",
+      type: 'Record<string, string> | undefined',
     },
     'event.user': {
       description: 'User who triggered the action.',
@@ -693,7 +705,7 @@ const dm = await bot.openDM(message.author);
 
 Look up user information by user ID. Returns a `UserInfo` object with name, email, avatar, and bot status, or `null` if the user was not found.
 
-`bot.getUser` picks the adapter from the format of the user ID, so it only works for platforms whose IDs it can recognize: Slack (`U...` or `W...`), Microsoft Teams (`29:...`), Google Chat (`users/...`), Linear (UUID), and Discord, Telegram, and GitHub (numeric). For other adapters that implement `getUser`, such as X and Twilio, call the adapter directly with `bot.getAdapter("x").getUser(userId)`.
+`bot.getUser` picks the adapter from the format of the user ID, so it only works for platforms whose IDs it can recognize: Slack (`U...` or `W...`), Microsoft Teams (`29:...`), Google Chat (`users/...`), Linear (UUID), and Discord, Telegram, and GitHub (numeric). For other adapters that implement `getUser`, such as X, Twilio, and Twitch, call the adapter directly with `bot.getAdapter("x").getUser(userId)`.
 
 ```typescript
 const user = await bot.getUser("U123456");
@@ -746,6 +758,7 @@ const user = await bot.getUser(message.author);
 | GitHub | `email` is only returned if the user made it public or you authenticated with the `user:email` scope. |
 | Linear | Returns the full profile, including email and avatar, for any active workspace member. |
 | X | Returns the name, username, and avatar. `email` is not returned. Call through the adapter, because X's numeric IDs aren't inferred. |
+| Twitch | Returns the display name, login, and avatar from Get Users. `email` is not returned. Call through the adapter, because Twitch's numeric IDs aren't inferred. |
 | Twilio | Doesn't call Twilio. Returns a profile built from the phone number, with the number as `userId`, `userName`, and `fullName`. |
 
 Fields that aren't available return `undefined`.

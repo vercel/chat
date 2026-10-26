@@ -1,67 +1,33 @@
 ---
 title: Web
-description: Web chat adapter that speaks the AI SDK useChat protocol.
+description: Web chat adapter that speaks the AI SDK and AG-UI stream protocols.
 packageName: "@chat-adapter/web"
 slug: web
 type: platform
 logo: web
-tagline: Serve a browser chat UI from the same Chat SDK bot and handlers you use for Slack, Teams, and Discord. Speaks the AI SDK UI message stream protocol, so useChat works with React, Vue, and Svelte.
-beta: true
-features:
-  postMessage: yes
-  editMessage: no
-  deleteMessage: no
-  fileUploads: no
-  streaming:
-    status: yes
-    label: Native (SSE)
-  scheduledMessages: no
-  cardFormat:
-    status: partial
-    label: Markdown only (v1)
-  buttons: no
-  linkButtons: no
-  selectMenus: no
-  tables:
-    status: yes
-    label: GFM
-  fields: no
-  imagesInCards: no
-  modals: no
-  slashCommands: no
-  mentions: no
-  addReactions: no
-  removeReactions: no
-  typingIndicator: no
-  messageUpdatedEvents: no
-  messageDeletedEvents: no
-  directMessages: yes
-  ephemeralMessages: no
-  customApiEndpoint: yes
-  fetchMessages:
-    status: partial
-    label: State cache
-  fetchThreadInfo:
-    status: yes
-    label: Synthesized
-  fetchChannelMessages:
-    status: partial
-    label: State cache
-  listThreads: no
-  postChannelMessage: no
+tagline: Serve a browser chat UI from the same Chat SDK bot and handlers you use for Slack, Teams, and Discord. Speaks the AI SDK UI message stream protocol or AG-UI, so AI SDK and TanStack AI clients work against it.
 ---
+
+## Create a new bot
+
+Scaffold a Next.js bot with the Web adapter using [`create-chat-sdk`](/docs/create-chat-sdk):
+
+<CreateChatSdk adapters="web memory" />
+
+The generated app uses the [Memory state adapter](/adapters/official/memory) for local development. To add the adapter to an existing app, start at [Install](#install).
 
 ## Install
 
-<PackageInstall package="@chat-adapter/web ai" />
+<PackageInstall package="@chat-adapter/web" />
 
-Then install the framework package that matches your UI:
+The server has no runtime dependency on a client SDK. Install the client packages that match your UI:
 
-| Framework | Package | Import from |
-|-----------|---------|-------------|
-| React / Next.js | `@ai-sdk/react` | `@chat-adapter/web/react` |
-| Vue / Nuxt | `@ai-sdk/vue` | `@chat-adapter/web/vue` |
-| Svelte / SvelteKit | `@ai-sdk/svelte` | `@chat-adapter/web/svelte` |
+| Client | Packages | Import from | `protocol` |
+|--------|----------|-------------|------------|
+| AI SDK + React / Next.js | `ai`, `@ai-sdk/react` | `@chat-adapter/web/react` | `"ai-sdk"` (default) |
+| AI SDK + Vue / Nuxt | `ai`, `@ai-sdk/vue` | `@chat-adapter/web/vue` | `"ai-sdk"` (default) |
+| AI SDK + Svelte / SvelteKit | `ai`, `@ai-sdk/svelte` | `@chat-adapter/web/svelte` | `"ai-sdk"` (default) |
+| TanStack AI | `@tanstack/ai-react` (or another TanStack AI framework package) | `@tanstack/ai-react` | `"ag-ui"` |
 
 ## Quick start
 
@@ -194,6 +160,12 @@ The resolved `user.id` is embedded in the Chat SDK thread ID. IDs containing `:`
       description:
         "Resolves the user from the inbound HTTP request. Returning `null` produces HTTP 401. This is the security boundary for the Web adapter.",
     },
+    protocol: {
+      type: '"ai-sdk" | "ag-ui"',
+      default: '"ai-sdk"',
+      description:
+        "Wire protocol for requests and streamed responses. Use `\"ag-ui\"` for TanStack AI and other AG-UI clients.",
+    },
     persistMessageHistory: {
       type: "boolean",
       default: "true",
@@ -214,7 +186,7 @@ The resolved `user.id` is embedded in the Chat SDK thread ID. IDs containing `:`
 
 ## Streaming
 
-`thread.post` accepts an `AsyncIterable<string | StreamChunk>` and writes deltas directly to the SSE response, without the post-and-edit loop or rate limiting other adapters need. You can pass `streamText` output from the AI SDK:
+`thread.post` accepts an `AsyncIterable<string | StreamChunk>` and writes deltas directly to the SSE response, without the post-and-edit loop or rate limiting other adapters need. The handler can use any model library. For example, you can pass `streamText` output from the AI SDK:
 
 ```typescript
 import { streamText } from "ai";
@@ -225,11 +197,18 @@ bot.onDirectMessage(async (thread, message) => {
 });
 ```
 
-The adapter honors `request.signal`, so calling `stop()` from `useChat` short-circuits the iterator on the server.
+The adapter honors `request.signal`, so calling `stop()` from the client short-circuits the iterator on the server.
 
 ## Framework integrations
 
-The Web adapter speaks the AI SDK UI message stream protocol, so React, Vue, and Svelte AI SDK clients work against the same server endpoint. The framework subpaths expose `useChat` helpers preconfigured for that endpoint. The `api` and `threadId` options are the same in all three, and the server-side setup doesn't change.
+The `protocol` option sets the wire format the endpoint speaks:
+
+- `"ai-sdk"` (default): the [AI SDK UI message stream protocol](https://ai-sdk.dev/docs/ai-sdk-ui/stream-protocol), for `useChat` from `@ai-sdk/react`, `@ai-sdk/vue`, and `@ai-sdk/svelte`.
+- `"ag-ui"`: [AG-UI](https://docs.ag-ui.com/concepts/events) events, for TanStack AI's `fetchServerSentEvents` connection and other AG-UI clients.
+
+Handlers are the same for both. Only the request body and the SSE frames change.
+
+The AI SDK framework subpaths expose `useChat` helpers preconfigured for the endpoint. The `api` and `threadId` options are the same in all three.
 
 ### React
 
@@ -292,21 +271,54 @@ const chat = useChat({ api: "/api/chat", threadId: "support-1" });
 {/each}
 ```
 
+### TanStack AI
+
+Set `protocol: "ag-ui"` on the adapter:
+
+```typescript title="lib/bot.ts"
+createWebAdapter({
+  userName: "mybot",
+  getUser,
+  protocol: "ag-ui",
+});
+```
+
+Then point TanStack AI's `useChat` at the route with `fetchServerSentEvents`:
+
+```tsx title="app/chat/page.tsx" lineNumbers
+"use client";
+import { fetchServerSentEvents, useChat } from "@tanstack/ai-react";
+
+export default function ChatPage() {
+  const { messages, sendMessage, isLoading, stop } = useChat({
+    connection: fetchServerSentEvents("/api/chat"),
+    threadId: "support-1",
+  });
+  // Text parts carry their text in `part.content`.
+}
+```
+
+`threadId` becomes the conversation ID in the Chat SDK thread ID. Each `thread.post` call in a handler arrives as its own assistant message. Handler errors end the run with a `RUN_ERROR` event.
+
 ## Message persistence
 
 `persistMessageHistory` defaults to `true`. Web has no platform-side history API, so handlers can see prior turns through `thread.messages` only if the configured state adapter has cached them.
 
-The request body's `messages[]` array is not an alternative history source. A browser controls it entirely, so the adapter consumes only the latest user message and strips tool parts from it. A client therefore cannot inject forged tool-call or approval state or rewrite earlier turns. Text, file, and custom `data-*` parts pass through to `message.raw` unchanged. Setting `persistMessageHistory: false` leaves handlers with only the current message.
+The request body's `messages[]` array is not an alternative history source. A browser controls it entirely, so the adapter consumes only the latest user message and strips tool parts from it. A client therefore cannot inject forged tool-call or approval state or rewrite earlier turns. With `"ai-sdk"`, text, file, and custom `data-*` parts pass through to `message.raw` unchanged. With `"ag-ui"`, `message.raw.parts` holds the message content as `{ type: "text", text }` parts plus any `image`, `audio`, `video`, `document`, or `binary` content parts. Setting `persistMessageHistory: false` leaves handlers with only the current message.
+
+The last entry in `messages[]` must be a user message. A body ending in an assistant or tool message, such as a client-side tool result, gets HTTP 400, because the adapter doesn't support tool or assistant continuations. Sending the same user message again (`regenerate()` or a reload) runs the handler again rather than being dropped as a duplicate, and history keeps the earlier reply and stores the repeated message a second time.
+
+`message.raw` is typed `WebMessage`. Part fields other than `type` are `unknown`. With `"ai-sdk"` the shape matches the AI SDK `UIMessage`, so you can cast it with `message.raw as UIMessage`.
 
 ## Thread IDs
 
-By default, each `useChat` conversation maps to one Chat SDK thread:
+By default, each client conversation maps to one Chat SDK thread:
 
 ```
 web:{user.id}:{conversationId}
 ```
 
-`conversationId` is the `id` field `useChat` sends in its request body. If your client supplies one (`useChat({ id: "support-chat" })`), it's reused across reloads; otherwise the adapter generates a fresh ID per request.
+`conversationId` is the `id` field AI SDK's `useChat` sends in its request body, or the `threadId` field with `"ag-ui"`. If your client supplies one (`useChat({ id: "support-chat" })` or TanStack AI's `useChat({ threadId: "support-chat" })`), it's reused across reloads; otherwise the client or adapter generates one. A conversation ID that isn't a string, or that contains `:`, gets HTTP 400.
 
 Override `threadIdFor` to use a single thread per user:
 

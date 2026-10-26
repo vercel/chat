@@ -83,12 +83,6 @@ export function connectWebhookContract(
   }
 
   describe(`Vercel Connect webhook contract (${descriptor.name})`, () => {
-    it("constructs with a webhookVerifier and no native secret", () => {
-      expect(() =>
-        descriptor.createAdapter({ webhookVerifier: () => true })
-      ).not.toThrow();
-    });
-
     it("accepts the request (200) when the verifier passes", async () => {
       const verifier = vi.fn(() => true);
       const adapter = await build({ verifier });
@@ -102,30 +96,31 @@ export function connectWebhookContract(
     it("invokes the verifier with the request and raw body", async () => {
       const verifier = vi.fn(() => true);
       const adapter = await build({ verifier });
-      await adapter.handleWebhook(await descriptor.makeWebhookRequest());
-      expect(verifier).toHaveBeenCalledWith(
-        expect.any(Request),
-        expect.any(String)
-      );
+      const request = await descriptor.makeWebhookRequest();
+      const rawBody = await request.clone().text();
+      await adapter.handleWebhook(request);
+      expect(verifier).toHaveBeenCalledWith(expect.any(Request), rawBody);
     });
 
     it("rejects (401) when the verifier throws", async () => {
-      const adapter = await build({
-        verifier: () => {
-          throw new Error("invalid token");
-        },
+      const verifier = vi.fn(() => {
+        throw new Error("invalid token");
       });
+      const adapter = await build({ verifier });
       const response = await adapter.handleWebhook(
         await descriptor.makeWebhookRequest()
       );
+      expect(verifier).toHaveBeenCalled();
       expect(response.status).toBe(401);
     });
 
     it("rejects (401) when the verifier returns falsy", async () => {
-      const adapter = await build({ verifier: () => false });
+      const verifier = vi.fn(() => false);
+      const adapter = await build({ verifier });
       const response = await adapter.handleWebhook(
         await descriptor.makeWebhookRequest()
       );
+      expect(verifier).toHaveBeenCalled();
       expect(response.status).toBe(401);
     });
 

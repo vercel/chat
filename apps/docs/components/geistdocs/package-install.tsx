@@ -78,15 +78,14 @@ const Snippet = ({ command }: SnippetProps) => {
   );
 };
 
-export interface PackageInstallProps {
-  package: string;
-  dev?: boolean;
+export interface CommandTabsProps {
+  commands: Record<PackageManager, string>;
 }
 
-export const PackageInstall = ({
-  package: pkg,
-  dev = false,
-}: PackageInstallProps) => (
+/**
+ * Copyable shell command with one tab per package manager.
+ */
+export const CommandTabs = ({ commands }: CommandTabsProps) => (
   <Tabs
     className="not-prose mb-6 overflow-hidden rounded-md border bg-card"
     defaultValue="pnpm"
@@ -108,8 +107,27 @@ export const PackageInstall = ({
     </TabsList>
     {PACKAGE_MANAGERS.map((manager) => (
       <TabsContent key={manager} value={manager}>
-        <Snippet command={buildCommand(manager, pkg, dev)} />
+        <Snippet command={commands[manager]} />
       </TabsContent>
     ))}
   </Tabs>
+);
+
+export interface PackageInstallProps {
+  package: string;
+  dev?: boolean;
+}
+
+export const PackageInstall = ({
+  package: pkg,
+  dev = false,
+}: PackageInstallProps) => (
+  <CommandTabs
+    commands={{
+      pnpm: buildCommand("pnpm", pkg, dev),
+      npm: buildCommand("npm", pkg, dev),
+      yarn: buildCommand("yarn", pkg, dev),
+      bun: buildCommand("bun", pkg, dev),
+    }}
+  />
 );

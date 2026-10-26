@@ -74,6 +74,8 @@ const MAX_FETCH_PAGES = 20;
 const MAX_COMMENT_MARKDOWN_CHARS = 1900;
 /** Notion comments accept at most 3 native file_upload attachments. */
 const MAX_COMMENT_ATTACHMENTS = 3;
+/** Block types that are their own comment surface, not part of the parent page. */
+const CHILD_SURFACE_BLOCK_TYPES = new Set(["child_page", "child_database"]);
 
 const MENTION_MODES = new Set<NotionMentionMode>([
   "mention",
@@ -144,6 +146,8 @@ export {
 const API_BASE = "https://api.notion.com/v1";
 const DEDUPE_TTL_MS = 24 * 60 * 60 * 1000;
 const RECENT_POST_TTL_MS = 5 * 60 * 1000;
+/** How long a discussion missing from its page's comment list skips relisting. */
+const DISCUSSION_MISS_TTL_MS = 60 * 1000;
 const DEFAULT_STREAMING_EDIT_INTERVAL_MS = 1500;
 
 function isVerificationPayload(
@@ -211,6 +215,10 @@ export class NotionAdapter
   protected readonly recentlyPostedIds = new Map<string, number>();
   /** In-memory block → page cache (also mirrored to state when available). */
   protected readonly blockPageCache = new Map<string, string>();
+  /** In-memory discussion → page cache (also mirrored to state when available). */
+  protected readonly discussionPageCache = new Map<string, string>();
+  /** `{pageId}:{discussionId}` lookups that missed the page's comment list → expiry. */
+  protected readonly discussionMisses = new Map<string, number>();
   /** Event IDs provisionally claimed in state before handling completes. */
   protected readonly pendingStateClaims = new Set<string>();
 
@@ -598,6 +606,7 @@ export class NotionAdapter
             throw new CommentGoneError(commentId);
           }
           const pageId = await this.resolvePageId(comment, event);
+          await this.rememberDiscussionPage(comment.discussion_id, pageId);
           const threadId = this.encodeThreadId({
             pageId,
             discussionId: comment.discussion_id,
@@ -718,6 +727,8 @@ export class NotionAdapter
     message: AdapterPostableMessage
   ): Promise<RawMessage<NotionRawMessage>> {
     const decoded = this.decodeThreadId(threadId);
+    // Before renderOutbound, which uploads attachments.
+    await this.assertTargetOnPage(decoded);
     const { markdown, attachmentIds, linkOverflow } = await this.renderOutbound(
       message,
       { attachNative: true }
@@ -775,6 +786,20 @@ export class NotionAdapter
       // Unreachable: safeChunks always has at least one entry.
       throw new ValidationError("notion", "postMessage produced no comment");
     }
+    // Replies were already bound by assertTargetOnPage.
+    if (!decoded.discussionId) {
+      try {
+        await this.rememberDiscussionPage(
+          head.discussion_id,
+          await this.resolvePageId(head)
+        );
+      } catch (error) {
+        this.logger.warn("Failed to record Notion discussion page", {
+          discussionId: head.discussion_id,
+          error,
+        });
+      }
+    }
 
     const fullThreadId = this.encodeThreadId({
       pageId: decoded.pageId,
@@ -793,7 +818,20 @@ export class NotionAdapter
     messageId: string,
     message: AdapterPostableMessage
   ): Promise<RawMessage<NotionRawMessage>> {
+    const id = await this.validateComment(
+      this.decodeThreadId(threadId),
+      messageId
+    );
+    return this.updateComment(threadId, id, message);
+  }
+
+  private async updateComment(
+    threadId: string,
+    messageId: string,
+    message: AdapterPostableMessage
+  ): Promise<RawMessage<NotionRawMessage>> {
     const decoded = this.decodeThreadId(threadId);
+    const id = normalizeUuid(messageId, "messageId");
     // PATCH comments may not accept attachments — link files in markdown only.
     const { markdown, linkOverflow } = await this.renderOutbound(message, {
       attachNative: false,
@@ -802,10 +840,10 @@ export class NotionAdapter
     if (linkOverflow.length > 0) {
       bodyMarkdown = `${bodyMarkdown}\n\n${linkOverflow.join("\n")}`.trim();
     }
-    const comment = await this.apiFetch<NotionComment>(
-      `/comments/${messageId}`,
-      { method: "PATCH", body: { markdown: bodyMarkdown } }
-    );
+    const comment = await this.apiFetch<NotionComment>(`/comments/${id}`, {
+      method: "PATCH",
+      body: { markdown: bodyMarkdown },
+    });
     return {
       id: comment.id,
       threadId,
@@ -813,8 +851,58 @@ export class NotionAdapter
     };
   }
 
-  async deleteMessage(_threadId: string, messageId: string): Promise<void> {
-    await this.apiFetch(`/comments/${messageId}`, { method: "DELETE" });
+  async deleteMessage(threadId: string, messageId: string): Promise<void> {
+    const id = await this.validateComment(
+      this.decodeThreadId(threadId),
+      messageId
+    );
+    await this.apiFetch(`/comments/${id}`, { method: "DELETE" });
+  }
+
+  private async validateComment(
+    thread: NotionThreadId,
+    messageId: string
+  ): Promise<string> {
+    const id = normalizeUuid(messageId, "messageId");
+    const comment = await this.retrieveComment(id);
+    if (!(comment && (await this.commentBelongsToThread(comment, thread)))) {
+      throw new ValidationError(
+        "notion",
+        "Comment does not belong to this thread"
+      );
+    }
+    return id;
+  }
+
+  private async commentBelongsToThread(
+    comment: NotionComment,
+    thread: NotionThreadId
+  ): Promise<boolean> {
+    if (
+      thread.discussionId &&
+      normalizeUuid(comment.discussion_id, "discussionId") !==
+        thread.discussionId
+    ) {
+      return false;
+    }
+    if (
+      thread.blockId &&
+      (comment.parent.type !== "block_id" ||
+        normalizeUuid(comment.parent.block_id, "blockId") !== thread.blockId)
+    ) {
+      return false;
+    }
+    try {
+      const pageId = await this.resolvePageId(comment, undefined, {
+        fresh: true,
+      });
+      return pageId === thread.pageId;
+    } catch (error) {
+      if (error instanceof ResourceNotFoundError) {
+        return false;
+      }
+      throw error;
+    }
   }
 
   async stream(
@@ -847,7 +935,7 @@ export class NotionAdapter
         return;
       }
       try {
-        posted = await this.editMessage(editThreadId, posted.id, {
+        posted = await this.updateComment(editThreadId, posted.id, {
           markdown: content,
         });
         lastEditContent = content;
@@ -1076,7 +1164,8 @@ export class NotionAdapter
 
   protected async resolvePageId(
     comment: NotionComment,
-    event?: NotionWebhookEvent
+    event?: NotionWebhookEvent,
+    options: ResolveBlockPageOptions = {}
   ): Promise<string> {
     if (event?.data?.page_id) {
       return normalizeUuid(event.data.page_id, "pageId");
@@ -1085,18 +1174,178 @@ export class NotionAdapter
       return normalizeUuid(comment.parent.page_id, "pageId");
     }
     const blockId = normalizeUuid(comment.parent.block_id, "blockId");
-    return this.resolveBlockPageId(blockId);
+    return this.resolveBlockPageId(blockId, options);
   }
 
-  protected async resolveBlockPageId(blockId: string): Promise<string> {
-    const cached = this.blockPageCache.get(blockId);
+  /**
+   * Reject a discussion or block that lives on a different page than the
+   * thread's `pageId`. Notion routes `discussion_id` and block parents without
+   * looking at the page, and scope checks compare only `notion:{pageId}`.
+   */
+  protected async assertTargetOnPage(thread: NotionThreadId): Promise<void> {
+    if (thread.discussionId) {
+      const pageId = await this.resolveDiscussionPageId(
+        thread.discussionId,
+        thread.pageId
+      );
+      if (!pageId) {
+        throw new ValidationError(
+          "notion",
+          `Could not confirm Notion discussion ${thread.discussionId} belongs to page ${thread.pageId}. Inline discussions are recorded when a comment.created webhook arrives for them.`
+        );
+      }
+      if (pageId !== thread.pageId) {
+        throw new ValidationError(
+          "notion",
+          `Notion discussion ${thread.discussionId} does not belong to page ${thread.pageId}`
+        );
+      }
+    } else if (thread.blockId) {
+      const pageId = await this.resolveBlockTargetPageId(thread.blockId);
+      if (pageId !== thread.pageId) {
+        throw new ValidationError(
+          "notion",
+          `Notion block ${thread.blockId} does not belong to page ${thread.pageId}`
+        );
+      }
+    }
+  }
+
+  /**
+   * Resolve the page a whole-block discussion would land on from the block's
+   * current ancestry. A comment on a child page or database block can land on
+   * the child, so those never count as blocks on the parent page.
+   */
+  protected async resolveBlockTargetPageId(
+    blockId: string
+  ): Promise<string | undefined> {
+    const block = await this.apiFetch<NotionBlockResponse>(
+      `/blocks/${blockId}`
+    );
+    if (block.type && CHILD_SURFACE_BLOCK_TYPES.has(block.type)) {
+      return undefined;
+    }
+    let pageId: string;
+    if (block.parent.type === "page_id" && block.parent.page_id) {
+      pageId = normalizeUuid(block.parent.page_id, "pageId");
+    } else if (block.parent.type === "block_id" && block.parent.block_id) {
+      pageId = await this.resolveBlockPageId(
+        normalizeUuid(block.parent.block_id, "blockId"),
+        { fresh: true }
+      );
+    } else {
+      return undefined;
+    }
+    this.blockPageCache.set(blockId, pageId);
+    await this.chat?.getState().set(`notion:block-page:${blockId}`, pageId);
+    return pageId;
+  }
+
+  /**
+   * Find the page a discussion lives on from memory, state, or the claimed
+   * page's comment list. Notion has no discussion lookup and does not list
+   * inline discussions under their page, so an inline discussion that no
+   * webhook or post has recorded resolves to `undefined`. A miss skips
+   * relisting for `DISCUSSION_MISS_TTL_MS`.
+   */
+  protected async resolveDiscussionPageId(
+    discussionId: string,
+    claimedPageId: string
+  ): Promise<string | undefined> {
+    const cached = this.discussionPageCache.get(discussionId);
+    if (cached) {
+      return cached;
+    }
+
+    const fromState = await this.chat
+      ?.getState()
+      .get(`notion:discussion-page:${discussionId}`);
+    if (typeof fromState === "string") {
+      this.discussionPageCache.set(discussionId, fromState);
+      return fromState;
+    }
+
+    const missKey = `${claimedPageId}:${discussionId}`;
+    if ((this.discussionMisses.get(missKey) ?? 0) > Date.now()) {
+      return undefined;
+    }
+
+    let cursor: string | undefined;
+    for (let pages = 0; pages < MAX_FETCH_PAGES; pages++) {
+      const params = new URLSearchParams({
+        block_id: claimedPageId,
+        page_size: "100",
+      });
+      if (cursor) {
+        params.set("start_cursor", cursor);
+      }
+      const list = await this.apiFetch<NotionCommentListResponse>(
+        `/comments?${params}`
+      );
+      // Other listed discussions stay in memory only, so one lookup on a busy
+      // page doesn't become hundreds of state writes.
+      let listed = false;
+      for (const comment of list.results) {
+        const id = normalizeUuid(comment.discussion_id, "discussionId");
+        if (id === discussionId) {
+          listed = true;
+        } else {
+          this.discussionPageCache.set(id, claimedPageId);
+        }
+      }
+      if (listed) {
+        await this.rememberDiscussionPage(discussionId, claimedPageId);
+        return claimedPageId;
+      }
+      if (!(list.has_more && list.next_cursor)) {
+        break;
+      }
+      cursor = list.next_cursor;
+    }
+    this.pruneDiscussionMisses();
+    this.discussionMisses.set(missKey, Date.now() + DISCUSSION_MISS_TTL_MS);
+    return undefined;
+  }
+
+  protected pruneDiscussionMisses(): void {
+    const now = Date.now();
+    for (const [key, expiresAt] of this.discussionMisses) {
+      if (expiresAt <= now) {
+        this.discussionMisses.delete(key);
+      }
+    }
+  }
+
+  /**
+   * Record the page a discussion lives on. Only pass pairs that Notion
+   * reported; a caller-supplied thread ID proves nothing.
+   */
+  protected async rememberDiscussionPage(
+    discussionId: string,
+    pageId: string
+  ): Promise<void> {
+    const discussion = normalizeUuid(discussionId, "discussionId");
+    const page = normalizeUuid(pageId, "pageId");
+    // Always write state: a webhook retry after a failed write must persist
+    // the binding even though this instance already holds it in memory.
+    this.discussionPageCache.set(discussion, page);
+    await this.chat
+      ?.getState()
+      .set(`notion:discussion-page:${discussion}`, page);
+  }
+
+  protected async resolveBlockPageId(
+    blockId: string,
+    { fresh = false }: ResolveBlockPageOptions = {}
+  ): Promise<string> {
+    const cached = fresh ? undefined : this.blockPageCache.get(blockId);
     if (cached) {
       return cached;
     }
 
     const state = this.chat?.getState();
     const stateKey = `notion:block-page:${blockId}`;
-    if (state) {
+    if (!fresh && state) {
       const fromState = await state.get(stateKey);
       if (typeof fromState === "string") {
         this.blockPageCache.set(blockId, fromState);
@@ -1107,15 +1356,9 @@ export class NotionAdapter
     const visited: string[] = [blockId];
     let currentId = blockId;
     for (let depth = 0; depth < 20; depth++) {
-      const block = await this.apiFetch<{
-        id: string;
-        parent: {
-          type: string;
-          page_id?: string;
-          block_id?: string;
-          workspace?: boolean;
-        };
-      }>(`/blocks/${currentId}`);
+      const block = await this.apiFetch<NotionBlockResponse>(
+        `/blocks/${currentId}`
+      );
 
       if (block.parent.type === "page_id" && block.parent.page_id) {
         const pageId = normalizeUuid(block.parent.page_id, "pageId");
@@ -1131,7 +1374,9 @@ export class NotionAdapter
       if (block.parent.type === "block_id" && block.parent.block_id) {
         currentId = normalizeUuid(block.parent.block_id, "blockId");
         visited.push(currentId);
-        const cachedParent = this.blockPageCache.get(currentId);
+        const cachedParent = fresh
+          ? undefined
+          : this.blockPageCache.get(currentId);
         if (cachedParent) {
           for (const visitedId of visited) {
             this.blockPageCache.set(visitedId, cachedParent);
@@ -1534,6 +1779,22 @@ export class NotionAdapter
       linkOverflow,
     };
   }
+}
+
+interface NotionBlockResponse {
+  id: string;
+  parent: {
+    type: string;
+    page_id?: string;
+    block_id?: string;
+    workspace?: boolean;
+  };
+  type?: string;
+}
+
+interface ResolveBlockPageOptions {
+  /** Skip cached ancestry reads; resolved ancestry is still written back. */
+  fresh?: boolean;
 }
 
 interface NotionFileUploadResponse {

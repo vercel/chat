@@ -3,6 +3,8 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const ANY_REGEX = /.*/;
 const HELP_REGEX = /help/i;
 const HELLO_REGEX = /hello/i;
+const GLOBAL_HELP_REGEX = /help/g;
+const FROZEN_HELP_REGEX = Object.freeze(/help/i);
 
 async function* chunks(): AsyncGenerator<string> {
   yield "Hello";
@@ -11,7 +13,7 @@ async function* chunks(): AsyncGenerator<string> {
 import { Chat } from "./chat";
 import { activeConversation } from "./context";
 import { getEmoji } from "./emoji";
-import { LockError } from "./errors";
+import { ChatError, LockError } from "./errors";
 import { jsx } from "./jsx-runtime";
 import { Message } from "./message";
 import {
@@ -833,6 +835,191 @@ describe("Chat", () => {
     expect(helpHandler).toHaveBeenCalled();
   });
 
+  it("should call an unfiltered handler for messages without text", async () => {
+    const handler = vi.fn().mockResolvedValue(undefined);
+    chat.onNewMessage(handler);
+
+    await chat.handleIncomingMessage(
+      mockAdapter,
+      "slack:C123:1234.5678",
+      createTestMessage("msg-1", "", {
+        attachments: [
+          {
+            type: "file",
+            url: "https://example.com/report.pdf",
+            name: "report.pdf",
+          },
+        ],
+      })
+    );
+
+    expect(handler).toHaveBeenCalledTimes(1);
+  });
+
+  it("should run unfiltered and pattern handlers in registration order", async () => {
+    const calls: string[] = [];
+    const unfilteredHandler = vi.fn().mockImplementation(async () => {
+      calls.push("unfiltered");
+    });
+    const patternHandler = vi.fn().mockImplementation(async () => {
+      calls.push("pattern");
+    });
+    chat.onNewMessage(unfilteredHandler);
+    chat.onNewMessage(HELLO_REGEX, patternHandler);
+
+    await chat.handleIncomingMessage(
+      mockAdapter,
+      "slack:C123:1234.5678",
+      createTestMessage("msg-1", "hello")
+    );
+
+    expect(unfilteredHandler).toHaveBeenCalledTimes(1);
+    expect(patternHandler).toHaveBeenCalledTimes(1);
+    expect(calls).toEqual(["unfiltered", "pattern"]);
+  });
+
+  it("should match a global regex pattern on consecutive messages", async () => {
+    const handler = vi.fn().mockResolvedValue(undefined);
+    chat.onNewMessage(GLOBAL_HELP_REGEX, handler);
+
+    await chat.handleIncomingMessage(
+      mockAdapter,
+      "slack:C123:1234.5678",
+      createTestMessage("msg-1", "help")
+    );
+    await chat.handleIncomingMessage(
+      mockAdapter,
+      "slack:C123:1234.5678",
+      createTestMessage("msg-2", "help")
+    );
+
+    expect(handler).toHaveBeenCalledTimes(2);
+  });
+
+  it("should match a frozen non-global regex pattern", async () => {
+    const handler = vi.fn().mockResolvedValue(undefined);
+    chat.onNewMessage(FROZEN_HELP_REGEX, handler);
+
+    await chat.handleIncomingMessage(
+      mockAdapter,
+      "slack:C123:1234.5678",
+      createTestMessage("msg-1", "help")
+    );
+
+    expect(handler).toHaveBeenCalledTimes(1);
+  });
+
+  it("should not call an unfiltered handler for DMs handled by onDirectMessage", async () => {
+    const unfilteredHandler = vi.fn().mockResolvedValue(undefined);
+    const dmHandler = vi.fn().mockResolvedValue(undefined);
+    chat.onNewMessage(unfilteredHandler);
+    chat.onDirectMessage(dmHandler);
+
+    await chat.handleIncomingMessage(
+      mockAdapter,
+      "slack:DU123:1234.5678",
+      createTestMessage("msg-dm", "hello")
+    );
+
+    expect(dmHandler).toHaveBeenCalledTimes(1);
+    expect(unfilteredHandler).not.toHaveBeenCalled();
+  });
+
+  it("should not call an unfiltered handler for DMs routed to onNewMention", async () => {
+    const unfilteredHandler = vi.fn().mockResolvedValue(undefined);
+    const mentionHandler = vi.fn().mockResolvedValue(undefined);
+    chat.onNewMessage(unfilteredHandler);
+    chat.onNewMention(mentionHandler);
+
+    await chat.handleIncomingMessage(
+      mockAdapter,
+      "slack:DU123:1234.5678",
+      createTestMessage("msg-dm", "hello")
+    );
+
+    expect(mentionHandler).toHaveBeenCalledTimes(1);
+    expect(unfilteredHandler).not.toHaveBeenCalled();
+  });
+
+  it("should not call an unfiltered handler for channel mentions", async () => {
+    const unfilteredHandler = vi.fn().mockResolvedValue(undefined);
+    const mentionHandler = vi.fn().mockResolvedValue(undefined);
+    chat.onNewMessage(unfilteredHandler);
+    chat.onNewMention(mentionHandler);
+
+    await chat.handleIncomingMessage(
+      mockAdapter,
+      "slack:C123:1234.5678",
+      createTestMessage("msg-mention", "hello", { isMention: true })
+    );
+
+    expect(mentionHandler).toHaveBeenCalledTimes(1);
+    expect(unfilteredHandler).not.toHaveBeenCalled();
+  });
+
+  it("should not call an unfiltered handler in subscribed threads", async () => {
+    const unfilteredHandler = vi.fn().mockResolvedValue(undefined);
+    const subscribedHandler = vi.fn().mockResolvedValue(undefined);
+    chat.onNewMessage(unfilteredHandler);
+    chat.onSubscribedMessage(subscribedHandler);
+    await mockState.subscribe("slack:C123:1234.5678");
+
+    await chat.handleIncomingMessage(
+      mockAdapter,
+      "slack:C123:1234.5678",
+      createTestMessage("msg-subscribed", "hello")
+    );
+
+    expect(subscribedHandler).toHaveBeenCalledTimes(1);
+    expect(unfilteredHandler).not.toHaveBeenCalled();
+  });
+
+  describe("onNewMessage validation", () => {
+    function captureError(register: () => void): unknown {
+      try {
+        register();
+      } catch (error) {
+        return error;
+      }
+      return undefined;
+    }
+
+    it("should throw when a handler is passed with a second argument", () => {
+      const handler = vi.fn();
+      const error = captureError(() =>
+        (chat.onNewMessage as unknown as (a: unknown, b: unknown) => void).call(
+          chat,
+          handler,
+          HELP_REGEX
+        )
+      );
+      expect(error).toBeInstanceOf(ChatError);
+      expect((error as ChatError).code).toBe("INVALID_PATTERN");
+    });
+
+    it("should throw when the first argument is not a RegExp or function", () => {
+      const error = captureError(() =>
+        (chat.onNewMessage as unknown as (a: unknown, b: unknown) => void).call(
+          chat,
+          "help",
+          vi.fn()
+        )
+      );
+      expect(error).toBeInstanceOf(ChatError);
+      expect((error as ChatError).code).toBe("INVALID_PATTERN");
+    });
+
+    it("should throw when a pattern is passed without a handler function", () => {
+      const error = captureError(() =>
+        (
+          chat.onNewMessage as unknown as (a: unknown, b?: unknown) => void
+        ).call(chat, HELP_REGEX)
+      );
+      expect(error).toBeInstanceOf(ChatError);
+      expect((error as ChatError).code).toBe("INVALID_HANDLER");
+    });
+  });
+
   describe("isMention property", () => {
     it("should set isMention=true when bot is mentioned", async () => {
       const handler = vi.fn().mockResolvedValue(undefined);
@@ -1505,6 +1692,33 @@ describe("Chat", () => {
       expect(receivedEvent.thread).toBeDefined();
     });
 
+    it("should hand the card's input values to the handler", async () => {
+      const handler = vi.fn().mockResolvedValue(undefined);
+      chat.onAction("approve", handler);
+
+      const event: Omit<ActionEvent, "thread" | "openModal"> = {
+        actionId: "approve",
+        value: "order-123",
+        values: { notes: "ship it" },
+        user: {
+          userId: "U123",
+          userName: "user",
+          fullName: "Test User",
+          isBot: false,
+          isMe: false,
+        },
+        messageId: "msg-1",
+        threadId: "slack:C123:1234.5678",
+        adapter: mockAdapter,
+        raw: {},
+      };
+
+      await chat.processAction(event, undefined);
+
+      const receivedEvent = handler.mock.calls[0][0] as ActionEvent;
+      expect(receivedEvent.values).toEqual({ notes: "ship it" });
+    });
+
     it("should allow streaming from an action without message context", async () => {
       chat.onAction(async (event) => {
         await event.thread?.post(chunks());
@@ -1996,6 +2210,86 @@ describe("Chat", () => {
           value: "order-789",
           threadId: "slack:C123:1234.5678",
         });
+      } finally {
+        vi.unstubAllGlobals();
+      }
+    });
+
+    it("should forward the card's input values to the callbackUrl", async () => {
+      const mockFetch = vi.fn().mockResolvedValue(new Response("ok"));
+      vi.stubGlobal("fetch", mockFetch);
+
+      try {
+        (mockState as MockStateAdapter).cache.set("chat:callback:tokvals", {
+          actionId: "approve",
+          url: "https://example.com/webhook/hook3",
+          originalValue: "order-789",
+          scope: { id: "slack:C123", type: "channel" },
+        });
+
+        const event: Omit<ActionEvent, "thread" | "openModal"> = {
+          actionId: "approve",
+          value: "__cb:tokvals",
+          // A card carrying a TextInput reports what was typed here, and a
+          // callbackUrl flow has no handler to read it any other way.
+          values: { notes: "ship it" },
+          user: {
+            userId: "U123",
+            userName: "user",
+            fullName: "Test User",
+            isBot: false,
+            isMe: false,
+          },
+          messageId: "msg-1",
+          threadId: "slack:C123:1234.5678",
+          adapter: mockAdapter,
+          raw: {},
+        };
+
+        await chat.processAction(event, undefined);
+
+        const body = JSON.parse(mockFetch.mock.calls[0][1].body as string);
+        expect(body).toMatchObject({
+          type: "action",
+          actionId: "approve",
+          values: { notes: "ship it" },
+        });
+      } finally {
+        vi.unstubAllGlobals();
+      }
+    });
+
+    it("should omit values from the callbackUrl body when the card has none", async () => {
+      const mockFetch = vi.fn().mockResolvedValue(new Response("ok"));
+      vi.stubGlobal("fetch", mockFetch);
+
+      try {
+        (mockState as MockStateAdapter).cache.set("chat:callback:tokplain", {
+          actionId: "approve",
+          url: "https://example.com/webhook/hook4",
+          scope: { id: "slack:C123", type: "channel" },
+        });
+
+        const event: Omit<ActionEvent, "thread" | "openModal"> = {
+          actionId: "approve",
+          value: "__cb:tokplain",
+          user: {
+            userId: "U123",
+            userName: "user",
+            fullName: "Test User",
+            isBot: false,
+            isMe: false,
+          },
+          messageId: "msg-1",
+          threadId: "slack:C123:1234.5678",
+          adapter: mockAdapter,
+          raw: {},
+        };
+
+        await chat.processAction(event, undefined);
+
+        const body = JSON.parse(mockFetch.mock.calls[0][1].body as string);
+        expect(body).not.toHaveProperty("values");
       } finally {
         vi.unstubAllGlobals();
       }
@@ -3384,6 +3678,294 @@ describe("Chat", () => {
       } finally {
         vi.unstubAllGlobals();
       }
+    });
+
+    describe("modal context lifetime", () => {
+      const submitEvent = (callbackId: string) => ({
+        callbackId,
+        viewId: "V789",
+        values: { message: "" },
+        user: {
+          userId: "U123",
+          userName: "user",
+          fullName: "Test User",
+          isBot: false,
+          isMe: false,
+        },
+        adapter: mockAdapter,
+        raw: {},
+      });
+
+      const openModalFromAction = async (
+        callbackId: string,
+        callbackUrl?: string
+      ): Promise<string> => {
+        let capturedActionEvent: ActionEvent | undefined;
+        chat.onAction("open_form", async (event: ActionEvent) => {
+          capturedActionEvent = event;
+        });
+        await chat.processAction(
+          {
+            actionId: "open_form",
+            user: {
+              userId: "U123",
+              userName: "user",
+              fullName: "Test User",
+              isBot: false,
+              isMe: false,
+            },
+            messageId: "msg-1",
+            threadId: "slack:C123:1234.5678",
+            adapter: mockAdapter,
+            raw: {},
+            triggerId: "trigger-123",
+          },
+          undefined
+        );
+        await capturedActionEvent?.openModal({
+          type: "modal",
+          callbackId,
+          title: "Feedback",
+          callbackUrl,
+          children: [],
+        });
+        const contextId = (mockAdapter.openModal as ReturnType<typeof vi.fn>)
+          .mock.calls[0]?.[2] as string;
+        return contextId;
+      };
+
+      const hasContext = (contextId: string) =>
+        (mockState as MockStateAdapter).cache.has(
+          `modal-context:slack:${contextId}`
+        );
+
+      it("should keep relatedThread when a submit returning errors is resubmitted", async () => {
+        const contextId = await openModalFromAction("retry_modal");
+        const threadIds: (string | undefined)[] = [];
+        let attempt = 0;
+        chat.onModalSubmit("retry_modal", (event) => {
+          threadIds.push(event.relatedThread?.id);
+          attempt++;
+          if (attempt === 1) {
+            return { action: "errors", errors: { message: "Required" } };
+          }
+          return { action: "close" };
+        });
+
+        await chat.processModalSubmit(submitEvent("retry_modal"), contextId);
+        expect(hasContext(contextId)).toBe(true);
+
+        await chat.processModalSubmit(submitEvent("retry_modal"), contextId);
+        expect(threadIds).toEqual([
+          "slack:C123:1234.5678",
+          "slack:C123:1234.5678",
+        ]);
+        expect(hasContext(contextId)).toBe(false);
+      });
+
+      it.each([
+        "update",
+        "push",
+      ] as const)("should keep context when submit returns %s", async (action) => {
+        const contextId = await openModalFromAction("stay_open");
+        chat.onModalSubmit("stay_open", () => ({
+          action,
+          modal: {
+            type: "modal",
+            callbackId: "stay_open",
+            title: "Next",
+            children: [],
+          },
+        }));
+
+        await chat.processModalSubmit(submitEvent("stay_open"), contextId);
+
+        expect(hasContext(contextId)).toBe(true);
+      });
+
+      it.each([
+        ["close", { action: "close" } as const],
+        ["clear", { action: "clear" } as const],
+        ["no response", undefined],
+      ])("should delete context when submit returns %s", async (_label, response) => {
+        const contextId = await openModalFromAction("closing");
+        chat.onModalSubmit("closing", () => response);
+
+        await chat.processModalSubmit(submitEvent("closing"), contextId);
+
+        expect(hasContext(contextId)).toBe(false);
+      });
+
+      it("should delete context when the submit handler throws", async () => {
+        const contextId = await openModalFromAction("throwing");
+        chat.onModalSubmit("throwing", () => {
+          throw new Error("boom");
+        });
+
+        await chat.processModalSubmit(submitEvent("throwing"), contextId);
+
+        expect(hasContext(contextId)).toBe(false);
+      });
+
+      it("should delete context on modal close even when the handler throws", async () => {
+        const contextId = await openModalFromAction("close_modal");
+        chat.onModalClose("close_modal", () => {
+          throw new Error("boom");
+        });
+        const tasks: Promise<unknown>[] = [];
+
+        chat.processModalClose(
+          {
+            callbackId: "close_modal",
+            viewId: "V789",
+            user: submitEvent("close_modal").user,
+            adapter: mockAdapter,
+            raw: {},
+          },
+          contextId,
+          { waitUntil: (task) => tasks.push(task) }
+        );
+        await Promise.all(tasks);
+
+        expect(hasContext(contextId)).toBe(false);
+      });
+
+      it("should POST to callbackUrl only once across an update and a later submit", async () => {
+        const mockFetch = vi.fn().mockResolvedValue(new Response("ok"));
+        vi.stubGlobal("fetch", mockFetch);
+
+        try {
+          const contextId = await openModalFromAction(
+            "multi_step",
+            "https://example.com/webhook/modal-hook"
+          );
+          let attempt = 0;
+          chat.onModalSubmit("multi_step", () => {
+            attempt++;
+            if (attempt === 1) {
+              return {
+                action: "update",
+                modal: {
+                  type: "modal",
+                  callbackId: "multi_step",
+                  title: "Step 2",
+                  children: [],
+                },
+              };
+            }
+            return { action: "close" };
+          });
+          const tasks: Promise<unknown>[] = [];
+          const options = {
+            waitUntil: (task: Promise<unknown>) => {
+              tasks.push(task);
+            },
+          };
+
+          await chat.processModalSubmit(
+            submitEvent("multi_step"),
+            contextId,
+            options
+          );
+          expect(hasContext(contextId)).toBe(true);
+          await chat.processModalSubmit(
+            submitEvent("multi_step"),
+            contextId,
+            options
+          );
+          await Promise.all(tasks);
+
+          expect(mockFetch).toHaveBeenCalledTimes(1);
+          expect(hasContext(contextId)).toBe(false);
+        } finally {
+          vi.unstubAllGlobals();
+        }
+      });
+
+      it("should POST to callbackUrl once when a resubmit succeeds after errors", async () => {
+        const mockFetch = vi.fn().mockResolvedValue(new Response("ok"));
+        vi.stubGlobal("fetch", mockFetch);
+
+        try {
+          const contextId = await openModalFromAction(
+            "retry_hook",
+            "https://example.com/webhook/modal-hook"
+          );
+          let attempt = 0;
+          chat.onModalSubmit("retry_hook", () => {
+            attempt++;
+            return attempt === 1
+              ? { action: "errors", errors: { message: "Required" } }
+              : undefined;
+          });
+          const tasks: Promise<unknown>[] = [];
+          const options = {
+            waitUntil: (task: Promise<unknown>) => {
+              tasks.push(task);
+            },
+          };
+
+          await chat.processModalSubmit(
+            submitEvent("retry_hook"),
+            contextId,
+            options
+          );
+          await chat.processModalSubmit(
+            submitEvent("retry_hook"),
+            contextId,
+            options
+          );
+          await Promise.all(tasks);
+
+          expect(mockFetch).toHaveBeenCalledTimes(1);
+        } finally {
+          vi.unstubAllGlobals();
+        }
+      });
+
+      it("should POST to callbackUrl once when duplicate submits overlap", async () => {
+        const mockFetch = vi.fn().mockResolvedValue(new Response("ok"));
+        vi.stubGlobal("fetch", mockFetch);
+
+        try {
+          const contextId = await openModalFromAction(
+            "slow_hook",
+            "https://example.com/webhook/modal-hook"
+          );
+          let release: () => void = () => undefined;
+          const gate = new Promise<void>((resolve) => {
+            release = resolve;
+          });
+          chat.onModalSubmit("slow_hook", async () => {
+            await gate;
+          });
+          const tasks: Promise<unknown>[] = [];
+          const options = {
+            waitUntil: (task: Promise<unknown>) => {
+              tasks.push(task);
+            },
+          };
+
+          const first = chat.processModalSubmit(
+            submitEvent("slow_hook"),
+            contextId,
+            options
+          );
+          const second = chat.processModalSubmit(
+            submitEvent("slow_hook"),
+            contextId,
+            options
+          );
+          await new Promise((resolve) => setTimeout(resolve, 0));
+          release();
+          await Promise.all([first, second]);
+          await Promise.all(tasks);
+
+          expect(mockFetch).toHaveBeenCalledTimes(1);
+        } finally {
+          vi.unstubAllGlobals();
+        }
+      });
     });
 
     it("should not wait for modal callbackUrl before returning response", async () => {
@@ -5595,6 +6177,168 @@ describe("Chat", () => {
             concurrency: { strategy: "concurrent", maxConcurrent: 0 },
           })
       ).toThrow("maxConcurrent must be >= 1");
+    });
+  });
+
+  describe("concurrency scope", () => {
+    const scopedThreadId = "slack:C123:1234.5678";
+
+    function createScopedAdapter(scope = "T1") {
+      const adapter = createMockAdapter("slack");
+      const getConcurrencyScope = vi.fn(() => scope);
+      adapter.getConcurrencyScope = getConcurrencyScope;
+      return { adapter, getConcurrencyScope };
+    }
+
+    function createWarnLogger() {
+      const warn = vi.fn();
+      const logger = {
+        debug: vi.fn(),
+        info: vi.fn(),
+        warn,
+        error: vi.fn(),
+        child: () => logger,
+      };
+      return { logger, warn };
+    }
+
+    it("resolves the scope once per incoming message under queue strategy", async () => {
+      const state = createMockState();
+      const { adapter, getConcurrencyScope } = createScopedAdapter();
+      const scopedChat = new Chat({
+        userName: "testbot",
+        adapters: { slack: adapter },
+        state,
+        logger: mockLogger,
+        concurrency: "queue",
+      });
+      await scopedChat.webhooks.slack(
+        new Request("http://test.com", { method: "POST" })
+      );
+
+      let releaseFirst: () => void = () => {
+        throw new Error("releaseFirst not assigned");
+      };
+      let notifyStarted: () => void = () => {
+        throw new Error("notifyStarted not assigned");
+      };
+      const started = new Promise<void>((resolve) => {
+        notifyStarted = resolve;
+      });
+      const received: string[] = [];
+      scopedChat.onNewMention(async (_thread, message) => {
+        received.push(message.text);
+        if (received.length === 1) {
+          notifyStarted();
+          await new Promise<void>((resolve) => {
+            releaseFirst = resolve;
+          });
+        }
+      });
+
+      const first = scopedChat.handleIncomingMessage(
+        adapter,
+        scopedThreadId,
+        createTestMessage("msg-scope-1", "Hey @slack-bot first")
+      );
+      await started;
+      await scopedChat.handleIncomingMessage(
+        adapter,
+        scopedThreadId,
+        createTestMessage("msg-scope-2", "Hey @slack-bot second")
+      );
+      releaseFirst();
+      await first;
+
+      expect(received).toEqual([
+        "Hey @slack-bot first",
+        "Hey @slack-bot second",
+      ]);
+      expect(getConcurrencyScope).toHaveBeenCalledTimes(2);
+      expect(state.acquireLock).toHaveBeenCalledWith(
+        `concurrency:${JSON.stringify(["slack", "T1", scopedThreadId])}`,
+        expect.any(Number)
+      );
+    });
+
+    it("resolves the scope once when deduplication is disabled", async () => {
+      const state = createMockState();
+      const { adapter, getConcurrencyScope } = createScopedAdapter();
+      const scopedChat = new Chat({
+        userName: "testbot",
+        adapters: { slack: adapter },
+        state,
+        logger: mockLogger,
+      });
+      await scopedChat.webhooks.slack(
+        new Request("http://test.com", { method: "POST" })
+      );
+      const handler = vi.fn().mockResolvedValue(undefined);
+      scopedChat.onNewMention(handler);
+
+      await scopedChat.processMessage(
+        adapter,
+        scopedThreadId,
+        createTestMessage("msg-scope-nodedupe", "Hey @slack-bot"),
+        { deduplicate: false }
+      );
+
+      expect(handler).toHaveBeenCalledTimes(1);
+      expect(getConcurrencyScope).toHaveBeenCalledTimes(1);
+    });
+
+    it("logs the real thread ID when turn cancellation polling fails", async () => {
+      const state = createMockState();
+      const { adapter } = createScopedAdapter();
+      adapter.supportsTurnCancellation = true;
+      const { logger, warn } = createWarnLogger();
+      const scopedChat = new Chat({
+        userName: "testbot",
+        adapters: { slack: adapter },
+        state,
+        logger,
+      });
+      await scopedChat.webhooks.slack(
+        new Request("http://test.com", { method: "POST" })
+      );
+      scopedChat.onNewMention(vi.fn().mockResolvedValue(undefined));
+      const pollError = new Error("state unavailable");
+      state.get.mockImplementation(async (key: string) => {
+        if (key.startsWith("abort-turn:")) {
+          throw pollError;
+        }
+        return null;
+      });
+
+      await scopedChat.handleIncomingMessage(
+        adapter,
+        scopedThreadId,
+        createTestMessage("msg-scope-log", "Hey @slack-bot")
+      );
+
+      expect(state.get).toHaveBeenCalledWith(
+        `abort-turn:concurrency:${JSON.stringify(["slack", "T1", scopedThreadId])}`
+      );
+      expect(warn).toHaveBeenCalledWith(
+        "Could not poll turn cancellation state",
+        { error: pollError, threadId: scopedThreadId }
+      );
+      expect(warn).toHaveBeenCalledWith(
+        "Could not clear turn cancellation state",
+        { error: pollError, threadId: scopedThreadId }
+      );
+    });
+
+    it("throws INVALID_THREAD_ID from abortTurn for an empty adapter prefix", async () => {
+      await expect(chat.abortTurn(":C123:1234.5678")).rejects.toMatchObject({
+        code: "INVALID_THREAD_ID",
+      });
+    });
+
+    it("throws ADAPTER_NOT_FOUND from abortTurn for an unknown adapter", async () => {
+      await expect(
+        chat.abortTurn("unknown:C123:1234.5678")
+      ).rejects.toMatchObject({ code: "ADAPTER_NOT_FOUND" });
     });
   });
 

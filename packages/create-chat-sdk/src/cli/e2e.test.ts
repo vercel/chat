@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { ADAPTER_NAMES, getAdapter, listEnvVars } from "chat/adapters";
+import { ADAPTER_NAMES, getAdapter, listEnvVars } from "@chat-adapter/catalog";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { isCliCompatibleAdapter } from "../catalog/compatibility.js";
 import { createProgram } from "./program.js";

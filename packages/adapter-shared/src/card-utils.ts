@@ -159,6 +159,8 @@ function childToFallbackText(
       return tableElementToAscii(child.headers, child.rows);
     case "divider":
       return "---";
+    case "text_input":
+      return convertText(child.label);
     default:
       return coreCardChildToFallbackText(child);
   }

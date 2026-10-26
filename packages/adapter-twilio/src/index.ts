@@ -15,16 +15,23 @@ import type {
   Logger,
   RawMessage,
   ThreadInfo,
+  TypingOptions,
   UserInfo,
   WebhookOptions,
 } from "chat";
-import { ConsoleLogger, Message, NotImplementedError } from "chat";
+import {
+  ConsoleLogger,
+  Message,
+  NotImplementedError,
+  ThreadHistoryCache,
+} from "chat";
 import {
   deleteTwilioMessage,
   fetchTwilioMedia,
   fetchTwilioMessage,
   listTwilioMessages,
   sendTwilioMessage,
+  sendTwilioTypingIndicator,
   type TwilioApiOptions,
   type TwilioMessageResource,
 } from "./api";
@@ -36,7 +43,9 @@ import {
   TWILIO_EMPTY_CARD_FALLBACK,
 } from "./cards";
 import {
+  isRcsAddress,
   isRcsCapableSender,
+  isWhatsAppAddress,
   normalizeRcsSenderId,
   resolveInboundThreadSender,
 } from "./channel";
@@ -54,6 +63,7 @@ import {
 import type {
   TwilioAdapterConfig,
   TwilioRawMessage,
+  TwilioTemplateMessage,
   TwilioThreadId,
 } from "./types";
 import { attachmentType, senderFields, twimlResponse } from "./utils";
@@ -81,6 +91,7 @@ export class TwilioAdapter
   protected readonly fetch?: TwilioAdapterConfig["fetch"];
   protected readonly formatConverter = new TwilioFormatConverter();
   protected readonly logger: Logger;
+  protected readonly messagingApiUrl?: string;
   protected readonly messagingServiceSid?: string;
   protected readonly phoneNumber?: string;
   protected readonly rcsSenderId?: string;
@@ -95,6 +106,7 @@ export class TwilioAdapter
     this.contentApiUrl = config.contentApiUrl;
     this.fetch = config.fetch;
     this.logger = config.logger ?? new ConsoleLogger("info").child("twilio");
+    this.messagingApiUrl = config.messagingApiUrl;
     this.messagingServiceSid =
       config.messagingServiceSid ?? process.env.TWILIO_MESSAGING_SERVICE_SID;
     this.phoneNumber = config.phoneNumber ?? process.env.TWILIO_PHONE_NUMBER;
@@ -231,18 +243,7 @@ export class TwilioAdapter
           );
         }
         if (contentSid) {
-          const raw = await sendTwilioMessage({
-            ...this.apiOptions(),
-            contentSid,
-            statusCallbackUrl: this.statusCallbackUrl,
-            to: thread.recipient,
-            ...senderFields(thread.sender),
-          });
-          return {
-            id: raw.sid,
-            raw,
-            threadId: this.threadIdForResource(raw, thread),
-          };
+          return this.sendContent(thread, contentSid);
         }
       }
     }
@@ -265,6 +266,78 @@ export class TwilioAdapter
       ...senderFields(thread.sender),
     });
 
+    return {
+      id: raw.sid,
+      raw,
+      threadId: this.threadIdForResource(raw, thread),
+    };
+  }
+
+  /**
+   * Send a pre-created Twilio Content API template by its ContentSid.
+   *
+   * Use this for approved WhatsApp templates, which are the only message
+   * WhatsApp accepts outside the 24-hour customer service window, or for
+   * RCS templates you manage yourself. The send is routed like
+   * `postMessage`: `MG…` senders use `MessagingServiceSid`, everything else
+   * uses `From`, so WhatsApp threads need a `whatsapp:` sender or a
+   * Messaging Service with a WhatsApp sender.
+   *
+   * `contentVariables` takes an object keyed by placeholder, or a
+   * pre-serialized JSON object string. Quick-reply taps on templates sent
+   * this way are not decoded as Chat SDK actions: taps that carry a message
+   * body arrive as regular messages, and taps without one reach `onAction`
+   * with the raw ButtonPayload as `actionId`.
+   *
+   * @example
+   * ```typescript
+   * const threadId = adapter.encodeThreadId({
+   *   sender: "whatsapp:+15550000001",
+   *   recipient: "whatsapp:+15551234567",
+   * });
+   * await adapter.sendTemplate(threadId, {
+   *   contentSid: "HXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX",
+   *   contentVariables: { "1": "Tomorrow at 2pm" },
+   * });
+   * ```
+   *
+   * @see https://www.twilio.com/docs/content
+   */
+  async sendTemplate(
+    threadId: string,
+    template: TwilioTemplateMessage
+  ): Promise<RawMessage<TwilioRawMessage>> {
+    const contentSid = template.contentSid?.trim();
+    if (!contentSid) {
+      throw new ValidationError("twilio", "contentSid is required");
+    }
+    if (!contentSid.startsWith("HX")) {
+      throw new ValidationError(
+        "twilio",
+        `Invalid contentSid: ${contentSid} (Content SIDs start with HX)`
+      );
+    }
+    validateContentVariables(template.contentVariables);
+    return this.sendContent(
+      this.decodeThreadId(threadId),
+      contentSid,
+      template.contentVariables
+    );
+  }
+
+  private async sendContent(
+    thread: TwilioThreadId,
+    contentSid: string,
+    contentVariables?: TwilioTemplateMessage["contentVariables"]
+  ): Promise<RawMessage<TwilioRawMessage>> {
+    const raw = await sendTwilioMessage({
+      ...this.apiOptions(),
+      contentSid,
+      contentVariables,
+      statusCallbackUrl: this.statusCallbackUrl,
+      to: thread.recipient,
+      ...senderFields(thread.sender),
+    });
     return {
       id: raw.sid,
       raw,
@@ -300,7 +373,49 @@ export class TwilioAdapter
     );
   }
 
-  async startTyping(): Promise<void> {}
+  async startTyping(
+    threadId: string,
+    status?: string,
+    options?: TypingOptions
+  ): Promise<void> {
+    if (status) {
+      this.logger.debug("Twilio typing indicator ignores custom status text", {
+        status,
+        threadId,
+      });
+    }
+    const thread = this.decodeThreadId(threadId);
+    if (
+      isWhatsAppAddress(thread.sender) ||
+      isWhatsAppAddress(thread.recipient)
+    ) {
+      const messageId =
+        inboundSid(options) ?? (await this.latestInboundMessageId(threadId));
+      if (!messageId) {
+        this.logger.warn(
+          "Twilio typing indicator skipped - no inbound WhatsApp message",
+          { threadId }
+        );
+        return;
+      }
+      await this.sendTypingIndicator(threadId, {
+        channel: "WHATSAPP",
+        messageId,
+      });
+      return;
+    }
+    const from = await this.rcsTypingSender(thread, threadId, options);
+    const to = thread.recipient.startsWith("+")
+      ? `rcs:${thread.recipient}`
+      : thread.recipient;
+    if (!(from && isRcsAddress(to))) {
+      this.logger.debug("Twilio typing indicator skipped - not an RCS thread", {
+        threadId,
+      });
+      return;
+    }
+    await this.sendTypingIndicator(threadId, { channel: "RCS", from, to });
+  }
 
   parseMessage(raw: TwilioRawMessage): Message<TwilioRawMessage> {
     if (isTwilioWebhookPayload(raw)) {
@@ -566,6 +681,64 @@ export class TwilioAdapter
     };
   }
 
+  protected async rcsTypingSender(
+    thread: TwilioThreadId,
+    threadId: string,
+    options?: TypingOptions
+  ): Promise<string | null> {
+    if (isRcsAddress(thread.sender)) {
+      return thread.sender;
+    }
+    if (!(this.rcsSenderId && thread.sender.startsWith("MG"))) {
+      return null;
+    }
+    // resolveInboundThreadSender only rekeys inbound RCS to an MG sender, so
+    // inbound history on an MG thread means RCS. Without it the thread may
+    // be an SMS conversation opened with openDM().
+    const inboundId =
+      inboundSid(options) ?? (await this.latestInboundMessageId(threadId));
+    return inboundId ? normalizeRcsSenderId(this.rcsSenderId) : null;
+  }
+
+  protected async sendTypingIndicator(
+    threadId: string,
+    indicator:
+      | { channel: "WHATSAPP"; messageId: string }
+      | { channel: "RCS"; from: string; to: string }
+  ): Promise<void> {
+    try {
+      await sendTwilioTypingIndicator({
+        ...this.apiOptions(),
+        ...indicator,
+        messagingApiUrl: this.messagingApiUrl,
+      });
+    } catch (error) {
+      this.logger.warn("Twilio typing indicator failed", {
+        channel: indicator.channel,
+        error,
+        threadId,
+      });
+    }
+  }
+
+  protected async latestInboundMessageId(
+    threadId: string
+  ): Promise<string | null> {
+    if (!this.chat) {
+      return null;
+    }
+    const history = await new ThreadHistoryCache(
+      this.chat.getState()
+    ).getMessages(threadId);
+    for (let index = history.length - 1; index >= 0; index--) {
+      const message = history[index];
+      if (message && !message.author.isMe) {
+        return message.id;
+      }
+    }
+    return null;
+  }
+
   protected defaultSender(): string {
     // phoneNumber-first matches the adapter's pre-RCS behavior so openDM()
     // keeps producing the same thread ids for existing deployments that
@@ -623,6 +796,13 @@ export function createTwilioAdapter(
 
 const HTTP_URL_PATTERN = /^https?:\/\//;
 
+// Button webhooks without a MessageSid get a synthetic `action:` id, which
+// Twilio would reject as a typing target.
+function inboundSid(options: TypingOptions | undefined): string | undefined {
+  const id = options?.messageId;
+  return id && !id.startsWith("action:") ? id : undefined;
+}
+
 function isTwilioWebhookPayload(
   raw: TwilioRawMessage
 ): raw is TwilioWebhookPayload {
@@ -632,6 +812,26 @@ function isTwilioWebhookPayload(
 function dateFromTwilio(value: string | null | undefined): Date {
   const parsed = value ? new Date(value) : new Date();
   return Number.isNaN(parsed.getTime()) ? new Date() : parsed;
+}
+
+function validateContentVariables(
+  contentVariables: TwilioTemplateMessage["contentVariables"]
+): void {
+  if (typeof contentVariables !== "string") {
+    return;
+  }
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(contentVariables);
+  } catch {
+    parsed = undefined;
+  }
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+    throw new ValidationError(
+      "twilio",
+      "contentVariables must be an object or a JSON object string"
+    );
+  }
 }
 
 export type { TwilioContentBody, TwilioRcsContentResult } from "./cards";
@@ -646,6 +846,7 @@ export {
   inferTwilioChannel,
   isRcsAddress,
   isRcsCapableSender,
+  isWhatsAppAddress,
   normalizeRcsSenderId,
   resolveInboundThreadSender,
 } from "./channel";
@@ -653,5 +854,6 @@ export { TwilioFormatConverter } from "./markdown";
 export type {
   TwilioAdapterConfig,
   TwilioRawMessage,
+  TwilioTemplateMessage,
   TwilioThreadId,
 } from "./types";

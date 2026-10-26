@@ -22,6 +22,7 @@ export interface TwilioAdapterConfig {
   contentApiUrl?: string;
   fetch?: TwilioFetch;
   logger?: Logger;
+  messagingApiUrl?: string;
   messagingServiceSid?: string;
   phoneNumber?: string;
   rcsSenderId?: string;
@@ -29,6 +30,11 @@ export interface TwilioAdapterConfig {
   userName?: string;
   webhookUrl?: TwilioWebhookUrl;
   webhookVerifier?: TwilioWebhookVerifier;
+}
+
+export interface TwilioTemplateMessage {
+  contentSid: string;
+  contentVariables?: Record<string, string> | string;
 }
 
 export type TwilioRawMessage = TwilioMessageResource | TwilioWebhookPayload;

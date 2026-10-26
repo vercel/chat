@@ -6,19 +6,15 @@ slug: postgres
 type: state
 logo: postgres
 tagline: Production state adapter for Chat SDK built on `pg` (node-postgres). Use this when PostgreSQL is your primary datastore and you don't want a separate Redis.
-beta: true
-features:
-  persistence: yes
-  multiInstance: yes
-  subscriptions: yes
-  distributedLocking: yes
-  keyValueCache:
-    status: yes
-    label: TTL
-  lists: yes
-  queues: yes
-  keyPrefix: yes
 ---
+
+## Create a new bot
+
+Scaffold a Next.js bot that stores state in PostgreSQL with [`create-chat-sdk`](/docs/create-chat-sdk). Replace `slack` with your platform adapter:
+
+<CreateChatSdk adapters="slack postgres" />
+
+The CLI adds `@chat-adapter/state-pg`, wires `createPostgresState()` into `src/lib/bot.ts`, and lists `POSTGRES_URL` in `.env.example`. To add the adapter to an existing app, start at [Install](#install).
 
 ## Install
 
@@ -40,6 +36,49 @@ const bot = new Chat({
 ```
 
 By default, the adapter creates its tables and indexes on `connect()` if they don't already exist.
+
+## Vercel Marketplace
+
+Neon, Supabase, Prisma Postgres, and Nile are available on the [Vercel Marketplace](https://vercel.com/marketplace/category/storage). From your project directory, link the project and add an integration with the Vercel CLI. `vercel integration add` creates the database, connects it to the linked project, adds its credentials as environment variables, and pulls them into your local env file.
+
+<CodeBlockTabs defaultValue="neon">
+  <CodeBlockTabsList>
+    <CodeBlockTabsTrigger value="neon">Neon</CodeBlockTabsTrigger>
+    <CodeBlockTabsTrigger value="supabase">Supabase</CodeBlockTabsTrigger>
+    <CodeBlockTabsTrigger value="prisma">Prisma Postgres</CodeBlockTabsTrigger>
+    <CodeBlockTabsTrigger value="nile">Nile</CodeBlockTabsTrigger>
+  </CodeBlockTabsList>
+  <CodeBlockTab value="neon">
+```bash
+vercel link
+vercel integration add neon
+```
+  </CodeBlockTab>
+  <CodeBlockTab value="supabase">
+```bash
+vercel link
+vercel integration add supabase
+```
+  </CodeBlockTab>
+  <CodeBlockTab value="prisma">
+```bash
+vercel link
+vercel integration add prisma
+```
+  </CodeBlockTab>
+  <CodeBlockTab value="nile">
+```bash
+vercel link
+vercel integration add nile
+```
+  </CodeBlockTab>
+</CodeBlockTabs>
+
+Neon, Prisma Postgres, and Nile set `DATABASE_URL` or `POSTGRES_URL`, which `createPostgresState()` reads with no extra configuration. Supabase sets `SUPABASE_POSTGRES_URL`, so pass it as `url`:
+
+```typescript title="lib/bot.ts"
+state: createPostgresState({ url: process.env.SUPABASE_POSTGRES_URL }),
+```
 
 ## Configuration
 

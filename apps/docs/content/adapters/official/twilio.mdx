@@ -6,56 +6,15 @@ slug: twilio
 type: platform
 logo: twilio
 tagline: Build SMS, MMS, and RCS bots with Twilio Messaging webhooks and the Messages API.
-beta: true
-features:
-  postMessage: yes
-  editMessage: no
-  deleteMessage: yes
-  fileUploads:
-    status: partial
-    label: Public media URLs
-  streaming:
-    status: partial
-    label: Buffered
-  scheduledMessages: no
-  cardFormat:
-    status: partial
-    label: RCS rich cards + SMS text fallback
-  buttons:
-    status: partial
-    label: RCS quick-replies
-  linkButtons:
-    status: partial
-    label: RCS call-to-action
-  selectMenus: no
-  tables:
-    status: partial
-    label: ASCII
-  fields: yes
-  imagesInCards:
-    status: partial
-    label: RCS only
-  modals: no
-  slashCommands: no
-  mentions: no
-  addReactions: no
-  removeReactions: no
-  typingIndicator: no
-  messageUpdatedEvents: no
-  messageDeletedEvents: no
-  directMessages: yes
-  ephemeralMessages: no
-  customApiEndpoint: yes
-  fetchMessages:
-    status: partial
-    label: Messages API
-  fetchSingleMessage: yes
-  fetchThreadInfo: yes
-  fetchChannelMessages: no
-  listThreads: no
-  fetchChannelInfo: no
-  postChannelMessage: no
 ---
+
+## Create a new bot
+
+Scaffold a Next.js bot with the Twilio adapter using [`create-chat-sdk`](/docs/create-chat-sdk):
+
+<CreateChatSdk adapters="twilio memory" />
+
+The generated app uses the [Memory state adapter](/adapters/official/memory) for local development. To add the adapter to an existing app, start at [Install](#install).
 
 ## Install
 
@@ -160,6 +119,11 @@ See [RCS](#rcs) for how the adapter behaves once RCS is enabled.
       description:
         "Override the Twilio Content API base URL. Defaults to `apiUrl` when that is set, otherwise `https://content.twilio.com`.",
     },
+    messagingApiUrl: {
+      type: "string",
+      description:
+        "Override the Twilio Messaging API base URL used for typing indicators. Defaults to `apiUrl` when that is set, otherwise `https://messaging.twilio.com`.",
+    },
     webhookUrl: {
       type: "string | ((request: Request) => string | Promise<string>)",
       description:
@@ -214,9 +178,9 @@ When the sender is RCS-capable (an `MG…` Messaging Service or an `rcs:` addres
 
 Inbound RCS messages are keyed to the Messaging Service (or configured RCS sender), so replies go back out over RCS. Plain SMS threads keep their phone-number thread IDs even when the number belongs to a Messaging Service, and `openDM` prefers `phoneNumber` over `messagingServiceSid` and `rcsSenderId`, so enabling RCS does not change the thread IDs of existing conversations.
 
-Button taps from templates that Chat SDK did not send (for example Studio flows or pre-created WhatsApp templates) are not turned into actions. When they carry a message body, they arrive as regular messages, matching the adapter's behavior before RCS support.
+Button taps from templates that Chat SDK did not send (for example Studio flows or pre-created WhatsApp templates) are not decoded as Chat SDK actions. When they carry a message body, they arrive as regular messages, matching the adapter's behavior before RCS support. Taps without a body reach `onAction` with the raw ButtonPayload as `actionId`.
 
-Content templates are created on demand and reused by a stable name derived from the card's content, so identical cards share one template across restarts. Cards that embed changing values (timestamps, order IDs, user names) produce a new template per unique body, and Twilio keeps Content resources until you delete them. For high-volume use, keep card bodies stable or pre-create templates.
+Content templates are created on demand and reused by a stable name derived from the card's content, so identical cards share one template across restarts. Cards that embed changing values (timestamps, order IDs, user names) produce a new template per unique body, and Twilio keeps Content resources until you delete them. For high-volume use, keep card bodies stable, or pre-create templates and send them with [`sendTemplate`](#template-messages).
 
 ### Sending rich cards
 
@@ -249,6 +213,48 @@ bot.onAction(async (action) => {
 });
 ```
 
+## Template messages
+
+Cards create Content API templates on demand for RCS senders only. To send a template on any channel, such as an approved WhatsApp template or an RCS template you manage yourself, pass its ContentSid to `sendTemplate`:
+
+```typescript title="send-template.ts" lineNumbers
+const twilio = bot.getAdapter("twilio");
+
+const threadId = twilio.encodeThreadId({
+  sender: "whatsapp:+15550000001",
+  recipient: "whatsapp:+15551234567",
+});
+
+await twilio.sendTemplate(threadId, {
+  contentSid: "HXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX",
+  contentVariables: { "1": "Tomorrow at 2pm" },
+});
+```
+
+`contentVariables` takes an object keyed by placeholder, or a pre-serialized JSON object string. The send is routed like `postMessage`: `MG…` senders use `MessagingServiceSid`, everything else uses `From`. Twilio rejects a WhatsApp recipient paired with an SMS sender, so WhatsApp templates need a `whatsapp:` sender or a Messaging Service that includes a WhatsApp sender. `openDM` uses `phoneNumber` first, which is usually an SMS number, so build the thread ID with `encodeThreadId` as shown above.
+
+Create templates in the Twilio Console under Messaging → Content Template Builder or with the [Content API](https://www.twilio.com/docs/content/create-templates-with-the-content-api). WhatsApp templates must be [approved by Meta](https://www.twilio.com/docs/content/whatsapp-approval) first and are the only message WhatsApp accepts outside the 24-hour customer service window.
+
+Chat SDK did not render the quick-reply buttons in templates sent with `sendTemplate`, so it does not decode their taps as actions. A tap that carries a message body, which WhatsApp quick replies do, arrives as a regular message, so handle it in your message handlers. A tap without a body reaches `onAction` with the raw ButtonPayload as `actionId`.
+
+## Typing indicators
+
+WhatsApp and RCS support typing indicators through `thread.startTyping()` or `adapter.startTyping(threadId)`. Twilio uses one endpoint with different JSON per channel: WhatsApp needs `{ channel: "WHATSAPP", messageId }`, and RCS needs `{ channel: "RCS", from, to, event: "START" }` with `rcs:` addresses.
+
+```typescript title="typing.ts" lineNumbers
+await thread.startTyping();
+
+await thread.post({
+  markdown: "Thanks, I am checking that now.",
+});
+```
+
+On WhatsApp, the indicator points at the message being handled, or the latest inbound message when `startTyping()` is called outside a message handler. Twilio also marks that message as read in the user's WhatsApp client, so calling `startTyping()` sends a read receipt.
+
+WhatsApp shows the indicator for up to 25 seconds or until the reply is delivered, and RCS for up to 20 seconds. Custom status text is ignored. If Twilio rejects the request, the adapter logs a warning and `startTyping()` still resolves, so a failed indicator never blocks the reply.
+
+SMS has no typing API, so `startTyping()` does nothing on threads keyed by a phone number. Threads keyed by a Messaging Service SID (`MG…`) can be SMS or RCS. The adapter sends RCS typing on them only when `rcsSenderId` is set and the thread has an inbound message, because inbound RCS is the only traffic keyed by `MG…`. Threads keyed by an `rcs:` sender always use RCS.
+
 ## Media
 
 Inbound MMS media is exposed as message attachments. Twilio media URLs are not treated as public files, so each attachment includes `fetchData()` and `fetchMetadata` for authenticated downloads and queue rehydration.
@@ -272,12 +278,14 @@ await thread.post({
 When a thread sender starts with `MG`, outbound messages use `MessagingServiceSid` instead of `From`:
 
 ```typescript title="send-with-service.ts" lineNumbers
+const twilio = bot.getAdapter("twilio");
+
 const threadId = twilio.encodeThreadId({
   sender: "MGXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX",
   recipient: "+15555550100",
 });
 
-await bot.adapters.twilio.postMessage(threadId, "hello");
+await twilio.postMessage(threadId, "hello");
 ```
 
 ## Low-level helpers
@@ -335,7 +343,7 @@ Example: `twilio:%2B15555550123:%2B15555550100`.
 
 ## Limitations
 
-- Twilio does not support message edits, reactions, modals, or typing indicators for SMS.
+- Twilio does not support message edits, reactions, or modals. Typing indicators work on WhatsApp and RCS; SMS/MMS has no typing API.
 - Cards render as rich RCS content only when the sender is a Messaging Service (`MG…`) or RCS address; otherwise they fall back to plain text.
 - RCS read receipts (`EventType=READ`) are parsed and logged but not surfaced to Chat SDK handlers, because no delivery API exists today.
 - `fetchMessages` uses the Messages API and is best for phone-number based threads. Messaging Service history can be less precise because inbound webhooks identify the receiving phone number, not only the Messaging Service SID.

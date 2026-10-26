@@ -768,6 +768,7 @@ describe("Discord Gateway Forwarded Events", () => {
 
       // First, trigger a mention to subscribe
       const mentionEvent = createGatewayMessageEvent({
+        id: "mention-message",
         content: `<@${DISCORD_APPLICATION_ID}> subscribe me`,
         authorId: "USER123",
         authorUsername: "regularuser",
@@ -777,6 +778,7 @@ describe("Discord Gateway Forwarded Events", () => {
 
       // Send a message from the bot itself
       const botMessage = createGatewayMessageEvent({
+        id: "bot-message",
         content: "Bot response",
         authorId: DISCORD_APPLICATION_ID,
         authorUsername: "TestBot",
@@ -790,6 +792,7 @@ describe("Discord Gateway Forwarded Events", () => {
 
       // Send a message from a regular user
       const userMessage = createGatewayMessageEvent({
+        id: "user-message",
         content: "User message",
         authorId: "USER123",
         authorUsername: "regularuser",

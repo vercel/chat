@@ -2,7 +2,7 @@
 
 Every page under `apps/docs/content/adapters/` follows the same section order and names, so readers find the same information in the same place on every adapter. Start from [../assets/adapter.mdx](../assets/adapter.mdx) for a platform adapter or [../assets/adapter-state.mdx](../assets/adapter-state.mdx) for a state adapter, and use this file to decide which optional sections the adapter needs.
 
-The page header already renders the frontmatter `title` and `tagline`, so don't open the body with an intro paragraph that repeats them. The first section is always `## Install`.
+The page header already renders the frontmatter `title` and `tagline`, so don't open the body with an intro paragraph that repeats them. The first section is `## Create a new bot` when `create-chat-sdk` can scaffold the adapter, and `## Install` otherwise.
 
 ## Platform adapters (`type: platform`)
 
@@ -10,6 +10,7 @@ Use these sections in this order. Leave out an optional section when the adapter
 
 | Section | Required | Contents |
 | --- | --- | --- |
+| `## Create a new bot` | When `create-chat-sdk` supports the adapter | One sentence, `<CreateChatSdk adapters="<slug> memory" />`, and a pointer to `#install` for existing apps |
 | `## Install` | Yes | `<PackageInstall package="..." />` only |
 | `## Quick start` | Yes | A copy-pasteable `lib/bot.ts` (with `export const bot` and `state: createMemoryState()`), one sentence on production state, then the webhook route in `app/api/webhooks/<slug>/route.ts` |
 | `## Platform setup` | Optional | Numbered steps in the vendor's console or dashboard: create the app, copy credentials, register the webhook URL |
@@ -26,7 +27,7 @@ Use these sections in this order. Leave out an optional section when the adapter
 
 ## State adapters (`type: state`)
 
-`## Install` → `## Quick start` → `## Configuration` (with `### Environment variables`) → `## Using an existing client` (optional) → `## Data model` (optional) → capability sections such as sharding, cleanup, or locking → `## Production notes` (optional) → `## Limitations` (optional) → `## Feature support` → `## Resources` (optional).
+`## Create a new bot` (when `create-chat-sdk` supports the adapter, with `<CreateChatSdk adapters="slack <slug>" />`) → `## Install` → `## Quick start` → `## Configuration` (with `### Environment variables`) → `## Using an existing client` (optional) → `## Data model` (optional) → capability sections such as sharding, cleanup, or locking → `## Production notes` (optional) → `## Limitations` (optional) → `## Feature support` → `## Resources` (optional).
 
 ## Naming
 
@@ -46,7 +47,7 @@ Don't add a catch-all `## Advanced` section. Give each topic its own named secti
 
 ## Frontmatter prose
 
-`tagline` and `description` render in the page header, the adapter listing, and search results. Describe what the adapter connects to and what it supports, without hype such as "seamless", "powerful", or "out of the box". For vendor-official adapters, `description` must match the catalog entry and `adapters.json` exactly.
+`tagline` and `description` render in the page header, the adapter listing, and search results. Describe what the adapter connects to and what it supports, without hype such as "seamless", "powerful", or "out of the box". For vendor-official adapters, `description` must match the `@chat-adapter/catalog` entry exactly.
 
 ## Writing
 

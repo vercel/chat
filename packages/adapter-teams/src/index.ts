@@ -9,6 +9,7 @@ import {
 import type {
   Account,
   Activity,
+  AdaptiveCardActionMessageResponse,
   IAdaptiveCardActionInvokeActivity,
   IConversationUpdateActivity,
   IMessageActivity,
@@ -20,7 +21,11 @@ import type {
   SentActivity,
   TaskModuleResponse,
 } from "@microsoft/teams.api";
-import { MessageActivity, TypingActivity } from "@microsoft/teams.api";
+import {
+  MessageActivity,
+  MessageActivityInput,
+  TypingActivity,
+} from "@microsoft/teams.api";
 import type { IActivityContext, IStreamer } from "@microsoft/teams.apps";
 import { StreamCancelledError } from "@microsoft/teams.apps";
 import { users } from "@microsoft/teams.graph-endpoints";
@@ -29,6 +34,7 @@ import type {
   Adapter,
   AdapterPostableMessage,
   Attachment,
+  Author,
   ChannelInfo,
   ChatInstance,
   EmojiValue,
@@ -55,15 +61,24 @@ import {
   defaultEmojiResolver,
   Message,
 } from "chat";
+import { applyAiGeneratedLabel } from "./ai-generated";
 import { TeamsApp } from "./app";
 import {
   createAnonymousAttachmentFetchData,
   createTeamsAttachment,
   rehydrateTeamsAttachment,
   type TeamsActivityAttachment,
+  type TeamsAttachmentFetchers,
 } from "./attachments";
 import { BridgeHttpAdapter } from "./bridge-adapter";
-import { AUTO_SUBMIT_ACTION_ID, cardToAdaptiveCard } from "./cards";
+import {
+  AUTO_SUBMIT_ACTION_ID,
+  AUTO_SUBMIT_KEYS,
+  BUTTON_SUBMIT_KEYS,
+  cardInputValues,
+  cardToAdaptiveCard,
+  submitValueToString,
+} from "./cards";
 import { toAppOptions } from "./config";
 import { handleTeamsError } from "./errors";
 import { TeamsGraphReader } from "./graph-api";
@@ -89,14 +104,30 @@ import type {
   TeamsThreadId,
 } from "./types";
 
-/** Data payload from an Action.Submit button click. */
+/**
+ * Data payload from an Action.Submit button click. Teams merges the card's own
+ * input values into the same flat object, so it carries more keys than this
+ * names; `cardInputValues` in `cards.ts` reads those. Kept free of an index signature so a
+ * misspelled member read stays a compile error rather than `unknown`.
+ */
 interface ActionSubmitData {
   actionId?: string;
   value?: string;
 }
 
+/**
+ * Valid adaptiveCard/action invoke acknowledgement.
+ * An empty `value` makes Teams show "Unable to reach app" and retry the invoke.
+ */
+const CARD_ACTION_INVOKE_ACK: AdaptiveCardActionMessageResponse = {
+  statusCode: 200,
+  type: "application/vnd.microsoft.activity.message",
+  value: "OK",
+};
+
 const MESSAGEID_CAPTURE_PATTERN = /messageid=(\d+)/;
 const MESSAGEID_STRIP_PATTERN = /;messageid=\d+/;
+const BOT_USER_ID_PREFIX = "28:";
 const CACHE_TTL_MS = 30 * 24 * 60 * 60 * 1000; // 30 days
 const USER_INFO_CACHE_TTL_MS = 60 * 60 * 1000; // 1 hour
 const USER_INFO_NEGATIVE_CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
@@ -189,6 +220,7 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
       skipAuth: Boolean(this.config.webhookVerifier),
     });
     const graphReader = new TeamsGraphReader({
+      attachmentFetchers: this.attachmentFetchers,
       botId: app.id ?? "",
       graph: app.graph,
       logger: this.logger,
@@ -218,11 +250,7 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
     this.app.on("card.action", async (ctx) => {
       this.cacheUserContext(ctx.activity);
       await this.handleAdaptiveCardAction(ctx);
-      return {
-        statusCode: 200,
-        type: "application/vnd.microsoft.activity.message",
-        value: "",
-      };
+      return CARD_ACTION_INVOKE_ACK;
     });
 
     this.app.on(
@@ -554,13 +582,16 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
     const threadId = this.threadIdFromActivity(activity);
 
     const message = this.parseTeamsMessage(activity, threadId);
-    const user = activity.from?.aadObjectId
-      ? await this.getIncomingUser(
-          ctx,
-          message.author.userId,
-          activity.from.aadObjectId
-        )
-      : await this.getUser(message.author.userId);
+    let user: UserInfo | null = null;
+    if (activity.from?.aadObjectId) {
+      user = await this.getIncomingUser(
+        ctx,
+        message.author.userId,
+        activity.from.aadObjectId
+      );
+    } else if (!message.author.isBot) {
+      user = await this.getUser(message.author.userId);
+    }
     if (user?.email) {
       message.author.email = user.email;
     }
@@ -570,13 +601,13 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
     const isMention = entities.some(
       (e: { type?: string; mentioned?: { id?: string } }) =>
         e.type === "mention" &&
-        e.mentioned?.id &&
-        (e.mentioned.id === this.app.id ||
-          e.mentioned.id.endsWith(`:${this.app.id}`))
+        !!e.mentioned?.id &&
+        this.isBotAccountId(e.mentioned.id)
     );
-    if (isMention) {
-      message.isMention = true;
-    }
+    // Set false too: Chat only guesses from `@userName` in the text when this
+    // is unset, and that guess matches mentions of other bots whose display
+    // name starts with ours ("@Bot Dev" for a bot named "Bot").
+    message.isMention = isMention;
 
     // For DMs, capture ctx.stream and await processing so the stream stays
     // alive for native streaming via emit(). Group chats use fire-and-forget.
@@ -630,11 +661,7 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
 
     // Auto-submit fan-out: fire onAction for each input value
     if (actionValue.actionId === AUTO_SUBMIT_ACTION_ID) {
-      this.fanOutAutoSubmit(
-        actionValue as unknown as Record<string, unknown>,
-        activity,
-        threadId
-      );
+      this.fanOutAutoSubmit(actionValue, activity, threadId);
       return;
     }
 
@@ -643,13 +670,8 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
     } = {
       actionId: actionValue.actionId,
       value: actionValue.value,
-      user: {
-        userId: activity.from?.id || "unknown",
-        userName: activity.from?.name || "unknown",
-        fullName: activity.from?.name || "unknown",
-        isBot: false,
-        isMe: false,
-      },
+      values: cardInputValues(actionValue, BUTTON_SUBMIT_KEYS),
+      user: this.authorFromActivity(activity),
       messageId: activity.replyToId || activity.id || "",
       threadId,
       adapter: this,
@@ -693,8 +715,7 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
 
     // Auto-submit fan-out: fire onAction for each input value
     if (actionData.actionId === AUTO_SUBMIT_ACTION_ID) {
-      const rawPayload = activity.value.action.data as Record<string, unknown>;
-      this.fanOutAutoSubmit(rawPayload, activity, threadId);
+      this.fanOutAutoSubmit(actionData, activity, threadId);
       return;
     }
 
@@ -703,13 +724,8 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
     } = {
       actionId: actionData.actionId,
       value: actionData.value,
-      user: {
-        userId: activity.from?.id || "unknown",
-        userName: activity.from?.name || "unknown",
-        fullName: activity.from?.name || "unknown",
-        isBot: false,
-        isMe: false,
-      },
+      values: cardInputValues(actionData, BUTTON_SUBMIT_KEYS),
+      user: this.authorFromActivity(activity),
       messageId: activity.replyToId || activity.id || "",
       threadId,
       adapter: this,
@@ -735,7 +751,7 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
    * Each input key/value pair is dispatched as a separate action in parallel.
    */
   protected fanOutAutoSubmit(
-    payload: Record<string, unknown>,
+    payload: object,
     activity: Activity,
     threadId: string
   ): void {
@@ -744,8 +760,8 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
     }
 
     const webhookOptions = this.bridgeAdapter.getWebhookOptions(activity.id);
-    const entries = Object.entries(payload).filter(
-      ([key]) => key !== "actionId" && key !== "msteams"
+    const entries = (Object.entries(payload) as [string, unknown][]).filter(
+      ([key]) => !AUTO_SUBMIT_KEYS.has(key)
     );
 
     this.logger.debug("Auto-submit fan-out", {
@@ -754,17 +770,13 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
     });
 
     const baseEvent = {
-      user: {
-        userId: activity.from?.id || "unknown",
-        userName: activity.from?.name || "unknown",
-        fullName: activity.from?.name || "unknown",
-        isBot: false,
-        isMe: false,
-      },
+      user: this.authorFromActivity(activity),
       messageId: activity.replyToId || activity.id || "",
       threadId,
       adapter: this as TeamsAdapter,
       raw: activity,
+      // Every fanned-out action reports the whole form, not just its own input.
+      values: cardInputValues(payload, AUTO_SUBMIT_KEYS),
     };
 
     for (const [key, val] of entries) {
@@ -772,7 +784,7 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
         {
           ...baseEvent,
           actionId: key,
-          value: typeof val === "string" ? val : undefined,
+          value: submitValueToString(val),
         },
         webhookOptions
       );
@@ -811,13 +823,8 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
     } = {
       actionId: actionData.actionId || "dialog.open",
       value: actionData.value,
-      user: {
-        userId: activity.from?.id || "unknown",
-        userName: activity.from?.name || "unknown",
-        fullName: activity.from?.name || "unknown",
-        isBot: false,
-        isMe: false,
-      },
+      values: cardInputValues(actionData, BUTTON_SUBMIT_KEYS),
+      user: this.authorFromActivity(activity),
       messageId: activity.replyToId || activity.id || "",
       threadId,
       adapter: this,
@@ -905,13 +912,7 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
       viewId: activity.id || "",
       values,
       privateMetadata: undefined,
-      user: {
-        userId: activity.from?.id || "unknown",
-        userName: activity.from?.name || "unknown",
-        fullName: activity.from?.name || "unknown",
-        isBot: false,
-        isMe: false,
-      },
+      user: this.authorFromActivity(activity),
       adapter: this,
       raw: activity,
     };
@@ -946,13 +947,7 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
 
     const threadId = this.threadIdFromActivity(activity);
 
-    const user = {
-      userId: activity.from?.id || "unknown",
-      userName: activity.from?.name || "unknown",
-      fullName: activity.from?.name || "unknown",
-      isBot: false,
-      isMe: this.isMessageFromSelf(activity),
-    };
+    const user = this.authorFromActivity(activity);
 
     const reactionsAdded = activity.reactionsAdded || [];
     for (const reaction of reactionsAdded) {
@@ -1016,21 +1011,12 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
     const text = (activity as IMessageActivity).text || "";
     const normalizedText = this.normalizeMentions(text);
 
-    const isMe = this.isMessageFromSelf(activity);
-
     return new Message({
       id: activity.id || "",
       threadId,
-      text: this.formatConverter.extractPlainText(normalizedText),
-      formatted: this.formatConverter.toAst(normalizedText),
+      ...this.formatConverter.parseIncoming(normalizedText),
       raw: activity,
-      author: {
-        userId: activity.from?.id || "unknown",
-        userName: activity.from?.name || "unknown",
-        fullName: activity.from?.name || "unknown",
-        isBot: false, // TeamsSDK doesn't expose role directly; we check isMe instead
-        isMe,
-      },
+      author: this.authorFromActivity(activity),
       metadata: {
         dateSent: activity.timestamp
           ? new Date(activity.timestamp)
@@ -1051,14 +1037,33 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
     att: TeamsActivityAttachment,
     serviceUrl?: string
   ): Attachment {
-    return createTeamsAttachment(att, serviceUrl, {
-      createAnonymousFetchData: (url) => this.createFetchDataFn(url),
-      fetchAuthenticated: (url) => this.fetchAuthenticatedAttachment(url),
-    });
+    return createTeamsAttachment(att, serviceUrl, this.attachmentFetchers);
   }
+
+  private readonly attachmentFetchers: TeamsAttachmentFetchers = {
+    createAnonymousFetchData: (url) => this.createFetchDataFn(url),
+    fetchAuthenticated: (url) => this.fetchAuthenticatedAttachment(url),
+    fetchGraphFile: (url) => this.fetchGraphFile(url),
+  };
 
   protected createFetchDataFn(url: string): () => Promise<Buffer> {
     return createAnonymousAttachmentFetchData(url);
+  }
+
+  /**
+   * Download a SharePoint or OneDrive file reference from a Graph message.
+   * Graph resolves the file to a pre-authenticated URL, which is then
+   * downloaded through `createFetchDataFn()` so the anonymous download
+   * limits and overrides still apply.
+   */
+  private async fetchGraphFile(url: string): Promise<Buffer> {
+    let downloadUrl: string;
+    try {
+      downloadUrl = await this.graphReader.resolveFileDownloadUrl(url);
+    } catch (error) {
+      handleTeamsError(error, "fetchGraphFile");
+    }
+    return this.createFetchDataFn(downloadUrl)();
   }
 
   private async fetchAuthenticatedAttachment(url: string): Promise<Buffer> {
@@ -1088,10 +1093,7 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
   }
 
   rehydrateAttachment(attachment: Attachment): Attachment {
-    return rehydrateTeamsAttachment(attachment, {
-      createAnonymousFetchData: (url) => this.createFetchDataFn(url),
-      fetchAuthenticated: (url) => this.fetchAuthenticatedAttachment(url),
-    });
+    return rehydrateTeamsAttachment(attachment, this.attachmentFetchers);
   }
 
   protected normalizeMentions(text: string): string {
@@ -1140,16 +1142,22 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
     }
 
     try {
-      const aadObjectId = await this.chat
-        .getState()
-        .get<string>(`teams:aadObjectId:${userId}`);
+      const state = this.chat.getState();
+      const [aadObjectId, tenantId] = await Promise.all([
+        state.get<string>(`teams:aadObjectId:${userId}`),
+        state.get<string>(`teams:tenantId:${userId}`),
+      ]);
 
       if (!aadObjectId) {
         this.logger.debug("No cached aadObjectId for user", { userId });
         return null;
       }
 
-      return await this.getUserByAadObjectId(userId, aadObjectId);
+      return await this.getUserByAadObjectId(
+        userId,
+        aadObjectId,
+        tenantId ?? undefined
+      );
     } catch (error) {
       this.logger.warn("Failed to read cached aadObjectId from state", {
         userId,
@@ -1165,9 +1173,10 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
     aadObjectId: string
   ): Promise<UserInfo | null> {
     const cacheKey = `teams:userInfo:${aadObjectId}`;
+    const isBot = this.isBotSender(ctx.activity);
     const cached = await this.readCachedUserInfo(cacheKey);
     if (cached && cached !== USER_INFO_NEGATIVE_SENTINEL) {
-      return { ...cached, userId };
+      return { ...cached, isBot, userId };
     }
 
     try {
@@ -1179,7 +1188,7 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
         avatarUrl: undefined,
         email: member.email ?? member.userPrincipalName ?? undefined,
         fullName: member.name ?? aadObjectId,
-        isBot: false,
+        isBot,
         userId,
         userName:
           member.userPrincipalName ?? member.email ?? member.name ?? userId,
@@ -1200,19 +1209,22 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
 
   private async getUserByAadObjectId(
     userId: string,
-    aadObjectId: string
+    aadObjectId: string,
+    tenantId: string | undefined
   ): Promise<UserInfo | null> {
     const cacheKey = `teams:userInfo:${aadObjectId}`;
+    const isBot = this.isBotUserId(userId);
     const cached = await this.readCachedUserInfo(cacheKey);
     if (cached === USER_INFO_NEGATIVE_SENTINEL) {
       return null;
     }
     if (cached) {
-      return { ...cached, userId };
+      return { ...cached, isBot, userId };
     }
 
     try {
-      const graphUser = await this.app.graph.call(users.get, {
+      // Users of other tenants only exist in their own tenant's directory
+      const graphUser = await this.app.graphFor(tenantId).call(users.get, {
         "user-id": aadObjectId,
       });
 
@@ -1220,7 +1232,7 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
         avatarUrl: undefined,
         email: graphUser.mail ?? graphUser.userPrincipalName ?? undefined,
         fullName: graphUser.displayName ?? aadObjectId,
-        isBot: false,
+        isBot,
         userId,
         userName:
           graphUser.userPrincipalName ?? graphUser.displayName ?? userId,
@@ -1290,6 +1302,7 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
         },
         ...fileAttachments,
       ];
+      applyAiGeneratedLabel(activity, message);
 
       this.logger.debug("Teams API: send (adaptive card)", {
         conversationId,
@@ -1321,6 +1334,7 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
     if (fileAttachments.length > 0) {
       activity.attachments = fileAttachments;
     }
+    applyAiGeneratedLabel(activity, message);
 
     this.logger.debug("Teams API: send (message)", {
       conversationId,
@@ -1379,6 +1393,7 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
         },
         ...fileAttachments,
       ];
+      applyAiGeneratedLabel(activity, message);
 
       this.logger.debug("Teams API: send (targeted adaptive card)", {
         conversationId,
@@ -1416,6 +1431,7 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
     if (fileAttachments.length > 0) {
       activity.attachments = fileAttachments;
     }
+    applyAiGeneratedLabel(activity, message);
 
     this.logger.debug("Teams API: send (targeted message)", {
       conversationId,
@@ -1574,6 +1590,7 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
           content: adaptiveCard,
         },
       ];
+      applyAiGeneratedLabel(activity, message);
 
       const targeted = await this.isTargetedActivity(conversationId, messageId);
 
@@ -1609,6 +1626,7 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
 
     const activity = new MessageActivity(text);
     activity.textFormat = "markdown";
+    applyAiGeneratedLabel(activity, message);
 
     const targeted = await this.isTargetedActivity(conversationId, messageId);
 
@@ -1772,7 +1790,8 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
         threadId,
         textStream,
         activeStream,
-        options?.fallbackStreamingPlaceholderText
+        options?.fallbackStreamingPlaceholderText,
+        options?.aiGenerated
       );
     }
 
@@ -1796,7 +1815,10 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
     if (!accumulated) {
       return { id: "", threadId, raw: { text: "" } };
     }
-    return this.postMessage(threadId, { markdown: accumulated });
+    return this.postMessage(threadId, {
+      markdown: accumulated,
+      aiGenerated: options?.aiGenerated,
+    });
   }
 
   /**
@@ -1811,7 +1833,8 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
     threadId: string,
     textStream: AsyncIterable<string | StreamChunk>,
     stream: IStreamer,
-    placeholderText?: string | null
+    placeholderText?: string | null,
+    aiGenerated?: boolean
   ): Promise<RawMessage<unknown>> {
     let accumulated = "";
     let messageId = "";
@@ -1843,7 +1866,11 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
           continue;
         }
 
-        stream.emit(text);
+        // The streamer builds the final message from the last emitted
+        // activity's entities, so every chunk carries the label.
+        stream.emit(
+          aiGenerated ? new MessageActivityInput(text).addAiGenerated() : text
+        );
         accumulated += text;
       }
     } catch (error) {
@@ -1982,6 +2009,18 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
       ""
     );
 
+    const isChannel =
+      target.conversationType === "channel" ||
+      (target.conversationType === undefined &&
+        baseConversationId.endsWith("@thread.tacv2"));
+    const getThreadId = (messageId?: string): string =>
+      messageId && isChannel
+        ? this.encodeThreadId({
+            ...target,
+            conversationId: `${baseConversationId};messageid=${messageId}`,
+          })
+        : channelId;
+
     const files = extractFiles(message);
     const fileAttachments =
       files.length > 0 ? await this.filesToAttachments(files) : [];
@@ -1998,13 +2037,18 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
         },
         ...fileAttachments,
       ];
+      applyAiGeneratedLabel(activity, message);
 
       try {
         const sent = await this.app.sendTo(
           { ...target, conversationId: baseConversationId },
           activity
         );
-        return { id: sent.id || "", threadId: channelId, raw: activity };
+        return {
+          id: sent.id || "",
+          threadId: getThreadId(sent.id),
+          raw: activity,
+        };
       } catch (error) {
         this.logger.error("Teams API: postChannelMessage failed", {
           conversationId: baseConversationId,
@@ -2023,6 +2067,7 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
     if (fileAttachments.length > 0) {
       activity.attachments = fileAttachments;
     }
+    applyAiGeneratedLabel(activity, message);
 
     try {
       const sent = await this.app.sendTo(
@@ -2032,7 +2077,11 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
       this.logger.debug("Teams API: postChannelMessage response", {
         messageId: sent.id,
       });
-      return { id: sent.id || "", threadId: channelId, raw: activity };
+      return {
+        id: sent.id || "",
+        threadId: getThreadId(sent.id),
+        raw: activity,
+      };
     } catch (error) {
       this.logger.error("Teams API: postChannelMessage failed", {
         conversationId: baseConversationId,
@@ -2071,6 +2120,33 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
   protected isMessageFromSelf(activity: Activity): boolean {
     const fromId = activity.from?.id;
     return fromId ? this.isBotAccountId(fromId) : false;
+  }
+
+  /**
+   * Whether the sender is a bot: a sender with the Bot Framework `bot` role,
+   * or an account ID that {@link isBotUserId} recognizes.
+   */
+  protected isBotSender(activity: Activity): boolean {
+    const fromId = activity.from?.id;
+    return (
+      activity.from?.role?.toLowerCase() === "bot" ||
+      (fromId ? this.isBotUserId(fromId) : false)
+    );
+  }
+
+  /** Whether a Teams user ID is this bot or another bot account (`28:`). */
+  private isBotUserId(userId: string): boolean {
+    return userId.startsWith(BOT_USER_ID_PREFIX) || this.isBotAccountId(userId);
+  }
+
+  private authorFromActivity(activity: Activity): Author {
+    return {
+      userId: activity.from?.id || "unknown",
+      userName: activity.from?.name || "unknown",
+      fullName: activity.from?.name || "unknown",
+      isBot: this.isBotSender(activity),
+      isMe: this.isMessageFromSelf(activity),
+    };
   }
 
   /**

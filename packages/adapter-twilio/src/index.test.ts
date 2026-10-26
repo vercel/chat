@@ -8,7 +8,11 @@ import {
 import { Chat, Message } from "chat";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { resetTwilioContentCacheForTests } from "./api/content";
-import { createTwilioAdapter, type TwilioThreadId } from "./index";
+import {
+  createTwilioAdapter,
+  TwilioAdapter,
+  type TwilioThreadId,
+} from "./index";
 
 describe("TwilioAdapter", () => {
   beforeEach(() => {
@@ -858,6 +862,447 @@ describe("TwilioAdapter", () => {
         to: "+2",
       } as never)
     ).toThrow("Cannot parse action webhook");
+  });
+});
+
+describe("sendTemplate", () => {
+  it("sends a pre-created template by ContentSid with JSON variables", async () => {
+    const fetch = mockFetch({
+      direction: "outbound-api",
+      from: "whatsapp:+15550000001",
+      sid: "SM123",
+      to: "whatsapp:+15550000002",
+    });
+    const adapter = createTwilioAdapter({
+      accountSid: "AC123",
+      authToken: "token",
+      fetch,
+      statusCallbackUrl: "https://example.com/status",
+    });
+
+    const result = await adapter.sendTemplate(
+      "twilio:whatsapp%3A%2B15550000001:whatsapp%3A%2B15550000002",
+      {
+        contentSid: "HX123",
+        contentVariables: { "1": "Tomorrow at 2pm" },
+      }
+    );
+
+    expect(result).toMatchObject({
+      id: "SM123",
+      threadId: "twilio:whatsapp%3A%2B15550000001:whatsapp%3A%2B15550000002",
+    });
+    expect(fetch).toHaveBeenCalledTimes(1);
+    expect(String(fetch.mock.calls[0]?.[0])).toContain("/Messages.json");
+    const body = fetch.mock.calls[0]?.[1]?.body as URLSearchParams;
+    expect(body.get("ContentSid")).toBe("HX123");
+    expect(body.get("ContentVariables")).toBe('{"1":"Tomorrow at 2pm"}');
+    expect(body.get("From")).toBe("whatsapp:+15550000001");
+    expect(body.get("To")).toBe("whatsapp:+15550000002");
+    expect(body.get("StatusCallback")).toBe("https://example.com/status");
+    expect(body.has("Body")).toBe(false);
+  });
+
+  it("sends templates through messaging service senders", async () => {
+    const fetch = mockFetch({
+      direction: "outbound-api",
+      messaging_service_sid: "MG123",
+      sid: "SM123",
+      to: "+15550000002",
+    });
+    const adapter = createTwilioAdapter({
+      accountSid: "AC123",
+      authToken: "token",
+      fetch,
+    });
+
+    const result = await adapter.sendTemplate("twilio:MG123:%2B15550000002", {
+      contentSid: "HX123",
+    });
+
+    expect(result.threadId).toBe("twilio:MG123:%2B15550000002");
+    const body = fetch.mock.calls[0]?.[1]?.body as URLSearchParams;
+    expect(body.get("MessagingServiceSid")).toBe("MG123");
+    expect(body.has("From")).toBe(false);
+    expect(body.has("ContentVariables")).toBe(false);
+  });
+
+  it("passes pre-serialized content variables through untouched", async () => {
+    const fetch = mockFetch({
+      direction: "outbound-api",
+      from: "+15550000001",
+      sid: "SM123",
+      to: "+15550000002",
+    });
+    const adapter = createTwilioAdapter({
+      accountSid: "AC123",
+      authToken: "token",
+      fetch,
+    });
+
+    await adapter.sendTemplate("twilio:%2B15550000001:%2B15550000002", {
+      contentSid: "HX123",
+      contentVariables: '{"1":"already json"}',
+    });
+
+    const body = fetch.mock.calls[0]?.[1]?.body as URLSearchParams;
+    expect(body.get("ContentVariables")).toBe('{"1":"already json"}');
+  });
+
+  it("rejects an empty ContentSid before calling Twilio", async () => {
+    const fetch = mockFetch({ sid: "SM123" });
+    const adapter = createTwilioAdapter({
+      accountSid: "AC123",
+      authToken: "token",
+      fetch,
+    });
+
+    await expect(
+      adapter.sendTemplate("twilio:%2B15550000001:%2B15550000002", {
+        contentSid: "",
+      })
+    ).rejects.toThrow("contentSid is required");
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it("rejects a whitespace-only ContentSid before calling Twilio", async () => {
+    const fetch = mockFetch({ sid: "SM123" });
+    const adapter = createTwilioAdapter({
+      accountSid: "AC123",
+      authToken: "token",
+      fetch,
+    });
+
+    await expect(
+      adapter.sendTemplate("twilio:%2B15550000001:%2B15550000002", {
+        contentSid: "   ",
+      })
+    ).rejects.toThrow("contentSid is required");
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it("rejects a ContentSid that does not start with HX", async () => {
+    const fetch = mockFetch({ sid: "SM123" });
+    const adapter = createTwilioAdapter({
+      accountSid: "AC123",
+      authToken: "token",
+      fetch,
+    });
+
+    await expect(
+      adapter.sendTemplate("twilio:%2B15550000001:%2B15550000002", {
+        contentSid: "SM123",
+      })
+    ).rejects.toThrow("Invalid contentSid");
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["an empty string", ""],
+    ["malformed JSON", "{1:'x'}"],
+    ["a JSON array", '["x"]'],
+    ["JSON null", "null"],
+  ])("rejects content variables given as %s", async (_label, value) => {
+    const fetch = mockFetch({ sid: "SM123" });
+    const adapter = createTwilioAdapter({
+      accountSid: "AC123",
+      authToken: "token",
+      fetch,
+    });
+
+    await expect(
+      adapter.sendTemplate("twilio:%2B15550000001:%2B15550000002", {
+        contentSid: "HX123",
+        contentVariables: value,
+      })
+    ).rejects.toThrow("contentVariables must be an object");
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it("does not route card sends through an overridden sendTemplate", async () => {
+    const fetch = mockRcsFetch({
+      messageResource: {
+        direction: "outbound-api",
+        messaging_service_sid: "MG123",
+        sid: "SM456",
+        to: "+15550000002",
+      },
+    });
+    class CustomTwilioAdapter extends TwilioAdapter {
+      override sendTemplate(): never {
+        throw new Error("sendTemplate should not be called");
+      }
+    }
+    const adapter = new CustomTwilioAdapter({
+      accountSid: "AC123",
+      authToken: "token",
+      fetch,
+    });
+
+    const result = await adapter.postMessage("twilio:MG123:%2B15550000002", {
+      card: {
+        children: [
+          {
+            children: [{ id: "yes", label: "Yes", type: "button" as const }],
+            type: "actions" as const,
+          },
+        ],
+        title: "Confirm?",
+        type: "card" as const,
+      },
+    });
+
+    expect(result.id).toBe("SM456");
+    const body = messageCalls(fetch)[0]?.[1]?.body as URLSearchParams;
+    expect(body.get("ContentSid")).toBe("HX123");
+    expect(body.get("MessagingServiceSid")).toBe("MG123");
+    expect(body.has("ContentVariables")).toBe(false);
+  });
+});
+
+describe("startTyping", () => {
+  const whatsappThreadId =
+    "twilio:whatsapp%3A%2B15550000001:whatsapp%3A%2B15550000002";
+  const rcsThreadId = "twilio:MG123:%2B15550000002";
+  const smsThreadId = "twilio:%2B15550000001:%2B15550000002";
+
+  it("sends a WhatsApp typing indicator for the latest inbound message", async () => {
+    const fetch = mockFetch({ success: true });
+    const adapter = createTwilioAdapter({
+      accountSid: "AC123",
+      authToken: "token",
+      fetch,
+    });
+    const chat = new Chat({
+      adapters: { twilio: adapter },
+      logger: createMockLogger(),
+      state: createMockState(),
+      userName: "bot",
+    });
+    await chat.initialize();
+    await chat.handleIncomingMessage(
+      adapter,
+      whatsappThreadId,
+      createTestMessage("SMinbound", "hello", {
+        author: {
+          fullName: "whatsapp:+15550000002",
+          isBot: false,
+          isMe: false,
+          userId: "whatsapp:+15550000002",
+          userName: "whatsapp:+15550000002",
+        },
+        threadId: whatsappThreadId,
+      })
+    );
+
+    await adapter.startTyping(whatsappThreadId, "thinking");
+
+    expect(String(fetch.mock.calls[0]?.[0])).toBe(
+      "https://messaging.twilio.com/v3/Indicators/Typing.json"
+    );
+    expect(JSON.parse(String(fetch.mock.calls[0]?.[1]?.body))).toEqual({
+      channel: "WHATSAPP",
+      messageId: "SMinbound",
+    });
+  });
+
+  it("skips WhatsApp typing when there is no inbound Message SID", async () => {
+    const fetch = mockFetch({ success: true });
+    const adapter = createTwilioAdapter({
+      accountSid: "AC123",
+      authToken: "token",
+      fetch,
+    });
+
+    await adapter.startTyping(whatsappThreadId);
+
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it("prefers the current message id over thread history", async () => {
+    const fetch = mockFetch({ success: true });
+    const adapter = createTwilioAdapter({
+      accountSid: "AC123",
+      authToken: "token",
+      fetch,
+    });
+
+    await adapter.startTyping(whatsappThreadId, undefined, {
+      messageId: "SMcurrent",
+    });
+
+    expect(JSON.parse(String(fetch.mock.calls[0]?.[1]?.body))).toEqual({
+      channel: "WHATSAPP",
+      messageId: "SMcurrent",
+    });
+  });
+
+  it("ignores synthetic action ids as WhatsApp typing targets", async () => {
+    const fetch = mockFetch({ success: true });
+    const adapter = createTwilioAdapter({
+      accountSid: "AC123",
+      authToken: "token",
+      fetch,
+    });
+
+    await adapter.startTyping(whatsappThreadId, undefined, {
+      messageId: "action:1700000000000",
+    });
+
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it("logs and swallows Twilio typing failures", async () => {
+    const fetch = vi.fn(async () =>
+      Response.json({ code: 20422, message: "bad message" }, { status: 400 })
+    );
+    const logger = createMockLogger();
+    const adapter = createTwilioAdapter({
+      accountSid: "AC123",
+      authToken: "token",
+      fetch,
+      logger,
+    });
+
+    await expect(
+      adapter.startTyping(whatsappThreadId, undefined, { messageId: "SM1" })
+    ).resolves.toBeUndefined();
+
+    expect(logger.warn).toHaveBeenCalledWith(
+      "Twilio typing indicator failed",
+      expect.objectContaining({
+        channel: "WHATSAPP",
+        threadId: whatsappThreadId,
+      })
+    );
+  });
+
+  it("uses messagingApiUrl, then apiUrl, for typing requests", async () => {
+    const fetch = mockFetch({ success: true });
+    const messagingAdapter = createTwilioAdapter({
+      accountSid: "AC123",
+      apiUrl: "https://api.test",
+      authToken: "token",
+      fetch,
+      messagingApiUrl: "https://messaging.test",
+    });
+    const apiAdapter = createTwilioAdapter({
+      accountSid: "AC123",
+      apiUrl: "https://api.test",
+      authToken: "token",
+      fetch,
+    });
+
+    await messagingAdapter.startTyping(whatsappThreadId, undefined, {
+      messageId: "SM1",
+    });
+    await apiAdapter.startTyping(whatsappThreadId, undefined, {
+      messageId: "SM1",
+    });
+
+    expect(String(fetch.mock.calls[0]?.[0])).toBe(
+      "https://messaging.test/v3/Indicators/Typing.json"
+    );
+    expect(String(fetch.mock.calls[1]?.[0])).toBe(
+      "https://api.test/v3/Indicators/Typing.json"
+    );
+  });
+
+  it("sends RCS typing on a Messaging Service thread with inbound context", async () => {
+    const fetch = mockFetch({ success: true });
+    const adapter = createTwilioAdapter({
+      accountSid: "AC123",
+      authToken: "token",
+      fetch,
+      rcsSenderId: "brand_agent",
+    });
+
+    await adapter.startTyping(rcsThreadId, undefined, {
+      messageId: "SMinbound",
+    });
+
+    expect(JSON.parse(String(fetch.mock.calls[0]?.[1]?.body))).toEqual({
+      channel: "RCS",
+      event: "START",
+      from: "rcs:brand_agent",
+      to: "rcs:+15550000002",
+    });
+  });
+
+  it("does not post typing for Messaging Service SMS threads", async () => {
+    const fetch = mockFetch({ success: true });
+    const adapter = createTwilioAdapter({
+      accountSid: "AC123",
+      authToken: "token",
+      fetch,
+    });
+
+    await adapter.startTyping(rcsThreadId);
+
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it("sends RCS typing from an rcs: thread sender without rcsSenderId", async () => {
+    const fetch = mockFetch({ success: true });
+    const adapter = createTwilioAdapter({
+      accountSid: "AC123",
+      authToken: "token",
+      fetch,
+    });
+    const threadId = "twilio:rcs%3Abrand_agent:%2B15550000002";
+
+    await adapter.startTyping(threadId);
+
+    expect(JSON.parse(String(fetch.mock.calls[0]?.[1]?.body))).toEqual({
+      channel: "RCS",
+      event: "START",
+      from: "rcs:brand_agent",
+      to: "rcs:+15550000002",
+    });
+  });
+
+  it("does not post typing on a Messaging Service thread without inbound context", async () => {
+    const fetch = mockFetch({ success: true });
+    const adapter = createTwilioAdapter({
+      accountSid: "AC123",
+      authToken: "token",
+      fetch,
+      rcsSenderId: "brand_agent",
+    });
+
+    await adapter.startTyping(rcsThreadId);
+
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it("does not post RCS typing for phone-number SMS threads when rcsSenderId is set", async () => {
+    const fetch = mockFetch({ success: true });
+    const adapter = createTwilioAdapter({
+      accountSid: "AC123",
+      authToken: "token",
+      fetch,
+      phoneNumber: "+15550000001",
+      rcsSenderId: "brand_agent",
+    });
+
+    await adapter.startTyping(smsThreadId, undefined, {
+      messageId: "SMinbound",
+    });
+
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it("does not post typing for SMS threads", async () => {
+    const fetch = mockFetch({ success: true });
+    const adapter = createTwilioAdapter({
+      accountSid: "AC123",
+      authToken: "token",
+      fetch,
+    });
+
+    await adapter.startTyping(smsThreadId);
+
+    expect(fetch).not.toHaveBeenCalled();
   });
 });
 

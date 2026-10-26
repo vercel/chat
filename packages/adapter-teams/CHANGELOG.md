@@ -1,5 +1,57 @@
 # @chat-adapter/teams
 
+## 4.43.0
+
+### Patch Changes
+
+- 9ff2537: Look up users with a Graph token issued by their own tenant in `getUser()`, so users from other tenants of a multi-tenant bot are no longer resolved to `null`.
+- 9ff2537: Make files shared in Teams group chats and channels downloadable from messages fetched through Microsoft Graph. Graph `reference` attachments now report a MIME type inferred from the file name and expose `fetchData()`, which resolves the SharePoint or OneDrive file through Graph.
+- 9ff2537: Fix Teams Adaptive Card button clicks returning an empty invoke response, which caused Teams to retry and duplicate onAction delivery
+- 9ff2537: Paginate Teams channel roots and replies in creation order without repeating or skipping messages, and exhaust backward history at the parent boundary. Follow channel thread-list continuations and use message edit timestamps for Graph history edit metadata.
+- Updated dependencies [115cd39]
+- Updated dependencies [36325f3]
+- Updated dependencies [a32470e]
+- Updated dependencies [228b30d]
+  - chat@4.43.0
+  - @chat-adapter/shared@4.43.0
+
+## 4.42.0
+
+### Minor Changes
+
+- fd291b8: feat(teams): let a card carry a text input
+  
+  `TextInput`, which modals already use, is now also a `CardChild`, so a user can type a reply on the card instead of opening a dialog. Teams renders it as an Adaptive Card `Input.Text` with the same mapping the modal converter uses, and the `@chat-adapter/teams/cards` subpath emits the same element. Slack, Google Chat, Discord, GitHub, and Linear show its label as text. WhatsApp, Messenger, Twilio, and X omit it, so don't make an input the only content on a card that reaches them.
+  
+  `ActionEvent` gains `values?: Record<string, string>`, the card's own input values keyed by input ID. It has the same shape as `ModalSubmitEvent.values`. The Teams adapter fills it from the `Action.Submit` payload, and it is absent on platforms with no card inputs. A button's `callbackUrl` POST now carries `values` too, so a webhook-driven flow with no `onAction` handler still receives what was typed.
+  
+  An input is required unless `optional` is set, and Teams validates every input on the card before it lets a button through, so mark it `optional` unless the buttons beside it should be blocked until it is filled. That validation is client-side, so treat `values` as user input and validate it in the handler. A Teams button with `actionType: "modal"` now renders with `associatedInputs: "none"`, so it opens its dialog without waiting on the card's inputs and doesn't send them.
+  
+  Teams merges card inputs into the button's own submit data, so a card `TextInput` with the ID `actionId`, `value`, or `msteams` throws a `ValidationError` when the card is rendered, and the `@chat-adapter/teams/cards` subpath throws an `Error`. Modal inputs can still use `actionId` and `value`.
+  
+  `CardChild` gained a member, so an adapter outside this repo that exhausts the union with a `never` check needs a `text_input` case. Every in-repo converter reaches it through a `default:` branch instead, so none needed changing.
+- f8527b2: Add an optional `aiGenerated` field to `PostableRaw`, `PostableMarkdown`, `PostableAst`, `PostableCard`, `StreamingPlanOptions`, and `StreamOptions`. When it's `true`, adapters with a native AI label show it. The Teams adapter shows Teams' "AI generated" label on new, edited, channel, targeted, and streamed messages. An edit must set the flag again to keep the label. The built-in AI tools now set `aiGenerated: true` on the `markdown` and `raw` messages they post or edit.
+
+### Patch Changes
+
+- 03e7b5f: Classify Teams bot senders using their account role, bot account ID, and the adapter's own identity. Messages, reactions, card actions, and dialog events now report `isBot` and `isMe` consistently, so handlers can exclude bot activity from human-only conversations. Cached user lookups no longer report bot account IDs as humans.
+- 63ad5ea: Return the created thread ID from Teams channel posts so follow-up messages reply to that thread. Applies to text and Adaptive Card posts.
+- Updated dependencies [2f1cfa2]
+- Updated dependencies [daaa0ac]
+- Updated dependencies [fd291b8]
+- Updated dependencies [19c7aa2]
+- Updated dependencies [08081fa]
+- Updated dependencies [19c7aa2]
+- Updated dependencies [80e7bae]
+- Updated dependencies [08081fa]
+- Updated dependencies [7b7d73c]
+- Updated dependencies [f8527b2]
+- Updated dependencies [9a83b22]
+- Updated dependencies [8178fdb]
+- Updated dependencies [f635dbe]
+  - chat@4.42.0
+  - @chat-adapter/shared@4.42.0
+
 ## 4.41.1
 
 ### Patch Changes

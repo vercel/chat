@@ -58,14 +58,15 @@ Listed in `node_modules/chat/resources/templates.json`:
 
 See the 'Official Adapters', 'Vendor-Official Adapters', and 'Community Adapters' sections in the [Chat SDK llms.txt file](https://chat-sdk.dev/llms.txt) for the current list of official, vendor-official, and community adapters.
 
-### Adapter catalog subpath
+### Adapter catalog package
 
-Chat SDK exposes a zero-dependency static catalog at `chat/adapters`.
+`@chat-adapter/catalog` is a zero-dependency static catalog of official, vendor-official, and community adapters. It replaces the deprecated `chat/adapters` subpath, which still re-exports the original API.
 
-Agents can import `ADAPTERS`, `ADAPTER_NAMES`, `getAdapter`, `isAdapterSlug`, `listEnvVars`, `getSecretEnvVars`, and metadata types like `CatalogAdapter` and `AdapterSlug` from this subpath without importing any adapter implementation package.
+Agents can import `listAdapters`, `getCatalogEntry`, `getFeatureSupport`, `ADAPTERS`, `ADAPTER_NAMES`, `getAdapter`, `isAdapterSlug`, `listEnvVars`, `getSecretEnvVars`, and metadata types like `CatalogAdapter`, `CatalogEntry`, and `AdapterSlug` without importing any adapter implementation package.
 
 Use it for:
-- Listing official and vendor-official adapter slugs, names, npm packages, groups, and platform vs state types.
+- Listing adapter slugs, names, npm packages, maintainers, groups, and platform vs state types.
+- Checking which capabilities an adapter supports, such as streaming, modals, or distributed locking.
 - Building setup or onboarding flows that need package names, peer dependencies, and install guidance before any adapter is installed.
-- Discovering required, optional, and credential-mode environment variables for an adapter, including which variables are secrets.
-- Keeping vendor-official adapter docs and metadata aligned with the catalog when adding or updating a listed adapter.
+- Discovering required, optional, and credential-mode environment variables for official and vendor-official adapters, including which variables are secrets.
+- Keeping adapter docs and metadata aligned with the catalog when adding or updating a listed adapter.

@@ -31,7 +31,8 @@ pnpm + Turborepo monorepo. Packages are ESM (`"type": "module"`), TypeScript, bu
 
 | Path | Role |
 | --- | --- |
-| `packages/chat` | Core SDK (`chat`): `Chat`, types, mdast markdown, `chat/adapters` catalog |
+| `packages/chat` | Core SDK (`chat`): `Chat`, types, mdast markdown |
+| `packages/catalog` | `@chat-adapter/catalog`: static adapter catalog (listing metadata, capabilities, setup requirements) |
 | `packages/adapter-*` | Platform adapters (slack, teams, gchat, discord, telegram, whatsapp, github, linear, web, messenger, twilio, …) |
 | `packages/adapter-shared` | Shared adapter utilities |
 | `packages/state-*` | State adapters (memory, redis, ioredis, pg) |
@@ -41,7 +42,7 @@ pnpm + Turborepo monorepo. Packages are ESM (`"type": "module"`), TypeScript, bu
 | `apps/docs` | fumadocs site (chat-sdk.dev) |
 | `examples/*` | Example bots; `package.json` `name` must be `example-*` (private, no changeset) |
 
-When editing a specific package, read its **AGENTS.md** if present (most adapters, state packages, `create-chat-sdk`, and `packages/chat/src/adapters/` have one).
+When editing a specific package, read its **AGENTS.md** if present (most adapters, state packages, `create-chat-sdk`, and `packages/catalog` have one).
 
 ## Architecture
 
@@ -70,7 +71,7 @@ When editing a specific package, read its **AGENTS.md** if present (most adapter
 
 ### Adapter catalog
 
-`packages/chat/src/adapters/index.ts` powers the zero-dependency `chat/adapters` subpath. See [packages/chat/src/adapters/AGENTS.md](packages/chat/src/adapters/AGENTS.md) when adding or changing catalog entries — keep it in sync with `apps/docs/adapters.json`.
+`@chat-adapter/catalog` (`packages/catalog`) is the single source of truth for adapter metadata: the docs adapter listing, the feature matrices on adapter pages, and `create-chat-sdk` all read from it. `chat/adapters` is a deprecated re-export. See [packages/catalog/AGENTS.md](packages/catalog/AGENTS.md) when adding or changing catalog entries.
 
 ## Working on adapters and state packages
 

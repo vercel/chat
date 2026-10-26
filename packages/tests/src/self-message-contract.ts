@@ -1,5 +1,5 @@
 import type { Adapter, ChatInstance } from "chat";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import type { ChatHandler } from "./matchers";
 
 /**
@@ -30,12 +30,29 @@ export interface SelfMessageContractDescriptor {
 }
 
 /**
+ * Names of the mocked dispatch entry points on `chat` that received a call.
+ * Covers every `process*` handler plus `handleIncomingMessage`, so a self
+ * message routed through any of them is caught, not only `dispatchHandler`.
+ */
+function dispatchedHandlers(chat: ChatInstance): string[] {
+  return Object.entries(chat)
+    .filter(
+      ([key, fn]) =>
+        (key.startsWith("process") || key === "handleIncomingMessage") &&
+        vi.isMockFunction(fn) &&
+        fn.mock.calls.length > 0
+    )
+    .map(([key]) => key);
+}
+
+/**
  * Shared Vitest suite asserting an adapter ignores its own messages.
  *
  * Requires the `@chat-adapter/tests` matchers to be registered (via
  * `setupFiles: ["@chat-adapter/tests/setup"]`). A message from another user
  * dispatches through `dispatchHandler` (default `processMessage`) and returns
- * `200`; a message authored by the bot returns `200` but does NOT dispatch.
+ * `200`; a message authored by the bot returns `200` and dispatches through
+ * none of the chat's handlers.
  */
 export function selfMessageContract(
   descriptor: SelfMessageContractDescriptor
@@ -57,7 +74,7 @@ export function selfMessageContract(
         await descriptor.makeSelfMessageRequest()
       );
       expect(response.status).toBe(200);
-      expect(chat).not.toHaveDispatched(handler);
+      expect(dispatchedHandlers(chat)).toEqual([]);
     });
   });
 }

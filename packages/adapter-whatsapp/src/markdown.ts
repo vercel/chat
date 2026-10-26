@@ -15,20 +15,103 @@ import {
   type AdapterPostableMessage,
   BaseFormatConverter,
   type Content,
+  type Delete,
+  type Emphasis,
   isTableNode,
   parseMarkdown,
   type Root,
+  type Strong,
   stringifyMarkdown,
+  type Text,
   tableToAscii,
   walkAst,
 } from "chat";
+
+type Handlers = NonNullable<
+  NonNullable<Parameters<typeof stringifyMarkdown>[1]>["handlers"]
+>;
+type HandleArgs = Parameters<NonNullable<Handlers["text"]>>;
+type State = HandleArgs[2];
+type Info = HandleArgs[3];
+
+// WhatsApp has no escape syntax, so text stays literal unless it would
+// otherwise turn into formatting.
+const INLINE_PAIRS = {
+  "*": /(?:^|[^\p{L}\p{N}])\*(?=\S).*?\S\*(?![\p{L}\p{N}])/mu,
+  _: /(?:^|[^\p{L}\p{N}])_(?=\S).*?\S_(?![\p{L}\p{N}])/mu,
+  "~": /(?:^|[^\p{L}\p{N}])~(?=\S).*?\S~(?![\p{L}\p{N}])/mu,
+  "`": /(?:^|[^\p{L}\p{N}])`(?=\S).*?\S`(?![\p{L}\p{N}])/mu,
+} as const;
+const BLOCK_START = /(^|\n)(?:([>*-])|(\d+)\.)(?= )/g;
+
+// Surrounding markers belong to formatting nodes, so they only bound the text.
+function boundary(char: string) {
+  return char in INLINE_PAIRS ? " " : char;
+}
+
+function text(node: Text, _parent: unknown, _state: State, info: Info) {
+  const { before, after } = info;
+  const context = [boundary(before.slice(-1)), boundary(after.charAt(0))];
+  let value = node.value;
+  for (const [marker, pair] of Object.entries(INLINE_PAIRS)) {
+    const touchesMarker =
+      (value.startsWith(marker) && before.slice(-1) in INLINE_PAIRS) ||
+      (value.endsWith(marker) && after.charAt(0) in INLINE_PAIRS);
+    if (
+      touchesMarker ||
+      (value.includes(marker) &&
+        pair.test(`${context[0]}${value}${context[1]}`))
+    ) {
+      value = value.replaceAll(marker, `\\${marker}`);
+    }
+  }
+  return value.replace(
+    BLOCK_START,
+    (match, lead: string, symbol?: string, digits?: string, offset = 0) => {
+      if (offset === 0 && lead === "" && before !== "\n") {
+        return match;
+      }
+      return symbol ? `${lead}\\${symbol}` : `${lead}${digits}\\.`;
+    }
+  );
+}
+
+// `peek` keeps lookahead from serializing nested formatting a second time.
+function strong(node: Strong, _parent: unknown, state: State, info: Info) {
+  return `*${state.containerPhrasing(node, { ...info, before: "*", after: "*" })}*`;
+}
+strong.peek = () => "*";
+
+function emphasis(node: Emphasis, _parent: unknown, state: State, info: Info) {
+  return `_${state.containerPhrasing(node, { ...info, before: "_", after: "_" })}_`;
+}
+emphasis.peek = () => "_";
+
+function strikethrough(
+  node: Delete,
+  _parent: unknown,
+  state: State,
+  info: Info
+) {
+  return `~${state.containerPhrasing(node, { ...info, before: "~", after: "~" })}~`;
+}
+strikethrough.peek = () => "~";
+
+const handlers: Handlers = {
+  text,
+  strong,
+  emphasis,
+  delete: strikethrough,
+  break: () => "\n",
+};
+
 export class WhatsAppFormatConverter extends BaseFormatConverter {
   /**
    * Convert an AST to WhatsApp markdown format.
    *
    * Transforms unsupported nodes (headings, thematic breaks, tables)
-   * into WhatsApp-compatible equivalents, then converts standard markdown
-   * bold/strikethrough to WhatsApp syntax.
+   * into WhatsApp-compatible equivalents and renders supported formatting
+   * directly in WhatsApp syntax.
    */
   fromAst(ast: Root): string {
     const transformed = walkAst(structuredClone(ast), (node: Content) => {
@@ -62,12 +145,11 @@ export class WhatsAppFormatConverter extends BaseFormatConverter {
       }
       return node;
     });
-    // Use _ for emphasis and - for bullets so the only * in output is **strong**
-    const markdown = stringifyMarkdown(transformed, {
+    return stringifyMarkdown(transformed, {
       emphasis: "_",
       bullet: "-",
+      handlers,
     }).trim();
-    return this.toWhatsAppFormat(markdown);
   }
 
   /**
@@ -102,20 +184,6 @@ export class WhatsAppFormatConverter extends BaseFormatConverter {
       return this.fromAst(message.ast);
     }
     return super.renderPostable(message);
-  }
-
-  /**
-   * Convert remaining standard markdown markers to WhatsApp format.
-   * The stringifier already outputs _italic_ and - bullets.
-   * This only converts **bold** -> *bold* and ~~strike~~ -> ~strike~.
-   */
-  private toWhatsAppFormat(text: string): string {
-    let result = text;
-    // Convert **bold** -> *bold*
-    result = result.replace(/\*\*(.+?)\*\*/g, "*$1*");
-    // Convert ~~strikethrough~~ -> ~strikethrough~
-    result = result.replace(/~~(.+?)~~/g, "~$1~");
-    return result;
   }
 
   /**

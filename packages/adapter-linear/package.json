@@ -1,6 +1,6 @@
 {
   "name": "@chat-adapter/linear",
-  "version": "4.41.1",
+  "version": "4.43.0",
   "description": "Linear adapter for Chat SDK — @mentions in issue comments and Linear agent sessions",
   "type": "module",
   "engines": {
@@ -36,7 +36,7 @@
     "@types/node": "^25.3.2",
     "tsup": "^8.3.5",
     "typescript": "^5.7.2",
-    "vitest": "^4.0.18"
+    "vitest": "^5.0.3"
   },
   "repository": {
     "type": "git",

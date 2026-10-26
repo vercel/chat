@@ -9,15 +9,23 @@ file documents the adapter-specific surface, conventions, and pitfalls.
 
 `@chat-adapter/web` lets a Chat SDK bot serve a browser chat UI
 alongside Slack, Teams, Discord, and the rest. The same handlers fire
-for every platform — the Web adapter just speaks the
-`@ai-sdk/react` `useChat` UI message stream protocol so a `<Chat>`
-React component can drop in next to the bot's existing webhooks.
+for every platform. The Web adapter speaks one of two wire protocols,
+chosen with the `protocol` config option:
+
+- `"ai-sdk"` (default): the AI SDK UI message stream, for `useChat`
+  from `@ai-sdk/react`, `@ai-sdk/vue`, and `@ai-sdk/svelte`.
+- `"ag-ui"`: AG-UI events, for TanStack AI's `fetchServerSentEvents`
+  connection and other AG-UI clients.
+
+The server entry implements both protocols by hand and has no runtime
+dependency on `ai` or any client SDK.
 
 What it covers:
 
 - HTTP endpoint at `/api/chat` (or wherever the adapter is mounted).
-  Handles POST requests carrying the `useChat` request body and
-  responds with an SSE UI message stream.
+  Handles POST requests carrying the client's chat request body and
+  responds over SSE with an AI SDK UI message stream (`"ai-sdk"`) or
+  AG-UI events (`"ag-ui"`).
 - Native streaming via the SSE protocol — no edit loop, no rate
   limiting, abort propagation through `request.signal` to the
   handler.
@@ -36,6 +44,7 @@ packages/adapter-web/
 │   ├── index.ts             # createWebAdapter factory + public types
 │   ├── adapter.ts           # WebAdapter class implementation
 │   ├── als.ts               # AsyncLocalStorage scope for the active request
+│   ├── protocol.ts          # ai-sdk and ag-ui wire protocols + SSE response
 │   ├── format-converter.ts  # WebFormatConverter (mdast ↔ markdown)
 │   ├── index.test.ts
 │   ├── types.ts             # WebUser, request shape, postable types
@@ -48,9 +57,10 @@ packages/adapter-web/
 └── README.md
 ```
 
-The `react/` subentry is published as `@chat-adapter/web/react`. Keep
-the server entry free of any React imports — only `react/index.ts`
-should reference `@ai-sdk/react`.
+The `react/`, `vue/`, and `svelte/` subentries are published as
+`@chat-adapter/web/react` etc. Keep the server entry free of any `ai`,
+`@ai-sdk/*`, or framework imports. Only the framework subentries may
+import them.
 
 ## Build, test, typecheck
 
@@ -77,14 +87,20 @@ Server entry (`@chat-adapter/web` → `src/index.ts`):
 
 - `createWebAdapter(config)` — primary factory. Required:
   `userName` (bot name) and `getUser(request)` resolver. Optional:
-  `persistMessageHistory`, `threadIdFor`, `logger`.
-- `WebAdapter` class — implements `Adapter<WebThreadId, unknown>`.
+  `protocol`, `persistMessageHistory`, `threadIdFor`, `logger`.
+- `WebAdapter` class: implements `Adapter<WebThreadIdData, WebMessage>`.
   Public methods: `handleWebhook` (mounted at `/api/chat` etc.),
   `postMessage`, `editMessage`, `deleteMessage`, `addReaction`,
   `removeReaction`, `startTyping`, `fetchThread`, `fetchMessages`,
-  `fetchSingleMessage`, `openDM`.
-- Configuration: `WebAdapterConfig`, `WebUser`, `WebThreadId`.
-- `encodeThreadId`, `decodeThreadId`, `isDM`.
+  `fetchSingleMessage`, `openDM`, `encodeThreadId`, `decodeThreadId`,
+  `isDM`.
+- Configuration: `WebAdapterConfig` (alias `WebAdapterOptions`),
+  `WebUser`, `WebThreadIdData`, `WebProtocolName`.
+- Raw message type: `WebMessage` / `WebMessagePart` (`message.raw`).
+  Part fields other than `type` are `unknown`. With `"ai-sdk"` the
+  shape matches the AI SDK `UIMessage`, so handlers can cast with
+  `message.raw as UIMessage`.
+- `WebFormatConverter`.
 
 React entry (`@chat-adapter/web/react` → `src/react/index.ts`):
 
@@ -99,7 +115,8 @@ web:{user.id}:{conversationId}
 ```
 
 `user.id` comes from `getUser(request)`. `conversationId` is the
-`id` field useChat sends in its request body — when the client
+`id` field AI SDK's useChat sends in its request body (`threadId` with
+`"ag-ui"`) — when the client
 supplies one (`useChat({ id: "support-chat" })`), it persists across
 reloads; otherwise a fresh id is generated per request.
 
@@ -117,17 +134,27 @@ The adapter's `handleWebhook(request, options)` is mounted at the
 chat route (typically `/api/chat`). It:
 
 1. Calls `getUser(request)`. Returning `null` produces HTTP 401.
-2. Decodes the `useChat` request body to extract `id` and `messages[]`.
-   Only the latest user message is consumed (the rest of the array is
-   untrusted client state), and tool parts are stripped from it so a
-   browser can't inject forged tool-call or approval state. Text,
-   file, and `data-*` parts pass through.
+2. The protocol's `parseRequest` decodes the body to extract the
+   conversation id and `messages[]`. Only the latest user message is
+   consumed (the rest of the array is untrusted client state), and
+   only allowlisted parts survive so a browser can't inject forged
+   tool-call or approval state: text, file, and `data-*` for
+   `"ai-sdk"`; text and media content parts for `"ag-ui"`. The last
+   entry of `messages[]` must be a user message, so bodies ending in
+   an assistant or tool message (client-side tool results, automatic
+   resubmits) get HTTP 400. So does a conversation id (`id` or
+   `threadId`) that is present but not a string.
 3. Resolves the thread id via `threadIdFor` (default
    `web:{user.id}:{conversationId}`).
-4. Routes to `chat.processMessage`, which persists the message into
-   the configured state adapter when `persistMessageHistory: true`.
+4. Routes to `chat.processMessage` with `deduplicate: false`, which
+   persists the message into the configured state adapter when
+   `persistMessageHistory: true`. Web requests are never redelivered,
+   so a repeated message id is a regenerate or reload and runs the
+   handler again. History keeps the earlier bot reply and stores the
+   repeated user message twice.
 5. Streams the handler's `thread.post` output back to the browser as
-   SSE chunks following the AI message stream protocol.
+   SSE frames. The adapter writes protocol-neutral `text-start` /
+   `text-delta` / `text-end` events and the protocol encodes them.
 
 `request.signal` is plumbed through `als.ts` so calling `stop()` from
 the React side aborts the handler's iterator.
@@ -248,9 +275,9 @@ there's nothing magical in the wrapper.
 ## Coding conventions
 
 - Use named exports throughout. No default exports.
-- Keep server code free of React imports. The bundler emits two
-  entry points; only `src/react/index.ts` may import from
-  `@ai-sdk/react`.
+- Keep server code free of `ai`, `@ai-sdk/*`, and framework imports.
+  Only the framework subentries (`src/react`, `src/vue`, `src/svelte`)
+  may import them. New wire formats go in `protocol.ts`.
 - Errors map to `@chat-adapter/shared` (`AuthenticationError`,
   `ValidationError`). The Web adapter has no rate-limit or network
   errors of its own.

@@ -24,7 +24,9 @@ import type {
 import { toString as mdastToString } from "mdast-util-to-string";
 import remarkGfm from "remark-gfm";
 import remarkParse from "remark-parse";
-import remarkStringify from "remark-stringify";
+import remarkStringify, {
+  type Options as MarkdownStringifyOptions,
+} from "remark-stringify";
 import { unified } from "unified";
 import type { CardChild, CardElement, ChartElement } from "./cards";
 import type { AdapterPostableMessage } from "./types";
@@ -284,6 +286,12 @@ export function getNodeValue(node: Content): string {
 }
 
 /**
+ * Default maximum length of inbound message text that
+ * `BaseFormatConverter.parseIncoming` parses as markdown.
+ */
+export const DEFAULT_MAX_INCOMING_PARSE_LENGTH = 16_384;
+
+/**
  * Parse markdown string into an AST.
  * Supports GFM (GitHub Flavored Markdown) for strikethrough, tables, etc.
  */
@@ -300,6 +308,12 @@ export interface StringifyOptions {
   bullet?: "*" | "-" | "+";
   /** Emphasis marker character. Default: `'*'` */
   emphasis?: "*" | "_";
+  /**
+   * Custom serializers keyed by mdast node type. Each replaces the default
+   * serializer for that node type and is responsible for its own escaping.
+   * Set `peek` on a handler that wraps its content in a marker.
+   */
+  handlers?: MarkdownStringifyOptions["handlers"];
 }
 
 /**
@@ -603,6 +617,31 @@ export abstract class BaseFormatConverter implements FormatConverter {
     return toPlainText(this.toAst(platformText));
   }
 
+  /**
+   * Maximum length, in UTF-16 code units, of inbound text that
+   * `parseIncoming` will parse as markdown. The markdown parser has
+   * superlinear worst cases, so longer text is kept verbatim in a single
+   * text node.
+   * Subclasses can override this to match their platform's limits.
+   */
+  protected maxIncomingParseLength = DEFAULT_MAX_INCOMING_PARSE_LENGTH;
+
+  /**
+   * Parse inbound platform text into the plain text and AST for a `Message`.
+   * Parses once, and skips markdown parsing for text longer than
+   * `maxIncomingParseLength`.
+   */
+  parseIncoming(platformText: string): { formatted: Root; text: string } {
+    if (platformText.length > this.maxIncomingParseLength) {
+      return {
+        text: platformText,
+        formatted: root([paragraph([text(platformText)])]),
+      };
+    }
+    const formatted = this.toAst(platformText);
+    return { text: toPlainText(formatted), formatted };
+  }
+
   // Convenience methods for markdown string I/O
   fromMarkdown(markdown: string): string {
     return this.fromAst(parseMarkdown(markdown));
@@ -698,6 +737,9 @@ export abstract class BaseFormatConverter implements FormatConverter {
         return tableElementToAscii(child.headers, child.rows);
       case "chart":
         return chartElementToFallbackText(child);
+      case "text_input":
+        // An empty box carries no text of its own.
+        return child.label;
       case "section":
         return child.children
           .map((c) => this.cardChildToFallbackText(c))

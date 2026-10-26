@@ -46,6 +46,13 @@
 
 import { chartElementToFallbackText, tableElementToAscii } from "./markdown";
 import type { RadioSelectElement, SelectElement } from "./modals";
+// A leaf module, so taking the builder as a value keeps modals.ts out of this
+// chunk — chat/workflow shares it and uses none of the modal builders.
+import {
+  TextInput,
+  type TextInputElement,
+  type TextInputOptions,
+} from "./text-input";
 
 // ============================================================================
 // Card Element Types
@@ -79,6 +86,8 @@ export interface ButtonElement {
   type: "button";
   /** Optional payload value sent with action callback */
   value?: string;
+  /** User IDs that can see the button. Rendered by Slack only; other adapters show the button to everyone. Hides the button but does not restrict who can trigger its action */
+  visibleTo?: string[];
 }
 
 /** Link button element that opens a URL */
@@ -94,6 +103,8 @@ export interface LinkButtonElement {
   type: "link-button";
   /** URL to open when clicked */
   url: string;
+  /** User IDs that can see the button. Rendered by Slack only; other adapters show the button to everyone. Hides the button but does not restrict who can trigger its action */
+  visibleTo?: string[];
 }
 
 /** Text content element */
@@ -255,7 +266,8 @@ export type CardChild =
   | FieldsElement
   | LinkElement
   | TableElement
-  | ChartElement;
+  | ChartElement
+  | TextInputElement;
 
 /** Union of all element types (including nested children) */
 type AnyCardElement =
@@ -452,6 +464,8 @@ export interface ButtonOptions {
   tooltip?: string;
   /** Optional payload value sent with action callback */
   value?: string;
+  /** User IDs that can see the button. Rendered by Slack only; other adapters show the button to everyone. Hides the button but does not restrict who can trigger its action */
+  visibleTo?: string[];
 }
 
 /**
@@ -474,6 +488,7 @@ export function Button(options: ButtonOptions): ButtonElement {
     actionType: options.actionType,
     callbackUrl: options.callbackUrl,
     tooltip: options.tooltip,
+    visibleTo: options.visibleTo,
   };
 }
 
@@ -489,6 +504,8 @@ export interface LinkButtonOptions {
   tooltip?: string;
   /** URL to open when clicked */
   url: string;
+  /** User IDs that can see the button. Rendered by Slack only; other adapters show the button to everyone. Hides the button but does not restrict who can trigger its action */
+  visibleTo?: string[];
 }
 
 /**
@@ -508,6 +525,7 @@ export function LinkButton(options: LinkButtonOptions): LinkButtonElement {
     label: options.label,
     style: options.style,
     tooltip: options.tooltip,
+    visibleTo: options.visibleTo,
   };
 }
 
@@ -726,6 +744,7 @@ const componentMap = new Map<unknown, string>([
   [Fields, "Fields"],
   [Table, "Table"],
   [Chart, "Chart"],
+  [TextInput, "TextInput"],
 ]);
 
 /**
@@ -849,6 +868,7 @@ export function fromReactElement(element: unknown): AnyCardElement | null {
         actionType: props.actionType as "action" | "modal" | undefined,
         disabled: props.disabled as boolean | undefined,
         tooltip: props.tooltip as string | undefined,
+        visibleTo: props.visibleTo as string[] | undefined,
       });
     }
 
@@ -860,6 +880,7 @@ export function fromReactElement(element: unknown): AnyCardElement | null {
         label: (props.label as string | undefined) ?? label,
         style: props.style as ButtonStyle | undefined,
         tooltip: props.tooltip as string | undefined,
+        visibleTo: props.visibleTo as string[] | undefined,
       });
     }
 
@@ -891,6 +912,10 @@ export function fromReactElement(element: unknown): AnyCardElement | null {
         title: props.title as string,
         chart: props.chart as ChartDefinition,
       });
+
+    case "TextInput":
+      // TextInput() copies each option by name, same as Table above.
+      return TextInput(props as unknown as TextInputOptions);
 
     default:
       return null;
@@ -987,6 +1012,9 @@ export function cardChildToFallbackText(child: CardChild): string | null {
       return tableElementToAscii(child.headers, child.rows);
     case "chart":
       return chartElementToFallbackText(child);
+    case "text_input":
+      // An empty box carries no text of its own.
+      return child.label;
     case "section":
       return child.children
         .map((c) => cardChildToFallbackText(c))

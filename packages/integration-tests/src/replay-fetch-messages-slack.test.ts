@@ -121,13 +121,11 @@ describe("fetchMessages Replay Tests - Slack", () => {
       direction: "backward",
     });
 
-    // Backward direction: uses larger batch size min(1000, max(limit*2, 200))
-    // For limit=50: min(1000, max(100, 200)) = 200
     expect(ctx.mockClient.conversations.replies).toHaveBeenCalledWith(
       expect.objectContaining({
         channel: SLACK_CHANNEL,
         ts: SLACK_THREAD_TS,
-        limit: 200,
+        limit: 1000,
         latest: undefined,
         inclusive: false,
       })

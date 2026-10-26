@@ -1,0 +1,283 @@
+---
+title: Twitch
+description: Twitch adapter using EventSub webhooks and the Helix Chat API.
+packageName: "@chat-adapter/twitch"
+slug: twitch
+type: platform
+logo: twitch
+tagline: Read and reply in Twitch channel chat, and hold whisper conversations with viewers.
+---
+
+## Create a new bot
+
+Scaffold a Next.js bot with the Twitch adapter using [`create-chat-sdk`](/docs/create-chat-sdk):
+
+<CreateChatSdk adapters="twitch memory" />
+
+The generated app uses the [Memory state adapter](/adapters/official/memory) for local development. To add the adapter to an existing app, start at [Install](#install).
+
+## Install
+
+<PackageInstall package="@chat-adapter/twitch @chat-adapter/state-memory" />
+
+## Quick start
+
+<Callout type="info">
+The adapter auto-detects `TWITCH_CLIENT_ID`, `TWITCH_CLIENT_SECRET`, `TWITCH_WEBHOOK_SECRET`, and `TWITCH_BOT_USERNAME` from the environment.
+</Callout>
+
+```typescript title="lib/bot.ts" lineNumbers
+import { Chat } from "chat";
+import { createTwitchAdapter } from "@chat-adapter/twitch";
+import { createMemoryState } from "@chat-adapter/state-memory";
+
+export const bot = new Chat({
+  userName: "mybot",
+  adapters: {
+    twitch: createTwitchAdapter(),
+  },
+  state: createMemoryState(),
+});
+
+bot.onNewMention(async (thread, message) => {
+  await thread.reply(message, `Hi @${message.author.userName}!`);
+});
+```
+
+The memory state adapter keeps subscriptions and locks in process memory, which suits local development. Use [Redis](/adapters/official/redis) or [PostgreSQL](/adapters/official/postgres) in production.
+
+```typescript title="app/api/webhooks/twitch/route.ts" lineNumbers
+import { after } from "next/server";
+import { bot } from "@/lib/bot";
+
+export async function POST(request: Request) {
+  return bot.webhooks.twitch(request, {
+    waitUntil: (task) => after(() => task),
+  });
+}
+```
+
+## Platform setup
+
+The adapter runs as a Twitch [cloud chatbot](https://dev.twitch.tv/docs/chat/authenticating/): a dedicated Twitch account for the bot, an app access token for the API calls, and one-time authorizations from the bot account and each broadcaster.
+
+### 1. Register a Twitch application
+
+1. Create a Twitch account for the bot, then open the [Twitch developer console](https://dev.twitch.tv/console/apps) and register an application. Set **OAuth Redirect URLs** to `http://localhost:3000`, the address the Twitch CLI listens on during the authorization in step 2. The adapter doesn't use a redirect at runtime. Choose **Confidential** as the client type so Twitch issues a client secret.
+2. Copy the **Client ID** to `TWITCH_CLIENT_ID`, generate a **Client Secret**, and copy it to `TWITCH_CLIENT_SECRET`.
+3. Set `TWITCH_BOT_USERNAME` to the bot account's login name.
+4. Generate a random string of 10 to 100 characters for `TWITCH_WEBHOOK_SECRET`, for example with `openssl rand -hex 32`.
+
+### 2. Authorize the bot account
+
+Sign in as the bot account and authorize your application with these scopes:
+
+| Scope | Why |
+| --- | --- |
+| `user:read:chat` | Receive `channel.chat.message` events as the bot |
+| `user:write:chat` | Send chat messages as the bot |
+| `user:bot` | Let the app act as the bot with an app access token |
+| `moderator:manage:chat_messages` | Optional. Delete chat messages in channels where the bot is a moderator |
+| `user:manage:whispers` | Optional. Send and receive whispers |
+
+The [Twitch CLI](https://dev.twitch.tv/docs/cli/token-command/) can run this flow for you:
+
+```bash
+twitch token --user-token --scopes "user:read:chat user:write:chat user:bot user:manage:whispers"
+```
+
+Chat only needs the authorization to exist; the adapter mints app access tokens itself. Keep the printed refresh token if you want whispers (see [Whispers](#whispers)).
+
+### 3. Get permission from each broadcaster
+
+For every channel the bot joins, either have the broadcaster authorize your application with the `channel:bot` scope, or make the bot account a moderator of the channel (`/mod <bot login>` in chat).
+
+### 4. Subscribe to chat events
+
+Deploy your webhook route first. Twitch sends a verification challenge as soon as you subscribe, and the adapter answers it. The callback URL must use HTTPS on port 443.
+
+```typescript title="scripts/subscribe.ts"
+import { bot } from "@/lib/bot";
+
+await bot.initialize();
+const twitch = bot.getAdapter("twitch");
+const callbackUrl = "https://your-domain.com/api/webhooks/twitch";
+
+// Repeat for every broadcaster user ID the bot should listen to.
+await twitch.subscribeToChat("141981764", callbackUrl);
+// Optional: receive whispers sent to the bot.
+await twitch.subscribeToWhispers(callbackUrl);
+```
+
+Subscriptions persist on Twitch's side until they are deleted or revoked, so run this once per channel rather than on every deploy. Creating a subscription that already exists fails with a `ValidationError`.
+
+## Configuration
+
+<TypeTable
+  type={{
+    clientId: {
+      type: "string",
+      description: "Twitch application client ID. Auto-detected from `TWITCH_CLIENT_ID`.",
+    },
+    clientSecret: {
+      type: "string",
+      description:
+        "Twitch application client secret, used to mint app access tokens with the client credentials grant. Auto-detected from `TWITCH_CLIENT_SECRET`.",
+    },
+    webhookSecret: {
+      type: "string",
+      description:
+        "EventSub webhook secret (10 to 100 characters) used to verify `Twitch-Eventsub-Message-Signature`. The subscription helpers send the same value to Twitch. Auto-detected from `TWITCH_WEBHOOK_SECRET`.",
+    },
+    userName: {
+      type: "string",
+      description:
+        "Bot account login, used for mention detection and to look up the bot user ID. Auto-detected from `TWITCH_BOT_USERNAME`.",
+    },
+    userId: {
+      type: "string",
+      description:
+        "Bot account user ID. Auto-detected from `TWITCH_BOT_USER_ID`, otherwise looked up from `userName` with Get Users. Initialization fails if neither resolves.",
+    },
+    userAccessToken: {
+      type: "string | () => Promise<string>",
+      description:
+        "Bot user access token with `user:manage:whispers`, or an async provider for your own refresh flow. Only used to send whispers. Auto-detected from `TWITCH_USER_ACCESS_TOKEN`.",
+    },
+    refreshToken: {
+      type: "string",
+      description:
+        "Bot refresh token. Enables managed refresh of the whisper token, with the rotated refresh token persisted in the state adapter. Auto-detected from `TWITCH_REFRESH_TOKEN`.",
+    },
+    encryptionKey: {
+      type: "string",
+      description:
+        "Base64 32-byte AES-256-GCM key used to encrypt the tokens stored in the state adapter. Auto-detected from `TWITCH_ENCRYPTION_KEY`.",
+    },
+    apiBaseUrl: {
+      type: "string",
+      default: '"https://api.twitch.tv/helix"',
+      description: "Override the Helix API base URL. Auto-detected from `TWITCH_API_BASE_URL`.",
+    },
+    authBaseUrl: {
+      type: "string",
+      default: '"https://id.twitch.tv/oauth2"',
+      description: "Override the OAuth base URL. Auto-detected from `TWITCH_AUTH_BASE_URL`.",
+    },
+  }}
+/>
+
+### Environment variables
+
+| Variable | Required | Description |
+| --- | --- | --- |
+| `TWITCH_CLIENT_ID` | Yes | Twitch application client ID |
+| `TWITCH_CLIENT_SECRET` | Yes | Twitch application client secret |
+| `TWITCH_WEBHOOK_SECRET` | Yes | EventSub webhook secret, 10 to 100 characters |
+| `TWITCH_BOT_USERNAME` | Yes, unless `TWITCH_BOT_USER_ID` is set | Bot account login |
+| `TWITCH_BOT_USER_ID` | No | Bot account user ID. Looked up from the login when unset. Set it with `TWITCH_BOT_USERNAME` to skip the Get Users call on startup |
+| `TWITCH_USER_ACCESS_TOKEN` | For whispers, unless `TWITCH_REFRESH_TOKEN` is set | Bot user access token with `user:manage:whispers` |
+| `TWITCH_REFRESH_TOKEN` | No | Bot refresh token for managed whisper token refresh |
+| `TWITCH_ENCRYPTION_KEY` | No | Base64 32-byte key used to encrypt the tokens stored in the state adapter |
+| `TWITCH_API_BASE_URL` | No | Helix API base URL override |
+| `TWITCH_AUTH_BASE_URL` | No | OAuth base URL override |
+
+## Webhooks
+
+Twitch delivers [EventSub webhook](https://dev.twitch.tv/docs/eventsub/handling-webhook-events/) requests as POSTs. The adapter:
+
+- Verifies `Twitch-Eventsub-Message-Signature`, an HMAC-SHA256 of the message ID, timestamp, and raw body, with a timing-safe comparison, and returns 403 when it doesn't match.
+- Rejects messages whose timestamp is more than 10 minutes old, as Twitch recommends, to block replays.
+- Answers `webhook_callback_verification` challenges with the raw challenge string.
+- Logs `revocation` messages with the subscription type and reason, such as `authorization_revoked`.
+- Routes `channel.chat.message` and `user.whisper.message` notifications, and acknowledges other subscription types without processing them.
+
+Twitch can deliver a notification more than once. Chat SDK deduplicates by message ID, so a retry doesn't run your handler twice. Respond quickly by passing `waitUntil`: Twitch revokes subscriptions that time out too often.
+
+## Mentions and replies
+
+A message counts as a mention when it contains an `@mention` fragment for the bot, or when it replies to one of the bot's messages. Messages the bot sent itself are ignored.
+
+`thread.post()` sends a regular chat message. `thread.reply(message, ...)` sets `reply_parent_message_id`, so Twitch shows your message as a reply to the viewer's.
+
+When a viewer replies to a message, `message.replyTo` holds the message they replied to, with its text and author. Twitch has no history API, so this is the only context you get for a reply. Pass both messages to `toAiMessages` so an agent can see what the viewer is responding to:
+
+```typescript
+const prompt = await toAiMessages(
+  message.replyTo ? [message.replyTo, message] : [message]
+);
+```
+
+Chat SDK treats a chat room as one thread. After `thread.subscribe()`, `onSubscribedMessage` receives every message in that channel's chat, so filter in your handler on busy channels.
+
+The adapter locks the whole chat room while a handler runs. With Chat SDK's default `drop` [concurrency strategy](/docs/concurrency), messages that arrive during that time are discarded, including mentions. A bot that takes several seconds to answer, such as one that streams an AI reply, misses viewers on a busy channel. Set `concurrency: "queue"` to handle those messages after the current one, or `concurrency: "concurrent"` to handle them in parallel:
+
+```typescript title="lib/bot.ts"
+export const bot = new Chat({
+  // ...userName, adapters, and state as above
+  concurrency: "queue",
+});
+```
+
+## Message formatting
+
+Twitch chat is plain text on a single line. The adapter renders markdown as plain text, joins the parts of a card with ` · `, collapses line breaks into spaces, and converts emoji placeholders to Unicode. Tables become one entry per row, such as `Game: Celeste, Votes: 42 · Game: Hades, Votes: 17`. Messages longer than 500 characters are cut at the last word that fits and end with `…`. Twitch turns emote names it recognizes, such as `Kappa`, into emotes. File uploads aren't supported.
+
+When a stream or AI reply finishes without any text, for example because the model only called tools, Chat SDK posts a single space. Twitch rejects empty messages, so the adapter skips the send and returns a message ID that doesn't exist on Twitch.
+
+When Twitch accepts a request but the message fails one of its checks, Send Chat Message reports `is_sent: false`. The adapter then throws a `ValidationError` that includes Twitch's `drop_reason`.
+
+## Whispers
+
+Whispers are Twitch's direct messages. Inbound whispers arrive in `onDirectMessage` once you call `subscribeToWhispers`. To start a whisper, open the thread through the adapter, because Chat SDK can't infer the platform from a numeric Twitch user ID:
+
+```typescript
+const twitch = bot.getAdapter("twitch");
+await bot.thread(await twitch.openDM("4145994")).post("Thanks for the raid!");
+```
+
+Sending a whisper needs a user access token for the bot account with `user:manage:whispers`. Set `TWITCH_REFRESH_TOKEN` so the adapter refreshes that token and persists the rotated refresh token in the state adapter, or set `TWITCH_USER_ACCESS_TOKEN` (or pass an async `userAccessToken` provider) to supply tokens yourself. When you set both, the adapter uses the access token until Twitch rejects it, then refreshes. After the first refresh, the adapter uses the refreshed token from the state adapter instead.
+
+The stored token belongs to one bot account and to the refresh token you configured. After you re-authorize the bot and set a new `TWITCH_REFRESH_TOKEN`, the adapter ignores the token stored from the old one. When Twitch rejects a token with a 401, the adapter refreshes it, or calls your provider again, and retries once.
+
+Twitch requires a verified phone number on the bot account and limits whispers to 40 unique recipients per day, 3 per second, and 100 per minute. A whisper can be up to 10,000 characters if the recipient has whispered the bot before. Otherwise Twitch cuts it to 500 characters without an error. The adapter records each user who whispers the bot in the state adapter and truncates whispers to everyone else at 500 characters, so a long message ends with `…` instead of stopping mid-word.
+
+## Deleting messages
+
+`deleteMessage` removes a chat message with Delete Chat Messages. The bot account must be a moderator of the channel (or the broadcaster) and must have authorized `moderator:manage:chat_messages`. Twitch only deletes messages from the last 6 hours, and never the broadcaster's or another moderator's messages. Whispers can't be deleted.
+
+## Streaming
+
+Twitch chat messages can't be edited, so the adapter buffers the stream and posts once when it completes.
+
+## Message history
+
+Twitch has no chat history API. The adapter enables `persistThreadHistory`, so Chat SDK stores incoming and sent messages in the state adapter, and `thread.messages`, `thread.allMessages`, and `thread.refresh()` read them from there. That history survives restarts and is shared by every instance that uses the same state adapter. `fetchMessages` on the adapter itself returns no messages.
+
+## Thread IDs
+
+```
+twitch:{broadcasterUserId}       # a broadcaster's chat room
+twitch:whisper:{userId}          # a whisper conversation with one user
+```
+
+Examples: `twitch:141981764`, `twitch:whisper:4145994`.
+
+A chat room thread ID is also its channel ID, so `bot.channel("twitch:141981764").post(...)` posts to that chat room.
+
+## Limitations
+
+- Twitch has no reactions, typing indicators, message edits, or interactive components.
+- In a shared chat session, Twitch copies each message into every channel in the session with a new message ID. The adapter handles a message only in the channel where it was sent and ignores copies whose `source_broadcaster_user_id` names another channel, so a bot subscribed to several channels in the session replies once. Messages the adapter sends go only to the chat room in the thread ID, which is Twitch's default for app access tokens. A bot subscribed to only one channel therefore doesn't see viewers chatting from the other channels.
+- Twitch rate-limits chat messages. The adapter raises a `429` response as `AdapterRateLimitError`.
+- Look up users with `bot.getAdapter("twitch").getUser(id)`. `bot.getUser(id)` can't infer the platform from a numeric Twitch user ID.
+
+## Feature support
+
+<FeatureSupport />
+
+## Resources
+
+- [EventSub subscription types](https://dev.twitch.tv/docs/eventsub/eventsub-subscription-types/)
+- [Twitch API reference](https://dev.twitch.tv/docs/api/reference/)
+- [Chatbot authentication](https://dev.twitch.tv/docs/chat/authenticating/)

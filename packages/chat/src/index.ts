@@ -285,6 +285,7 @@ export {
   blockquote,
   chartElementToFallbackText,
   codeBlock,
+  DEFAULT_MAX_INCOMING_PARSE_LENGTH,
   emphasis,
   // Types
   type FormatConverter,

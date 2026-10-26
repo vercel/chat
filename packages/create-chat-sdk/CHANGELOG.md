@@ -1,5 +1,25 @@
 # create-chat-sdk
 
+## 0.7.0
+
+### Minor Changes
+
+- 115cd39: Add `@chat-adapter/gitlab` for merge request and issue comment threads on GitLab.com, GitLab Self-Managed, and GitLab Dedicated. It verifies webhooks with a signing token or secret token, replies inside each comment's discussion, handles emoji reactions, uploads files, and resolves `message.subject` to the parent merge request or issue. Registers the adapter in `@chat-adapter/catalog` and the `create-chat-sdk` CLI scaffold, and adds GitLab emoji platform support.
+
+## 0.6.0
+
+### Minor Changes
+
+- f635dbe: Add a Twitch adapter. It reads channel chat through EventSub webhooks, replies with the Helix Chat API as a bot account, deletes messages as a moderator, and sends and receives whispers. The `chat/adapters` catalog and `create-chat-sdk` now include Twitch.
+
+### Patch Changes
+
+- daaa0ac: Add `@chat-adapter/catalog`, a zero-dependency catalog of every adapter on chat-sdk.dev. It lists official, vendor-official, and community adapters with their npm package, maintainer, README, and capability support, plus the factory export, peer dependencies, and environment variables for official and vendor-official adapters. New helpers include `listAdapters()`, `getCatalogEntry()`, and `getFeatureSupport()`.
+  
+  The `chat/adapters` subpath is now deprecated. It re-exports the original API from `@chat-adapter/catalog`, so existing imports keep working. Its `ADAPTERS` keeps alphabetical key order, and its `CatalogAdapter` type accepts objects without the new `features` and `readme` fields. In `@chat-adapter/catalog`, `ADAPTERS` follows chat-sdk.dev listing order and `CatalogAdapter` requires both fields. `create-chat-sdk` reads adapter metadata from `@chat-adapter/catalog`.
+  
+  `getAdapter()` and `listEnvVars()` now return `undefined` and `[]` for inherited object keys such as `"toString"`, instead of returning `Object.prototype` members.
+
 ## 0.5.0
 
 ### Minor Changes

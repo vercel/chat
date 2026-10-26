@@ -56,7 +56,7 @@ body:
     id: contribution
     attributes:
       label: Contribution
-      description: Community adapters live outside this monorepo and are listed in `apps/docs/adapters.json`. Maintainers may suggest the community-adapter route depending on the platform.
+      description: Community adapters live outside this monorepo. They are listed on chat-sdk.dev through an entry in `packages/catalog/src/adapters/community/` and a docs page in `apps/docs/content/adapters/community/`. Maintainers may suggest the community-adapter route depending on the platform.
       options:
         - label: I am willing to help implement and maintain this adapter
           required: false
