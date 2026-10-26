@@ -43,7 +43,7 @@
     "html-to-text": "^9.0.5",
     "jose": "^6.2.3",
     "mimetext": "^3.0.28",
-    "postal-mime": "^3.0.0",
+    "postal-mime": "^4.0.8",
     "zod": "^4.3.6"
   },
   "devDependencies": {
