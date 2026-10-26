@@ -4303,6 +4303,45 @@ describe("withBotToken", () => {
     expect(tokens).toContain("A");
     expect(tokens).toContain("B");
   });
+
+  it("recognizes the bot's own messages when botUserId is passed", async () => {
+    const adapter = createSlackAdapter({
+      signingSecret: secret,
+      logger: mockLogger,
+    });
+    await adapter.initialize(
+      createMockChatInstance({ state: createMockState() })
+    );
+    const event = {
+      type: "message",
+      user: "U_INSTALL_BOT",
+      channel: "C456",
+      text: "Posted by the bot",
+      ts: "1234567890.123456",
+    };
+
+    const withoutBotUserId = adapter.withBotToken("xoxb-token", () => ({
+      botUserId: adapter.botUserId,
+      isMe: adapter.parseMessage(event).author.isMe,
+    }));
+    const withBotUserId = adapter.withBotToken(
+      "xoxb-token",
+      () => ({
+        botUserId: adapter.botUserId,
+        isMe: adapter.parseMessage(event).author.isMe,
+      }),
+      { installationId: "T123", botUserId: "U_INSTALL_BOT" }
+    );
+
+    expect(withoutBotUserId).toStrictEqual({
+      botUserId: undefined,
+      isMe: false,
+    });
+    expect(withBotUserId).toStrictEqual({
+      botUserId: "U_INSTALL_BOT",
+      isMe: true,
+    });
+  });
 });
 
 // ============================================================================

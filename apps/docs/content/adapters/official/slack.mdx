@@ -235,11 +235,13 @@ await slackAdapter.withBotToken(
     const thread = bot.thread("slack:C12345:1234567890.123456");
     await thread.post("Hello from a cron job!");
   },
-  { installationId: teamId }
+  { installationId: teamId, botUserId: install.botUserId }
 );
 ```
 
 `withBotToken` uses `AsyncLocalStorage`, so concurrent calls with different tokens stay isolated. In multi-workspace deployments, pass `installationId` so per-user caches are scoped to that installation and don't bleed across tenants. `installationId` is the key the installation was stored under: the `team_id`, or the `enterprise_id` for org-wide installs.
+
+Also pass the installation's `botUserId`. A multi-workspace adapter has no fixed bot user ID, so without it `slackAdapter.botUserId` is `undefined` inside the callback and the bot's own messages, such as those returned by `fetchMessages`, have `author.isMe` set to `false`.
 
 Message deduplication, locks, queues, concurrency limits, and turn cancellation are scoped to the resolved installation. An org-wide installation shares one scope across its workspaces, because a single token covers all of them. Two installations in the same Slack Connect channel use separate queues and cannot cancel each other's turns. Public thread IDs stay unchanged, and channel members still include external users. This does not establish that recipients are trusted or isolate subscription, thread state, or history keys.
 
