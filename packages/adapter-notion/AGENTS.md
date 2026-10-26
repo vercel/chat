@@ -73,7 +73,8 @@ because tool scope compares only `notion:{pageId}`. Blocks are checked via
 `resolveBlockTargetPageId` (current ancestry; `child_page` and
 `child_database` blocks are rejected). Discussions resolve through
 `discussionPageCache` and state key `notion:discussion-page:{discussionId}`,
-then a page comment listing. Only record bindings Notion reported (webhook,
+then a page comment listing (a miss skips relisting for a minute; other listed
+discussions are cached in memory only). Only record bindings Notion reported (webhook,
 posted comment parent, listing match), never from a caller-supplied thread ID
 or `raw`.
 

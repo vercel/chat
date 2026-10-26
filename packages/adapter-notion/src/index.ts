@@ -146,6 +146,8 @@ export {
 const API_BASE = "https://api.notion.com/v1";
 const DEDUPE_TTL_MS = 24 * 60 * 60 * 1000;
 const RECENT_POST_TTL_MS = 5 * 60 * 1000;
+/** How long a discussion missing from its page's comment list skips relisting. */
+const DISCUSSION_MISS_TTL_MS = 60 * 1000;
 const DEFAULT_STREAMING_EDIT_INTERVAL_MS = 1500;
 
 function isVerificationPayload(
@@ -215,6 +217,8 @@ export class NotionAdapter
   protected readonly blockPageCache = new Map<string, string>();
   /** In-memory discussion → page cache (also mirrored to state when available). */
   protected readonly discussionPageCache = new Map<string, string>();
+  /** `{pageId}:{discussionId}` lookups that missed the page's comment list → expiry. */
+  protected readonly discussionMisses = new Map<string, number>();
   /** Event IDs provisionally claimed in state before handling completes. */
   protected readonly pendingStateClaims = new Set<string>();
 
@@ -1233,6 +1237,7 @@ export class NotionAdapter
       return undefined;
     }
     this.blockPageCache.set(blockId, pageId);
+    await this.chat?.getState().set(`notion:block-page:${blockId}`, pageId);
     return pageId;
   }
 
@@ -1240,7 +1245,8 @@ export class NotionAdapter
    * Find the page a discussion lives on from memory, state, or the claimed
    * page's comment list. Notion has no discussion lookup and does not list
    * inline discussions under their page, so an inline discussion that no
-   * webhook or post has recorded resolves to `undefined`.
+   * webhook or post has recorded resolves to `undefined`. A miss skips
+   * relisting for `DISCUSSION_MISS_TTL_MS`.
    */
   protected async resolveDiscussionPageId(
     discussionId: string,
@@ -1259,6 +1265,11 @@ export class NotionAdapter
       return fromState;
     }
 
+    const missKey = `${claimedPageId}:${discussionId}`;
+    if ((this.discussionMisses.get(missKey) ?? 0) > Date.now()) {
+      return undefined;
+    }
+
     let cursor: string | undefined;
     for (let pages = 0; pages < MAX_FETCH_PAGES; pages++) {
       const params = new URLSearchParams({
@@ -1271,10 +1282,17 @@ export class NotionAdapter
       const list = await this.apiFetch<NotionCommentListResponse>(
         `/comments?${params}`
       );
-      const listed = list.results.some(
-        (comment) =>
-          normalizeUuid(comment.discussion_id, "discussionId") === discussionId
-      );
+      // Other listed discussions stay in memory only, so one lookup on a busy
+      // page doesn't become hundreds of state writes.
+      let listed = false;
+      for (const comment of list.results) {
+        const id = normalizeUuid(comment.discussion_id, "discussionId");
+        if (id === discussionId) {
+          listed = true;
+        } else {
+          this.discussionPageCache.set(id, claimedPageId);
+        }
+      }
       if (listed) {
         await this.rememberDiscussionPage(discussionId, claimedPageId);
         return claimedPageId;
@@ -1284,7 +1302,18 @@ export class NotionAdapter
       }
       cursor = list.next_cursor;
     }
+    this.pruneDiscussionMisses();
+    this.discussionMisses.set(missKey, Date.now() + DISCUSSION_MISS_TTL_MS);
     return undefined;
+  }
+
+  protected pruneDiscussionMisses(): void {
+    const now = Date.now();
+    for (const [key, expiresAt] of this.discussionMisses) {
+      if (expiresAt <= now) {
+        this.discussionMisses.delete(key);
+      }
+    }
   }
 
   /**
@@ -1297,9 +1326,8 @@ export class NotionAdapter
   ): Promise<void> {
     const discussion = normalizeUuid(discussionId, "discussionId");
     const page = normalizeUuid(pageId, "pageId");
-    if (this.discussionPageCache.get(discussion) === page) {
-      return;
-    }
+    // Always write state: a webhook retry after a failed write must persist
+    // the binding even though this instance already holds it in memory.
     this.discussionPageCache.set(discussion, page);
     await this.chat
       ?.getState()
