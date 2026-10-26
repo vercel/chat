@@ -76,6 +76,7 @@ import type {
   TelegramMessageReactionUpdated,
   TelegramRawMessage,
   TelegramReactionType,
+  TelegramSentGuestMessage,
   TelegramThreadId,
   TelegramUpdate,
   TelegramUser,
@@ -189,6 +190,10 @@ const TELEGRAM_MAX_POLLING_LIMIT = 100;
 const TELEGRAM_MIN_POLLING_LIMIT = 1;
 const TELEGRAM_MIN_POLLING_TIMEOUT_SECONDS = 0;
 const TELEGRAM_MAX_POLLING_TIMEOUT_SECONDS = 300;
+// `answerGuestQuery` takes one `InlineQueryResult`, and an article result
+// requires an ID and a title.
+const TELEGRAM_GUEST_RESULT_ID = "reply";
+const TELEGRAM_GUEST_RESULT_TITLE = "Reply";
 const TELEGRAM_BUSINESS_ALLOWED_UPDATES = [
   "business_connection",
   "business_message",
@@ -205,6 +210,7 @@ const TELEGRAM_DEFAULT_ALLOWED_UPDATES = [
   "channel_post",
   "edited_channel_post",
   "callback_query",
+  "guest_message",
 ] as const;
 /**
  * How long a `BusinessConnection` stays cached in shared state. Telegram
@@ -965,7 +971,8 @@ export class TelegramAdapter
       update.callback_query?.from.id ??
       update.message_reaction?.user?.id ??
       messageUpdate?.from?.id ??
-      businessMessageUpdate?.from?.id;
+      businessMessageUpdate?.from?.id ??
+      update.guest_message?.from?.id;
 
     if (
       this.allowedUserIds &&
@@ -1011,6 +1018,13 @@ export class TelegramAdapter
           options
         ) ?? [])
       );
+    }
+
+    if (update.guest_message) {
+      const task = this.handleGuestMessageUpdate(update.guest_message, options);
+      if (task) {
+        tasks.push(task);
+      }
     }
 
     if (this.businessMode && businessMessageUpdate) {
@@ -1198,6 +1212,41 @@ export class TelegramAdapter
     this.startTypingForPrivateMessage(telegramMessage, threadId, options);
 
     const parsedMessage = this.parseTelegramMessage(telegramMessage, threadId);
+    this.cacheMessage(parsedMessage);
+
+    return this.chat.processMessage(this, threadId, parsedMessage, options);
+  }
+
+  /**
+   * Route a guest-mode call: a user mentioned the bot, or replied to it, in a
+   * chat the bot is not a member of. Each call is its own thread because its
+   * one reply must go through `answerGuestQuery` with that call's query ID.
+   */
+  protected handleGuestMessageUpdate(
+    telegramMessage: TelegramMessage,
+    options?: WebhookOptions
+  ): Promise<void> | undefined {
+    if (!this.chat) {
+      return;
+    }
+
+    const guestQueryId = telegramMessage.guest_query_id;
+    if (!guestQueryId) {
+      this.logger.warn("Telegram guest message missing guest query id", {
+        messageId: telegramMessage.message_id,
+      });
+      return;
+    }
+
+    const threadId = this.encodeThreadId({
+      chatId: String(telegramMessage.chat.id),
+      guestQueryId,
+    });
+
+    const parsedMessage = this.parseTelegramMessage(telegramMessage, threadId);
+    // Telegram only sends a guest message when the bot was mentioned or
+    // replied to, so it is always addressed to the bot.
+    parsedMessage.isMention = true;
     this.cacheMessage(parsedMessage);
 
     return this.chat.processMessage(this, threadId, parsedMessage, options);
@@ -1541,11 +1590,11 @@ export class TelegramAdapter
   ): Promise<RawMessage<TelegramRawMessage>> {
     const parsedThread = this.resolveThreadId(threadId);
     // Resolve the reply target once so a malformed id fails before any
-    // rendering or attachment downloads, and every send path threads it.
-    const replyParameters = this.buildReplyParameters(
-      replyToMessageId,
-      parsedThread.chatId
-    );
+    // rendering or attachment downloads, and every send path threads it. A
+    // guest reply is already tied to the call it answers.
+    const replyParameters = parsedThread.guestQueryId
+      ? undefined
+      : this.buildReplyParameters(replyToMessageId, parsedThread.chatId);
 
     const card = extractCard(message);
     const replyMarkup = card ? cardToTelegramInlineKeyboard(card) : undefined;
@@ -1578,6 +1627,24 @@ export class TelegramAdapter
       throw new ValidationError(
         "telegram",
         "Telegram adapter does not support mixing file uploads and attachments in one message"
+      );
+    }
+
+    if (parsedThread.guestQueryId) {
+      if (files.length > 0 || attachments.length > 0) {
+        throw new ValidationError(
+          "telegram",
+          "Telegram guest replies do not support file uploads or attachments"
+        );
+      }
+
+      return await this.answerGuestQuery(
+        parsedThread.guestQueryId,
+        threadId,
+        text,
+        plainText,
+        parseMode,
+        replyMarkup
       );
     }
 
@@ -1723,6 +1790,90 @@ export class TelegramAdapter
     };
   }
 
+  /**
+   * Send the one reply a guest call allows. Telegram posts it as an inline
+   * message and returns only its `inline_message_id`, so the returned message
+   * is built from what was sent, and later edits address that ID.
+   */
+  protected async answerGuestQuery(
+    guestQueryId: string,
+    threadId: string,
+    text: string,
+    plainText: string,
+    parseMode: TelegramParseMode,
+    replyMarkup: TelegramInlineKeyboardMarkup | undefined
+  ): Promise<RawMessage<TelegramRawMessage>> {
+    if (!text.trim()) {
+      throw new ValidationError("telegram", "Message text cannot be empty");
+    }
+
+    const sent = await this.withTelegramMarkdownFallback(
+      parseMode,
+      (resolvedParseMode, resolvedText) =>
+        this.telegramFetch<TelegramSentGuestMessage>("answerGuestQuery", {
+          guest_query_id: guestQueryId,
+          result: {
+            type: "article",
+            id: TELEGRAM_GUEST_RESULT_ID,
+            title: TELEGRAM_GUEST_RESULT_TITLE,
+            input_message_content: {
+              message_text: resolvedText,
+              parse_mode: toBotApiParseMode(resolvedParseMode),
+            },
+            reply_markup: replyMarkup,
+          },
+        }),
+      {
+        initialText: text,
+        fallbackText: plainText,
+        method: "answerGuestQuery",
+        threadId,
+      }
+    );
+
+    const { chatId } = this.resolveThreadId(threadId);
+    const now = new Date();
+    const sentMessage = new Message<TelegramRawMessage>({
+      id: sent.inline_message_id,
+      threadId,
+      text: plainText,
+      formatted: this.formatConverter.toAst(text),
+      raw: {
+        message_id: 0,
+        chat: this.findGuestChat(threadId) ?? {
+          id: Number(chatId),
+          type: chatId.startsWith("-") ? "supergroup" : "private",
+        },
+        date: Math.floor(now.getTime() / 1000),
+        text: plainText,
+      },
+      author: {
+        userId: this._botUserId ?? this.userName,
+        userName: this.userName,
+        fullName: this.userName,
+        isBot: true,
+        isMe: true,
+      },
+      metadata: {
+        dateSent: now,
+        edited: false,
+      },
+      attachments: [],
+    });
+    this.cacheMessage(sentMessage);
+
+    return {
+      id: sentMessage.id,
+      threadId,
+      raw: sentMessage.raw,
+    };
+  }
+
+  /** The chat of the guest call, from the incoming message cached for it. */
+  protected findGuestChat(threadId: string): TelegramChat | undefined {
+    return this.messageCache.get(threadId)?.[0]?.raw.chat;
+  }
+
   async postChannelMessage(
     channelId: string,
     message: AdapterPostableMessage
@@ -1752,8 +1903,24 @@ export class TelegramAdapter
     message: AdapterPostableMessage
   ): Promise<RawMessage<TelegramRawMessage>> {
     const parsedThread = this.resolveThreadId(threadId);
-    const { messageId: telegramMessageId, compositeId } =
-      this.decodeCompositeMessageId(messageId, parsedThread.chatId);
+    let compositeId: string;
+    let messageTarget: Record<string, unknown>;
+    if (parsedThread.guestQueryId) {
+      // A guest reply is an inline message, which Telegram addresses by
+      // `inline_message_id` alone.
+      compositeId = messageId;
+      messageTarget = { inline_message_id: messageId };
+    } else {
+      const decoded = this.decodeCompositeMessageId(
+        messageId,
+        parsedThread.chatId
+      );
+      compositeId = decoded.compositeId;
+      messageTarget = {
+        ...this.buildChatTargetParams(parsedThread),
+        message_id: decoded.messageId,
+      };
+    }
 
     const card = extractCard(message);
     const replyMarkup = card ? cardToTelegramInlineKeyboard(card) : undefined;
@@ -1778,7 +1945,10 @@ export class TelegramAdapter
       TELEGRAM_MESSAGE_LIMIT,
       parseMode
     );
-    const rich = this.resolveRichMessage(message, card, 0, 0);
+    // Guest replies are sent as regular text, so their edits stay regular.
+    const rich = parsedThread.guestQueryId
+      ? null
+      : this.resolveRichMessage(message, card, 0, 0);
 
     if (!text.trim()) {
       throw new ValidationError("telegram", "Message text cannot be empty");
@@ -1789,8 +1959,7 @@ export class TelegramAdapter
         parseMode,
         (resolvedParseMode, resolvedText) =>
           this.telegramFetch<TelegramMessage | true>("editMessageText", {
-            ...this.buildChatTargetParams(parsedThread),
-            message_id: telegramMessageId,
+            ...messageTarget,
             text: resolvedText,
             reply_markup: replyMarkup ?? emptyTelegramInlineKeyboard(),
             parse_mode: toBotApiParseMode(resolvedParseMode),
@@ -1808,8 +1977,7 @@ export class TelegramAdapter
       ? await this.withTelegramRichFallback(
           () =>
             this.telegramFetch<TelegramMessage | true>("editMessageText", {
-              ...this.buildChatTargetParams(parsedThread),
-              message_id: telegramMessageId,
+              ...messageTarget,
               rich_message: {
                 markdown: rich.markdown,
               },
@@ -1880,6 +2048,12 @@ export class TelegramAdapter
 
   async deleteMessage(threadId: string, messageId: string): Promise<void> {
     const parsedThread = this.resolveThreadId(threadId);
+    if (parsedThread.guestQueryId) {
+      throw new NotImplementedError(
+        "Telegram Bot API cannot delete a guest reply",
+        "deleteMessage"
+      );
+    }
     const { messageId: telegramMessageId, compositeId } =
       this.decodeCompositeMessageId(messageId, parsedThread.chatId);
 
@@ -1955,10 +2129,20 @@ export class TelegramAdapter
         method
       );
     }
+    if (thread.guestQueryId) {
+      throw new NotImplementedError(
+        "Telegram Bot API does not support reactions in guest calls",
+        method
+      );
+    }
   }
 
   async startTyping(threadId: string): Promise<void> {
     const parsedThread = this.resolveThreadId(threadId);
+    // A guest bot is not a member of the chat, so it cannot send chat actions.
+    if (parsedThread.guestQueryId) {
+      return;
+    }
     await this.telegramFetch<boolean>("sendChatAction", {
       ...this.buildChatTargetParams(parsedThread),
       action: "typing",
@@ -2451,6 +2635,22 @@ export class TelegramAdapter
     const parsedThread = this.resolveThreadId(threadId);
     const encodedThreadId = this.encodeThreadId(parsedThread);
 
+    if (parsedThread.guestQueryId) {
+      // A guest bot is not a member of the chat, so `getChat` cannot resolve
+      // it. Use the chat from the guest message instead.
+      const chat = this.findGuestChat(encodedThreadId);
+      return {
+        id: encodedThreadId,
+        channelId: parsedThread.chatId,
+        channelName: chat ? this.chatDisplayName(chat) : undefined,
+        isDM: false,
+        metadata: {
+          chat,
+          guestQueryId: parsedThread.guestQueryId,
+        },
+      };
+    }
+
     if (parsedThread.businessConnectionId) {
       // `getChat` has no business context and only resolves private chats
       // the bot has met directly, so a business customer may be unknown to
@@ -2532,7 +2732,13 @@ export class TelegramAdapter
   }
 
   channelIdFromThreadId(threadId: string): string {
-    const { chatId, businessConnectionId } = this.resolveThreadId(threadId);
+    const { chatId, businessConnectionId, guestQueryId } =
+      this.resolveThreadId(threadId);
+    // A guest call can only answer itself, and the bot cannot post to the
+    // chat it came from, so the call is its own channel.
+    if (guestQueryId) {
+      return this.encodeThreadId({ chatId, guestQueryId });
+    }
     // A business conversation is its own channel. Collapsing it to
     // `telegram:{chatId}` would post channel-level messages without
     // `business_connection_id` and share lock/history keys with the
@@ -2548,11 +2754,20 @@ export class TelegramAdapter
   }
 
   isDM(threadId: string): boolean {
-    const { chatId } = this.resolveThreadId(threadId);
+    const { chatId, guestQueryId } = this.resolveThreadId(threadId);
+    // A guest call in a private chat is a chat between two users, not a
+    // direct message to the bot.
+    if (guestQueryId) {
+      return false;
+    }
     return !chatId.startsWith("-");
   }
 
   encodeThreadId(platformData: TelegramThreadId): string {
+    if (platformData.guestQueryId) {
+      return `telegram:guest:${platformData.chatId}:${platformData.guestQueryId}`;
+    }
+
     if (platformData.businessConnectionId) {
       return `telegram:biz:${platformData.businessConnectionId}:${platformData.chatId}`;
     }
@@ -2571,6 +2786,20 @@ export class TelegramAdapter
         "telegram",
         `Invalid Telegram thread ID: ${threadId}`
       );
+    }
+
+    if (parts[1] === "guest") {
+      const chatId = parts[2];
+      // The query ID is last and is taken whole, so a `:` in it survives.
+      const guestQueryId = parts.slice(3).join(":");
+      if (!(chatId && guestQueryId)) {
+        throw new ValidationError(
+          "telegram",
+          `Invalid Telegram guest thread ID: ${threadId}`
+        );
+      }
+
+      return { chatId, guestQueryId };
     }
 
     if (parts[1] === "biz") {
