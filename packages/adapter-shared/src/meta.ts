@@ -19,14 +19,17 @@ const META_SIGNATURE_PATTERN = /^sha256=([0-9a-fA-F]+)$/;
  * Check a Meta webhook subscription request (`GET` with `hub.mode`,
  * `hub.verify_token`, and `hub.challenge` query parameters).
  *
+ * Accepts the request or its already-parsed URL, so callers that also read
+ * the query parameters only parse the URL once.
+ *
  * @returns The challenge to echo back (an empty string when Meta omitted it),
  * or `null` when the mode or verify token does not match.
  */
 export function verifyMetaWebhookChallenge(
-  request: Request,
+  request: Request | URL,
   verifyToken: string
 ): string | null {
-  const url = new URL(request.url);
+  const url = request instanceof URL ? request : new URL(request.url);
   const mode = url.searchParams.get("hub.mode");
   const token = url.searchParams.get("hub.verify_token");
   if (mode !== "subscribe" || token !== verifyToken) {

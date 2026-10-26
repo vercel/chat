@@ -1,12 +1,12 @@
 import {
   compareMessagesByTime,
+  messageSequence as defaultMessageSequence,
   extractCard,
   extractFiles,
   extractPostableAttachments,
   type MetaGraphError,
-  messageSequence,
   NetworkError,
-  paginateMessages,
+  paginateMessages as paginateCachedMessages,
   parseRetryAfter,
   throwMetaGraphApiError,
   upsertMessage,
@@ -1002,14 +1002,14 @@ export class InstagramAdapter
   }
 
   protected messageSequence(messageId: string): number {
-    return messageSequence(messageId);
+    return defaultMessageSequence(messageId);
   }
 
   protected paginateMessages(
     messages: Message<InstagramRawMessage>[],
     options: FetchOptions
   ): FetchResult<InstagramRawMessage> {
-    return paginateMessages(messages, options);
+    return paginateCachedMessages(messages, options);
   }
 }
 
