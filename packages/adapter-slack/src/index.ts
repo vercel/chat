@@ -2177,7 +2177,9 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
    * Also pass `botUserId` (the installation's `botUserId`) in multi-workspace
    * deployments. The adapter has no fixed bot user ID in that mode, so without
    * it `adapter.botUserId` is `undefined` inside `fn` and the bot's own
-   * messages are parsed with `author.isMe: false`.
+   * messages are parsed with `author.isMe: false`. When provided, it takes
+   * precedence over the adapter's configured or `auth.test` bot user ID. It is
+   * never inherited from an outer `withBotToken` call.
    */
   withBotToken<T>(
     token: string,

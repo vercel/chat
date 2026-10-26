@@ -4342,6 +4342,27 @@ describe("withBotToken", () => {
       isMe: true,
     });
   });
+
+  it("does not inherit botUserId from an outer withBotToken context", async () => {
+    const adapter = createSlackAdapter({
+      signingSecret: secret,
+      logger: mockLogger,
+    });
+    await adapter.initialize(
+      createMockChatInstance({ state: createMockState() })
+    );
+
+    const inner = adapter.withBotToken(
+      "xoxb-outer",
+      () =>
+        adapter.withBotToken("xoxb-inner", () => adapter.botUserId, {
+          installationId: "T_INNER",
+        }),
+      { installationId: "T_OUTER", botUserId: "U_OUTER_BOT" }
+    );
+
+    expect(inner).toBeUndefined();
+  });
 });
 
 // ============================================================================
