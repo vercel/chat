@@ -1,13 +1,18 @@
-import { createHmac, timingSafeEqual } from "node:crypto";
 import {
-  AdapterRateLimitError,
-  AuthenticationError,
+  compareMessagesByTime,
+  messageSequence as defaultMessageSequence,
   extractCard,
   extractFiles,
   extractPostableAttachments,
+  type MetaGraphError,
   NetworkError,
-  ResourceNotFoundError,
+  paginateMessages as paginateCachedMessages,
+  parseRetryAfter,
+  throwMetaGraphApiError,
+  upsertMessage,
   ValidationError,
+  verifyMetaSignature,
+  verifyMetaWebhookChallenge,
 } from "@chat-adapter/shared";
 import type {
   Adapter,
@@ -53,7 +58,6 @@ import type {
 const GRAPH_API_BASE = "https://graph.instagram.com";
 const DEFAULT_API_VERSION = "v26.0";
 const INSTAGRAM_MESSAGE_BYTE_LIMIT = 1000;
-const MESSAGE_SEQUENCE_PATTERN = /:(\d+)$/;
 const WINDOW_ERROR_CODES = new Set([1_545_041]);
 const WINDOW_ERROR_SUBCODES = new Set([2_018_278, 2_534_022]);
 const IMAGE_SIZE_LIMIT = 8 * 1024 * 1024;
@@ -65,13 +69,6 @@ interface ResolvedInstagramMedia {
   attachmentId?: string;
   type: InstagramMediaType;
   url?: string;
-}
-
-interface InstagramGraphError {
-  code?: number;
-  error_subcode?: number;
-  message?: string;
-  type?: string;
 }
 
 export class InstagramAdapter
@@ -221,39 +218,21 @@ export class InstagramAdapter
   }
 
   protected handleVerification(request: Request): Response {
-    const url = new URL(request.url);
-    const mode = url.searchParams.get("hub.mode");
-    const token = url.searchParams.get("hub.verify_token");
-    const challenge = url.searchParams.get("hub.challenge");
-    if (mode === "subscribe" && token === this.verifyToken) {
+    const challenge = verifyMetaWebhookChallenge(request, this.verifyToken);
+    if (challenge !== null) {
       this.logger.info("Instagram webhook verified");
-      return new Response(challenge ?? "", { status: 200 });
+      return new Response(challenge, { status: 200 });
     }
     this.logger.warn("Instagram webhook verification failed");
     return new Response("Forbidden", { status: 403 });
   }
 
   protected verifySignature(request: Request, body: string): boolean {
-    const signature = request.headers.get("x-hub-signature-256");
-    if (!signature) {
-      return false;
-    }
-    const [algorithm, hash] = signature.split("=");
-    if (algorithm !== "sha256" || !hash) {
-      return false;
-    }
-    try {
-      const computed = createHmac("sha256", this.appSecret)
-        .update(body, "utf8")
-        .digest("hex");
-      return timingSafeEqual(
-        Buffer.from(hash, "hex"),
-        Buffer.from(computed, "hex")
-      );
-    } catch {
-      this.logger.warn("Failed to verify Instagram webhook signature");
-      return false;
-    }
+    return verifyMetaSignature(
+      body,
+      request.headers.get("x-hub-signature-256"),
+      this.appSecret
+    );
   }
 
   protected handleIncomingMessage(
@@ -984,7 +963,7 @@ export class InstagramAdapter
     data: Record<string, unknown>,
     retryAfter?: number
   ): never {
-    const error = data.error as InstagramGraphError | undefined;
+    const error = data.error as MetaGraphError | undefined;
     const message = error?.message ?? `Instagram API ${endpoint} failed`;
     const code = error?.code ?? status;
     const subcode = error?.error_subcode;
@@ -999,33 +978,19 @@ export class InstagramAdapter
         "Instagram's 24-hour messaging window has expired. A human agent may use sendHumanAgentMessage() within 7 days when the app has the required permission."
       );
     }
-    if (status === 429 || code === 4 || code === 32 || code === 613) {
-      throw new AdapterRateLimitError("instagram", retryAfter);
-    }
-    if (status === 401 || code === 190) {
-      throw new AuthenticationError("instagram", message);
-    }
-    if (status === 403 || code === 10 || code === 200) {
-      throw new ValidationError("instagram", message);
-    }
-    if (status === 404) {
-      throw new ResourceNotFoundError("instagram", endpoint);
-    }
-    throw new NetworkError(
-      "instagram",
-      `${message} (status ${status}, code ${code})`
-    );
+    throwMetaGraphApiError({
+      adapter: "instagram",
+      data,
+      endpoint,
+      label: "Instagram",
+      retryAfter,
+      status,
+    });
   }
 
   protected cacheMessage(message: Message<InstagramRawMessage>): void {
     const messages = this.messageCache.get(message.threadId) ?? [];
-    const index = messages.findIndex((item) => item.id === message.id);
-    if (index >= 0) {
-      messages[index] = message;
-    } else {
-      messages.push(message);
-    }
-    messages.sort((a, b) => this.compareMessages(a, b));
+    upsertMessage(messages, message, (a, b) => this.compareMessages(a, b));
     this.messageCache.set(message.threadId, messages);
   }
 
@@ -1033,53 +998,18 @@ export class InstagramAdapter
     a: Message<InstagramRawMessage>,
     b: Message<InstagramRawMessage>
   ): number {
-    const timeDifference =
-      a.metadata.dateSent.getTime() - b.metadata.dateSent.getTime();
-    if (timeDifference !== 0) {
-      return timeDifference;
-    }
-    return this.messageSequence(a.id) - this.messageSequence(b.id);
+    return compareMessagesByTime(a, b, (id) => this.messageSequence(id));
   }
 
   protected messageSequence(messageId: string): number {
-    const match = messageId.match(MESSAGE_SEQUENCE_PATTERN);
-    return match ? Number.parseInt(match[1], 10) : 0;
+    return defaultMessageSequence(messageId);
   }
 
   protected paginateMessages(
     messages: Message<InstagramRawMessage>[],
     options: FetchOptions
   ): FetchResult<InstagramRawMessage> {
-    const limit = Math.max(1, Math.min(options.limit ?? 50, 100));
-    const direction = options.direction ?? "backward";
-    if (messages.length === 0) {
-      return { messages: [] };
-    }
-    const indexes = new Map(
-      messages.map((message, index) => [message.id, index])
-    );
-    if (direction === "backward") {
-      const end =
-        options.cursor && indexes.has(options.cursor)
-          ? (indexes.get(options.cursor) ?? messages.length)
-          : messages.length;
-      const start = Math.max(0, end - limit);
-      const page = messages.slice(start, end);
-      return {
-        messages: page,
-        nextCursor: start > 0 ? page[0]?.id : undefined,
-      };
-    }
-    const start =
-      options.cursor && indexes.has(options.cursor)
-        ? (indexes.get(options.cursor) ?? -1) + 1
-        : 0;
-    const end = Math.min(messages.length, start + limit);
-    const page = messages.slice(start, end);
-    return {
-      messages: page,
-      nextCursor: end < messages.length ? page.at(-1)?.id : undefined,
-    };
+    return paginateCachedMessages(messages, options);
   }
 }
 
@@ -1155,14 +1085,6 @@ async function toInstagramBuffer(
     return Buffer.from(await data.arrayBuffer());
   }
   throw new ValidationError("instagram", "Unsupported file data type");
-}
-
-function parseRetryAfter(value: string | null): number | undefined {
-  if (!value) {
-    return undefined;
-  }
-  const seconds = Number.parseInt(value, 10);
-  return Number.isFinite(seconds) && seconds > 0 ? seconds : undefined;
 }
 
 function inferMimeType(filename: string): string {

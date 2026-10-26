@@ -5,7 +5,13 @@
  * for card-to-platform-format conversions.
  */
 
-import type { ButtonElement, CardChild, CardElement, TableElement } from "chat";
+import type {
+  ActionsElement,
+  ButtonElement,
+  CardChild,
+  CardElement,
+  TableElement,
+} from "chat";
 import {
   convertEmojiPlaceholders,
   cardChildToFallbackText as coreCardChildToFallbackText,
@@ -16,6 +22,36 @@ import {
  * Supported platform names for adapter utilities.
  */
 export type PlatformName = "slack" | "gchat" | "teams" | "discord";
+
+/**
+ * Find the first actions element in card children, searching sections
+ * depth-first.
+ */
+export function findCardActions(children: CardChild[]): ActionsElement | null {
+  for (const child of children) {
+    if (child.type === "actions") {
+      return child;
+    }
+    if (child.type === "section") {
+      const nested = findCardActions(child.children);
+      if (nested) {
+        return nested;
+      }
+    }
+  }
+  return null;
+}
+
+/**
+ * Truncate text to at most `maxLength` UTF-16 code units, replacing the last
+ * kept character with an ellipsis (`…`) when it is cut.
+ */
+export function truncateWithEllipsis(text: string, maxLength: number): string {
+  if (text.length <= maxLength) {
+    return text;
+  }
+  return `${text.slice(0, maxLength - 1)}\u2026`;
+}
 
 /**
  * Button style mappings per platform.

@@ -11,6 +11,12 @@
  * @see https://developers.facebook.com/docs/whatsapp/cloud-api/messages/interactive-messages
  */
 
+import {
+  decodeCallbackData,
+  encodeCallbackData,
+  findCardActions as findActions,
+  truncateWithEllipsis as truncate,
+} from "@chat-adapter/shared";
 import type {
   ActionsElement,
   ButtonElement,
@@ -22,15 +28,8 @@ import type {
 } from "chat";
 import type { WhatsAppInteractiveMessage } from "./types";
 
-const CALLBACK_DATA_PREFIX = "chat:";
-
 /** cta_url URLs must be web links — Meta rejects other schemes. */
 const HTTP_URL_REGEX = /^https?:\/\//i;
-
-interface WhatsAppCardActionPayload {
-  a: string;
-  v?: string;
-}
 
 /** Maximum number of reply buttons WhatsApp allows */
 const MAX_REPLY_BUTTONS = 3;
@@ -60,11 +59,7 @@ export function encodeWhatsAppCallbackData(
   actionId: string,
   value?: string
 ): string {
-  const payload: WhatsAppCardActionPayload = { a: actionId };
-  if (typeof value === "string") {
-    payload.v = value;
-  }
-  return `${CALLBACK_DATA_PREFIX}${JSON.stringify(payload)}`;
+  return encodeCallbackData(actionId, value);
 }
 
 /**
@@ -75,33 +70,7 @@ export function decodeWhatsAppCallbackData(data?: string): {
   actionId: string;
   value: string | undefined;
 } {
-  if (!data) {
-    return { actionId: "whatsapp_callback", value: undefined };
-  }
-
-  // Passthrough for legacy or externally-generated button IDs that don't
-  // use the chat: prefix — treat the raw string as both actionId and value.
-  if (!data.startsWith(CALLBACK_DATA_PREFIX)) {
-    return { actionId: data, value: data };
-  }
-
-  try {
-    const decoded = JSON.parse(
-      data.slice(CALLBACK_DATA_PREFIX.length)
-    ) as WhatsAppCardActionPayload;
-
-    if (typeof decoded.a === "string" && decoded.a) {
-      return {
-        actionId: decoded.a,
-        value: typeof decoded.v === "string" ? decoded.v : undefined,
-      };
-    }
-  } catch {
-    // Malformed JSON after prefix — fall back to passthrough.
-  }
-
-  // Same passthrough as non-prefixed data: treat raw string as both fields.
-  return { actionId: data, value: data };
+  return decodeCallbackData(data, "whatsapp_callback");
 }
 
 /** Options for {@link cardToWhatsApp}. */
@@ -341,24 +310,6 @@ function childToPlainText(child: CardChild): string | null {
 }
 
 /**
- * Find the first ActionsElement in a list of card children.
- */
-function findActions(children: CardChild[]): ActionsElement | null {
-  for (const child of children) {
-    if (child.type === "actions") {
-      return child;
-    }
-    if (child.type === "section") {
-      const nested = findActions(child.children);
-      if (nested) {
-        return nested;
-      }
-    }
-  }
-  return null;
-}
-
-/**
  * Extract reply buttons from an ActionsElement, only if they fit
  * WhatsApp constraints (max 3 buttons, each with an ID).
  */
@@ -524,14 +475,4 @@ function escapeWhatsApp(text: string): string {
     .replace(/_/g, "\\_")
     .replace(/~/g, "\\~")
     .replace(/`/g, "\\`");
-}
-
-/**
- * Truncate text to a maximum length, adding ellipsis if needed.
- */
-function truncate(text: string, maxLength: number): string {
-  if (text.length <= maxLength) {
-    return text;
-  }
-  return `${text.slice(0, maxLength - 1)}\u2026`;
 }

@@ -16,4 +16,14 @@ describe("webhook import boundary", () => {
       expect(source).not.toContain('from "twilio"');
     }
   });
+
+  it("bundles a callback codec that only uses the light shared subpath", async () => {
+    const source = await readFile(new URL("../callback.ts", import.meta.url), {
+      encoding: "utf8",
+    });
+
+    expect(source).not.toContain('from "chat"');
+    expect(source).not.toContain('from "@chat-adapter/shared"');
+    expect(source).toContain('from "@chat-adapter/shared/callback-data"');
+  });
 });

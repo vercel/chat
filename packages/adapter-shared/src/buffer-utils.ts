@@ -5,7 +5,6 @@
  * (Buffer, ArrayBuffer, Blob) to Node.js Buffer for file uploads.
  */
 
-import type { PlatformName } from "./card-utils";
 import { ValidationError } from "./errors";
 
 /**
@@ -18,9 +17,9 @@ export type FileDataInput = Buffer | ArrayBuffer | Blob;
  */
 export interface ToBufferOptions {
   /**
-   * The platform name for error messages.
+   * The adapter name for error messages, such as `"slack"`.
    */
-  platform: PlatformName;
+  platform: string;
 
   /**
    * If true, throws ValidationError for unsupported types.

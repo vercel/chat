@@ -1,4 +1,3 @@
-import { createHmac, timingSafeEqual } from "node:crypto";
 import {
   AdapterError,
   type AttachmentTransport,
@@ -8,9 +7,10 @@ import {
   extractFiles,
   extractPostableAttachments,
   NetworkError,
-  type PlatformName,
   toBuffer,
   ValidationError,
+  verifyMetaSignature,
+  verifyMetaWebhookChallenge,
 } from "@chat-adapter/shared";
 import type {
   Adapter,
@@ -65,9 +65,6 @@ import type {
 } from "./types";
 
 export { WhatsAppApiError } from "./errors";
-
-/** Platform label for shared buffer utilities (not yet in PlatformName union). */
-const WHATSAPP_BUFFER_PLATFORM = "whatsapp" as PlatformName;
 
 /** Default Graph API version */
 const DEFAULT_API_VERSION = "v25.0";
@@ -488,18 +485,14 @@ export class WhatsAppAdapter
    */
   protected handleVerificationChallenge(request: Request): Response {
     const url = new URL(request.url);
-    const mode = url.searchParams.get("hub.mode");
-    const token = url.searchParams.get("hub.verify_token");
-    const challenge = url.searchParams.get("hub.challenge");
-
-    if (mode === "subscribe" && token === this.verifyToken) {
+    const challenge = verifyMetaWebhookChallenge(url, this.verifyToken);
+    if (challenge !== null) {
       this.logger.info("WhatsApp webhook verification succeeded");
-      return new Response(challenge ?? "", { status: 200 });
+      return new Response(challenge, { status: 200 });
     }
 
     this.logger.warn("WhatsApp webhook verification failed", {
-      mode,
-      tokenMatch: token === this.verifyToken,
+      mode: url.searchParams.get("hub.mode"),
     });
     return new Response("Forbidden", { status: 403 });
   }
@@ -510,20 +503,7 @@ export class WhatsAppAdapter
    * @see https://developers.facebook.com/docs/graph-api/webhooks/getting-started#verification-requests
    */
   protected verifySignature(body: string, signature: string | null): boolean {
-    if (!signature) {
-      return false;
-    }
-
-    const expectedSignature = `sha256=${createHmac("sha256", this.appSecret).update(body).digest("hex")}`;
-
-    try {
-      return timingSafeEqual(
-        Buffer.from(signature),
-        Buffer.from(expectedSignature)
-      );
-    } catch {
-      return false;
-    }
+    return verifyMetaSignature(body, signature, this.appSecret);
   }
 
   /**
@@ -2131,7 +2111,7 @@ export class WhatsAppAdapter
       const mimeType = inferMimeType(item.filename, item.mimeType);
       const type = getWhatsAppMediaType(mimeType);
       const buffer = await toBuffer(item.data, {
-        platform: WHATSAPP_BUFFER_PLATFORM,
+        platform: "whatsapp",
       });
 
       if (!buffer) {
@@ -2167,7 +2147,7 @@ export class WhatsAppAdapter
 
     if (data) {
       const buffer = await toBuffer(data, {
-        platform: WHATSAPP_BUFFER_PLATFORM,
+        platform: "whatsapp",
       });
 
       if (!buffer) {
