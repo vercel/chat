@@ -31,6 +31,7 @@ import {
   Field,
   Fields,
   Image,
+  stringifyMarkdown,
 } from "chat";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cardToBlockKit, cardToFallbackText } from "./cards";
@@ -38,6 +39,7 @@ import type {
   SlackAdapterConfig,
   SlackEvent,
   SlackInstallation,
+  SlackMessageBlock,
   SlackThreadId,
 } from "./index";
 import {
@@ -2678,6 +2680,250 @@ describe("parseMessage", () => {
     // mention fallback; the converter rewrites it like body text
     expect(message.text).toBe("On call\t@UBOT123");
     expect(message.text).not.toContain("<@");
+  });
+
+  it("keeps a > in a table cell's link label inside the link", () => {
+    const message = adapter.parseMessage({
+      type: "message",
+      user: "U123",
+      channel: "C456",
+      text: "",
+      ts: "1786120899.208429",
+      blocks: [
+        {
+          type: "table",
+          rows: [
+            [
+              {
+                type: "rich_text",
+                elements: [
+                  {
+                    type: "rich_text_section",
+                    elements: [
+                      {
+                        type: "link",
+                        url: "https://example.com",
+                        text: "p95 > 2s",
+                      },
+                    ],
+                  },
+                ],
+              },
+            ],
+          ],
+        },
+      ],
+    });
+
+    expect(message.formatted.children[0]).toMatchObject({
+      type: "table",
+      children: [
+        {},
+        {
+          children: [
+            {
+              children: [
+                {
+                  type: "link",
+                  url: "https://example.com",
+                  children: [{ type: "text", value: "p95 > 2s" }],
+                },
+              ],
+            },
+          ],
+        },
+      ],
+    });
+  });
+
+  describe("composer lists", () => {
+    const section = (...elements: SlackMessageBlock[]): SlackMessageBlock => ({
+      type: "rich_text_section",
+      elements,
+    });
+    const text = (
+      value: string,
+      style?: SlackMessageBlock["style"]
+    ): SlackMessageBlock => ({
+      type: "text",
+      text: value,
+      ...(style ? { style } : {}),
+    });
+    // Slack sends a list's `style` as a string.
+    const list = (
+      elements: SlackMessageBlock[],
+      style = "bullet",
+      indent = 0
+    ): SlackMessageBlock =>
+      ({
+        type: "rich_text_list",
+        style,
+        indent,
+        elements,
+      }) as unknown as SlackMessageBlock;
+
+    // The payload from https://github.com/vercel/chat/issues/956: Slack
+    // flattens the list in `text` and keeps its structure in the blocks.
+    const issueEvent: SlackEvent = {
+      type: "message",
+      channel: "D0123456789",
+      channel_type: "im",
+      user: "U0123456789",
+      username: "jane",
+      ts: "1726600000.000100",
+      text: "Steps:\n• one\n• two\n    ◦ nested\n<!here> and <!subteam^S0123456789|@devs>",
+      blocks: [
+        {
+          type: "rich_text",
+          elements: [
+            section(text("Steps:")),
+            list([section(text("one")), section(text("two"))]),
+            list([section(text("nested"))], "bullet", 1),
+            section({ type: "broadcast", range: "here" }, text(" and "), {
+              type: "usergroup",
+              usergroup_id: "S0123456789",
+            }),
+          ],
+        },
+      ],
+    };
+
+    const asyncParse = (target: SlackAdapter, event: SlackEvent) =>
+      (
+        target as unknown as {
+          parseSlackMessage(
+            value: SlackEvent,
+            threadId: string
+          ): Promise<Message<unknown>>;
+        }
+      ).parseSlackMessage(event, `slack:${event.channel}:${event.ts}`);
+
+    it("parses the issue's list into nested list nodes in both parsing paths", async () => {
+      for (const message of [
+        adapter.parseMessage(issueEvent),
+        await asyncParse(adapter, issueEvent),
+      ]) {
+        expect(message.formatted.children.map((node) => node.type)).toEqual([
+          "paragraph",
+          "list",
+          "paragraph",
+        ]);
+        expect(message.formatted.children[1]).toMatchObject({
+          type: "list",
+          ordered: false,
+          children: [
+            { type: "listItem" },
+            {
+              type: "listItem",
+              children: [
+                { type: "paragraph" },
+                { type: "list", children: [{ type: "listItem" }] },
+              ],
+            },
+          ],
+        });
+        expect(stringifyMarkdown(message.formatted)).toBe(
+          "Steps:\n\n* one\n* two\n  * nested\n\n@here and @devs\n"
+        );
+        expect(message.text).toBe(
+          "Steps:\n\none\ntwo\nnested\n\n@here and @devs"
+        );
+        expect(message.isMention).toBe(false);
+      }
+    });
+
+    it("resolves user mentions inside list items and still detects the bot mention", async () => {
+      const localAdapter = createSlackAdapter({
+        botToken: "xoxb-test-token",
+        signingSecret: "test-secret",
+        logger: mockLogger,
+        botUserId: "U_BOT",
+      });
+      await localAdapter.initialize(
+        createMockChatInstance({ state: createMockState() })
+      );
+      const usersInfo = vi.fn(({ user }: { user: string }) =>
+        Promise.resolve({
+          user: {
+            name: user.toLowerCase(),
+            profile: { display_name: user === "U777" ? "jane" : "bot" },
+          },
+        })
+      );
+      (
+        localAdapter as unknown as { _client: { users: { info: unknown } } }
+      )._client.users.info = usersInfo;
+
+      const message = await asyncParse(localAdapter, {
+        type: "message",
+        user: "U123",
+        username: "alice",
+        channel: "C456",
+        ts: "1786120899.208429",
+        text: "<@U_BOT> please:\n• ask <@U777>\n• *ship* it",
+        blocks: [
+          {
+            type: "rich_text",
+            elements: [
+              section({ type: "user", user_id: "U_BOT" }, text(" please:")),
+              list([
+                section(text("ask "), { type: "user", user_id: "U777" }),
+                section(text("ship", { bold: true }), text(" it")),
+              ]),
+            ],
+          },
+        ],
+      });
+
+      expect(message.isMention).toBe(true);
+      expect(stringifyMarkdown(message.formatted)).toBe(
+        "@bot please:\n\n* ask @jane\n* **ship** it\n"
+      );
+    });
+
+    it("keeps a table next to a list", () => {
+      const message = adapter.parseMessage({
+        type: "message",
+        user: "U123",
+        channel: "C456",
+        text: "• item",
+        ts: "1786120899.208429",
+        blocks: [
+          { type: "rich_text", elements: [list([section(text("item"))])] },
+          { type: "table", rows: [[{ type: "raw_text", text: "cell" }]] },
+        ],
+      });
+
+      expect(message.formatted.children.map((node) => node.type)).toEqual([
+        "list",
+        "table",
+      ]);
+    });
+
+    it("keeps event.text when blocks have no list or carry other block types", () => {
+      const cases: SlackMessageBlock[][] = [
+        [{ type: "rich_text", elements: [section(text("other words"))] }],
+        [
+          { type: "section", fields: [{ type: "mrkdwn", text: "app text" }] },
+          { type: "rich_text", elements: [list([section(text("item"))])] },
+        ],
+        [
+          { type: "rich_text", elements: [list([section(text("item"))])] },
+          { type: "call", call_id: "R123" },
+        ],
+      ];
+      for (const blocks of cases) {
+        const message = adapter.parseMessage({
+          type: "message",
+          user: "U123",
+          channel: "C456",
+          text: "fallback text",
+          ts: "1234567890.123456",
+          blocks,
+        });
+        expect(message.text).toBe("fallback text");
+      }
+    });
   });
 });
 
