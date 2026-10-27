@@ -31,7 +31,13 @@ const TRAILING_SLASH = /\/$/;
 // entry maps an axe rule ID to the pages it is allowed on, or "*" for every
 // page. Remove an entry once it is fixed; the script prints entries that no
 // longer match anything.
-const KNOWN_VIOLATIONS: Record<string, "*" | string[]> = {};
+const KNOWN_VIOLATIONS: Record<string, "*" | string[]> = {
+  // The Geistdocs sidebar section header shows the section name ("Official
+  // Adapters") but its aria-label is "Back to all documentation sections".
+  // It renders on every page inside a sidebar section, so the list of pages
+  // grows with the adapter catalog.
+  "label-content-name-mismatch": "*",
+};
 
 type ColorScheme = (typeof COLOR_SCHEMES)[number];
 
