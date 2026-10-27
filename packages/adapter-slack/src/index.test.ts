@@ -2798,6 +2798,196 @@ describe("parseMessage", () => {
         }
       ).parseSlackMessage(event, `slack:${event.channel}:${event.ts}`);
 
+    describe.each([
+      "sync",
+      "async",
+    ] as const)("%s regression coverage", (mode) => {
+      const parse = async (event: SlackEvent) =>
+        mode === "sync"
+          ? adapter.parseMessage(event)
+          : await asyncParse(adapter, event);
+
+      it.each([
+        "---",
+        "[x] finished",
+        "[ ] pending",
+        "# Heading",
+        "> literal",
+        "- flag",
+        "+ added",
+        "* starred",
+        "1. numbered",
+        "line\n---",
+        "line\n# Heading",
+      ])("preserves literal list item %j without inventing markup", async (value) => {
+        const message = await parse({
+          ...issueEvent,
+          text: "fallback must not be used",
+          blocks: [
+            {
+              type: "rich_text",
+              elements: [
+                list([
+                  section(text(value)),
+                  section(text("ship", { bold: true })),
+                ]),
+                list([section(text("nested"))], "bullet", 1),
+              ],
+            },
+          ],
+        });
+
+        expect(message.text).toBe(`${value}\nship\nnested`);
+        expect(message.formatted).toMatchObject({
+          type: "root",
+          children: [
+            {
+              type: "list",
+              ordered: false,
+              children: [
+                {
+                  type: "listItem",
+                  checked: null,
+                  children: [
+                    {
+                      type: "paragraph",
+                      children: [{ type: "text", value }],
+                    },
+                  ],
+                },
+                {
+                  type: "listItem",
+                  checked: null,
+                  children: [
+                    {
+                      type: "paragraph",
+                      children: [
+                        {
+                          type: "strong",
+                          children: [{ type: "text", value: "ship" }],
+                        },
+                      ],
+                    },
+                    {
+                      type: "list",
+                      ordered: false,
+                      children: [
+                        {
+                          type: "listItem",
+                          children: [
+                            {
+                              type: "paragraph",
+                              children: [{ type: "text", value: "nested" }],
+                            },
+                          ],
+                        },
+                      ],
+                    },
+                  ],
+                },
+              ],
+            },
+          ],
+        });
+      });
+
+      it.each([
+        "before",
+        "inside",
+        "after",
+        "quote",
+        "preformatted",
+        "future element",
+      ] as const)("preserves the fallback for unsupported content at %s", async (placement) => {
+        const reference = section(text("See "), {
+          type: "message_mention",
+          channel_id: "C123ABC456",
+          message_ts: "1720710212.123456",
+        });
+        const items = list([section(text("follow up"))]);
+        const elements = {
+          before: [reference, items],
+          inside: [list([reference, section(text("follow up"))])],
+          after: [items, reference],
+          quote: [
+            items,
+            { type: "rich_text_quote", elements: reference.elements },
+          ],
+          preformatted: [
+            items,
+            { type: "rich_text_preformatted", elements: reference.elements },
+          ],
+          "future element": [
+            items,
+            { type: "rich_text_future", elements: [reference] },
+          ],
+        }[placement];
+        const url =
+          "https://example.slack.com/archives/C123ABC456/p1720710212123456";
+        const message = await parse({
+          ...issueEvent,
+          text: `See <${url}|referenced message>\n• follow up`,
+          blocks: [{ type: "rich_text", elements }],
+        });
+
+        expect(message.text).toBe("See referenced message\n• follow up");
+        expect(message.formatted).toMatchObject({
+          type: "root",
+          children: [
+            {
+              type: "paragraph",
+              children: [
+                { type: "text", value: "See " },
+                {
+                  type: "link",
+                  url,
+                  children: [{ type: "text", value: "referenced message" }],
+                },
+                { type: "text", value: "\n• follow up" },
+              ],
+            },
+          ],
+        });
+      });
+
+      it("keeps a subsequent rich text block outside the preceding list", async () => {
+        const message = await parse({
+          ...issueEvent,
+          text: "fallback must not be used",
+          blocks: [
+            { type: "rich_text", elements: [list([section(text("one"))])] },
+            { type: "rich_text", elements: [section(text("after"))] },
+          ],
+        });
+
+        expect(message.text).toBe("one\n\nafter");
+        expect(message.formatted).toMatchObject({
+          type: "root",
+          children: [
+            {
+              type: "list",
+              ordered: false,
+              children: [
+                {
+                  type: "listItem",
+                  children: [
+                    {
+                      type: "paragraph",
+                      children: [{ type: "text", value: "one" }],
+                    },
+                  ],
+                },
+              ],
+            },
+            {
+              type: "paragraph",
+              children: [{ type: "text", value: "after" }],
+            },
+          ],
+        });
+      });
+    });
+
     it("parses the issue's list into nested list nodes in both parsing paths", async () => {
       for (const message of [
         adapter.parseMessage(issueEvent),

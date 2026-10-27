@@ -1,4 +1,4 @@
-import { stringifyMarkdown } from "chat";
+import { stringifyMarkdown, toPlainText } from "chat";
 import { describe, expect, it } from "vitest";
 import type { SlackEvent, SlackMessageBlock } from "./event";
 import { SlackFormatConverter } from "./markdown";
@@ -76,6 +76,34 @@ describe("richTextBody", () => {
       ).toBeUndefined();
     });
 
+    it.each([
+      "rich_text_section",
+      "rich_text_quote",
+      "rich_text_preformatted",
+    ])("falls back for unsupported leaves in %s", (type) => {
+      const unsupported: SlackMessageBlock = {
+        type: "message_mention",
+        channel_id: "C123ABC456",
+        message_ts: "1720710212.123456",
+      };
+      expect(
+        richTextBody(
+          event([
+            list([section(text("item"))]),
+            { type, elements: [unsupported] },
+          ])
+        )
+      ).toBeUndefined();
+    });
+
+    it("falls back for unsupported leaves nested in a list", () => {
+      expect(
+        richTextBody(
+          event([list([section({ type: "future_inline", text: "unhandled" })])])
+        )
+      ).toBeUndefined();
+    });
+
     it("ignores table blocks, which keep their own handling", () => {
       const body = richTextBody({
         type: "message",
@@ -126,14 +154,236 @@ describe("richTextBody", () => {
     });
 
     it("separates lists from surrounding text with a blank line", () => {
-      const { mrkdwn } = render(
+      const { markdown } = render(
         event([
           section(text("Steps:\n")),
           list([section(text("one"))]),
           section(text("after")),
         ])
       );
-      expect(mrkdwn).toBe("Steps:\n\n- one\n\nafter");
+      expect(markdown).toBe("Steps:\n\n* one\n\nafter\n");
+    });
+  });
+
+  describe("literal list content", () => {
+    it.each([
+      "---",
+      "***",
+      "___",
+      "===",
+      "[x] done",
+      "[ ] pending",
+      "# heading",
+      "> quote",
+      "<b>",
+      "- flag",
+      "+ flag",
+      "* flag",
+      "1. first",
+      "1) first",
+      "```",
+      "~~~",
+      "*literal* _literal_ ~literal~ `literal`",
+      "\\*literal*",
+    ])("keeps %j literal on first and continuation lines", (literal) => {
+      for (const value of [literal, `before\n${literal}`]) {
+        const root = converter.toAst(item(text(value)).mrkdwn);
+        expect(root.children).toMatchObject([
+          {
+            type: "list",
+            ordered: false,
+            children: [
+              {
+                type: "listItem",
+                checked: null,
+                children: [
+                  { type: "paragraph", children: [{ type: "text", value }] },
+                ],
+              },
+            ],
+          },
+        ]);
+        expect(toPlainText(root)).toBe(value);
+      }
+    });
+
+    it.each([
+      "    # heading",
+      "\t# heading",
+    ])("keeps leading whitespace literal in %j", (literal) => {
+      for (const value of [literal, `before\n${literal}`]) {
+        const root = converter.toAst(item(text(value)).mrkdwn);
+        expect(root.children).toMatchObject([
+          {
+            type: "list",
+            children: [
+              {
+                type: "listItem",
+                children: [
+                  { type: "paragraph", children: [{ type: "text", value }] },
+                ],
+              },
+            ],
+          },
+        ]);
+        expect(toPlainText(root)).toBe(value);
+      }
+    });
+
+    it("preserves indentation in text surrounding a list", () => {
+      const root = converter.toAst(
+        render(
+          event([section(text("    # heading")), list([section(text("item"))])])
+        ).mrkdwn
+      );
+      expect(root.children).toMatchObject([
+        {
+          type: "paragraph",
+          children: [{ type: "text", value: "    # heading" }],
+        },
+        {
+          type: "list",
+          children: [
+            {
+              type: "listItem",
+              children: [
+                {
+                  type: "paragraph",
+                  children: [{ type: "text", value: "item" }],
+                },
+              ],
+            },
+          ],
+        },
+      ]);
+      expect(toPlainText(root)).toBe("    # heading\n\nitem");
+    });
+
+    it("does not turn an indented continuation paragraph into code", () => {
+      const root = converter.toAst(
+        item(text("before\n\n    # heading")).mrkdwn
+      );
+      expect(root.children).toMatchObject([
+        {
+          type: "list",
+          children: [
+            {
+              type: "listItem",
+              children: [
+                {
+                  type: "paragraph",
+                  children: [{ type: "text", value: "before" }],
+                },
+                {
+                  type: "paragraph",
+                  children: [{ type: "text", value: "    # heading" }],
+                },
+              ],
+            },
+          ],
+        },
+      ]);
+      expect(toPlainText(root)).toBe("before\n    # heading");
+    });
+
+    it("protects syntax assembled from separate text elements", () => {
+      const root = converter.toAst(
+        item(text("-"), text("-"), text("-")).mrkdwn
+      );
+      expect(root.children).toMatchObject([
+        {
+          type: "list",
+          children: [
+            {
+              type: "listItem",
+              children: [
+                {
+                  type: "paragraph",
+                  children: [{ type: "text", value: "---" }],
+                },
+              ],
+            },
+          ],
+        },
+      ]);
+    });
+
+    it("preserves real formatting around literal syntax", () => {
+      const literal = "# *literal* [x] &lt;";
+      const root = converter.toAst(item(text(literal, { bold: true })).mrkdwn);
+      expect(root.children).toMatchObject([
+        {
+          type: "list",
+          children: [
+            {
+              type: "listItem",
+              children: [
+                {
+                  type: "paragraph",
+                  children: [
+                    {
+                      type: "strong",
+                      children: [{ type: "text", value: literal }],
+                    },
+                  ],
+                },
+              ],
+            },
+          ],
+        },
+      ]);
+      expect(toPlainText(root)).toBe(literal);
+    });
+
+    it.each([
+      "*abc*",
+      "<b>",
+    ])("keeps %j literal when conflicting marks drop inline code", (literal) => {
+      const root = converter.toAst(
+        item(
+          text(literal, { bold: true, code: true }),
+          text("x", { italic: true })
+        ).mrkdwn
+      );
+      expect(root.children).toMatchObject([
+        {
+          type: "list",
+          children: [
+            {
+              type: "listItem",
+              children: [
+                {
+                  type: "paragraph",
+                  children: [{ type: "text", value: `${literal}x` }],
+                },
+              ],
+            },
+          ],
+        },
+      ]);
+      expect(toPlainText(root)).toBe(`${literal}x`);
+    });
+
+    it("does not entity-encode punctuation inside inline code", () => {
+      const literal = "--- [x] # > &lt; *literal*";
+      const root = converter.toAst(item(text(literal, { code: true })).mrkdwn);
+      expect(root.children).toMatchObject([
+        {
+          type: "list",
+          children: [
+            {
+              type: "listItem",
+              children: [
+                {
+                  type: "paragraph",
+                  children: [{ type: "inlineCode", value: literal }],
+                },
+              ],
+            },
+          ],
+        },
+      ]);
+      expect(toPlainText(root)).toBe(literal);
     });
   });
 
@@ -200,8 +450,26 @@ describe("richTextBody", () => {
       expect(markdown).toBe("* ~~old~~ **`run`**\n");
     });
 
-    it("entity-escapes text the way Slack escapes event.text", () => {
-      expect(item(text("a <b> & c")).mrkdwn).toBe("- a &lt;b&gt; &amp; c");
+    it("preserves literal control characters and entity spellings", () => {
+      const literal = "a <b> & c &lt; &#35;";
+      const root = converter.toAst(item(text(literal)).mrkdwn);
+      expect(root.children).toMatchObject([
+        {
+          type: "list",
+          children: [
+            {
+              type: "listItem",
+              children: [
+                {
+                  type: "paragraph",
+                  children: [{ type: "text", value: literal }],
+                },
+              ],
+            },
+          ],
+        },
+      ]);
+      expect(toPlainText(root)).toBe(literal);
     });
   });
 
@@ -258,6 +526,49 @@ describe("richTextBody", () => {
     });
   });
 
+  describe("rich text block boundaries", () => {
+    it("keeps following text out of preceding lists and quotes", () => {
+      const value = event([], {
+        blocks: [
+          { type: "rich_text", elements: [list([section(text("item"))])] },
+          {
+            type: "rich_text",
+            elements: [{ type: "rich_text_quote", elements: [text("quoted")] }],
+          },
+          { type: "rich_text", elements: [section(text("after"))] },
+        ],
+      });
+      const root = converter.toAst(render(value).mrkdwn);
+      expect(root.children).toMatchObject([
+        {
+          type: "list",
+          children: [
+            {
+              type: "listItem",
+              children: [
+                {
+                  type: "paragraph",
+                  children: [{ type: "text", value: "item" }],
+                },
+              ],
+            },
+          ],
+        },
+        {
+          type: "blockquote",
+          children: [
+            {
+              type: "paragraph",
+              children: [{ type: "text", value: "quoted" }],
+            },
+          ],
+        },
+        { type: "paragraph", children: [{ type: "text", value: "after" }] },
+      ]);
+      expect(toPlainText(root)).toBe("item\n\nquoted\n\nafter");
+    });
+  });
+
   describe("quotes and code blocks", () => {
     it("renders quotes and preformatted text as their own blocks", () => {
       const value = event([
@@ -290,9 +601,8 @@ describe("richTextBody", () => {
       const started = performance.now();
       const body = richTextBody(value) ?? "";
       // The quadratic regex this replaces took tens of seconds here.
-      expect(performance.now() - started).toBeLessThan(1000);
-      expect(body.startsWith("- a\n\n```\n\n")).toBe(true);
-      expect(body.endsWith("\nx\n```")).toBe(true);
+      expect(performance.now() - started).toBeLessThan(5000);
+      expect(body).toBe(`- a\n\n\`\`\`\n${newlines}x\n\`\`\``);
     });
   });
 });

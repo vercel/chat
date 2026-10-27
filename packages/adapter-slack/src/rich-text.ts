@@ -4,9 +4,9 @@
  * Slack flattens composer lists in `event.text` to lines starting with `•` or
  * `◦`, which are not markdown list syntax. The list structure exists only in
  * the blocks, as `rich_text_list` elements with `style`, `indent`, and
- * `offset`. `richTextBody` renders those blocks to the same mrkdwn dialect
- * `event.text` uses, with markdown list markers, so the rest of the parse
- * pipeline (mention resolution, the format converter) stays unchanged.
+ * `offset`. `richTextBody` builds an intermediate body with mrkdwn styles,
+ * Markdown list markers, and entity-encoded literal punctuation for the
+ * existing mention resolution and format converter pipeline.
  */
 import {
   blocktext,
@@ -23,6 +23,23 @@ const LABELED_TOKEN_PATTERN =
 const UNLABELED_TOKEN_PATTERN = /<(?:[@#][A-Z0-9_]+|!subteam\^[A-Z0-9_]+)>/g;
 const WHITESPACE_PATTERN = /\s/;
 const PUNCTUATION_PATTERN = /[\p{P}\p{S}]/u;
+const LEADING_INDENTATION_PATTERN = /^[ \t]/gm;
+// Encode literal ASCII punctuation so CommonMark cannot interpret it as
+// markup after the Slack format converter runs. Style markers are added later.
+const MARKDOWN_PUNCTUATION_PATTERN =
+  /[\u0021-\u002f\u003a-\u0040\u005b-\u0060\u007b-\u007e]/g;
+const INLINE_ELEMENT_TYPES = new Set([
+  "text",
+  "link",
+  "emoji",
+  "user",
+  "broadcast",
+  "channel",
+  "usergroup",
+  "date",
+  "color",
+  "team",
+]);
 
 type Mark = "bold" | "italic" | "strike" | "code";
 
@@ -43,6 +60,8 @@ const MARKERS: Record<Mark, string> = {
 interface Run {
   first: string;
   last: string;
+  /** Raw text to escape after the final marks are known, rather than a token. */
+  literal?: boolean;
   marks: Mark[];
   text: string;
 }
@@ -53,8 +72,9 @@ interface Run {
  * `event.text`.
  *
  * Only messages whose non-table blocks are all `rich_text` qualify: other
- * block types (such as an app's `section` blocks) carry content this renderer
- * would drop. Tables keep their existing handling.
+ * block types (such as an app's `section` blocks), or unsupported elements
+ * inside rich text, can carry content this renderer would drop. Tables keep
+ * their existing handling.
  */
 export function richTextBody(event: SlackEvent): string | undefined {
   const blocks = (event.blocks ?? []).filter(
@@ -62,14 +82,18 @@ export function richTextBody(event: SlackEvent): string | undefined {
   );
   if (
     blocks.length === 0 ||
-    !blocks.every((block) => block.type === "rich_text") ||
+    !blocks.every(
+      (block) =>
+        block.type === "rich_text" &&
+        (block.elements ?? []).every(canRenderElement)
+    ) ||
     !blocks.some((block) =>
       block.elements?.some((element) => element.type === "rich_text_list")
     )
   ) {
     return;
   }
-  const body = blocks.map(richTextBlockMrkdwn).join("\n");
+  const body = blocks.map(richTextBlockMrkdwn).join("\n\n");
 
   // Block elements carry only IDs. `event.text` labels the same tokens
   // (`<!subteam^S…|@handle>`, `<#C…|name>`), so reuse those labels.
@@ -81,6 +105,23 @@ export function richTextBody(event: SlackEvent): string | undefined {
     UNLABELED_TOKEN_PATTERN,
     (token) => labeled.get(token) ?? token
   );
+}
+
+function canRenderElement(element: SlackMessageBlock): boolean {
+  switch (element.type) {
+    case "rich_text_list":
+      return (element.elements ?? []).every(
+        (item) => item.type === "rich_text_section" && canRenderElement(item)
+      );
+    case "rich_text_section":
+    case "rich_text_quote":
+    case "rich_text_preformatted":
+      return (element.elements ?? []).every((child) =>
+        INLINE_ELEMENT_TYPES.has(child.type)
+      );
+    default:
+      return false;
+  }
 }
 
 /** Remove trailing newlines without a regex, which is quadratic on long runs. */
@@ -192,7 +233,12 @@ function richTextElementMrkdwn(element: SlackMessageBlock): string {
  * marker pairs pressed together, which neither Slack nor CommonMark parses.
  */
 function inlineMrkdwn(elements: SlackMessageBlock[]): string {
-  return renderRuns(expressibleRuns(elements.flatMap(elementRuns)));
+  // Protect literal indentation before adding list or quote prefixes, so
+  // CommonMark cannot turn the text into a code block with encoded content.
+  return renderRuns(expressibleRuns(elements.flatMap(elementRuns))).replace(
+    LEADING_INDENTATION_PATTERN,
+    (char) => `&#${char.charCodeAt(0)};`
+  );
 }
 
 function elementRuns(element: SlackMessageBlock): Run[] {
@@ -205,9 +251,7 @@ function elementRuns(element: SlackMessageBlock): Run[] {
     // Markers never span a line break, so each line is its own run and the
     // break itself carries no marks.
     const runs: Run[] = [];
-    for (const [index, line] of escapeSlackText(element.text ?? "")
-      .split("\n")
-      .entries()) {
+    for (const [index, line] of (element.text ?? "").split("\n").entries()) {
       if (index > 0) {
         runs.push({ first: "\n", last: "\n", marks: [], text: "\n" });
       }
@@ -215,6 +259,7 @@ function elementRuns(element: SlackMessageBlock): Run[] {
         runs.push({
           first: line[0],
           last: line.at(-1) ?? "",
+          literal: true,
           marks,
           text: line,
         });
@@ -324,17 +369,28 @@ function renderRuns(runs: Run[]): string {
   };
 
   for (const run of runs) {
-    const core = run.text.trim();
+    // A rejected style transition may have removed code. Only escape after
+    // that decision, so formerly-code text cannot become Markdown syntax.
+    let text = run.text;
+    if (run.literal) {
+      text = run.marks.includes("code")
+        ? escapeSlackText(run.text)
+        : run.text.replace(
+            MARKDOWN_PUNCTUATION_PATTERN,
+            (char) => `&#${char.charCodeAt(0)};`
+          );
+    }
+    const core = text.trim();
     if (!core) {
-      if (run.text.includes("\n")) {
+      if (text.includes("\n")) {
         closeFrom(0);
       }
-      pending += run.text;
+      pending += text;
       continue;
     }
-    const leading = run.text.length - run.text.trimStart().length;
-    const trailing = run.text.length - run.text.trimEnd().length;
-    pending += run.text.slice(0, leading);
+    const leading = text.length - text.trimStart().length;
+    const trailing = text.length - text.trimEnd().length;
+    pending += text.slice(0, leading);
 
     const shared = commonPrefix(open, run.marks);
     closeFrom(shared);
@@ -345,7 +401,7 @@ function renderRuns(runs: Run[]): string {
     }
     open = [...run.marks];
     output += core;
-    pending = run.text.slice(run.text.length - trailing);
+    pending = text.slice(text.length - trailing);
   }
   closeFrom(0);
   return output + pending;

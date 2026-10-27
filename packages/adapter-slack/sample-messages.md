@@ -119,3 +119,36 @@ The next `app_mention` was posted through `chat.postMessage` with a `section` bl
   body: '{"token":"xAbCdEfGhIjKlMnOpQrStUvW","team_id":"T00FAKE00AA","api_app_id":"A00FAKEAPP01","event":{"type":"app_mention","user":"U00FAKEUSER1","ts":"1789700000.000200","text":"New request","team":"T00FAKE00AA","blocks":[{"type":"section","block_id":"cD2eF","text":{"type":"mrkdwn","text":"<@U00FAKEBOT01> please check the deploy","verbatim":false}}],"channel":"C00FAKECHAN1","event_ts":"1789700000.000200"},"type":"event_callback","event_id":"Ev0ASECTION01","event_time":1789700000,"authorizations":[{"enterprise_id":null,"team_id":"T00FAKE00AA","user_id":"U00FAKEBOT01","is_bot":true,"is_enterprise_install":false}],"is_ext_shared_channel":false}'
 }
 ```
+## Composer lists
+
+This message event comes from the reproduction in [issue #956](https://github.com/vercel/chat/issues/956), rather than a captured webhook. The `rich_text_list` elements preserve nesting that the bullet characters in `text` cannot express to a Markdown parser. The adapter produces a paragraph, a list with a nested item, and a final paragraph.
+
+```json
+{
+  "type": "message",
+  "channel": "D0123456789",
+  "channel_type": "im",
+  "user": "U0123456789",
+  "username": "jane",
+  "ts": "1726600000.000100",
+  "text": "Steps:\n• one\n• two\n    ◦ nested\n<!here> and <!subteam^S0123456789|@devs>",
+  "blocks": [{
+    "type": "rich_text",
+    "elements": [
+      { "type": "rich_text_section", "elements": [{ "type": "text", "text": "Steps:" }] },
+      { "type": "rich_text_list", "style": "bullet", "indent": 0, "elements": [
+        { "type": "rich_text_section", "elements": [{ "type": "text", "text": "one" }] },
+        { "type": "rich_text_section", "elements": [{ "type": "text", "text": "two" }] }
+      ] },
+      { "type": "rich_text_list", "style": "bullet", "indent": 1, "elements": [
+        { "type": "rich_text_section", "elements": [{ "type": "text", "text": "nested" }] }
+      ] },
+      { "type": "rich_text_section", "elements": [
+        { "type": "broadcast", "range": "here" },
+        { "type": "text", "text": " and " },
+        { "type": "usergroup", "usergroup_id": "S0123456789" }
+      ] }
+    ]
+  }]
+}
+```
