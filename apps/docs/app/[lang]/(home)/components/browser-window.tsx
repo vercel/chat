@@ -35,7 +35,7 @@ export function BrowserHeader({
         <div className="size-2 rounded-full bg-[#F3BF4A]" />
         <div className="size-2 rounded-full bg-[#5DC753]" />
       </div>
-      <h3 className="flex items-center gap-1 text-gray-800 text-label-13">
+      <h3 className="flex items-center gap-1 text-gray-900 text-label-13">
         {title}
       </h3>
       <div className="min-w-[62px] pr-1.5" />

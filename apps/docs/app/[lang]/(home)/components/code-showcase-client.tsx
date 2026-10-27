@@ -77,19 +77,12 @@ export const CodeShowcaseClient = ({
                     "font-medium! text-heading-16 transition-colors duration-250 sm:text-heading-24",
                     isActive
                       ? "text-gray-1000"
-                      : "text-gray-700 group-hover:text-gray-1000"
+                      : "text-gray-900 group-hover:text-gray-1000"
                   )}
                 >
                   {item.label}
                 </span>
-                <span
-                  className={cn(
-                    "text-copy-16 transition-colors duration-250",
-                    isActive
-                      ? "text-gray-900"
-                      : "text-gray-700 group-hover:text-gray-900"
-                  )}
-                >
+                <span className="text-copy-16 text-gray-900">
                   {item.description}
                 </span>
               </button>
@@ -155,16 +148,13 @@ export const CodeShowcaseClient = ({
             className="flex items-center justify-center"
             role="tablist"
           >
-            {groups.map((item, index) => {
+            {groups.map((item) => {
               const isActive = item.id === group.id;
               return (
                 <button
                   aria-label={item.label}
                   aria-selected={isActive}
-                  className={cn(
-                    "flex items-center justify-center p-2",
-                    index > 0 && "-ml-1"
-                  )}
+                  className="flex items-center justify-center p-2"
                   key={item.id}
                   onClick={() => selectGroup(item.id)}
                   role="tab"

@@ -104,7 +104,7 @@ const Row = ({
             {tag}
           </span>
         ) : null}
-        <span className="text-gray-700 text-label-12">9:41 AM</span>
+        <span className="text-gray-900 text-label-12">9:41 AM</span>
       </div>
       <div className="mt-0.5 text-pretty text-copy-13 text-gray-1000">
         {children}

@@ -1,6 +1,7 @@
 import { parseMarkdown, toPlainText } from "chat";
 import { describe, expect, it } from "vitest";
 import {
+  fitsRichMessage,
   richMessageToMarkdown,
   richMessageToText,
   TELEGRAM_RICH_MESSAGE_LIMIT,
@@ -266,6 +267,19 @@ describe("Telegram rich messages", () => {
       TELEGRAM_RICH_MESSAGE_LIMIT
     );
     expect(markdown.endsWith("...")).toBe(true);
+  });
+
+  it("measures the rich message limit in code points", () => {
+    const emoji = "😀".repeat(TELEGRAM_RICH_MESSAGE_LIMIT);
+    // Twice the limit in UTF-16 units, but exactly the limit in code points.
+    expect(emoji.length).toBe(TELEGRAM_RICH_MESSAGE_LIMIT * 2);
+    expect(fitsRichMessage(emoji)).toBe(true);
+    expect(truncateRichMarkdown(emoji)).toBe(emoji);
+    expect(fitsRichMessage(`${emoji}a`)).toBe(false);
+    expect(fitsRichMessage("a".repeat(TELEGRAM_RICH_MESSAGE_LIMIT))).toBe(true);
+    expect(fitsRichMessage("a".repeat(TELEGRAM_RICH_MESSAGE_LIMIT + 1))).toBe(
+      false
+    );
   });
 
   it("preserves a table-like trailing line when truncating", () => {

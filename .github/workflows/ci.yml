@@ -229,6 +229,95 @@ jobs:
         if: ${{ contains(needs.*.result, 'failure') }}
         run: exit 1
 
+  # Decides whether a PR touches anything the docs site is built from, so
+  # docs-a11y can skip PRs that cannot change it. Pushes to main always run.
+  docs-changes:
+    runs-on: ubuntu-latest
+    name: docs-a11y (Changes)
+    outputs:
+      changed: ${{ steps.changes.outputs.changed }}
+    steps:
+      - name: Checkout
+        if: github.event_name == 'pull_request'
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v6.0.0
+        with:
+          fetch-depth: 0
+
+      - name: Test docs change detection
+        if: github.event_name == 'pull_request'
+        run: node --test .github/scripts/docs-changes.test.mjs
+
+      - name: Check if docs inputs changed
+        id: changes
+        shell: bash
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          EVENT_NAME: ${{ github.event_name }}
+        run: |
+          if [ "$EVENT_NAME" != "pull_request" ]; then
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          # Use the event's base commit so reruns do not depend on a moving branch.
+          # Keep diff failures outside the condition so they fail the job.
+          changed_files=$(git diff --no-renames --name-only "$BASE_SHA"...HEAD)
+          # The docs app, the adapter catalog and package READMEs it renders,
+          # and the dependency and build config it is built with.
+          if printf '%s\n' "$changed_files" | grep -E '^(apps/docs/|packages/catalog/|packages/[^/]+/README\.md$|package\.json$|pnpm-lock\.yaml$|pnpm-workspace\.yaml$|turbo\.json$|\.nvmrc$|\.github/workflows/ci\.yml$|\.github/scripts/docs-changes\.test\.mjs$)' > /dev/null; then
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+            echo "No docs changes detected, skipping docs-a11y."
+          fi
+
+  # Builds the docs site, serves it locally, and runs axe-core against every
+  # page in light and dark mode. See apps/docs/scripts/a11y.mts.
+  docs-a11y:
+    runs-on: ubuntu-latest
+    name: docs-a11y
+    needs: docs-changes
+    if: needs.docs-changes.outputs.changed == 'true'
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v6.0.0
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6.0.0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v6.0.0
+        with:
+          node-version-file: .nvmrc
+          cache: "pnpm"
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Install Playwright Chromium
+        run: pnpm --filter docs exec playwright install --with-deps chromium
+
+      - name: Test accessibility runner
+        run: pnpm --filter docs exec node --test scripts/a11y.test.mts
+
+      - name: Build docs
+        run: pnpm turbo build --filter=docs
+
+      - name: Run accessibility checks
+        run: |
+          pnpm --filter docs start > docs-server.log 2>&1 &
+          for _ in $(seq 1 60); do
+            if curl -sf http://localhost:3000/sitemap.md > /dev/null; then
+              break
+            fi
+            sleep 1
+          done
+          pnpm --filter docs a11y http://localhost:3000
+
+      - name: Show docs server log
+        if: failure()
+        run: cat docs-server.log
+
   # Finds every app under examples/ so the matrix below picks up new examples
   # without editing this file.
   examples-discover:

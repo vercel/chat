@@ -24,6 +24,7 @@ import type {
   FormattedContent,
   Logger,
   RawMessage,
+  Root,
   StreamChunk,
   StreamOptions,
   ThreadInfo,
@@ -56,11 +57,13 @@ import {
   truncateForTelegram,
 } from "./markdown";
 import {
+  fitsRichMessage,
   richMessageMedia,
   richMessageToMarkdown,
   richMessageToText,
   truncateRichMarkdown,
 } from "./rich";
+import { splitMarkdownAst, splitText } from "./split";
 import type {
   TelegramAdapterConfig,
   TelegramAdapterMode,
@@ -70,6 +73,7 @@ import type {
   TelegramChat,
   TelegramFile,
   TelegramInlineKeyboardMarkup,
+  TelegramLongMessageMode,
   TelegramLongPollingConfig,
   TelegramMessage,
   TelegramMessageEntity,
@@ -139,6 +143,24 @@ interface TelegramReplyParameters {
   allow_sending_without_reply: boolean;
   message_id: number;
 }
+
+/**
+ * Progress of one `postMessage` call in split mode, shared by every message
+ * the post is sent as.
+ */
+interface TelegramSplitSendState {
+  /** Messages delivered so far. */
+  delivered: number;
+  /** When the last message was delivered, for pacing the next one. */
+  lastDeliveredAt: number;
+  /** Total time spent waiting out rate limits. */
+  retryWaitMs: number;
+}
+
+interface TelegramMessageBodies {
+  plainText: string;
+  text: string;
+}
 const trimTrailingSlashes = (url: string): string => {
   let end = url.length;
   while (end > 0 && url[end - 1] === "/") {
@@ -175,6 +197,13 @@ const TELEGRAM_DEFAULT_STREAM_UPDATE_INTERVAL_MS = 250;
 const TELEGRAM_DEFAULT_PRIVATE_STREAMING_EDIT_INTERVAL_MS = 1100;
 const TELEGRAM_DEFAULT_NON_PRIVATE_STREAMING_EDIT_INTERVAL_MS = 3100;
 const TELEGRAM_STREAM_FINAL_EDIT_RETRY_CAP_MS = 5000;
+// Once part of a split long message is delivered, a rate-limited later part
+// waits out `retry_after` and is sent again, so the post isn't left half
+// delivered. A wait over the per-wait cap, more attempts than the maximum, or
+// waits adding up past the per-post budget give up and rethrow.
+const TELEGRAM_SPLIT_PART_RETRY_CAP_MS = 30_000;
+const TELEGRAM_SPLIT_PART_MAX_ATTEMPTS = 3;
+const TELEGRAM_SPLIT_RETRY_BUDGET_MS = 60_000;
 const TELEGRAM_STREAM_PLACEHOLDER_TEXT = "...";
 const TELEGRAM_INCOMING_MEDIA_GROUP_BUFFER_TTL_MS = 30_000;
 const TELEGRAM_INCOMING_MEDIA_GROUP_LOCK_TTL_MS = 5_000;
@@ -490,6 +519,7 @@ export class TelegramAdapter
   protected readonly nativeStreaming: boolean;
   protected readonly streamingEditIntervalMs?: number;
   protected readonly longPolling?: TelegramLongPollingConfig;
+  protected readonly longMessages: TelegramLongMessageMode;
   protected readonly businessMode: boolean;
   private _runtimeMode: TelegramRuntimeMode = "webhook";
   private pollingAbortController: AbortController | null = null;
@@ -563,12 +593,19 @@ export class TelegramAdapter
             Number.MAX_SAFE_INTEGER
           );
     this.longPolling = config.longPolling;
+    this.longMessages = config.longMessages ?? "truncate";
     this.businessMode = config.businessMode ?? false;
 
     if (!["auto", "webhook", "polling"].includes(this.mode)) {
       throw new ValidationError(
         "telegram",
         `Invalid mode: ${this.mode}. Expected "auto", "webhook", or "polling".`
+      );
+    }
+    if (!["truncate", "split"].includes(this.longMessages)) {
+      throw new ValidationError(
+        "telegram",
+        `Invalid longMessages: ${this.longMessages}. Expected "truncate" or "split".`
       );
     }
     if (
@@ -1539,6 +1576,62 @@ export class TelegramAdapter
     message: AdapterPostableMessage,
     replyToMessageId?: string
   ): Promise<RawMessage<TelegramRawMessage>> {
+    if (this.longMessages !== "split") {
+      return await this.sendPostable(threadId, message, replyToMessageId);
+    }
+
+    const state: TelegramSplitSendState = {
+      delivered: 0,
+      lastDeliveredAt: 0,
+      retryWaitMs: 0,
+    };
+    try {
+      const parts = this.splitLongMessage(message, this.richMessagesAvailable);
+      if (!parts) {
+        return await this.sendPostable(
+          threadId,
+          message,
+          replyToMessageId,
+          state
+        );
+      }
+      let sent: RawMessage<TelegramRawMessage> | undefined;
+      for (const [index, part] of parts.entries()) {
+        sent = await this.sendPostable(
+          threadId,
+          part,
+          index === 0 ? replyToMessageId : undefined,
+          state
+        );
+      }
+      if (!sent) {
+        throw new ValidationError("telegram", "Message text cannot be empty");
+      }
+      return sent;
+    } catch (error) {
+      if (state.delivered > 0) {
+        this.logger.warn("Telegram split message only partly sent", {
+          deliveredMessages: state.delivered,
+          error: String(error),
+          threadId,
+        });
+      }
+      throw error;
+    }
+  }
+
+  /**
+   * Send one postable message. `splitState` is set in split mode: a text
+   * message that doesn't fit a regular message after a rich fallback is
+   * split again, and every text send is paced and retried through
+   * `sendSplitPart`.
+   */
+  protected async sendPostable(
+    threadId: string,
+    message: AdapterPostableMessage,
+    replyToMessageId?: string,
+    splitState?: TelegramSplitSendState
+  ): Promise<RawMessage<TelegramRawMessage>> {
     const parsedThread = this.resolveThreadId(threadId);
     // Resolve the reply target once so a malformed id fails before any
     // rendering or attachment downloads, and every send path threads it.
@@ -1550,26 +1643,8 @@ export class TelegramAdapter
     const card = extractCard(message);
     const replyMarkup = card ? cardToTelegramInlineKeyboard(card) : undefined;
     const parseMode = this.resolveParseMode(message, card);
-    const plainText = truncateForTelegram(
-      convertEmojiPlaceholders(
-        this.renderPlainTextMessage(message, card),
-        "gchat"
-      ),
-      TELEGRAM_MESSAGE_LIMIT,
-      "plain"
-    );
-    const text = truncateForTelegram(
-      convertEmojiPlaceholders(
-        card
-          ? this.formatConverter.fromMarkdown(
-              cardToFallbackText(card, { boldFormat: "**" })
-            )
-          : this.formatConverter.renderPostable(message),
-        "gchat"
-      ),
-      TELEGRAM_MESSAGE_LIMIT,
-      parseMode
-    );
+    const bodies = this.renderUntruncatedBodies(message, card);
+    const { text, plainText } = this.truncateMessageBodies(bodies, parseMode);
 
     const files = extractFiles(message);
     const attachments = extractPostableAttachments(message);
@@ -1653,37 +1728,79 @@ export class TelegramAdapter
         throw new ValidationError("telegram", "Message text cannot be empty");
       }
 
-      const sendRegular = () =>
-        this.sendRegularMessage(
-          parsedThread,
-          text,
-          plainText,
-          parseMode,
-          replyMarkup,
-          threadId,
-          replyParameters
-        );
+      const send = <T>(operation: () => Promise<T>): Promise<T> =>
+        splitState
+          ? this.sendSplitPart(operation, threadId, splitState)
+          : operation();
 
-      rawMessages = [
-        rich
-          ? await this.withTelegramRichFallback(
-              () =>
+      const sendRegular = async (): Promise<TelegramMessage[]> => {
+        // In split mode, a message sized for a rich message, or sent after
+        // rich messages became unavailable, can exceed the regular limit, so
+        // it is split again instead of truncated.
+        const parts =
+          splitState && !this.fitsRegularMessage(bodies)
+            ? this.splitLongMessage(message, false)
+            : null;
+        if (!parts) {
+          return [
+            await send(() =>
+              this.sendRegularMessage(
+                parsedThread,
+                text,
+                plainText,
+                parseMode,
+                replyMarkup,
+                threadId,
+                replyParameters
+              )
+            ),
+          ];
+        }
+
+        const sent: TelegramMessage[] = [];
+        for (const [index, part] of parts.entries()) {
+          const partParseMode = this.resolveParseMode(part, null);
+          const partBodies = this.renderMessageBodies(
+            part,
+            null,
+            partParseMode
+          );
+          sent.push(
+            await send(() =>
+              this.sendRegularMessage(
+                parsedThread,
+                partBodies.text,
+                partBodies.plainText,
+                partParseMode,
+                undefined,
+                threadId,
+                index === 0 ? replyParameters : undefined
+              )
+            )
+          );
+        }
+        return sent;
+      };
+
+      rawMessages = rich
+        ? await this.withTelegramRichFallback(
+            async () => [
+              await send(() =>
                 this.telegramFetch<TelegramMessage>("sendRichMessage", {
                   ...this.buildChatTargetParams(parsedThread),
-                  rich_message: {
-                    markdown: rich.markdown,
-                  },
+                  rich_message: { markdown: rich.markdown },
                   reply_markup: replyMarkup,
                   reply_parameters: replyParameters,
-                }),
-              sendRegular,
-              {
-                method: "sendRichMessage",
-                threadId,
-              }
-            )
-          : await sendRegular(),
-      ];
+                })
+              ),
+            ],
+            sendRegular,
+            {
+              method: "sendRichMessage",
+              threadId,
+            }
+          )
+        : await sendRegular();
     }
 
     const parsedMessages = rawMessages.map((rawMessage) =>
@@ -1695,7 +1812,8 @@ export class TelegramAdapter
             rawMessage.message_thread_id ?? parsedThread.messageThreadId,
           businessConnectionId: parsedThread.businessConnectionId,
         }),
-        rich
+        // The whole message's content only describes a single sent message.
+        rich && rawMessages.length === 1
           ? {
               formatted: rich.formatted,
               text: rich.text,
@@ -1731,12 +1849,80 @@ export class TelegramAdapter
   }
 
   /**
+   * Send one message of a split-mode post through `send`. After the first
+   * delivered message, the send waits until the per-chat pacing interval has
+   * passed, and a rate-limited send waits out `retry_after` and tries again,
+   * since earlier messages are already delivered and failing would leave the
+   * post half sent. Before anything is delivered, a rate limit fails the post
+   * like any other send.
+   */
+  protected async sendSplitPart<T>(
+    send: () => Promise<T>,
+    threadId: string,
+    state: TelegramSplitSendState
+  ): Promise<T> {
+    if (state.delivered > 0) {
+      const pacingMs =
+        this.splitPartIntervalMs(threadId) -
+        (Date.now() - state.lastDeliveredAt);
+      if (pacingMs > 0) {
+        await this.sleep(pacingMs);
+      }
+    }
+
+    let attempt = 1;
+    while (true) {
+      try {
+        const result = await send();
+        state.delivered += 1;
+        state.lastDeliveredAt = Date.now();
+        return result;
+      } catch (error) {
+        if (
+          !(error instanceof AdapterRateLimitError) ||
+          state.delivered === 0 ||
+          attempt >= TELEGRAM_SPLIT_PART_MAX_ATTEMPTS
+        ) {
+          throw error;
+        }
+        const retryAfterMs = (error.retryAfter ?? 1) * 1000;
+        if (
+          retryAfterMs > TELEGRAM_SPLIT_PART_RETRY_CAP_MS ||
+          state.retryWaitMs + retryAfterMs > TELEGRAM_SPLIT_RETRY_BUDGET_MS
+        ) {
+          throw error;
+        }
+        this.logger.warn("Telegram rate limited a split message part", {
+          attempt,
+          retryAfterMs,
+          threadId,
+        });
+        await this.sleep(retryAfterMs);
+        state.retryWaitMs += retryAfterMs;
+        attempt += 1;
+      }
+    }
+  }
+
+  /**
+   * Minimum gap between the messages of a split long message, matching
+   * Telegram's per-chat limits of about one message per second in private
+   * chats and 20 messages per minute in groups.
+   */
+  protected splitPartIntervalMs(threadId: string): number {
+    return this.isDM(threadId)
+      ? TELEGRAM_DEFAULT_PRIVATE_STREAMING_EDIT_INTERVAL_MS
+      : TELEGRAM_DEFAULT_NON_PRIVATE_STREAMING_EDIT_INTERVAL_MS;
+  }
+
+  /**
    * Post a message as a native Telegram reply to `messageId`.
    *
    * Telegram threads the answer to its question with `reply_parameters`, which
    * is what `Thread.reply()` expects an adapter to provide. Every Telegram
    * send is a single API call (text is truncated, media groups are one
-   * request), so the reference always rides on that one call.
+   * request), so the reference always rides on that one call. With
+   * `longMessages: "split"`, the reference rides on the first part.
    */
   async reply(
     threadId: string,
@@ -1758,24 +1944,9 @@ export class TelegramAdapter
     const card = extractCard(message);
     const replyMarkup = card ? cardToTelegramInlineKeyboard(card) : undefined;
     const parseMode = this.resolveParseMode(message, card);
-    const plainText = truncateForTelegram(
-      convertEmojiPlaceholders(
-        this.renderPlainTextMessage(message, card),
-        "gchat"
-      ),
-      TELEGRAM_MESSAGE_LIMIT,
-      "plain"
-    );
-    const text = truncateForTelegram(
-      convertEmojiPlaceholders(
-        card
-          ? this.formatConverter.fromMarkdown(
-              cardToFallbackText(card, { boldFormat: "**" })
-            )
-          : this.formatConverter.renderPostable(message),
-        "gchat"
-      ),
-      TELEGRAM_MESSAGE_LIMIT,
+    const { text, plainText } = this.renderMessageBodies(
+      message,
+      card,
       parseMode
     );
     const rich = this.resolveRichMessage(message, card, 0, 0);
@@ -3767,9 +3938,7 @@ export class TelegramAdapter
       const formatted = this.formatConverter.toAst(message.markdown);
       return {
         formatted,
-        markdown: truncateRichMarkdown(
-          convertEmojiPlaceholders(message.markdown, "gchat")
-        ),
+        markdown: truncateRichMarkdown(this.renderRichMarkdown(message)),
         text: toPlainText(formatted),
       };
     }
@@ -3777,14 +3946,25 @@ export class TelegramAdapter
     if ("ast" in message) {
       return {
         formatted: message.ast,
-        markdown: truncateRichMarkdown(
-          convertEmojiPlaceholders(stringifyMarkdown(message.ast), "gchat")
-        ),
+        markdown: truncateRichMarkdown(this.renderRichMarkdown(message)),
         text: toPlainText(message.ast),
       };
     }
 
     return null;
+  }
+
+  /**
+   * Render the untruncated rich-message markdown for a `{ markdown }` or
+   * `{ ast }` message, with emoji placeholders resolved.
+   */
+  protected renderRichMarkdown(
+    message: { markdown: string } | { ast: Root }
+  ): string {
+    return convertEmojiPlaceholders(
+      "markdown" in message ? message.markdown : stringifyMarkdown(message.ast),
+      "gchat"
+    );
   }
 
   protected renderPlainTextMessage(
@@ -3810,6 +3990,153 @@ export class TelegramAdapter
       return toPlainText(message.ast);
     }
     return this.formatConverter.renderPostable(message);
+  }
+
+  /**
+   * Render the regular-message body and its plain-text fallback, both with
+   * emoji placeholders resolved and truncated to Telegram's message limit.
+   */
+  protected renderMessageBodies(
+    message: AdapterPostableMessage,
+    card: ReturnType<typeof extractCard>,
+    parseMode: TelegramParseMode
+  ): TelegramMessageBodies {
+    return this.truncateMessageBodies(
+      this.renderUntruncatedBodies(message, card),
+      parseMode
+    );
+  }
+
+  protected truncateMessageBodies(
+    bodies: TelegramMessageBodies,
+    parseMode: TelegramParseMode
+  ): TelegramMessageBodies {
+    return {
+      plainText: truncateForTelegram(
+        bodies.plainText,
+        TELEGRAM_MESSAGE_LIMIT,
+        "plain"
+      ),
+      text: truncateForTelegram(bodies.text, TELEGRAM_MESSAGE_LIMIT, parseMode),
+    };
+  }
+
+  protected renderUntruncatedBodies(
+    message: AdapterPostableMessage,
+    card: ReturnType<typeof extractCard>
+  ): TelegramMessageBodies {
+    return {
+      plainText: convertEmojiPlaceholders(
+        this.renderPlainTextMessage(message, card),
+        "gchat"
+      ),
+      text: convertEmojiPlaceholders(
+        card
+          ? this.formatConverter.fromMarkdown(
+              cardToFallbackText(card, { boldFormat: "**" })
+            )
+          : this.formatConverter.renderPostable(message),
+        "gchat"
+      ),
+    };
+  }
+
+  /**
+   * Whether a regular message and its plain-text fallback both fit without
+   * truncation.
+   */
+  protected fitsRegularMessage(bodies: TelegramMessageBodies): boolean {
+    return (
+      bodies.text.length <= TELEGRAM_MESSAGE_LIMIT &&
+      bodies.plainText.length <= TELEGRAM_MESSAGE_LIMIT
+    );
+  }
+
+  /**
+   * Split a text-only message that is too long for one Telegram message into
+   * ordered parts that each fit. Parts are sized for a rich message when
+   * `richLimit` is set, otherwise for a regular message and its plain-text
+   * fallback. Returns `null` when the message fits as it would be sent.
+   *
+   * The fit check measures exactly what `sendPostable` would send for the
+   * original message. A rich message whose markdown source is over the limit
+   * but fits once re-rendered from its AST comes back as a single `{ ast }`
+   * part, so it is sent whole instead of truncated.
+   */
+  protected splitLongMessage(
+    message: AdapterPostableMessage,
+    richLimit: boolean
+  ): AdapterPostableMessage[] | null {
+    if (
+      extractCard(message) ||
+      extractFiles(message).length > 0 ||
+      extractPostableAttachments(message).length > 0
+    ) {
+      return null;
+    }
+
+    if (typeof message === "string" || "raw" in message) {
+      // Resolve placeholders first, so a break can't land inside one and
+      // each part's length is its length as sent.
+      const source = convertEmojiPlaceholders(
+        typeof message === "string" ? message : message.raw,
+        "gchat"
+      );
+      if (source.length <= TELEGRAM_MESSAGE_LIMIT) {
+        return null;
+      }
+      // A break can leave a whitespace-only part, which Telegram rejects.
+      const parts = splitText(
+        source,
+        (value) => value.length <= TELEGRAM_MESSAGE_LIMIT
+      ).filter((part) => part.trim().length > 0);
+      if (parts.length === 0) {
+        return null;
+      }
+      return typeof message === "string"
+        ? parts
+        : parts.map((raw) => ({ raw }));
+    }
+
+    if (!("markdown" in message || "ast" in message)) {
+      return null;
+    }
+
+    const fitsAsSent = richLimit
+      ? fitsRichMessage(this.renderRichMarkdown(message))
+      : this.fitsRegularMessage(this.renderUntruncatedBodies(message, null));
+    if (fitsAsSent) {
+      return null;
+    }
+
+    // Resolve placeholders in the source, as a whole rich post does.
+    // Re-rendering parts from the AST escapes the underscores in a
+    // placeholder such as `{{emoji:thumbs_up}}`, so it would no longer match.
+    const ast =
+      "markdown" in message
+        ? this.formatConverter.toAst(
+            convertEmojiPlaceholders(message.markdown, "gchat")
+          )
+        : message.ast;
+
+    const fits = richLimit
+      ? (root: Root) => fitsRichMessage(this.renderRichMarkdown({ ast: root }))
+      : (root: Root) =>
+          this.fitsRegularMessage(
+            this.renderUntruncatedBodies({ ast: root }, null)
+          );
+
+    const parts = splitMarkdownAst(ast, fits).filter(
+      (part) => this.formatConverter.fromAst(part).trim().length > 0
+    );
+    // A regular message that still fits in one part only failed the check
+    // because of its plain-text fallback, which `sendPostable` builds from
+    // the original markdown when the AST has no plain text. Sending it as is
+    // keeps that fallback instead of an empty one.
+    if (parts.length === 0 || (parts.length === 1 && !richLimit)) {
+      return null;
+    }
+    return parts.map((part) => ({ ast: part }));
   }
 
   protected resolveTelegramFallbackText(
@@ -4534,6 +4861,7 @@ export type {
   TelegramCallbackQuery,
   TelegramChat,
   TelegramLocation,
+  TelegramLongMessageMode,
   TelegramLongPollingConfig,
   TelegramMessage,
   TelegramMessageReactionUpdated,
