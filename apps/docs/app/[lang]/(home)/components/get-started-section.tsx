@@ -12,6 +12,7 @@ import {
   CommandPromptViewport,
 } from "@/components/ui/command-prompt";
 import { cn } from "@/lib/utils";
+import { sectionHeading } from "./styles";
 
 const COMMAND = "npx create-chat-sdk@latest";
 
@@ -114,15 +115,26 @@ const CodePreview = async ({ code }: { code: string }) => {
 };
 
 export const GetStartedSection = ({ data }: { data: Template[] }) => (
-  <div>
-    <div className="flex flex-col gap-6 py-12 sm:py-14 lg:flex-row lg:items-start lg:justify-between lg:gap-12">
-      <h2 className="text-heading-20 sm:text-heading-24 md:text-heading-32 lg:text-heading-40">
-        Build with Chat SDK today
-      </h2>
+  <section className="py-12 md:py-20">
+    <div className="flex flex-col gap-6 lg:flex-row lg:items-center lg:justify-between lg:gap-12">
+      <div>
+        {/* "SDK" is a CSS pill sized in ems so "Chat" keeps the heading's weight. */}
+        <h2 className={sectionHeading}>
+          Build with Chat{" "}
+          <span className="relative -top-1 inline-flex items-center rounded-full border-[3px] border-gray-1000 bg-background-200 px-[0.3em] py-[0.03em] align-middle font-semibold text-[0.6em] uppercase leading-none tracking-[-0.037em] lg:border-4">
+            SDK
+          </span>{" "}
+          today
+        </h2>
+        <p className="mt-4 max-w-md text-copy-18 text-gray-900">
+          Start from a template, or follow a guide to use Chat&nbsp;SDK with
+          Vercel&nbsp;Connect and eve.
+        </p>
+      </div>
       <div className="flex flex-col items-stretch gap-3 sm:shrink-0 lg:flex-row lg:items-center">
         <Button asChild className="h-[42px] rounded-full px-5" size="default">
           <DynamicLink href="/[lang]/docs" prefetch={true}>
-            Visit Documentation
+            Read the docs
           </DynamicLink>
         </Button>
         {/* Root is `w-full items-center` by default, which would stretch and
@@ -131,7 +143,7 @@ export const GetStartedSection = ({ data }: { data: Template[] }) => (
           className="items-stretch lg:w-fit"
           defaultValue="install"
         >
-          {/* Match the adjacent Visit Documentation button's height. */}
+          {/* Match the adjacent Read the docs button's height. */}
           <CommandPromptSurface className="h-[42px] py-0">
             <CommandPromptPrefix>$</CommandPromptPrefix>
             <CommandPromptViewport>
@@ -144,7 +156,7 @@ export const GetStartedSection = ({ data }: { data: Template[] }) => (
         </CommandPromptRoot>
       </div>
     </div>
-    <div className="grid gap-6 py-10 sm:py-12 md:grid-cols-3">
+    <div className="mt-10 grid gap-6 md:grid-cols-3">
       {data.map((item) => (
         <a
           className="group flex flex-col overflow-hidden rounded-lg border bg-background p-4 transition-colors hover:bg-muted/40"
@@ -152,12 +164,12 @@ export const GetStartedSection = ({ data }: { data: Template[] }) => (
           key={item.title}
         >
           <h3 className="text-heading-16">{item.title}</h3>
-          <p className="mt-1 line-clamp-2 text-muted-foreground text-sm">
+          <p className="mt-1 line-clamp-2 text-balance text-muted-foreground text-sm">
             {item.description}
           </p>
           <div
             className={cn(
-              "mt-4 -mr-8 -mb-8 ml-4 aspect-video -rotate-3 overflow-hidden rounded-md border bg-background",
+              "mt-6 -mr-8 -mb-8 ml-4 aspect-[5/2] -rotate-3 overflow-hidden rounded-md border bg-background",
               "transition-transform duration-300 group-hover:-rotate-1 group-hover:scale-105"
             )}
           >
@@ -166,5 +178,5 @@ export const GetStartedSection = ({ data }: { data: Template[] }) => (
         </a>
       ))}
     </div>
-  </div>
+  </section>
 );

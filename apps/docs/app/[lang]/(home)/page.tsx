@@ -62,11 +62,16 @@ const templates = [
     description:
       "Authenticate a Slack bot with Vercel Connect instead of stored secrets.",
     link: "https://vercel.com/kb/guide/build-a-slack-bot-with-vercel-connect",
-    code: `import { createSlackAdapter } from "@chat-adapter/slack";
-import { connectSlackAdapter } from "@vercel/connect/chat";
-
-const slack = createSlackAdapter({
+    code: `const slack = createSlackAdapter({
+  // Credentials come from Vercel Connect
+  // instead of stored secrets
   ...connectSlackAdapter("slack/acme-slack"),
+});
+
+export const bot = new Chat({
+  userName: "mybot",
+  adapters: { slack },
+  state: createRedisState(),
 });`,
   },
   {
@@ -74,7 +79,8 @@ const slack = createSlackAdapter({
     description:
       "Answer questions from synced docs and repos with file-system search.",
     link: "https://vercel.com/templates/nuxt/chat-sdk-knowledge-agent",
-    code: `const savoir = createSavoir({
+    code: `// Search synced docs and repos
+const savoir = createSavoir({
   apiUrl: process.env.SAVOIR_URL,
   apiKey: process.env.SAVOIR_API_KEY,
 });
@@ -82,24 +88,23 @@ const slack = createSlackAdapter({
 const { text } = await generateText({
   model,
   tools: savoir.tools,
-  maxSteps: 10,
   prompt: "How do I configure auth?",
 });`,
   },
   {
-    title: "Code Review Bot Guide",
-    description: "Review pull requests with sandboxed AI analysis on GitHub.",
-    link: "https://vercel.com/kb/guide/ship-a-github-code-review-bot-with-hono-and-redis",
-    code: `bot.onNewMention(async (thread, msg) => {
-  const { data: pr } = await octokit.pulls.get({
-    owner, repo, pull_number,
-  });
-  await thread.post("Starting code review...");
-  const review = await reviewPullRequest({
-    owner, repo,
-    prBranch: pr.head.ref,
-  });
-  await thread.post(review);
+    title: "eve Integration Guide",
+    description:
+      "Send Chat SDK messages to an eve agent and stream its replies back to the thread.",
+    link: "https://vercel.com/docs/chat-sdk/eve",
+    code: `const { bot, send } = chatSdkChannel({
+  userName: "my-agent",
+  adapters: { slack },
+  state: createRedisState(),
+});
+
+bot.onNewMention(async (thread, message) => {
+  await thread.subscribe();
+  await send(message.text, { thread });
 });`,
   },
 ];
@@ -159,7 +164,7 @@ const HomePage = () => (
           <CommandPromptCopy />
         </CommandPromptSurface>
       </CommandPromptRoot>
-      <div className="mx-auto mt-12 max-w-4xl text-left sm:mt-16">
+      <div className="mx-auto mt-16 w-full max-w-4xl text-left md:mt-20">
         <Demo />
       </div>
     </Hero>

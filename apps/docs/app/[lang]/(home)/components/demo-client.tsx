@@ -1,420 +1,252 @@
 "use client";
 
-import { HashIcon } from "lucide-react";
-import { AnimatePresence, motion } from "motion/react";
-import type { CSSProperties, ReactNode } from "react";
-import { useCallback, useEffect, useRef, useState } from "react";
-import { useIsMobile } from "@/hooks/use-mobile";
+import { IconArrowUpRightSmall } from "@vercel/geistdocs/assets/icons/icon-arrow-up-right-small";
+import { AnimatePresence, MotionConfig, motion } from "motion/react";
+import Link from "next/link";
+import { type ComponentProps, useEffect, useState } from "react";
+import type { ThemedToken } from "shiki";
+import {
+  discord,
+  gchat,
+  slack,
+  teams,
+  telegram,
+  whatsapp,
+} from "@/lib/logos-mono";
 import { cn } from "@/lib/utils";
+import {
+  CANCEL_REPLY,
+  type CardAction,
+  DEPLOY_CHUNKS,
+  type PlatformSlug,
+  type StreamMode,
+} from "../data/hero-demo";
+import { CodeWindow } from "./code-window";
+import { PLATFORM_PREVIEWS, PreviewContext } from "./platform-previews";
 
-interface ChatMessage {
-  author: string;
-  color: string;
-  id: string;
-  initials: string;
-  text: string;
+const LOGOS: Record<
+  PlatformSlug,
+  (props: ComponentProps<"svg">) => React.JSX.Element
+> = { slack, teams, gchat, discord, whatsapp, telegram };
+
+interface Platform {
+  name: string;
+  slug: PlatformSlug;
+  stream: StreamMode;
 }
 
-type ReactionTarget = string | null;
-type ActiveHandler =
-  | "onNewMention"
-  | "onReaction"
-  | "onSubscribedMessage"
-  | null;
+const DEPLOY_REPLY = DEPLOY_CHUNKS.join(" ");
+const WORD_PATTERN = /(\s+)/;
 
-interface SerializedToken {
-  content: string;
-  htmlStyle?: Record<string, string>;
-}
-
-export interface SerializedHandler {
-  key: "onNewMention" | "onReaction" | "onSubscribedMessage";
-  lines: SerializedToken[][];
-}
-
-const MESSAGES: ChatMessage[] = [
-  {
-    id: "m1",
-    author: "Alice",
-    initials: "A",
-    color: "bg-violet-500",
-    text: "Has anyone tried the new API?",
-  },
-  {
-    id: "m2",
-    author: "Bob",
-    initials: "B",
-    color: "bg-blue-500",
-    text: "Yeah, docs look great",
-  },
-  {
-    id: "m3",
-    author: "Alice",
-    initials: "A",
-    color: "bg-violet-500",
-    text: "@ChatBot summarize this thread",
-  },
-  {
-    id: "m4",
-    author: "ChatBot",
-    initials: "CB",
-    color: "bg-emerald-500",
-    text: "Sure! Here's a quick summary...",
-  },
-  {
-    id: "m5",
-    author: "ChatBot",
-    initials: "CB",
-    color: "bg-emerald-500",
-    text: "Thanks for the 👍!",
-  },
-  {
-    id: "m6",
-    author: "Bob",
-    initials: "B",
-    color: "bg-blue-500",
-    text: "Can you check for updates too?",
-  },
-  {
-    id: "m7",
-    author: "ChatBot",
-    initials: "CB",
-    color: "bg-emerald-500",
-    text: "Checking now...",
-  },
-  {
-    id: "m8",
-    author: "Alice",
-    initials: "A",
-    color: "bg-violet-500",
-    text: "Thanks, that's super helpful!",
-  },
-  {
-    id: "m9",
-    author: "Bob",
-    initials: "B",
-    color: "bg-blue-500",
-    text: "Agreed, nice work 🎉",
-  },
-];
-
-interface TimelineEntry {
-  delay: number;
-  handler: ActiveHandler;
-  reaction: ReactionTarget;
-  visibleCount: number;
-}
-
-const TIMELINE: TimelineEntry[] = [
-  { delay: 0, visibleCount: 0, reaction: null, handler: null },
-  { delay: 800, visibleCount: 1, reaction: null, handler: null },
-  { delay: 1200, visibleCount: 2, reaction: null, handler: null },
-  {
-    delay: 1400,
-    visibleCount: 3,
-    reaction: null,
-    handler: "onNewMention",
-  },
-  { delay: 1800, visibleCount: 4, reaction: null, handler: null },
-  { delay: 1600, visibleCount: 4, reaction: "m4", handler: "onReaction" },
-  { delay: 1800, visibleCount: 5, reaction: "m4", handler: null },
-  {
-    delay: 2000,
-    visibleCount: 6,
-    reaction: "m4",
-    handler: "onSubscribedMessage",
-  },
-  { delay: 1800, visibleCount: 7, reaction: "m4", handler: null },
-  { delay: 1200, visibleCount: 8, reaction: "m4", handler: null },
-  { delay: 1200, visibleCount: 9, reaction: "m4", handler: null },
-  { delay: 3000, visibleCount: 0, reaction: null, handler: null },
-];
-
-const ReactionBadge = () => (
-  <motion.span
-    animate={{ opacity: 1, scale: 1 }}
-    className="mt-1 ml-10.5 inline-flex items-center gap-1 rounded-full border bg-muted px-1.5 py-0.5 text-xs"
-    exit={{ opacity: 0, scale: 0.8 }}
-    initial={{ opacity: 0, scale: 0.8 }}
-    layout
-    transition={{ type: "spring", stiffness: 380, damping: 28 }}
-  >
-    👍 1
-  </motion.span>
-);
-
-const TokenSpan = ({ token }: { token: SerializedToken }) => {
-  const tokenStyle: Record<string, string> = {};
-
-  if (token.htmlStyle) {
-    for (const [key, value] of Object.entries(token.htmlStyle)) {
-      if (key === "color" || key === "--shiki-light") {
-        tokenStyle["--sdm-c"] = value;
-      } else if (key === "background-color" || key === "--shiki-light-bg") {
-        tokenStyle["--sdm-tbg"] = value;
-      } else {
-        tokenStyle[key] = value;
-      }
-    }
+/**
+ * Schedules the reply to a button click the way the platform delivers it:
+ * word by word for native streaming, a chunk per edit for Post+Edit, and all
+ * at once for buffered platforms. Cancel posts a plain string, not a stream.
+ */
+const scheduleReply = (
+  action: CardAction,
+  mode: StreamMode,
+  setReply: (reply: string) => void,
+  at: (ms: number, fn: () => void) => void
+) => {
+  if (action === "cancel") {
+    at(400, () => setReply(CANCEL_REPLY));
+    return;
   }
-
-  const hasBg = Boolean(tokenStyle["--sdm-tbg"]);
-
-  return (
-    <span
-      className={cn(
-        "text-[var(--sdm-c,inherit)]",
-        "dark:text-[var(--shiki-dark,var(--sdm-c,inherit))]",
-        hasBg && "bg-[var(--sdm-tbg)]",
-        hasBg && "dark:bg-[var(--shiki-dark-bg,var(--sdm-tbg))]"
-      )}
-      style={tokenStyle as CSSProperties}
-    >
-      {token.content}
-    </span>
-  );
-};
-
-const HandlerBlock = ({
-  handler,
-  isActive,
-}: {
-  handler: SerializedHandler;
-  isActive: boolean;
-}) => (
-  <div className="relative">
-    <AnimatePresence>
-      {isActive && (
-        <motion.div
-          animate={{ opacity: 1 }}
-          className="absolute inset-0 border-primary border-l-2 bg-primary/10"
-          exit={{ opacity: 0 }}
-          initial={{ opacity: 0 }}
-          transition={{ duration: 0.3 }}
-        />
-      )}
-    </AnimatePresence>
-    <code className="relative grid min-w-max">
-      {handler.lines.map((line, lineIndex) => (
-        <span
-          className="line px-4"
-          // biome-ignore lint/suspicious/noArrayIndexKey: static token array from shiki
-          key={lineIndex}
-        >
-          {line.length > 0
-            ? line.map((token, tokenIndex) => (
-                // biome-ignore lint/suspicious/noArrayIndexKey: static token array from shiki
-                <TokenSpan key={tokenIndex} token={token} />
-              ))
-            : "\n"}
-        </span>
-      ))}
-    </code>
-  </div>
-);
-
-const ChatPanel = ({
-  visibleCount,
-  reaction,
-}: {
-  visibleCount: number;
-  reaction: ReactionTarget;
-}) => (
-  <div className="flex h-[300px] flex-col overflow-hidden rounded-sm border bg-background">
-    <div className="flex items-center gap-2 border-b bg-sidebar py-2.5 pl-4 text-muted-foreground">
-      <div className="flex items-center gap-2 font-normal text-muted-foreground text-sm">
-        <HashIcon className="size-4" /> <span>general</span>
-      </div>
-    </div>
-    <div className="flex min-h-0 flex-1 flex-col justify-end gap-3 overflow-hidden p-3">
-      <AnimatePresence initial={false}>
-        {MESSAGES.slice(0, visibleCount).map((msg) => (
-          <motion.div
-            animate={{ opacity: 1, y: 0, scale: 1 }}
-            exit={{
-              opacity: 0,
-              scale: 0.95,
-              transition: { duration: 0.2, ease: "easeIn" },
-            }}
-            initial={{ opacity: 0, y: 16, scale: 0.97 }}
-            key={msg.id}
-            layout
-            transition={{ type: "spring", stiffness: 380, damping: 28 }}
-          >
-            <div className="flex items-start gap-2.5">
-              <div
-                className={cn(
-                  "flex size-8 shrink-0 items-center justify-center rounded-md font-semibold text-white text-xs",
-                  msg.color
-                )}
-              >
-                {msg.initials}
-              </div>
-              <div className="min-w-0">
-                <div className="flex items-baseline gap-1.5">
-                  <span className="font-semibold text-foreground text-sm">
-                    {msg.author}
-                  </span>
-                  <span className="text-muted-foreground text-xs">
-                    12:00 PM
-                  </span>
-                </div>
-                <p className="text-foreground text-sm">
-                  {msg.text.split(/(@ChatBot)/g).map((part) =>
-                    part === "@ChatBot" ? (
-                      <span
-                        className="rounded bg-primary/15 px-0.5 font-medium text-primary"
-                        key={part}
-                      >
-                        @ChatBot
-                      </span>
-                    ) : (
-                      part
-                    )
-                  )}
-                </p>
-              </div>
-            </div>
-            <AnimatePresence>
-              {reaction === msg.id && <ReactionBadge />}
-            </AnimatePresence>
-          </motion.div>
-        ))}
-      </AnimatePresence>
-    </div>
-  </div>
-);
-
-const CodePanel = ({
-  activeHandler,
-  handlers,
-  header,
-  style,
-}: {
-  activeHandler: ActiveHandler;
-  handlers: SerializedHandler[];
-  header: ReactNode;
-  style: CSSProperties;
-}) => (
-  <div className="not-prose flex h-full flex-col overflow-hidden rounded-sm border">
-    {header}
-    <pre
-      className="flex-1 overflow-x-auto bg-background py-3 text-sm"
-      style={style}
-    >
-      <div className="min-w-max space-y-3">
-        {handlers.map((handler) => (
-          <HandlerBlock
-            handler={handler}
-            isActive={activeHandler === handler.key}
-            key={handler.key}
-          />
-        ))}
-      </div>
-    </pre>
-  </div>
-);
-
-const LAST_STEP = TIMELINE.length - 2;
-
-export const DemoClient = ({
-  handlers,
-  codeHeader,
-  codeStyle,
-}: {
-  handlers: SerializedHandler[];
-  codeHeader: ReactNode;
-  codeStyle: CSSProperties;
-}) => {
-  const [step, setStep] = useState(0);
-  const isMobile = useIsMobile();
-  const containerRef = useRef<HTMLDivElement>(null);
-  const isVisibleRef = useRef(true);
-  const timeoutsRef = useRef<ReturnType<typeof setTimeout>[]>([]);
-
-  const clearTimeouts = useCallback(() => {
-    for (const t of timeoutsRef.current) {
-      clearTimeout(t);
-    }
-    timeoutsRef.current = [];
-  }, []);
-
-  const run = useCallback(() => {
-    clearTimeouts();
-
-    const lastIdx = isMobile ? LAST_STEP : TIMELINE.length - 1;
-
-    let elapsed = 0;
-    for (let i = 0; i <= lastIdx; i++) {
-      elapsed += TIMELINE[i].delay;
-      const idx = i;
-      timeoutsRef.current.push(
-        setTimeout(() => {
-          if (!isVisibleRef.current) {
-            return;
-          }
-
-          if (!isMobile && idx === TIMELINE.length - 1) {
-            setStep(0);
-            timeoutsRef.current.push(
-              setTimeout(() => {
-                if (isVisibleRef.current) {
-                  run();
-                }
-              }, TIMELINE[idx].delay)
-            );
-          } else {
-            setStep(idx);
-          }
-        }, elapsed)
+  if (mode === "buffered") {
+    at(1800, () => setReply(DEPLOY_REPLY));
+    return;
+  }
+  if (mode === "edit") {
+    for (const index of DEPLOY_CHUNKS.keys()) {
+      at(500 + index * 700, () =>
+        setReply(DEPLOY_CHUNKS.slice(0, index + 1).join(" "))
       );
     }
-  }, [clearTimeouts, isMobile]);
+    return;
+  }
+  const tokens = DEPLOY_REPLY.split(WORD_PATTERN);
+  for (const index of tokens.keys()) {
+    at(500 + index * 35, () => setReply(tokens.slice(0, index + 1).join("")));
+  }
+};
+
+// The site's dark theme lifts background-100 to gray; scope it back to the
+// page black so the panels sit flush with the page.
+const PANEL_CLASS = "dark:[--ds-background-100:var(--ds-background-200)]";
+
+const PlatformTabs = ({
+  active,
+  onSelect,
+  platforms,
+}: {
+  active: PlatformSlug;
+  onSelect: (slug: PlatformSlug) => void;
+  platforms: Platform[];
+}) => (
+  <fieldset className="mx-auto flex min-w-0 flex-wrap items-center justify-center gap-1 border-0 p-0">
+    <legend className="sr-only">Platform</legend>
+    {platforms.map((platform) => {
+      const Logo = LOGOS[platform.slug];
+      const isActive = platform.slug === active;
+      return (
+        <button
+          aria-label={platform.name}
+          aria-pressed={isActive}
+          className={cn(
+            "relative flex items-center gap-2 rounded-md px-3 py-2 font-medium text-[13px] outline-none transition-colors focus-visible:ring-2 focus-visible:ring-blue-700",
+            isActive ? "text-gray-1000" : "text-gray-900 hover:text-gray-1000"
+          )}
+          key={platform.slug}
+          onClick={() => onSelect(platform.slug)}
+          type="button"
+        >
+          {isActive ? (
+            <motion.span
+              className="absolute inset-0 rounded-md border border-gray-400 bg-background-100 shadow-sm"
+              layoutId="hero-platform-tab"
+              transition={{ type: "spring", bounce: 0.15, duration: 0.4 }}
+            />
+          ) : null}
+          <Logo aria-hidden="true" className="relative z-10 size-4" />
+          <span className="relative z-10 max-lg:hidden">{platform.name}</span>
+        </button>
+      );
+    })}
+  </fieldset>
+);
+
+export const DemoClient = ({
+  platforms,
+  tokens,
+}: {
+  platforms: Platform[];
+  tokens: ThemedToken[][];
+}) => {
+  const [active, setActive] = useState<PlatformSlug>(
+    platforms[0]?.slug ?? "slack"
+  );
+  const [action, setAction] = useState<CardAction | null>(null);
+  const [reply, setReply] = useState("");
+  const [reduceMotion, setReduceMotion] = useState(false);
+  const platform =
+    platforms.find((item) => item.slug === active) ?? platforms[0];
+  const mode = platform?.stream ?? "native";
 
   useEffect(() => {
-    const el = containerRef.current;
-    if (!el) {
+    const query = window.matchMedia("(prefers-reduced-motion: reduce)");
+    const update = () => setReduceMotion(query.matches);
+    update();
+    query.addEventListener("change", update);
+    return () => query.removeEventListener("change", update);
+  }, []);
+
+  useEffect(() => {
+    if (!action) {
       return;
     }
-
-    const observer = new IntersectionObserver(
-      ([entry]) => {
-        const wasVisible = isVisibleRef.current;
-        isVisibleRef.current = entry.isIntersecting;
-
-        if (entry.isIntersecting && !wasVisible) {
-          setStep(0);
-          run();
-        } else if (!entry.isIntersecting && wasVisible) {
-          clearTimeouts();
-        }
-      },
-      { threshold: 0.3 }
-    );
-
-    observer.observe(el);
-    run();
-
+    if (reduceMotion) {
+      setReply(action === "cancel" ? CANCEL_REPLY : DEPLOY_REPLY);
+      return;
+    }
+    const timers: ReturnType<typeof setTimeout>[] = [];
+    scheduleReply(action, mode, setReply, (ms, fn) => {
+      timers.push(setTimeout(fn, ms));
+    });
     return () => {
-      observer.disconnect();
-      clearTimeouts();
+      for (const timer of timers) {
+        clearTimeout(timer);
+      }
     };
-  }, [run, clearTimeouts]);
+  }, [action, mode, reduceMotion]);
 
-  const current = TIMELINE[step];
+  const reset = () => {
+    setAction(null);
+    setReply("");
+  };
+
+  const selectPlatform = (slug: PlatformSlug) => {
+    setActive(slug);
+    reset();
+  };
+
+  const finalReply = action === "cancel" ? CANCEL_REPLY : DEPLOY_REPLY;
+  const isDone = action !== null && reply === finalReply;
+
+  if (!platform) {
+    return null;
+  }
+
+  const Preview = PLATFORM_PREVIEWS[platform.slug];
 
   return (
-    <div className="grid gap-4 lg:h-[300px] lg:grid-cols-2" ref={containerRef}>
-      <ChatPanel
-        reaction={current.reaction}
-        visibleCount={current.visibleCount}
-      />
-      <CodePanel
-        activeHandler={current.handler}
-        handlers={handlers}
-        header={codeHeader}
-        style={codeStyle}
-      />
-    </div>
+    <MotionConfig reducedMotion="user">
+      <div className="flex flex-col gap-4">
+        <PlatformTabs
+          active={platform.slug}
+          onSelect={selectPlatform}
+          platforms={platforms}
+        />
+        <div className="grid gap-4 lg:grid-cols-[2fr_1fr]">
+          <CodeWindow
+            className={PANEL_CLASS}
+            codeClassName="h-[472px] [&_pre]:min-h-[472px]"
+            filename="bot.tsx"
+            tokens={tokens}
+          />
+          <section
+            aria-label={`${platform.name} preview`}
+            className={cn(
+              PANEL_CLASS,
+              "relative min-h-[440px] overflow-hidden rounded-lg border border-gray-200 bg-background-100 shadow-sm max-lg:order-first"
+            )}
+          >
+            {/* Outgoing and incoming previews overlap and crossfade, so the
+                panel is never empty mid-switch. */}
+            <AnimatePresence initial={false}>
+              <motion.div
+                animate={{ opacity: 1, y: 0 }}
+                className="absolute inset-x-0 top-0 flex flex-col gap-4 p-6"
+                exit={{ opacity: 0 }}
+                initial={{ opacity: 0, y: 4 }}
+                key={platform.slug}
+                transition={{ duration: 0.2, ease: "easeOut" }}
+              >
+                <PreviewContext.Provider
+                  value={{
+                    action,
+                    onAction: setAction,
+                    reply,
+                    typing: action !== null && !reply,
+                  }}
+                >
+                  <Preview />
+                </PreviewContext.Provider>
+              </motion.div>
+            </AnimatePresence>
+            {isDone ? (
+              <button
+                className="absolute right-4 bottom-4 cursor-pointer rounded-md px-2 py-1 font-medium text-gray-900 text-label-12 outline-none transition-colors hover:text-gray-1000 focus-visible:ring-2 focus-visible:ring-blue-700"
+                onClick={reset}
+                type="button"
+              >
+                Reset
+              </button>
+            ) : null}
+          </section>
+        </div>
+        <p className="mx-auto text-copy-14 text-gray-900">
+          Same code on every platform.{" "}
+          <Link
+            className="inline-flex items-center font-medium text-gray-1000 hover:underline hover:underline-offset-4"
+            href="/adapters"
+            prefetch={true}
+          >
+            See all adapters
+            <IconArrowUpRightSmall aria-hidden="true" />
+          </Link>
+        </p>
+      </div>
+    </MotionConfig>
   );
 };
