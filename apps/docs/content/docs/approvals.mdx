@@ -78,9 +78,11 @@ Once a decision lands (or the timeout elapses), the card is edited in place: the
 
 ## Who can approve
 
-Anyone who can see the card can decide the approval. The click itself is trustworthy: Chat SDK verifies the platform's signature on the incoming event, and the button's callback URL never reaches the client. So the `user.id` on the result really is the person who clicked.
+Anyone who can see the card can decide the approval. When someone clicks, Chat SDK verifies the platform's signature on the event and stores a receipt in your state adapter that records which button was clicked, by whom, and on which thread. It then calls the workflow's webhook with that receipt. `requestApproval` takes the decision and `user` from the receipt rather than from the webhook request and accepts each receipt only once, so a POST to the webhook URL without a valid receipt is ignored and the workflow keeps waiting.
 
-If only certain people should decide, pass `approvers` with their user IDs. When anyone else clicks, the bot posts a notice in the thread and the workflow keeps waiting:
+The `Chat` instance that handles the click and the one that runs the workflow must use the same state adapter, such as Redis or Postgres, so the workflow can find the receipt. The memory state adapter works only when both run in the same process. The thread you pass must also come from Chat SDK, such as the one a handler receives or one from `bot.thread()` or `bot.openDM()`. `requestApproval` throws when given a custom `Thread` implementation.
+
+If only certain people should decide, pass `approvers` with their user IDs. When anyone else clicks, the bot posts a notice in the thread, refreshes the card's buttons so an approver can still decide, and keeps the workflow waiting:
 
 ```typescript
 await requestApproval(thread, {
@@ -104,8 +106,9 @@ const card = buildApprovalCard(
 );
 ```
 
+When the buttons target your own webhook, it receives the [callback payload](/docs/actions#callback-payload) directly, and nothing verifies its fields for you. Anyone who knows the URL can POST to it, so don't trust `user` or `actionId` from the body.
+
 <Callout type="info">
   The [Human-in-the-Loop guide](https://vercel.com/kb/guide/human-in-the-loop-with-chat-sdk-and-workflow-sdk)
-  walks through the underlying pattern, including multi-stage approvals and
-  validating approvers with `createHook()`.
+  walks through the underlying pattern, including multi-stage approvals.
 </Callout>

@@ -10,6 +10,12 @@ const CALLBACK_TOKEN_PREFIX = "__cb:";
 const CALLBACK_CACHE_KEY_PREFIX = "chat:callback:";
 const CALLBACK_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 const CALLBACK_LOCK_TTL_MS = 10_000;
+const CALLBACK_RECEIPT_KEY_PREFIX = "chat:callback-receipt:";
+// Covers the gap between the click and the receiving workflow step running,
+// including queue delay. Receivers delete receipts once they act on them.
+const CALLBACK_RECEIPT_TTL_MS = 24 * 60 * 60 * 1000;
+const CALLBACK_RECEIPT_NONCE_PATTERN =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 
 interface StoredCallback {
   actionId: string;
@@ -27,6 +33,19 @@ interface CallbackContext {
 interface CallbackScope {
   id: string;
   type: "channel" | "thread";
+}
+
+/**
+ * Server-side record of a button click that Chat POSTed to a callback URL.
+ * Built from the adapter-verified action event, never from the POST body, so
+ * the receiver can trust who clicked and which button.
+ */
+export interface CallbackReceipt {
+  actionId: string;
+  messageId?: string;
+  threadId?: string;
+  url: string;
+  user: { id: string; name?: string };
 }
 
 export function encodeCallbackValue(token: string): string {
@@ -179,6 +198,107 @@ export async function resolveCallbackUrl(
   } finally {
     await stateAdapter.releaseLock(lock);
   }
+}
+
+/**
+ * Store a receipt for a button click and return the nonce that identifies it.
+ * Write it before POSTing so the receiver can always find it.
+ */
+export async function createCallbackReceipt(
+  stateAdapter: StateAdapter,
+  receipt: CallbackReceipt
+): Promise<string> {
+  const nonce = crypto.randomUUID();
+  await stateAdapter.set(
+    `${CALLBACK_RECEIPT_KEY_PREFIX}${nonce}`,
+    receipt,
+    CALLBACK_RECEIPT_TTL_MS
+  );
+  return nonce;
+}
+
+function isCallbackReceipt(value: unknown): value is CallbackReceipt {
+  if (!value || typeof value !== "object") {
+    return false;
+  }
+  const receipt = value as Record<string, unknown>;
+  const user = receipt.user as Record<string, unknown> | null | undefined;
+  return (
+    typeof receipt.actionId === "string" &&
+    typeof receipt.url === "string" &&
+    (receipt.threadId === undefined || typeof receipt.threadId === "string") &&
+    (receipt.messageId === undefined ||
+      typeof receipt.messageId === "string") &&
+    !!user &&
+    typeof user === "object" &&
+    typeof user.id === "string" &&
+    (user.name === undefined || typeof user.name === "string")
+  );
+}
+
+/**
+ * Check that a value has the shape of a receipt nonce. Pure, so receivers can
+ * reject junk before doing any I/O.
+ */
+export function isCallbackReceiptNonce(value: unknown): value is string {
+  return (
+    typeof value === "string" && CALLBACK_RECEIPT_NONCE_PATTERN.test(value)
+  );
+}
+
+/**
+ * Look up and verify a click receipt without consuming it, so a retried
+ * reader sees the same result. Receivers enforce single use themselves and
+ * call `deleteCallbackReceipt` once they act on the click. Returns null when
+ * the nonce is malformed or unknown, or the receipt was issued for another
+ * URL or thread.
+ */
+export async function readCallbackReceipt(
+  stateAdapter: StateAdapter,
+  nonce: string,
+  expected: { threadId: string; url: string }
+): Promise<CallbackReceipt | null> {
+  if (!isCallbackReceiptNonce(nonce)) {
+    return null;
+  }
+
+  const receipt = await stateAdapter.get<unknown>(
+    `${CALLBACK_RECEIPT_KEY_PREFIX}${nonce}`
+  );
+  if (
+    !isCallbackReceipt(receipt) ||
+    receipt.url !== expected.url ||
+    receipt.threadId !== expected.threadId
+  ) {
+    return null;
+  }
+  return receipt;
+}
+
+export async function deleteCallbackReceipt(
+  stateAdapter: StateAdapter,
+  nonce: string
+): Promise<void> {
+  if (!isCallbackReceiptNonce(nonce)) {
+    return;
+  }
+  await stateAdapter.delete(`${CALLBACK_RECEIPT_KEY_PREFIX}${nonce}`);
+}
+
+/**
+ * Put back a token that `resolveCallbackUrl` consumed, so its button works
+ * again after the click could not be delivered.
+ */
+export async function restoreCallbackToken(
+  stateAdapter: StateAdapter,
+  token: string,
+  stored: StoredCallback
+): Promise<void> {
+  await stateAdapter.set(
+    `${CALLBACK_CACHE_KEY_PREFIX}${token}`,
+    stored,
+    CALLBACK_TTL_MS
+  );
 }
 
 export async function postToCallbackUrl(

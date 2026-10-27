@@ -292,6 +292,14 @@ export class ThreadImpl<TState = Record<string, unknown>>
     return state;
   }
 
+  /**
+   * The state adapter this thread stores its callback buttons in.
+   * @internal Used by chat/workflow to read and delete callback receipts.
+   */
+  getStateAdapter(): StateAdapter {
+    return this._stateAdapter;
+  }
+
   get recentMessages(): Message[] {
     return this._recentMessages;
   }

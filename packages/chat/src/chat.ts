@@ -1,8 +1,10 @@
 import { randomUUID } from "node:crypto";
 import {
+  createCallbackReceipt,
   decodeCallbackValue,
   postToCallbackUrl,
   resolveCallbackUrl,
+  restoreCallbackToken,
 } from "./callback-url";
 import { ChannelImpl, type SerializedChannel } from "./channel";
 import {
@@ -131,6 +133,18 @@ const NUMERIC_REGEX = /^\d+$/;
  */
 const DEDUPE_TTL_MS = 10 * 60 * 1000; // 10 minutes
 const MODAL_CONTEXT_TTL_MS = 24 * 60 * 60 * 1000; // 24 hours
+
+/**
+ * Callback URLs can carry bearer tokens (Workflow webhook URLs do), so logs
+ * only get the origin.
+ */
+function callbackOrigin(url: string): string {
+  try {
+    return new URL(url).origin;
+  } catch {
+    return "[invalid URL]";
+  }
+}
 
 function modalStaysOpen(response: ModalResponse | undefined): boolean {
   return (
@@ -1357,14 +1371,14 @@ export class Chat<
         .then(({ error }) => {
           if (error) {
             this.logger.error("Modal callbackUrl POST failed", {
-              callbackUrl,
+              callbackOrigin: callbackOrigin(callbackUrl),
               error,
             });
           }
         })
         .catch((error) => {
           this.logger.error("Modal callbackUrl POST failed", {
-            callbackUrl,
+            callbackOrigin: callbackOrigin(callbackUrl),
             error,
           });
         });
@@ -1939,9 +1953,43 @@ export class Chat<
       : event;
 
     let callbackUrlPromise: Promise<void> | undefined;
-    if (resolved) {
+    if (resolved && callbackToken) {
       const callbackUrl = resolved.url;
       callbackUrlPromise = (async () => {
+        const user = { id: event.user.userId, name: event.user.userName };
+        let receipt: string;
+        try {
+          receipt = await createCallbackReceipt(this._stateAdapter, {
+            url: callbackUrl,
+            actionId: resolved.actionId,
+            user,
+            threadId: event.threadId,
+            messageId: event.messageId,
+          });
+        } catch (error) {
+          // Without a receipt the receiver cannot verify the click, so skip
+          // the POST and hand the spent token back for the user to retry.
+          this.logger.error("Button callbackUrl receipt write failed", {
+            callbackOrigin: callbackOrigin(callbackUrl),
+            actionId: event.actionId,
+            error,
+          });
+          try {
+            await restoreCallbackToken(
+              this._stateAdapter,
+              callbackToken,
+              resolved
+            );
+          } catch (restoreError) {
+            this.logger.error("Button callback token restore failed", {
+              callbackOrigin: callbackOrigin(callbackUrl),
+              actionId: event.actionId,
+              error: restoreError,
+            });
+          }
+          return;
+        }
+
         const { error } = await postToCallbackUrl(callbackUrl, {
           type: "action",
           actionId: resolved.actionId,
@@ -1949,13 +1997,14 @@ export class Chat<
           // Card inputs travel with the click, the same way modal submits
           // forward their values. Absent when the card has none.
           values: event.values,
-          user: { id: event.user.userId, name: event.user.userName },
+          user,
           threadId: event.threadId,
           messageId: event.messageId,
+          receipt,
         });
         if (error) {
           this.logger.error("Button callbackUrl POST failed", {
-            callbackUrl,
+            callbackOrigin: callbackOrigin(callbackUrl),
             actionId: event.actionId,
             error,
           });

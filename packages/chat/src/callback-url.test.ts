@@ -1,9 +1,14 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, type Mock, vi } from "vitest";
 import {
+  type CallbackReceipt,
+  createCallbackReceipt,
   decodeCallbackValue,
+  deleteCallbackReceipt,
   encodeCallbackValue,
+  isCallbackReceiptNonce,
   postToCallbackUrl,
   processCardCallbackUrls,
+  readCallbackReceipt,
   resolveCallbackUrl,
 } from "./callback-url";
 import { Actions, Button, Card, CardText, Section } from "./cards";
@@ -11,6 +16,8 @@ import { createMockState } from "./mock-adapter";
 
 const CALLBACK_TOKEN_PATTERN = /^__cb:[a-f0-9]{16}$/;
 const CALLBACK_PREFIX_PATTERN = /^__cb:/;
+const UUID_PATTERN =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 
 describe("encodeCallbackValue / decodeCallbackValue", () => {
   it("encodes token", () => {
@@ -377,6 +384,164 @@ describe("resolveCallbackUrl", () => {
         threadId: "slack:C1:2.2",
       })
     ).resolves.toMatchObject({ url: "https://example.com/hook" });
+  });
+});
+
+describe("createCallbackReceipt / readCallbackReceipt", () => {
+  const url = "https://example.com/webhook/token-1";
+  const threadId = "slack:C1:1.1";
+  const receipt: CallbackReceipt = {
+    url,
+    actionId: "approve",
+    user: { id: "U1", name: "alice" },
+    threadId,
+    messageId: "msg-1",
+  };
+  const key = (nonce: string) => `chat:callback-receipt:${nonce}`;
+  let state: ReturnType<typeof createMockState>;
+
+  beforeEach(() => {
+    state = createMockState();
+  });
+
+  it("stores the receipt under a fresh UUID nonce for 24 hours", async () => {
+    const nonce = await createCallbackReceipt(state, receipt);
+    const other = await createCallbackReceipt(state, receipt);
+
+    expect(nonce).toMatch(UUID_PATTERN);
+    expect(other).not.toBe(nonce);
+    expect(state.set).toHaveBeenCalledWith(
+      key(nonce),
+      receipt,
+      24 * 60 * 60 * 1000
+    );
+  });
+
+  it("returns the receipt on every read without locking or deleting it", async () => {
+    const nonce = await createCallbackReceipt(state, receipt);
+
+    await expect(
+      readCallbackReceipt(state, nonce, { url, threadId })
+    ).resolves.toEqual(receipt);
+    await expect(
+      readCallbackReceipt(state, nonce, { url, threadId })
+    ).resolves.toEqual(receipt);
+    expect(state.cache.has(key(nonce))).toBe(true);
+    expect(state.acquireLock).not.toHaveBeenCalled();
+    expect(state.delete).not.toHaveBeenCalled();
+  });
+
+  it("rejects a receipt issued for another URL or thread", async () => {
+    const nonce = await createCallbackReceipt(state, receipt);
+
+    await expect(
+      readCallbackReceipt(state, nonce, {
+        url: "https://example.com/webhook/token-2",
+        threadId,
+      })
+    ).resolves.toBeNull();
+    await expect(
+      readCallbackReceipt(state, nonce, { url, threadId: "slack:C1:2.2" })
+    ).resolves.toBeNull();
+    expect(state.cache.has(key(nonce))).toBe(true);
+
+    await expect(
+      readCallbackReceipt(state, nonce, { url, threadId })
+    ).resolves.toEqual(receipt);
+  });
+
+  it("rejects a receipt with no thread when one is expected", async () => {
+    const nonce = await createCallbackReceipt(state, {
+      ...receipt,
+      threadId: undefined,
+    });
+
+    await expect(
+      readCallbackReceipt(state, nonce, { url, threadId })
+    ).resolves.toBeNull();
+    expect(state.cache.has(key(nonce))).toBe(true);
+  });
+
+  it("rejects nonces that are not UUIDs without touching state", async () => {
+    state.cache.set(key("forged"), receipt);
+
+    await expect(
+      readCallbackReceipt(state, "forged", { url, threadId })
+    ).resolves.toBeNull();
+    expect(state.get).not.toHaveBeenCalled();
+    expect(state.cache.has(key("forged"))).toBe(true);
+  });
+
+  // url and threadId match in every case, so only the shape check rejects.
+  it.each<[string, unknown]>([
+    ["a non-string actionId", { ...receipt, actionId: 1 }],
+    ["a non-string messageId", { ...receipt, messageId: 1 }],
+    ["no user", { ...receipt, user: undefined }],
+    ["a null user", { ...receipt, user: null }],
+    ["a string user", { ...receipt, user: "U1" }],
+    ["a non-string user id", { ...receipt, user: { id: 1, name: "alice" } }],
+    ["a non-string user name", { ...receipt, user: { id: "U1", name: 1 } }],
+  ])("rejects a stored receipt with %s", async (_name, stored) => {
+    const nonce = crypto.randomUUID();
+    state.cache.set(key(nonce), stored);
+
+    await expect(
+      readCallbackReceipt(state, nonce, { url, threadId })
+    ).resolves.toBeNull();
+    expect(state.cache.has(key(nonce))).toBe(true);
+  });
+
+  it("propagates state read errors so the caller can retry", async () => {
+    const nonce = await createCallbackReceipt(state, receipt);
+    (state.get as Mock).mockRejectedValueOnce(new Error("state down"));
+
+    await expect(
+      readCallbackReceipt(state, nonce, { url, threadId })
+    ).rejects.toThrow("state down");
+    await expect(
+      readCallbackReceipt(state, nonce, { url, threadId })
+    ).resolves.toEqual(receipt);
+  });
+
+  it("deletes a receipt by nonce", async () => {
+    const nonce = await createCallbackReceipt(state, receipt);
+    const other = await createCallbackReceipt(state, receipt);
+
+    await deleteCallbackReceipt(state, nonce);
+    expect(state.cache.has(key(nonce))).toBe(false);
+    expect(state.cache.has(key(other))).toBe(true);
+  });
+
+  it("ignores delete requests for malformed nonces without touching state", async () => {
+    state.cache.set(key("forged"), receipt);
+
+    await deleteCallbackReceipt(state, "forged");
+    expect(state.delete).not.toHaveBeenCalled();
+    expect(state.cache.has(key("forged"))).toBe(true);
+  });
+});
+
+describe("isCallbackReceiptNonce", () => {
+  it("accepts the lowercase UUIDs createCallbackReceipt issues", async () => {
+    const nonce = await createCallbackReceipt(createMockState(), {
+      url: "https://example.com/hook",
+      actionId: "approve",
+      user: { id: "U1" },
+    });
+    expect(isCallbackReceiptNonce(nonce)).toBe(true);
+  });
+
+  it.each<[string, unknown]>([
+    ["an uppercase UUID", "0F8FAD5B-D9CB-469F-A165-70867728950E"],
+    ["a UUID without dashes", "0f8fad5bd9cb469fa16570867728950e"],
+    ["a UUID with extra characters", "0f8fad5b-d9cb-469f-a165-70867728950e "],
+    ["a key path segment", "../0f8fad5b-d9cb-469f-a165-70867728950e"],
+    ["an empty string", ""],
+    ["a number", 12_345],
+    ["null", null],
+    ["an array holding a UUID", ["0f8fad5b-d9cb-469f-a165-70867728950e"]],
+  ])("rejects %s", (_name, value) => {
+    expect(isCallbackReceiptNonce(value)).toBe(false);
   });
 });
 
