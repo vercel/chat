@@ -97,7 +97,7 @@ export const OssStatsSection = async () => {
   return (
     <dl
       aria-label="Chat SDK community"
-      className="grid grid-cols-2 gap-x-6 gap-y-10 py-12 md:grid-cols-4 md:py-20"
+      className="mx-auto grid max-w-4xl grid-cols-2 gap-x-6 gap-y-10 py-12 text-center md:grid-cols-4 md:py-20"
     >
       {stats.map((stat) => (
         <div className="flex flex-col" key={stat.label}>

@@ -88,7 +88,7 @@ export const SupportedPlatforms = () => (
               href={`/adapters/official/${platform.slug}`}
               prefetch={true}
             >
-              <platform.icon className="size-12" />
+              <platform.icon className="size-8 sm:size-12" />
             </Link>
           </li>
         ))}
