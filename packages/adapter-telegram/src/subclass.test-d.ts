@@ -1,3 +1,4 @@
+import type { AdapterPostableMessage } from "chat";
 import { describe, expectTypeOf, it } from "vitest";
 import {
   TelegramAdapter,
@@ -18,32 +19,49 @@ describe("subclass extensibility", () => {
 
   it("exposes the long message split hooks to subclasses", () => {
     class SplitSubclass extends TelegramAdapter {
-      retryNumber() {
-        return this.retrySplitPartRateLimit(
-          () => Promise.resolve(1),
-          "telegram:1"
-        );
+      sendNumber() {
+        return this.sendSplitPart(() => Promise.resolve(1), "telegram:1", {
+          delivered: 1,
+          lastDeliveredAt: 0,
+          retryWaitMs: 0,
+        });
+      }
+      split(message: AdapterPostableMessage) {
+        return this.splitLongMessage(message, false);
+      }
+      fits() {
+        return this.fitsRegularMessage({ plainText: "a", text: "a" });
+      }
+      interval() {
+        return this.splitPartIntervalMs("telegram:1");
       }
       longMessageMode() {
         return this.longMessages;
       }
-      hooks() {
-        // Compile-time check: fails if any of these become `private`.
-        return [
-          this.postMessageParts,
-          this.sendPostable,
-          this.splitLongMessage,
-        ] as const;
-      }
     }
-    // The retry wrapper resolves to whatever the wrapped send resolves to.
+    // The send wrapper resolves to whatever the wrapped send resolves to.
     expectTypeOf(
-      SplitSubclass.prototype.retryNumber
+      SplitSubclass.prototype.sendNumber
     ).returns.resolves.toEqualTypeOf<number>();
+    expectTypeOf(SplitSubclass.prototype.split).returns.toEqualTypeOf<
+      AdapterPostableMessage[] | null
+    >();
+    expectTypeOf(SplitSubclass.prototype.fits).returns.toEqualTypeOf<boolean>();
+    expectTypeOf(
+      SplitSubclass.prototype.interval
+    ).returns.toEqualTypeOf<number>();
     expectTypeOf(
       SplitSubclass.prototype.longMessageMode
     ).returns.toEqualTypeOf<TelegramLongMessageMode>();
-    expectTypeOf(SplitSubclass.prototype.hooks).toBeFunction();
+    // The split state is optional, so a subclass can send a single message.
+    expectTypeOf<Parameters<SplitSubclass["sendPostable"]>>().toEqualTypeOf<
+      [
+        threadId: string,
+        message: AdapterPostableMessage,
+        replyToMessageId?: string,
+        splitState?: Parameters<SplitSubclass["sendSplitPart"]>[2],
+      ]
+    >();
   });
 });
 

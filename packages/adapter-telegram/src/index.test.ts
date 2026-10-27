@@ -13,7 +13,15 @@ import {
   mockLogger,
   threadIdContract,
 } from "@chat-adapter/tests";
-import { type Attachment, type ChatInstance, Message } from "chat";
+import {
+  type Attachment,
+  type ChatInstance,
+  convertEmojiPlaceholders,
+  Message,
+  parseMarkdown,
+  stringifyMarkdown,
+  toPlainText,
+} from "chat";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { encodeTelegramCallbackData } from "./cards";
 import {
@@ -32,6 +40,7 @@ import {
   TelegramFormatConverter,
   trimToMarkdownV2SafeBoundary,
 } from "./markdown";
+import { TELEGRAM_RICH_MESSAGE_LIMIT } from "./rich";
 
 const mockFetch = vi.fn<typeof fetch>();
 const BUSINESS_REACTION_ERROR = /business account/;
@@ -8047,15 +8056,23 @@ describe("Telegram Business mode", () => {
 
 const SPLIT_TABLE_HEADER_LINE = /^Name\s+\|\s+Value\s*$/;
 
-// These tests parse and render the issue's ~10k character sample several
-// times per post. That takes well under a second locally but can pass the
-// default 5s timeout under CI coverage instrumentation.
+// These tests parse and render long posts several times each. That takes
+// well under a second locally but can pass the default 5s timeout under CI
+// coverage instrumentation.
 describe("longMessages: split", { timeout: 20_000 }, () => {
+  const converter = new TelegramFormatConverter();
   const ISSUE_MARKDOWN = Array.from(
     { length: 200 },
     (_, index) =>
       `## Section ${index + 1}\n\n- Result with punctuation: value_${index}.`
   ).join("\n\n");
+  // About 12k characters of plain words, so three regular messages.
+  const WORDS = Array.from({ length: 2000 }, (_, index) => `w${index}`);
+  // About 60k characters, so two rich messages.
+  const PARAGRAPHS = Array.from(
+    { length: 1200 },
+    (_, index) => `Paragraph ${index} with some filler text to pad it out.`
+  );
 
   interface SentCall {
     body: {
@@ -8069,6 +8086,19 @@ describe("longMessages: split", { timeout: 20_000 }, () => {
   }
 
   let sent: SentCall[];
+  // A fake clock that only moves when a send takes time or the adapter
+  // sleeps, so pacing waits are exact.
+  let now: number;
+  let dateNow: ReturnType<typeof vi.spyOn>;
+
+  beforeEach(() => {
+    now = 1_000_000;
+    dateNow = vi.spyOn(Date, "now").mockImplementation(() => now);
+  });
+
+  afterEach(() => {
+    dateNow.mockRestore();
+  });
 
   function mockTelegram(
     options: {
@@ -8111,9 +8141,8 @@ describe("longMessages: split", { timeout: 20_000 }, () => {
     });
   }
 
-  async function createSplitAdapter(
-    logger = mockLogger
-  ): Promise<TelegramAdapter> {
+  async function createSplitAdapter() {
+    const logger = createMockLogger();
     const adapter = createTelegramAdapter({
       botToken: "token",
       longMessages: "split",
@@ -8122,20 +8151,33 @@ describe("longMessages: split", { timeout: 20_000 }, () => {
       userName: "mybot",
     });
     await adapter.initialize(createMockChat());
-    return adapter;
+    const sleep = vi
+      .spyOn(
+        adapter as unknown as { sleep: (delayMs: number) => Promise<void> },
+        "sleep"
+      )
+      .mockImplementation(async (delayMs) => {
+        now += delayMs;
+      });
+    return { adapter, logger, sleep };
   }
 
   function sentMessages(): SentCall[] {
     return sent.filter((call) => call.method === "sendMessage" && call.ok);
   }
 
-  function stubSleep(adapter: TelegramAdapter) {
-    return vi
-      .spyOn(
-        adapter as unknown as { sleep: (delayMs: number) => Promise<void> },
-        "sleep"
-      )
-      .mockResolvedValue(undefined);
+  function sentTexts(): string[] {
+    return sentMessages().map(({ body }) => body.text ?? "");
+  }
+
+  function sentRichMarkdown(): string[] {
+    return sent
+      .filter((call) => call.method === "sendRichMessage" && call.ok)
+      .map(({ body }) => body.rich_message?.markdown ?? "");
+  }
+
+  function sleepCalls(sleep: { mock: { calls: unknown[][] } }): unknown[] {
+    return sleep.mock.calls.map(([delayMs]) => delayMs);
   }
 
   function rateLimited(retryAfter: number): Response {
@@ -8154,31 +8196,6 @@ describe("longMessages: split", { timeout: 20_000 }, () => {
     ).toThrow(ValidationError);
   });
 
-  it("sends a long markdown post as ordered MarkdownV2 messages without losing content", async () => {
-    mockTelegram();
-    const adapter = await createSplitAdapter();
-
-    const result = await adapter.postMessage("telegram:123", {
-      markdown: ISSUE_MARKDOWN,
-    });
-
-    const messages = sentMessages();
-    expect(messages.length).toBeGreaterThan(1);
-    for (const { body } of messages) {
-      const text = body.text ?? "";
-      expect(body.parse_mode).toBe("MarkdownV2");
-      expect(text.length).toBeLessThanOrEqual(TELEGRAM_MESSAGE_LIMIT);
-      expect(text.endsWith("\\.\\.\\.")).toBe(false);
-      expect(trimToMarkdownV2SafeBoundary(text)).toBe(text);
-    }
-
-    const combined = messages.map(({ body }) => body.text).join("\n\n");
-    expect(combined).toBe(
-      new TelegramFormatConverter().fromMarkdown(ISSUE_MARKDOWN)
-    );
-    expect(result.id).toBe(`123:${100 + sent.length - 1}`);
-  });
-
   it("still truncates by default", async () => {
     mockTelegram();
     const adapter = createTelegramAdapter({
@@ -8191,92 +8208,348 @@ describe("longMessages: split", { timeout: 20_000 }, () => {
 
     await adapter.postMessage("telegram:123", { markdown: ISSUE_MARKDOWN });
 
-    expect(sentMessages()).toHaveLength(1);
-    expect(sentMessages()[0]?.body.text?.endsWith("\\.\\.\\.")).toBe(true);
+    expect(sentTexts()).toHaveLength(1);
+    expect(sentTexts()[0]?.endsWith("\\.\\.\\.")).toBe(true);
   });
 
   it("sends a short post as one message", async () => {
     mockTelegram({ rich: true });
-    const adapter = await createSplitAdapter();
+    const { adapter, sleep } = await createSplitAdapter();
 
     await adapter.postMessage("telegram:123", { markdown: "**hello**" });
 
     expect(sent).toHaveLength(1);
     expect(sent[0]?.body.rich_message?.markdown).toBe("**hello**");
+    expect(sleep).not.toHaveBeenCalled();
+  });
+
+  it("sends a long markdown post as ordered MarkdownV2 messages without losing content", async () => {
+    mockTelegram();
+    const { adapter } = await createSplitAdapter();
+
+    const result = await adapter.postMessage("telegram:123", {
+      markdown: ISSUE_MARKDOWN,
+    });
+
+    const messages = sentMessages();
+    expect(messages.length).toBeGreaterThanOrEqual(3);
+    for (const { body } of messages) {
+      const text = body.text ?? "";
+      expect(body.parse_mode).toBe("MarkdownV2");
+      expect(text.length).toBeLessThanOrEqual(TELEGRAM_MESSAGE_LIMIT);
+      expect(text.endsWith("\\.\\.\\.")).toBe(false);
+      expect(trimToMarkdownV2SafeBoundary(text)).toBe(text);
+    }
+    expect(sentTexts().join("\n\n")).toBe(
+      converter.fromMarkdown(ISSUE_MARKDOWN)
+    );
+    // The returned message is the last part.
+    expect(result.id).toBe(`123:${100 + messages.length}`);
   });
 
   it("splits rich messages at the rich message limit", async () => {
     mockTelegram({ rich: true });
-    const adapter = await createSplitAdapter();
-    const markdown = Array.from(
-      { length: 1200 },
-      (_, index) => `Paragraph ${index} with some filler text to pad it out.`
-    ).join("\n\n");
+    const { adapter } = await createSplitAdapter();
+
+    await adapter.postMessage("telegram:123", {
+      markdown: PARAGRAPHS.join("\n\n"),
+    });
+
+    expect(sent.every((call) => call.method === "sendRichMessage")).toBe(true);
+    const parts = sentRichMarkdown();
+    expect(parts).toHaveLength(2);
+    for (const part of parts) {
+      expect(Array.from(part).length).toBeLessThanOrEqual(
+        TELEGRAM_RICH_MESSAGE_LIMIT
+      );
+    }
+    // Every paragraph arrives once, in order, with nothing truncated.
+    expect(parts.flatMap((part) => part.trim().split("\n\n"))).toEqual(
+      PARAGRAPHS
+    );
+  });
+
+  it("sends a rich markdown post whole when only its source is over the limit", async () => {
+    mockTelegram({ rich: true });
+    const { adapter } = await createSplitAdapter();
+    // Extra blank lines make the source longer than it renders.
+    const markdown = PARAGRAPHS.slice(0, 600).join("\n\n\n\n\n\n\n\n\n\n");
+    const reserialized = stringifyMarkdown(parseMarkdown(markdown));
+    expect(Array.from(markdown).length).toBeGreaterThan(
+      TELEGRAM_RICH_MESSAGE_LIMIT
+    );
+    expect(Array.from(reserialized).length).toBeLessThanOrEqual(
+      TELEGRAM_RICH_MESSAGE_LIMIT
+    );
 
     await adapter.postMessage("telegram:123", { markdown });
 
-    expect(sent.length).toBeGreaterThan(1);
-    const parts = sent.map(({ body, method }) => {
-      expect(method).toBe("sendRichMessage");
-      return body.rich_message?.markdown ?? "";
-    });
-    for (const part of parts) {
-      expect(Array.from(part).length).toBeLessThanOrEqual(32_768);
-    }
-    expect(parts.join("\n\n")).toContain("Paragraph 0 with");
-    expect(parts.at(-1)).toContain("Paragraph 1199 with");
-    expect(parts.join("\n\n").includes("...")).toBe(false);
+    expect(sent).toHaveLength(1);
+    expect(sentRichMarkdown()).toEqual([reserialized]);
+  });
+
+  it("sends a rich markdown post as is when only its re-rendered markdown is over the limit", async () => {
+    mockTelegram({ rich: true });
+    const { adapter } = await createSplitAdapter();
+    // Re-rendering escapes every underscore, which makes it longer.
+    const markdown = Array.from(
+      { length: 3000 },
+      (_, index) => `id_${index}_x`
+    ).join(" ");
+    expect(Array.from(markdown).length).toBeLessThanOrEqual(
+      TELEGRAM_RICH_MESSAGE_LIMIT
+    );
+    expect(
+      Array.from(stringifyMarkdown(parseMarkdown(markdown))).length
+    ).toBeGreaterThan(TELEGRAM_RICH_MESSAGE_LIMIT);
+
+    await adapter.postMessage("telegram:123", { markdown });
+
+    expect(sentRichMarkdown()).toEqual([markdown]);
   });
 
   it("splits again for regular messages when a rich send falls back", async () => {
     mockTelegram();
-    const adapter = await createSplitAdapter();
+    const { adapter } = await createSplitAdapter();
 
     await adapter.postMessage("telegram:123", { markdown: ISSUE_MARKDOWN });
 
+    // The whole post fits a rich message, so one rich send is tried first.
     expect(sent[0]?.method).toBe("sendRichMessage");
-    const messages = sentMessages();
-    expect(messages.length).toBeGreaterThan(1);
-    for (const { body } of messages) {
-      expect(body.text?.length).toBeLessThanOrEqual(TELEGRAM_MESSAGE_LIMIT);
+    expect(
+      sent.filter((call) => call.method === "sendRichMessage")
+    ).toHaveLength(1);
+    expect(sentTexts().length).toBeGreaterThanOrEqual(3);
+    for (const text of sentTexts()) {
+      expect(text.length).toBeLessThanOrEqual(TELEGRAM_MESSAGE_LIMIT);
     }
-    expect(messages.at(-1)?.body.text).toContain("Section 200");
+    expect(sentTexts().join("\n\n")).toBe(
+      converter.fromMarkdown(ISSUE_MARKDOWN)
+    );
+  });
+
+  it("splits the remaining rich parts for regular messages when rich messages stop working mid-post", async () => {
+    mockTelegram({
+      rich: true,
+      respond: (method, priorCalls) =>
+        method === "sendRichMessage" && priorCalls >= 1
+          ? telegramError(404, 404, "Not Found: method not found")
+          : undefined,
+    });
+    const { adapter } = await createSplitAdapter();
+
+    await adapter.postMessage("telegram:123", {
+      markdown: PARAGRAPHS.join("\n\n"),
+    });
+
+    // The second rich send fails, and later parts skip rich entirely.
+    expect(
+      sent
+        .filter((call) => call.method === "sendRichMessage")
+        .map((call) => call.ok)
+    ).toEqual([true, false]);
+    const [firstPart = ""] = sentRichMarkdown();
+    const richParagraphs = firstPart.trim().split("\n\n");
+    expect(richParagraphs).toEqual(PARAGRAPHS.slice(0, richParagraphs.length));
+    for (const text of sentTexts()) {
+      expect(text.length).toBeLessThanOrEqual(TELEGRAM_MESSAGE_LIMIT);
+    }
+    expect(sentTexts().join("\n\n")).toBe(
+      converter.fromMarkdown(
+        PARAGRAPHS.slice(richParagraphs.length).join("\n\n")
+      )
+    );
+  });
+
+  it("keeps the original markdown as the plain-text fallback when the post fits once rendered", async () => {
+    mockTelegram({
+      respond: (method, priorCalls) =>
+        method === "sendMessage" && priorCalls === 0
+          ? telegramError(400, 400, "Bad Request: can't parse entities")
+          : undefined,
+    });
+    const { adapter } = await createSplitAdapter();
+    // Images have no plain text, so the fallback is the markdown source,
+    // which is over the limit even though the MarkdownV2 body fits.
+    const markdown = Array.from(
+      { length: 80 },
+      (_, index) => `![](https://example.com/images/${index}/picture-0000.png)`
+    ).join(" ");
+    expect(toPlainText(parseMarkdown(markdown)).trim()).toBe("");
+    expect(markdown.length).toBeGreaterThan(TELEGRAM_MESSAGE_LIMIT);
+    expect(converter.fromMarkdown(markdown).length).toBeLessThanOrEqual(
+      TELEGRAM_MESSAGE_LIMIT
+    );
+
+    await adapter.postMessage("telegram:123", { markdown });
+
+    const regular = sent.filter((call) => call.method === "sendMessage");
+    expect(regular.map((call) => call.body.parse_mode)).toEqual([
+      "MarkdownV2",
+      undefined,
+    ]);
+    expect(regular[0]?.body.text).toBe(converter.fromMarkdown(markdown));
+    const fallback = regular[1]?.body.text ?? "";
+    expect(fallback.length).toBeLessThanOrEqual(TELEGRAM_MESSAGE_LIMIT);
+    expect(fallback.startsWith(markdown.slice(0, 200))).toBe(true);
   });
 
   it("replies with the first part only", async () => {
     mockTelegram();
-    const adapter = await createSplitAdapter();
+    const { adapter } = await createSplitAdapter();
 
     await adapter.reply("telegram:123", "123:7", { markdown: ISSUE_MARKDOWN });
 
     const messages = sentMessages();
+    expect(messages.length).toBeGreaterThanOrEqual(3);
     expect(messages[0]?.body.reply_parameters?.message_id).toBe(7);
     for (const { body } of messages.slice(1)) {
       expect(body.reply_parameters).toBeUndefined();
     }
   });
 
+  it("replies with the first rich part only", async () => {
+    mockTelegram({ rich: true });
+    const { adapter } = await createSplitAdapter();
+
+    await adapter.reply("telegram:123", "123:7", {
+      markdown: PARAGRAPHS.join("\n\n"),
+    });
+
+    expect(sent.map((call) => call.method)).toEqual([
+      "sendRichMessage",
+      "sendRichMessage",
+    ]);
+    expect(sent.map((call) => call.body.reply_parameters?.message_id)).toEqual([
+      7,
+      undefined,
+    ]);
+  });
+
+  it("sizes parts for regular messages once rich messages are known to be unavailable", async () => {
+    mockTelegram();
+    const { adapter, sleep } = await createSplitAdapter();
+    // The first rich send fails with "method not found", so the adapter
+    // stops trying rich messages.
+    await adapter.postMessage("telegram:123", { markdown: "warm up" });
+    expect(sent.map((call) => call.method)).toEqual([
+      "sendRichMessage",
+      "sendMessage",
+    ]);
+    mockTelegram();
+
+    const result = await adapter.reply("telegram:123", "123:7", {
+      markdown: ISSUE_MARKDOWN,
+    });
+
+    expect(sent.every((call) => call.method === "sendMessage")).toBe(true);
+    const messages = sentMessages();
+    expect(messages).toHaveLength(sent.length);
+    expect(messages.length).toBeGreaterThanOrEqual(3);
+    expect(
+      messages.map(({ body }) => body.reply_parameters?.message_id)
+    ).toEqual([
+      7,
+      ...Array.from({ length: messages.length - 1 }, () => undefined),
+    ]);
+    expect(sleepCalls(sleep)).toEqual(
+      Array.from({ length: messages.length - 1 }, () => 1100)
+    );
+    expect(sentTexts().join("\n\n")).toBe(
+      converter.fromMarkdown(ISSUE_MARKDOWN)
+    );
+    expect(result.id).toBe(`123:${100 + messages.length}`);
+  });
+
   it("splits plain strings at word boundaries", async () => {
     mockTelegram();
-    const adapter = await createSplitAdapter();
-    const words = Array.from({ length: 2000 }, (_, index) => `w${index}`);
+    const { adapter } = await createSplitAdapter();
 
-    await adapter.postMessage("telegram:123", words.join(" "));
+    await adapter.postMessage("telegram:123", WORDS.join(" "));
 
     const messages = sentMessages();
-    expect(messages.length).toBeGreaterThan(1);
+    expect(messages).toHaveLength(3);
     for (const { body } of messages) {
       expect(body.parse_mode).toBeUndefined();
       expect(body.text?.length).toBeLessThanOrEqual(TELEGRAM_MESSAGE_LIMIT);
     }
-    expect(messages.map(({ body }) => body.text).join(" ")).toBe(
-      words.join(" ")
+    expect(sentTexts().join(" ")).toBe(WORDS.join(" "));
+  });
+
+  it("never breaks a plain string inside an emoji placeholder", async () => {
+    mockTelegram();
+    const { adapter } = await createSplitAdapter();
+    const placeholder = "{{emoji:thumbs_up}}";
+    // One character short of the limit, so only the converted emoji (two
+    // UTF-16 units) is too long, and any prefix that ends inside the raw
+    // placeholder is too.
+    const source = `${"x".repeat(TELEGRAM_MESSAGE_LIMIT - 1)}${placeholder}${"y".repeat(5000)}`;
+    // The placeholder straddles the limit in the source text.
+    const placeholderAt = source.indexOf(placeholder);
+    expect(placeholderAt).toBeLessThan(TELEGRAM_MESSAGE_LIMIT);
+    expect(placeholderAt + placeholder.length).toBeGreaterThan(
+      TELEGRAM_MESSAGE_LIMIT
     );
+    const expected = convertEmojiPlaceholders(source, "gchat");
+    expect(expected).not.toContain("{{");
+
+    await adapter.postMessage("telegram:123", source);
+
+    const texts = sentTexts();
+    expect(texts).toHaveLength(3);
+    expect(texts.join("")).toBe(expected);
+    for (const text of texts) {
+      expect(text.length).toBeLessThanOrEqual(TELEGRAM_MESSAGE_LIMIT);
+    }
+    expect(texts[0]).toBe("x".repeat(TELEGRAM_MESSAGE_LIMIT - 1));
+    expect(texts[1]?.startsWith("👍y")).toBe(true);
+  });
+
+  it("drops whitespace-only parts of a split plain string", async () => {
+    mockTelegram();
+    const { adapter, logger } = await createSplitAdapter();
+    const source = `${"x".repeat(TELEGRAM_MESSAGE_LIMIT)}\n\n\n`;
+
+    const result = await adapter.postMessage("telegram:123", source);
+
+    expect(sentTexts()).toEqual(["x".repeat(TELEGRAM_MESSAGE_LIMIT)]);
+    expect(result.id).toBe("123:101");
+    expect(logger.warn).not.toHaveBeenCalled();
+  });
+
+  it("drops whitespace-only parts of a split raw message", async () => {
+    mockTelegram();
+    const { adapter, logger } = await createSplitAdapter();
+    const raw = `${"x".repeat(TELEGRAM_MESSAGE_LIMIT)}${" ".repeat(10)}`;
+
+    const result = await adapter.postMessage("telegram:123", { raw });
+
+    expect(sentTexts()).toEqual(["x".repeat(TELEGRAM_MESSAGE_LIMIT)]);
+    expect(result.id).toBe("123:101");
+    expect(logger.warn).not.toHaveBeenCalled();
+  });
+
+  it("resolves emoji placeholders in split rich parts", async () => {
+    mockTelegram({ rich: true });
+    const { adapter } = await createSplitAdapter();
+    // Re-rendering the placeholder from the AST escapes its underscore.
+    expect(stringifyMarkdown(parseMarkdown("{{emoji:thumbs_up}}"))).toContain(
+      "thumbs\\_up"
+    );
+
+    await adapter.postMessage("telegram:123", {
+      markdown: `{{emoji:thumbs_up}} ${PARAGRAPHS.join("\n\n")}`,
+    });
+
+    const parts = sentRichMarkdown();
+    expect(parts).toHaveLength(2);
+    expect(parts.join("")).not.toContain("{{emoji:");
+    expect(parts[0]?.startsWith("👍 Paragraph 0 with")).toBe(true);
   });
 
   it("repeats a split table's header in every message", async () => {
     mockTelegram();
-    const adapter = await createSplitAdapter();
+    const { adapter } = await createSplitAdapter();
     const rows = Array.from(
       { length: 400 },
       (_, index) => `| row ${index} | value ${index} |`
@@ -8302,55 +8575,161 @@ describe("longMessages: split", { timeout: 20_000 }, () => {
     );
   });
 
-  describe("rate limits", () => {
-    const words = Array.from({ length: 2000 }, (_, index) => `w${index}`);
+  describe("pacing", () => {
+    // Moves the fake clock each time a part is rendered, standing in for
+    // the time spent preparing the next send.
+    function slowRender(adapter: TelegramAdapter, delayMs: number): void {
+      const target = adapter as unknown as {
+        renderUntruncatedBodies: (...args: unknown[]) => unknown;
+      };
+      const render = target.renderUntruncatedBodies.bind(adapter);
+      vi.spyOn(target, "renderUntruncatedBodies").mockImplementation(
+        (...args) => {
+          now += delayMs;
+          return render(...args);
+        }
+      );
+    }
 
-    it("waits out retry_after and resends a rate-limited part once", async () => {
+    it("spaces the messages of a private chat post about a second apart", async () => {
+      mockTelegram();
+      const { adapter, sleep } = await createSplitAdapter();
+      slowRender(adapter, 400);
+
+      await adapter.postMessage("telegram:123", WORDS.join(" "));
+
+      expect(sentMessages()).toHaveLength(3);
+      // Time spent since the last delivery counts toward the 1.1s gap.
+      expect(sleepCalls(sleep)).toEqual([700, 700]);
+    });
+
+    it("spaces the messages of a group post about three seconds apart", async () => {
+      mockTelegram();
+      const { adapter, sleep } = await createSplitAdapter();
+
+      await adapter.postMessage("telegram:-100123", WORDS.join(" "));
+
+      expect(sentMessages()).toHaveLength(3);
+      expect(sleepCalls(sleep)).toEqual([3100, 3100]);
+    });
+
+    it("doesn't pace the regular fallback again after a failed rich attempt", async () => {
+      mockTelegram({
+        rich: true,
+        respond: (method, priorCalls) =>
+          method === "sendRichMessage" && priorCalls === 1
+            ? telegramError(400, 400, "Bad Request: can't parse entities")
+            : undefined,
+      });
+      const { adapter, sleep } = await createSplitAdapter();
+      // About 90k characters, so three rich messages.
+      const paragraphs = Array.from(
+        { length: 1800 },
+        (_, index) => `Paragraph ${index} with some filler text to pad it out.`
+      );
+
+      await adapter.postMessage("telegram:123", {
+        markdown: paragraphs.join("\n\n"),
+      });
+
+      // The second rich part falls back to regular messages, and a parse
+      // error doesn't disable rich messages, so the third part is rich.
+      const methods = sent.map((call) => `${call.method}:${call.ok}`);
+      const regularCount = sentMessages().length;
+      expect(regularCount).toBeGreaterThanOrEqual(2);
+      expect(methods).toEqual([
+        "sendRichMessage:true",
+        "sendRichMessage:false",
+        ...Array.from({ length: regularCount }, () => "sendMessage:true"),
+        "sendRichMessage:true",
+      ]);
+      // One wait before the failed rich attempt covers the first regular
+      // part, then one before each later message.
+      expect(sleepCalls(sleep)).toEqual(
+        Array.from({ length: regularCount + 1 }, () => 1100)
+      );
+      const [first = "", last = ""] = sentRichMarkdown();
+      const firstParagraphs = first.trim().split("\n\n");
+      const lastParagraphs = last.trim().split("\n\n");
+      expect(firstParagraphs).toEqual(
+        paragraphs.slice(0, firstParagraphs.length)
+      );
+      expect(lastParagraphs).toEqual(paragraphs.slice(-lastParagraphs.length));
+      expect(sentTexts().join("\n\n")).toBe(
+        converter.fromMarkdown(
+          paragraphs
+            .slice(
+              firstParagraphs.length,
+              paragraphs.length - lastParagraphs.length
+            )
+            .join("\n\n")
+        )
+      );
+    });
+
+    it("doesn't wait when the gap has already passed", async () => {
+      mockTelegram();
+      const { adapter, sleep } = await createSplitAdapter();
+      slowRender(adapter, 2000);
+
+      await adapter.postMessage("telegram:123", WORDS.join(" "));
+
+      expect(sentMessages()).toHaveLength(3);
+      expect(sleep).not.toHaveBeenCalled();
+    });
+  });
+
+  describe("rate limits", () => {
+    it("waits out retry_after and resends a rate-limited later part", async () => {
       mockTelegram({
         respond: (method, priorCalls) =>
           method === "sendMessage" && priorCalls === 1
             ? rateLimited(2)
             : undefined,
       });
-      const adapter = await createSplitAdapter(createMockLogger());
-      const sleep = stubSleep(adapter);
+      const { adapter, logger, sleep } = await createSplitAdapter();
 
-      const result = await adapter.postMessage("telegram:123", words.join(" "));
+      const result = await adapter.postMessage("telegram:123", WORDS.join(" "));
 
-      expect(sleep).toHaveBeenCalledTimes(1);
-      expect(sleep).toHaveBeenCalledWith(2000);
+      // Pacing before part 2, the rate-limit wait, then pacing before part 3.
+      expect(sleepCalls(sleep)).toEqual([1100, 2000, 1100]);
+      expect(logger.warn).toHaveBeenCalledWith(
+        "Telegram rate limited a split message part",
+        { attempt: 1, retryAfterMs: 2000, threadId: "telegram:123" }
+      );
       const failed = sent.filter((call) => !call.ok);
       expect(failed).toHaveLength(1);
       // The rate-limited part is resent with the same text, right after.
       const failedIndex = sent.indexOf(failed[0] as SentCall);
       expect(sent[failedIndex + 1]?.body.text).toBe(failed[0]?.body.text);
       // Nothing is lost or duplicated.
-      const messages = sentMessages();
-      expect(messages.map(({ body }) => body.text).join(" ")).toBe(
-        words.join(" ")
-      );
-      expect(result.id).toBe(`123:${100 + messages.length}`);
+      expect(sentTexts().join(" ")).toBe(WORDS.join(" "));
+      expect(result.id).toBe(`123:${100 + sentMessages().length}`);
     });
 
     it("resends a rate-limited part after a rich send falls back", async () => {
       mockTelegram({
         respond: (method, priorCalls) =>
           method === "sendMessage" && priorCalls === 1
-            ? rateLimited(0)
+            ? rateLimited(1)
             : undefined,
       });
-      const adapter = await createSplitAdapter(createMockLogger());
-      const sleep = stubSleep(adapter);
+      const { adapter, sleep } = await createSplitAdapter();
 
       await adapter.postMessage("telegram:123", { markdown: ISSUE_MARKDOWN });
 
       expect(sent[0]?.method).toBe("sendRichMessage");
-      expect(sleep).toHaveBeenCalledWith(0);
-      const combined = sentMessages()
-        .map(({ body }) => body.text)
-        .join("\n\n");
-      expect(combined).toBe(
-        new TelegramFormatConverter().fromMarkdown(ISSUE_MARKDOWN)
+      const messageCount = sentMessages().length;
+      expect(messageCount).toBeGreaterThanOrEqual(3);
+      // The failed rich attempt delivered nothing, so the first regular part
+      // isn't paced. Every later part is, and the retry isn't paced again.
+      expect(sleepCalls(sleep)).toEqual([
+        1100,
+        1000,
+        ...Array.from({ length: messageCount - 2 }, () => 1100),
+      ]);
+      expect(sentTexts().join("\n\n")).toBe(
+        converter.fromMarkdown(ISSUE_MARKDOWN)
       );
     });
 
@@ -8362,65 +8741,143 @@ describe("longMessages: split", { timeout: 20_000 }, () => {
             ? rateLimited(1)
             : undefined,
       });
-      const adapter = await createSplitAdapter(createMockLogger());
-      const sleep = stubSleep(adapter);
-      const paragraphs = Array.from(
-        { length: 1200 },
-        (_, index) => `Paragraph ${index} with some filler text to pad it out.`
-      );
+      const { adapter, sleep } = await createSplitAdapter();
 
       await adapter.postMessage("telegram:123", {
-        markdown: paragraphs.join("\n\n"),
+        markdown: PARAGRAPHS.join("\n\n"),
       });
 
-      expect(sleep).toHaveBeenCalledWith(1000);
-      const delivered = sent
-        .filter((call) => call.ok)
-        .map(({ body }) => (body.rich_message?.markdown ?? "").trim());
-      expect(delivered.length).toBeGreaterThan(1);
-      expect(delivered.join("\n\n").split("\n\n")).toEqual(paragraphs);
+      expect(sleepCalls(sleep)).toEqual([1100, 1000]);
+      expect(
+        sentRichMarkdown().flatMap((part) => part.trim().split("\n\n"))
+      ).toEqual(PARAGRAPHS);
     });
 
-    it("rethrows when retry_after exceeds the cap and reports the partial send", async () => {
+    it("fails without retrying when the first part is rate limited", async () => {
+      mockTelegram({
+        respond: (method) =>
+          method === "sendMessage" ? rateLimited(1) : undefined,
+      });
+      const { adapter, logger, sleep } = await createSplitAdapter();
+
+      await expect(
+        adapter.postMessage("telegram:123", WORDS.join(" "))
+      ).rejects.toBeInstanceOf(AdapterRateLimitError);
+
+      expect(sent).toHaveLength(1);
+      expect(sleep).not.toHaveBeenCalled();
+      expect(logger.warn).not.toHaveBeenCalled();
+    });
+
+    it("rethrows when retry_after exceeds the per-wait cap and reports the partial send", async () => {
       mockTelegram({
         respond: (method, priorCalls) =>
           method === "sendMessage" && priorCalls === 1
-            ? rateLimited(60)
+            ? rateLimited(31)
             : undefined,
       });
-      const logger = createMockLogger();
-      const adapter = await createSplitAdapter(logger);
-      const sleep = stubSleep(adapter);
+      const { adapter, logger, sleep } = await createSplitAdapter();
 
       await expect(
-        adapter.postMessage("telegram:123", words.join(" "))
+        adapter.postMessage("telegram:123", WORDS.join(" "))
       ).rejects.toBeInstanceOf(AdapterRateLimitError);
 
-      expect(sleep).not.toHaveBeenCalled();
+      // Only the pacing wait before part 2.
+      expect(sleepCalls(sleep)).toEqual([1100]);
       expect(sentMessages()).toHaveLength(1);
+      expect(logger.warn).toHaveBeenCalledTimes(1);
       expect(logger.warn).toHaveBeenCalledWith(
         "Telegram split message only partly sent",
-        expect.objectContaining({ sentParts: 1, threadId: "telegram:123" })
+        expect.objectContaining({
+          deliveredMessages: 1,
+          threadId: "telegram:123",
+        })
       );
+    });
+
+    it("retries a 30 second wait and waits that add up to exactly the per-post budget", async () => {
+      mockTelegram({
+        respond: (method, priorCalls) =>
+          method === "sendMessage" && [1, 3].includes(priorCalls)
+            ? rateLimited(30)
+            : undefined,
+      });
+      const { adapter, logger, sleep } = await createSplitAdapter();
+
+      const result = await adapter.postMessage("telegram:123", WORDS.join(" "));
+
+      expect(sleepCalls(sleep)).toEqual([1100, 30_000, 1100, 30_000]);
+      expect(sentMessages()).toHaveLength(3);
+      expect(sentTexts().join(" ")).toBe(WORDS.join(" "));
+      expect(result.id).toBe("123:103");
+      expect(logger.warn).not.toHaveBeenCalledWith(
+        "Telegram split message only partly sent",
+        expect.anything()
+      );
+    });
+
+    it("fails without retrying or falling back when the first rich part is rate limited", async () => {
+      mockTelegram({
+        rich: true,
+        respond: (method) =>
+          method === "sendRichMessage" ? rateLimited(1) : undefined,
+      });
+      const { adapter, logger, sleep } = await createSplitAdapter();
+
+      await expect(
+        adapter.postMessage("telegram:123", {
+          markdown: PARAGRAPHS.join("\n\n"),
+        })
+      ).rejects.toBeInstanceOf(AdapterRateLimitError);
+
+      expect(sent.map((call) => call.method)).toEqual(["sendRichMessage"]);
+      expect(sleep).not.toHaveBeenCalled();
+      expect(logger.warn).not.toHaveBeenCalled();
     });
 
     it("gives up after three attempts at one part", async () => {
       mockTelegram({
         respond: (method, priorCalls) =>
           method === "sendMessage" && priorCalls >= 1
-            ? rateLimited(0)
+            ? rateLimited(1)
             : undefined,
       });
-      const adapter = await createSplitAdapter(createMockLogger());
-      const sleep = stubSleep(adapter);
+      const { adapter, sleep } = await createSplitAdapter();
+
+      await expect(
+        adapter.postMessage("telegram:123", WORDS.join(" "))
+      ).rejects.toBeInstanceOf(AdapterRateLimitError);
+
+      expect(sentMessages()).toHaveLength(1);
+      expect(sent.filter((call) => !call.ok)).toHaveLength(3);
+      expect(sleepCalls(sleep)).toEqual([1100, 1000, 1000]);
+    });
+
+    it("stops retrying once rate-limit waits pass the per-post budget", async () => {
+      // Parts 2, 3, and 4 are each rate limited once for 25 seconds. The
+      // first two waits fit the 60 second budget; the third doesn't.
+      mockTelegram({
+        respond: (method, priorCalls) =>
+          method === "sendMessage" && [1, 3, 5].includes(priorCalls)
+            ? rateLimited(25)
+            : undefined,
+      });
+      const { adapter, logger, sleep } = await createSplitAdapter();
+      const words = Array.from({ length: 4000 }, (_, index) => `w${index}`);
 
       await expect(
         adapter.postMessage("telegram:123", words.join(" "))
       ).rejects.toBeInstanceOf(AdapterRateLimitError);
 
-      expect(sentMessages()).toHaveLength(1);
+      // Pacing and a rate-limit wait for parts 2 and 3, then only pacing for
+      // part 4, whose wait would bring the total to 75 seconds.
+      expect(sleepCalls(sleep)).toEqual([1100, 25_000, 1100, 25_000, 1100]);
       expect(sent.filter((call) => !call.ok)).toHaveLength(3);
-      expect(sleep).toHaveBeenCalledTimes(2);
+      expect(sentMessages()).toHaveLength(3);
+      expect(logger.warn).toHaveBeenCalledWith(
+        "Telegram split message only partly sent",
+        expect.objectContaining({ deliveredMessages: 3 })
+      );
     });
 
     it("does not retry a rate-limited post that fits in one message", async () => {
@@ -8428,8 +8885,7 @@ describe("longMessages: split", { timeout: 20_000 }, () => {
         respond: (method) =>
           method === "sendMessage" ? rateLimited(0) : undefined,
       });
-      const adapter = await createSplitAdapter(createMockLogger());
-      const sleep = stubSleep(adapter);
+      const { adapter, sleep } = await createSplitAdapter();
 
       await expect(
         adapter.postMessage("telegram:123", "hello")
@@ -8438,5 +8894,34 @@ describe("longMessages: split", { timeout: 20_000 }, () => {
       expect(sent).toHaveLength(1);
       expect(sleep).not.toHaveBeenCalled();
     });
+  });
+
+  it("reports a partial send once when a rich fallback's regular parts fail", async () => {
+    mockTelegram({
+      respond: (method, priorCalls) =>
+        method === "sendMessage" && priorCalls === 1
+          ? telegramError(400, 400, "Bad Request: message is too long")
+          : undefined,
+    });
+    const { adapter, logger } = await createSplitAdapter();
+
+    await expect(
+      adapter.postMessage("telegram:123", { markdown: ISSUE_MARKDOWN })
+    ).rejects.toBeInstanceOf(ValidationError);
+
+    expect(sent[0]?.method).toBe("sendRichMessage");
+    expect(sentMessages()).toHaveLength(1);
+    const partialWarnings = logger.warn.mock.calls.filter(
+      ([message]) => message === "Telegram split message only partly sent"
+    );
+    expect(partialWarnings).toEqual([
+      [
+        "Telegram split message only partly sent",
+        expect.objectContaining({
+          deliveredMessages: 1,
+          threadId: "telegram:123",
+        }),
+      ],
+    ]);
   });
 });
