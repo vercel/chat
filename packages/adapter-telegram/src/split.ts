@@ -87,9 +87,15 @@ function splitRoot(root: Root, fits: Fits): Root[] {
   const parts = (splitChildren(root, (node) => node as Root, fits) ?? [
     root,
   ]) as Root[];
-  return parts.map(
-    (part) => trimEdgeText(trimEdgeText(part, "start"), "end") as Root
-  );
+  const trimmed: Root[] = [];
+  for (const part of parts) {
+    const start = trimEdgeText(part, "start");
+    const both = start && trimEdgeText(start, "end");
+    if (both && (both as Root).children.length > 0) {
+      trimmed.push(both as Root);
+    }
+  }
+  return trimmed;
 }
 
 /**
@@ -97,12 +103,21 @@ function splitRoot(root: Root, fits: Fits): Root[] {
  * path to it. A split between inline nodes can leave a part starting or
  * ending with a space, which rich-message markdown would encode as `&#x20;`.
  * Trimming only shortens a part, so it still fits.
+ *
+ * Returns `null` when trimming empties the node. An empty text node makes
+ * remark-stringify emit `&#xNAN;` before emphasis that starts with
+ * punctuation, and an empty paragraph, list item, or blockquote renders a
+ * stray marker, so the parent drops it and trims the next edge node. Table
+ * cells are kept empty instead, so a row keeps its columns.
  */
-function trimEdgeText(node: Nodes, edge: "start" | "end"): Nodes {
+function trimEdgeText(node: Nodes, edge: "start" | "end"): Nodes | null {
   if (node.type === "text") {
     const value =
       edge === "start" ? node.value.trimStart() : node.value.trimEnd();
-    return value === node.value ? node : { ...node, value };
+    if (value === node.value) {
+      return node;
+    }
+    return value ? { ...node, value } : null;
   }
   if (!("children" in node) || node.children.length === 0) {
     return node;
@@ -113,20 +128,27 @@ function trimEdgeText(node: Nodes, edge: "start" | "end"): Nodes {
     const index = edge === "start" ? 0 : children.length - 1;
     const child = children[index] as Nodes;
     const trimmed = trimEdgeText(child, edge);
-    if (trimmed.type === "text" && trimmed.value === "") {
-      // An empty text node makes remark-stringify emit `&#xNAN;` before
-      // emphasis that starts with punctuation, so remove it.
-      children.splice(index, 1);
-      changed = true;
-      continue;
+    if (trimmed === child) {
+      break;
     }
-    if (trimmed !== child) {
+    changed = true;
+    if (trimmed) {
       children[index] = trimmed;
-      changed = true;
+      break;
     }
-    break;
+    children.splice(index, 1);
   }
-  return changed ? ({ ...node, children } as Nodes) : node;
+  if (!changed) {
+    return node;
+  }
+  if (
+    children.length === 0 &&
+    node.type !== "root" &&
+    node.type !== "tableCell"
+  ) {
+    return null;
+  }
+  return { ...node, children } as Nodes;
 }
 
 /**

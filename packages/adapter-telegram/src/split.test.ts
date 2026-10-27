@@ -6,7 +6,7 @@ import {
   stringifyMarkdown,
   toPlainText,
 } from "chat";
-import { describe, expect, it } from "vitest";
+import { afterAll, describe, expect, it } from "vitest";
 import { TelegramFormatConverter } from "./markdown";
 import { splitMarkdownAst, splitText } from "./split";
 
@@ -801,7 +801,7 @@ class MarkdownGenerator {
 
   longWord(): string {
     let word = "";
-    const length = this.int(30, 150);
+    const length = this.int(20, 80);
     while (word.length < length) {
       word += this.chance(0.05)
         ? this.pick(ASTRAL)
@@ -845,7 +845,7 @@ class MarkdownGenerator {
       const roll = this.random();
       if (roll < 0.06) {
         tokens.push(
-          `**${this.words(this.chance(0.3) ? this.int(20, 60) : this.int(2, 6))}**`
+          `**${this.words(this.chance(0.3) ? this.int(10, 30) : this.int(2, 6))}**`
         );
       } else if (roll < 0.1) {
         tokens.push(`*${this.words(this.int(1, 5))}*`);
@@ -889,7 +889,7 @@ class MarkdownGenerator {
       if (roll < 0.12) {
         lines.push("");
       } else if (roll < 0.22) {
-        lines.push(this.words(this.int(15, 50)));
+        lines.push(this.words(this.int(8, 25)));
       } else if (roll < 0.27) {
         lines.push(this.longWord());
       } else if (roll < 0.32) {
@@ -910,7 +910,7 @@ class MarkdownGenerator {
       const marker = ordered ? `${number}.` : "-";
       number += 1;
       const indent = " ".repeat(marker.length + 1);
-      let item = `${marker} ${this.inline(this.chance(0.15) ? this.int(30, 70) : this.int(2, 15), false)}`;
+      let item = `${marker} ${this.inline(this.chance(0.15) ? this.int(15, 35) : this.int(2, 12), false)}`;
       if (depth < 2 && this.chance(0.25)) {
         item += `\n${this.list(depth + 1).replaceAll(/^/gm, indent)}`;
       } else if (depth === 0 && this.chance(0.08)) {
@@ -924,7 +924,7 @@ class MarkdownGenerator {
   blockquote(): string {
     const lines = this.chance(0.3)
       ? this.list(1).split("\n")
-      : [this.inline(this.int(5, 60), false)];
+      : [this.inline(this.int(5, 35), false)];
     if (this.chance(0.3)) {
       const ref = this.int(0, 4);
       this.refs.add(ref);
@@ -959,7 +959,7 @@ class MarkdownGenerator {
     }
     if (huge >= 0) {
       (rows[huge] as string[])[this.int(0, columns - 1)] = this.words(
-        this.int(25, 60)
+        this.int(12, 30)
       );
     }
     return [
@@ -975,7 +975,7 @@ class MarkdownGenerator {
       return `${"#".repeat(this.int(1, 3))} ${this.inline(this.int(1, 8), false)}`;
     }
     if (roll < 0.42) {
-      return this.inline(this.chance(0.2) ? this.int(30, 80) : this.int(5, 30));
+      return this.inline(this.chance(0.2) ? this.int(20, 45) : this.int(5, 20));
     }
     if (roll < 0.56) {
       return this.codeBlock();
@@ -1530,7 +1530,7 @@ function featuresOf(parts: Root[]): string[] {
 // The generated tests run hundreds of splits each, well under a second
 // locally, so their describes raise the timeout for CI coverage runs.
 const PROPERTY_SEEDS = Number(process.env.SPLIT_PROPERTY_SEEDS ?? 30);
-const PROPERTY_BUDGETS = [200, 400, 800];
+const PROPERTY_BUDGETS = [160, 240, 480];
 
 describe("splitText properties", { timeout: 20_000 }, () => {
   it("keeps every character outside the dropped separators", () => {
@@ -1573,41 +1573,56 @@ describe("splitText properties", { timeout: 20_000 }, () => {
   });
 });
 
+// One test per seed keeps each test short under CI coverage, which runs
+// these several dozen times slower than a local run.
 describe("splitMarkdownAst properties", { timeout: 20_000 }, () => {
-  it("keeps every invariant on generated markdown", () => {
-    const failures: string[] = [];
-    let splits = 0;
-    const features = new Set<string>();
-    for (let seed = 1; seed <= PROPERTY_SEEDS; seed++) {
-      const root = converter.toAst(new MarkdownGenerator(seed).document());
-      // Rotate through every budget and both kinds of message.
-      const budget = PROPERTY_BUDGETS[seed % PROPERTY_BUDGETS.length] as number;
-      const [name, fits] =
-        seed % 2 === 0
-          ? ["regular", fitsRegularProduction(budget)]
-          : ["rich", fitsRichProduction(budget)];
-      if (fits(root)) {
-        continue;
-      }
-      splits += 1;
-      const parts = splitMarkdownAst(root, fits);
-      for (const feature of featuresOf(parts)) {
-        features.add(feature);
-      }
-      for (const problem of splitProblems(root, fits, parts)) {
-        failures.push(`seed ${seed} ${name} ${budget}: ${problem}`);
-      }
+  const seeds = Array.from({ length: PROPERTY_SEEDS }, (_, index) => index + 1);
+  const features = new Set<string>();
+  let ran = 0;
+  let splits = 0;
+
+  // Checked once every seed has run, so a filtered run doesn't fail it. A
+  // generator that stops reaching these cases would let the checks above
+  // pass without testing them.
+  afterAll(() => {
+    if (ran < seeds.length) {
+      return;
     }
-    expect(failures).toEqual([]);
-    expect(splits).toBeGreaterThan(PROPERTY_SEEDS / 2);
-    expect([...features].sort()).toEqual([
+    const missing = [
       "code continued",
       "definition carried",
       "ordered list continued",
       "placeholder at a part edge",
       "surrogate pair at a part edge",
       "table row split",
-    ]);
+    ].filter((feature) => !features.has(feature));
+    if (splits <= seeds.length / 2 || missing.length > 0) {
+      throw new Error(
+        `Generated markdown no longer exercises the checks: ${splits} of ${seeds.length} seeds split, missing [${missing.join(", ")}]`
+      );
+    }
+  });
+
+  it.each(
+    seeds
+  )("keeps every invariant on generated markdown, seed %i", (seed) => {
+    ran += 1;
+    const root = converter.toAst(new MarkdownGenerator(seed).document());
+    // Rotate through every budget and both kinds of message.
+    const budget = PROPERTY_BUDGETS[seed % PROPERTY_BUDGETS.length] as number;
+    const [name, fits] =
+      seed % 2 === 0
+        ? ["regular", fitsRegularProduction(budget)]
+        : ["rich", fitsRichProduction(budget)];
+    if (fits(root)) {
+      return;
+    }
+    splits += 1;
+    const parts = splitMarkdownAst(root, fits);
+    for (const feature of featuresOf(parts)) {
+      features.add(feature);
+    }
+    expect(splitProblems(root, fits, parts), `${name} ${budget}`).toEqual([]);
   });
 });
 
@@ -1720,6 +1735,32 @@ describe("splitMarkdownAst between inline nodes", () => {
   });
 });
 
+describe("splitMarkdownAst with a space between two runs", () => {
+  // Each bold run fills a part on its own, and the space between them costs
+  // `&#x20;` beside either one, so it lands in a part by itself and is then
+  // trimmed to nothing.
+  const first = "**alpha beta gamma**";
+  const second = "**delta epsilon zeta**";
+
+  it.each([
+    ["paragraph", "", (run: string) => `${run}\n`],
+    ["list item", "* ", (run: string) => `* ${run}\n`],
+  ] as const)("drops the emptied %s instead of sending it", (_, marker, expected) => {
+    const root = parseMarkdown(`${marker}${first} ${second}`);
+    const fits = fitsRich(expected(second).length);
+    expect(fits(parseMarkdown(`${marker}${first}`))).toBe(true);
+    expect(fits(parseMarkdown(`${marker}${second}`))).toBe(true);
+    expect(fits(root)).toBe(false);
+
+    const parts = splitMarkdownAst(root, fits);
+
+    expect(parts.map((part) => stringifyMarkdown(part))).toEqual([
+      expected(first),
+      expected(second),
+    ]);
+  });
+});
+
 describe("splitMarkdownAst with an oversized first table row", () => {
   const cellWords = words(30, "w");
   const markdown = `| A | B |\n|---|---|\n| x | ${cellWords.join(" ")} |\n| p | q |\n| r | s |`;
@@ -1774,26 +1815,32 @@ const EDGE_BLOCKS = [
 ];
 
 describe("splitMarkdownAst at part edges", { timeout: 20_000 }, () => {
-  it("keeps every invariant whatever room a short block leaves", () => {
+  const cases = EDGE_BLOCKS.flatMap((block) =>
+    (["regular", "rich"] as const).map((name) => ({ block, name }))
+  );
+
+  it.each(
+    cases
+  )("keeps every invariant whatever room a short block leaves, $name: $block", ({
+    block,
+    name,
+  }) => {
+    const fits =
+      name === "regular" ? fitsRegularProduction(60) : fitsRichProduction(60);
+    // Parse once; each case only changes the intro paragraph's length.
+    const blockRoot = converter.toAst(block);
     const failures: string[] = [];
-    for (const block of EDGE_BLOCKS) {
-      for (const [name, fits] of [
-        ["regular", fitsRegularProduction(60)],
-        ["rich", fitsRichProduction(60)],
-      ] as const) {
-        // Lengths that leave less room than a placeholder needs.
-        for (let length = 30; length <= 60; length++) {
-          const root = converter.toAst(`${"i".repeat(length)}\n\n${block}`);
-          if (fits(root)) {
-            continue;
-          }
-          const parts = splitMarkdownAst(root, fits);
-          for (const problem of splitProblems(root, fits, parts)) {
-            failures.push(
-              `${JSON.stringify(block.slice(0, 20))} ${name} intro ${length}: ${problem}`
-            );
-          }
-        }
+    // Lengths that leave less room than a placeholder needs.
+    for (let length = 30; length <= 60; length++) {
+      const intro = {
+        type: "paragraph",
+        children: [{ type: "text", value: "i".repeat(length) }],
+      } as Nodes;
+      const root = rootOf(intro, ...structuredClone(blockRoot.children));
+      expect(fits(root)).toBe(false);
+      const parts = splitMarkdownAst(root, fits);
+      for (const problem of splitProblems(root, fits, parts)) {
+        failures.push(`intro ${length}: ${problem}`);
       }
     }
     expect(failures).toEqual([]);
