@@ -9,7 +9,7 @@
 // violation that is not listed in KNOWN_VIOLATIONS.
 
 import { AxeBuilder } from "@axe-core/playwright";
-import { type Browser, chromium } from "playwright";
+import { type Browser, chromium, type Page } from "playwright";
 
 const WCAG_TAGS = [
   "wcag2a",
@@ -26,17 +26,18 @@ const CONCURRENCY = 6;
 const SITEMAP_LINK = /\]\((\/[^)\s]*)\)/g;
 const TRAILING_SLASH = /\/$/;
 
-// Violations that cannot be fixed yet, such as ones that come from a
-// dependency. They are reported as warnings instead of failing the job. Each
-// entry maps an axe rule ID to the pages it is allowed on, or "*" for every
-// page. Remove an entry once it is fixed; the script prints entries that no
-// longer match anything.
-const KNOWN_VIOLATIONS: Record<string, "*" | string[]> = {
-  // The Geistdocs sidebar section header shows the section name ("Official
-  // Adapters") but its aria-label is "Back to all documentation sections".
-  // It renders on every page inside a sidebar section, so the list of pages
-  // grows with the adapter catalog.
-  "label-content-name-mismatch": "*",
+// Each exception applies only to matching nodes on matching paths. Other
+// nodes reported under the same rule still fail. Remove an entry once its
+// dependency is fixed; the summary reports entries that no longer match.
+const KNOWN_VIOLATIONS: Record<string, { paths: RegExp; selector: string }> = {
+  // @vercel/geistdocs 2.13.2 owns this section button and its accessible name.
+  // Its aria-label omits the visible section name, and no public option lets
+  // the app change it. Keep this warning until the package fixes the label.
+  "label-content-name-mismatch": {
+    paths: /^\/adapters\/(?:official|community|vendor-official)\/[^/]+\/?$/,
+    selector:
+      '#nd-docs-layout nav[data-geistdocs-sidebar-scroll="true"] [data-sidebar-pane="section"] button[aria-label="Back to all documentation sections"]',
+  },
 };
 
 type ColorScheme = (typeof COLOR_SCHEMES)[number];
@@ -62,9 +63,30 @@ const baseUrl = (process.argv[2] ?? "http://localhost:3000").replace(
   ""
 );
 
-function isKnown(ruleId: string, path: string): boolean {
+async function isKnown(
+  page: Page,
+  ruleId: string,
+  path: string,
+  node: Violation["nodes"][number]
+): Promise<boolean> {
   const allowed = KNOWN_VIOLATIONS[ruleId];
-  return allowed === "*" || (allowed?.includes(path) ?? false);
+  if (
+    !allowed?.paths.test(path) ||
+    node.target.length !== 1 ||
+    typeof node.target[0] !== "string"
+  ) {
+    return false;
+  }
+  // Frame and shadow-root targets are excluded above. Resolve the direct
+  // selector and check the actual element, rather than trusting axe's choice
+  // of selector text or suppressing every node in the violation.
+  return await page.evaluate(
+    ({ target, selector }) => {
+      const elements = document.querySelectorAll(target);
+      return elements.length === 1 && elements[0].matches(selector);
+    },
+    { target: node.target[0], selector: allowed.selector }
+  );
 }
 
 async function getPaths(): Promise<string[]> {
@@ -75,9 +97,15 @@ async function getPaths(): Promise<string[]> {
     );
   }
   const sitemap = await response.text();
-  const paths = new Set(EXTRA_PATHS);
+  const paths = new Set<string>();
   for (const match of sitemap.matchAll(SITEMAP_LINK)) {
     paths.add(match[1]);
+  }
+  if (paths.size === 0) {
+    throw new Error(`No page paths found in ${baseUrl}/sitemap.md`);
+  }
+  for (const path of EXTRA_PATHS) {
+    paths.add(path);
   }
   return [...paths].sort();
 }
@@ -102,10 +130,20 @@ async function checkPage(
       .withTags(WCAG_TAGS)
       .analyze();
     for (const violation of violations) {
-      if (isKnown(violation.id, path)) {
-        result.known.push(violation);
-      } else {
-        result.violations.push(violation);
+      const knownNodes: Violation["nodes"] = [];
+      const unexpectedNodes: Violation["nodes"] = [];
+      for (const node of violation.nodes) {
+        if (await isKnown(page, violation.id, path, node)) {
+          knownNodes.push(node);
+        } else {
+          unexpectedNodes.push(node);
+        }
+      }
+      if (knownNodes.length > 0) {
+        result.known.push({ ...violation, nodes: knownNodes });
+      }
+      if (unexpectedNodes.length > 0) {
+        result.violations.push({ ...violation, nodes: unexpectedNodes });
       }
     }
   } catch (error) {
@@ -137,8 +175,7 @@ function printKnownSummary(results: PageResult[]) {
   for (const result of results) {
     for (const violation of result.known) {
       counts.set(violation.id, (counts.get(violation.id) ?? 0) + 1);
-      seen.add(`${violation.id} ${result.path}`);
-      seen.add(`${violation.id} *`);
+      seen.add(violation.id);
     }
   }
   if (counts.size > 0) {
@@ -147,11 +184,9 @@ function printKnownSummary(results: PageResult[]) {
       process.stdout.write(`  ${id}: ${count} page checks\n`);
     }
   }
-  const stale = Object.entries(KNOWN_VIOLATIONS).flatMap(([id, allowed]) =>
-    (allowed === "*" ? ["*"] : allowed)
-      .filter((path) => !seen.has(`${id} ${path}`))
-      .map((path) => `${id} on ${path}`)
-  );
+  const stale = Object.entries(KNOWN_VIOLATIONS)
+    .filter(([id]) => !seen.has(id))
+    .map(([id, allowed]) => `${id} on ${allowed.paths}: ${allowed.selector}`);
   if (stale.length > 0) {
     process.stdout.write(
       "\nThese KNOWN_VIOLATIONS entries no longer match anything and can be removed:\n"
