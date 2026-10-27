@@ -1,18 +1,12 @@
 "use client";
 
 import { IconArrowUpRightSmall } from "@vercel/geistdocs/assets/icons/icon-arrow-up-right-small";
+import { LogoIconMicrosoftTeamsSvg as teams } from "@vercel/geistdocs/assets/logos/logo-icon-microsoft-teams-svg";
 import { AnimatePresence, MotionConfig, motion } from "motion/react";
 import Link from "next/link";
 import { type ComponentProps, useEffect, useState } from "react";
 import type { ThemedToken } from "shiki";
-import {
-  discord,
-  gchat,
-  slack,
-  teams,
-  telegram,
-  whatsapp,
-} from "@/lib/logos-mono";
+import { discord, gchat, slack, telegram, whatsapp } from "@/lib/logos-mono";
 import { cn } from "@/lib/utils";
 import {
   CANCEL_REPLY,
@@ -26,7 +20,9 @@ import { PLATFORM_PREVIEWS, PreviewContext } from "./platform-previews";
 
 const LOGOS: Record<
   PlatformSlug,
-  (props: ComponentProps<"svg">) => React.JSX.Element
+  (
+    props: Pick<ComponentProps<"svg">, "aria-hidden" | "className">
+  ) => React.JSX.Element
 > = { slack, teams, gchat, discord, whatsapp, telegram };
 
 interface Platform {

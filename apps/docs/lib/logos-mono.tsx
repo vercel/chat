@@ -16,18 +16,6 @@ export const slack = (props: ComponentProps<"svg">) => (
   </svg>
 );
 
-// Geistcn's LogoIconMicrosoftTeamsSvg, pending its release in Geistdocs.
-export const teams = (props: ComponentProps<"svg">) => (
-  <svg
-    fill="currentColor"
-    viewBox="0 0 16 16"
-    xmlns="http://www.w3.org/2000/svg"
-    {...props}
-  >
-    <path d="M11.97 6.18a.7.7 0 0 1 .68.72v4.5q0 .24-.04.46a4.2 4.2 0 0 1-4.05 3.62 4.2 4.2 0 0 1-3.67-2.34H7.5c.93 0 1.69-.76 1.69-1.69V6.18zm3.32 0c.4 0 .71.32.71.7v3.77a2.6 2.6 0 0 1-2.6 2.6h-.13q.4-.96.38-2.06v-4.3q0-.38-.15-.7zM7.5 3.95a.7.7 0 0 1 .69.68v6.82a1 1 0 0 1-.1.36l-.03.04-.16.16-.04.02-.06.04-.05.02-.08.02-.17.03H.68a.7.7 0 0 1-.68-.69V4.63c0-.38.3-.68.68-.68zm-5.2 2.6h1.36v3.7h.86v-3.7H5.9v-.73h-3.6zm11.65-4.46a1.67 1.67 0 1 1 0 3.35 1.67 1.67 0 0 1 0-3.35M8.75.6a2.42 2.42 0 0 1 .44 4.8v-.77c0-.93-.76-1.68-1.69-1.68H6.33A2.4 2.4 0 0 1 8.74.6" />
-  </svg>
-);
-
 export const gchat = (props: ComponentProps<"svg">) => (
   <svg
     fill="currentColor"

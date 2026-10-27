@@ -1,6 +1,7 @@
 import { IconBell } from "@vercel/geistdocs/assets/icons/icon-bell";
 import { IconMessage } from "@vercel/geistdocs/assets/icons/icon-message";
 import { IconShieldCheck } from "@vercel/geistdocs/assets/icons/icon-shield-check";
+import { LogoIconMicrosoftTeamsSvg as teams } from "@vercel/geistdocs/assets/logos/logo-icon-microsoft-teams-svg";
 import Link from "next/link";
 import type { ComponentProps } from "react";
 import { github, gitlab, instagram, linear, notion, x } from "@/lib/logos";
@@ -10,7 +11,6 @@ import {
   gmail,
   messenger,
   slack,
-  teams,
   telegram,
   twilio,
   twitch,
@@ -20,7 +20,7 @@ import { cn } from "@/lib/utils";
 import { sectionHeading } from "./styles";
 
 const platforms: {
-  icon: (props: ComponentProps<"svg">) => React.JSX.Element;
+  icon: (props: Pick<ComponentProps<"svg">, "className">) => React.JSX.Element;
   name: string;
   slug: string;
 }[] = [
