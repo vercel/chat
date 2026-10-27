@@ -4,6 +4,7 @@ import {
   Outlet,
   Scripts,
 } from "@tanstack/react-router";
+import appCss from "../styles.css?url";
 
 export const Route = createRootRoute({
   head: () => ({
@@ -12,23 +13,21 @@ export const Route = createRootRoute({
       { name: "viewport", content: "width=device-width, initial-scale=1" },
       { title: "Chat SDK + TanStack Start" },
     ],
+    links: [{ rel: "stylesheet", href: appCss }],
   }),
   component: RootComponent,
 });
-
-const styles = `
-  :root { color-scheme: light dark; font-family: system-ui, sans-serif; }
-  body { margin: 0; }
-`;
 
 function RootComponent() {
   return (
     <html lang="en">
       <head>
         <HeadContent />
-        <style>{styles}</style>
       </head>
-      <body>
+      <body
+        className="antialiased"
+        style={{ background: "var(--background)", color: "var(--foreground)" }}
+      >
         <Outlet />
         <Scripts />
       </body>

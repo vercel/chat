@@ -180,11 +180,11 @@ await slackAdapter.withBotToken(
     const thread = bot.thread("slack:C12345:1234567890.123456");
     await thread.post("Hello from a cron job!");
   },
-  { installationId: teamId }
+  { installationId: teamId, botUserId: install.botUserId }
 );
 ```
 
-`withBotToken` uses `AsyncLocalStorage` under the hood, so concurrent calls with different tokens are isolated. In multi-workspace deployments, pass `installationId` (the `team_id`, or `enterprise_id` for org-wide installs) so per-user caches are scoped to that installation and don't bleed across tenants.
+`withBotToken` uses `AsyncLocalStorage` under the hood, so concurrent calls with different tokens are isolated. In multi-workspace deployments, pass `installationId` (the `team_id`, or `enterprise_id` for org-wide installs) so per-user caches are scoped to that installation and don't bleed across tenants. Also pass the installation's `botUserId`: a multi-workspace adapter has no fixed bot user ID, so without it `slackAdapter.botUserId` is `undefined` inside the callback and the bot's own messages, such as those returned by `fetchMessages`, have `author.isMe` set to `false`.
 
 #### Removing installations
 

@@ -44,30 +44,83 @@ pnpm add @vercel/connect
 
 `@vercel/connect` reads the deployment's OIDC token automatically. For local development, run `vercel link` followed by `vercel env pull` to download a short-lived token into `.env.local`.
 
+## Scaffold a new bot
+
+To start a new project with Connect already wired, pass `--connect` to [`create-chat-sdk`](/docs/create-chat-sdk#vercel-connect). The generated bot reads each connector UID from an environment variable such as `SLACK_CONNECTOR`:
+
+<CreateChatSdk adapters="slack memory" connect />
+
 ## Set up a connector
 
-The trigger-forwarding steps below apply to Slack, Microsoft Teams, GitHub, Linear, and Discord.
-For Notion and Telegram, create and attach the connector without triggers, then
-use native webhook verification or polling.
+Create a connector in the [Vercel dashboard](https://vercel.com/d?to=%2F%5Bteam%5D%2F~%2Fconnect) or with the [Vercel CLI](https://vercel.com/docs/cli/connect), then attach it to your project.
 
-1. Create a connector for the provider in the [Vercel dashboard](https://vercel.com/d?to=%2F%5Bteam%5D%2F~%2Fconnect) or with the CLI, enabling trigger forwarding so inbound webhooks reach your project:
+1. Link your local directory to the Vercel project:
 
+```bash
+vercel link
+```
+
+2. Create the connector and attach it to the linked project. For Slack, Microsoft Teams, GitHub, Linear, and Discord, enable trigger forwarding and register your Chat SDK webhook route (`/api/webhooks/{platform}`) as the trigger destination. Notion and Telegram webhooks go directly to your app, so create and attach those connectors without triggers and use native webhook verification or polling.
+
+<CodeBlockTabs defaultValue="slack">
+  <CodeBlockTabsList>
+    <CodeBlockTabsTrigger value="slack">Slack</CodeBlockTabsTrigger>
+    <CodeBlockTabsTrigger value="teams">Microsoft Teams</CodeBlockTabsTrigger>
+    <CodeBlockTabsTrigger value="github">GitHub</CodeBlockTabsTrigger>
+    <CodeBlockTabsTrigger value="linear">Linear</CodeBlockTabsTrigger>
+    <CodeBlockTabsTrigger value="discord">Discord</CodeBlockTabsTrigger>
+    <CodeBlockTabsTrigger value="notion">Notion</CodeBlockTabsTrigger>
+    <CodeBlockTabsTrigger value="telegram">Telegram</CodeBlockTabsTrigger>
+  </CodeBlockTabsList>
+  <CodeBlockTab value="slack">
 ```bash
 vercel connect create slack --name acme-slack --triggers
+vercel connect attach slack/acme-slack --triggers --trigger-path /api/webhooks/slack
 ```
-
-2. Attach your project and register your Chat SDK webhook route (`/api/webhooks/{platform}`) as the trigger destination:
-
+  </CodeBlockTab>
+  <CodeBlockTab value="teams">
 ```bash
-vercel connect attach slack/acme-slack \
-  --project my-bot --environment production \
-  --triggers --trigger-path /api/webhooks/slack
+vercel connect create microsoft-teams --name acme-teams --triggers
+vercel connect attach microsoft-teams/acme-teams --triggers --trigger-path /api/webhooks/teams
 ```
+  </CodeBlockTab>
+  <CodeBlockTab value="github">
+```bash
+vercel connect create github --name acme-github --triggers
+vercel connect attach github/acme-github --triggers --trigger-path /api/webhooks/github
+```
+  </CodeBlockTab>
+  <CodeBlockTab value="linear">
+```bash
+vercel connect create linear --name acme-linear --triggers
+vercel connect attach linear/acme-linear --triggers --trigger-path /api/webhooks/linear
+```
+  </CodeBlockTab>
+  <CodeBlockTab value="discord">
+```bash
+vercel connect create discord --name acme-discord --triggers
+vercel connect attach discord/acme-discord --triggers --trigger-path /api/webhooks/discord
+```
+  </CodeBlockTab>
+  <CodeBlockTab value="notion">
+```bash
+vercel connect create notion --name acme-notion
+vercel connect attach notion/acme-notion
+```
+  </CodeBlockTab>
+  <CodeBlockTab value="telegram">
+```bash
+vercel connect create telegram --name acme-telegram
+vercel connect attach telegram/acme-telegram
+```
+  </CodeBlockTab>
+</CodeBlockTabs>
+
+`vercel connect attach` uses the linked project and enables production, preview, and development by default. Pass `--project` or `--environment` to change that. Without `--trigger-branch`, Connect forwards webhooks to your production deployment.
 
 3. Pull a development token locally (deployments get `VERCEL_OIDC_TOKEN` automatically):
 
 ```bash
-vercel link
 vercel env pull
 ```
 

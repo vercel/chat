@@ -56,11 +56,23 @@ export interface ThreadIdContractDescriptor<TDecoded> {
 export function threadIdContract<TDecoded>(
   descriptor: ThreadIdContractDescriptor<TDecoded>
 ): void {
+  if (descriptor.cases.length === 0) {
+    throw new Error(
+      `threadIdContract(${descriptor.name}): pass at least one case`
+    );
+  }
+  const prefix = `${descriptor.name}:`;
+  const pinnedCases = descriptor.cases.filter(
+    (testCase) => testCase.encoded !== undefined
+  );
+
   describe(`thread id contract (${descriptor.name})`, () => {
     it("prefixes encoded thread ids with the adapter name", () => {
       for (const testCase of descriptor.cases) {
+        const encoded = descriptor.encode(testCase.decoded);
         expect(
-          descriptor.encode(testCase.decoded).startsWith(`${descriptor.name}:`)
+          encoded.startsWith(prefix),
+          `expected "${encoded}" to start with "${prefix}"`
         ).toBe(true);
       }
     });
@@ -73,13 +85,13 @@ export function threadIdContract<TDecoded>(
       }
     });
 
-    it("matches pinned encoded strings", () => {
-      for (const testCase of descriptor.cases) {
-        if (testCase.encoded !== undefined) {
+    if (pinnedCases.length > 0) {
+      it("matches pinned encoded strings", () => {
+        for (const testCase of pinnedCases) {
           expect(descriptor.encode(testCase.decoded)).toBe(testCase.encoded);
         }
-      }
-    });
+      });
+    }
 
     if (descriptor.isDM) {
       const { fn, dmThreadId, nonDmThreadId } = descriptor.isDM;

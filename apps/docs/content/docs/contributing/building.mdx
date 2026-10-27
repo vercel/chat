@@ -357,8 +357,7 @@ parseMessage(raw: unknown): Message<unknown> {
       roomId: payload.room_id as string,
       eventId: payload.thread_root_id as string | undefined,
     }),
-    text: payload.body as string,
-    formatted: this.converter.toAst(payload.body as string),
+    ...this.converter.parseIncoming(payload.body as string),
     raw,
     author: {
       userId: payload.sender as string,
@@ -375,6 +374,20 @@ parseMessage(raw: unknown): Message<unknown> {
   });
 }
 ```
+
+#### `isBotMention`
+
+Apps that route, acknowledge, or forward webhook events before a Chat SDK bot handles them need the same mention decision without an adapter instance. When a platform can notify the bot for a reference that is not an invocation, such as a bot token inside code, export `isBotMention` so those apps do not reimplement it:
+
+```typescript
+export function isBotMention(event: PlatformEvent, botUserId: string): boolean;
+```
+
+- **Same decision as `isMention`.** It returns `true` exactly when `parseMessage` would set `isMention: true` for that event. Implement both from one function so they cannot diverge.
+- **Raw inbound event.** `event` is the platform's own event object, the same value as the `raw` field of a payload from the adapter's webhook parser. `botUserId` is the bot's own platform user ID.
+- **Runtime-free entry point.** Export it from the adapter's low-level webhook subpath, such as `@chat-adapter/slack/webhook`, so routers can import it without loading the adapter. The package root may re-export it.
+
+The [Slack adapter](https://github.com/vercel/chat/blob/main/packages/adapter-slack/src/mention.ts) implements this contract.
 
 ### Sending messages
 
@@ -601,6 +614,8 @@ export class MatrixFormatConverter extends BaseFormatConverter {
 
 For platforms with non-standard formatting, implement custom parsing in `toAst()` and rendering in `fromAst()`. See the [Discord adapter](https://github.com/vercel/chat/blob/main/packages/adapter-discord/src/markdown.ts) for an example of handling platform-specific mention syntax.
 
+Use `parseIncoming()` to build a message's `text` and `formatted` fields from incoming platform text. It calls `toAst()` once and derives the plain text from that AST. Very long text can be slow to parse, so text longer than `maxIncomingParseLength` (16,384 characters by default) skips `toAst()` and arrives as a single unformatted text node. Override `maxIncomingParseLength` in your converter if your platform needs a different limit.
+
 ## Optional methods
 
 These methods are optional. Implement them to support more Chat SDK features:
@@ -608,6 +623,7 @@ These methods are optional. Implement them to support more Chat SDK features:
 | Method | Purpose |
 |--------|---------|
 | `disconnect()` | Clean up connections and resources during shutdown |
+| `getConcurrencyScope()` | Scope message deduplication, locks, queues, concurrency limits, and cancellation to the authenticated tenant |
 | `openDM(userId)` | Open a direct message conversation |
 | `isDM(threadId)` | Check if a thread is a DM |
 | `stream(threadId, textStream)` | Stream AI responses in real-time |
@@ -622,6 +638,10 @@ These methods are optional. Implement them to support more Chat SDK features:
 | `scheduleMessage(threadId, message, options)` | Schedule a message for future delivery; return a `ScheduledMessage` with `cancel()` |
 
 Implement only the methods your platform supports. The SDK handles adapters that leave optional methods out.
+
+For multi-tenant adapters whose conversation IDs can overlap, implement `getConcurrencyScope(): string | undefined`. Return a stable, non-secret scope from the authenticated installation context. Base it on the credential boundary: if one installation serves several workspaces with the same credentials, use one scope for all of them, since each entry point may report a different workspace for the same conversation. The same scope must be available during message handling and `abortTurn()` calls, including across processes. Never derive it from the message author's workspace or store credentials in it.
+
+Returning `undefined` preserves unscoped keys for single-tenant adapters. If tenant context is required but unavailable, throw rather than silently using unscoped keys. This hook does not change public conversation IDs or scope subscriptions, thread state, or history.
 
 ## Factory function
 

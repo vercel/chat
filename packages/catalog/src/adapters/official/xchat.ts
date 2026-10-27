@@ -2,7 +2,6 @@ import { env, secretEnv } from "../../env";
 import type { CatalogAdapter } from "../../types";
 
 export const xchat = {
-  beta: true,
   description:
     "Hold encrypted 1:1 and group conversations on XChat with all cryptography handled inside the adapter.",
   env: {

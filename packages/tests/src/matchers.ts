@@ -15,6 +15,8 @@ const PROCESS_HANDLERS = [
   "processUninstalled",
   "processMemberJoinedChannel",
   "processAppHomeOpened",
+  "processAgentSessionStopped",
+  "processAgentSessionTitleChanged",
   "processAssistantThreadStarted",
   "processAssistantContextChanged",
   "processAppContextChanged",

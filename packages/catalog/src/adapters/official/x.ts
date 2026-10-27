@@ -2,7 +2,6 @@ import { env, secretEnv, urlEnv } from "../../env";
 import type { CatalogAdapter } from "../../types";
 
 export const x = {
-  beta: true,
   description:
     "Reply to public mentions and hold direct message conversations on X (Twitter) with the X API v2.",
   env: {

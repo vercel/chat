@@ -1,11 +1,16 @@
 import type { CatalogAdapter } from "../../types";
 
 export const web = {
-  beta: true,
   description:
-    "Serve a browser chat UI from the same bot using the AI SDK useChat protocol \u2014 works out of the box with @ai-sdk/react and ai-elements.",
+    "Serve a browser chat UI from the same bot over the AI SDK or AG-UI stream protocol \u2014 works with AI SDK useChat, ai-elements, and TanStack AI.",
   env: {
-    config: ["userName", "getUser", "persistMessageHistory", "threadIdFor"],
+    config: [
+      "userName",
+      "getUser",
+      "protocol",
+      "persistMessageHistory",
+      "threadIdFor",
+    ],
     notes:
       "The Web adapter delegates browser request authentication to the getUser config function.",
   },

@@ -1,6 +1,6 @@
 {
   "name": "@chat-adapter/shared",
-  "version": "4.41.1",
+  "version": "4.43.0",
   "description": "Shared utilities for Chat SDK platform adapters",
   "type": "module",
   "engines": {
@@ -10,6 +10,10 @@
     ".": {
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js"
+    },
+    "./mentions": {
+      "types": "./dist/mentions.d.ts",
+      "import": "./dist/mentions.js"
     }
   },
   "main": "./dist/index.js",

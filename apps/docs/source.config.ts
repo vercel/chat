@@ -34,7 +34,6 @@ export const adapters = defineDocs({
       type: z.enum(["platform", "state"]),
       logo: z.string().optional(),
       tagline: z.string(),
-      beta: z.boolean().optional(),
       community: z.boolean().optional(),
       vendorOfficial: z.boolean().optional(),
       author: z.string().optional(),

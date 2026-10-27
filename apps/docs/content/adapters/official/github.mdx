@@ -6,8 +6,15 @@ slug: github
 type: platform
 logo: github
 tagline: Build bots that respond to pull request and issue comment threads. Treats issues and PRs as threads, comments as messages.
-beta: true
 ---
+
+## Create a new bot
+
+Scaffold a Next.js bot with the GitHub adapter using [`create-chat-sdk`](/docs/create-chat-sdk):
+
+<CreateChatSdk adapters="github memory" />
+
+The generated app uses the [Memory state adapter](/adapters/official/memory) for local development. To add the adapter to an existing app, start at [Install](#install).
 
 ## Install
 
@@ -85,6 +92,17 @@ createGitHubAdapter({
 Or set the `GITHUB_BOT_USER_ID` environment variable, which the adapter auto-detects.
 </Callout>
 
+Create the connector and attach it to your project with the [Vercel CLI](https://vercel.com/docs/cli/connect). `--trigger-path` registers the GitHub webhook route as the trigger destination, and `vercel env pull` downloads a development OIDC token for local runs:
+
+```bash
+vercel link
+vercel connect create github --name acme-github --triggers
+vercel connect attach github/acme-github --triggers --trigger-path /api/webhooks/github
+vercel env pull
+```
+
+Without `--trigger-branch`, Connect forwards webhooks to your production deployment. See [Vercel Connect](/docs/vercel-connect#set-up-a-connector) for the full setup.
+
 ### GitHub App
 
 We recommend a GitHub App. It has better rate limits and security than a personal access token and supports multiple installations.
@@ -104,6 +122,12 @@ We recommend a GitHub App. It has better rate limits and security than a persona
 2. Note the **Installation ID** in the URL: `https://github.com/settings/installations/12345678`.
 
 #### Single-tenant configuration
+
+Set `installationId` to accept comments only from that GitHub App installation. After verification, a new comment (`issue_comment` or `pull_request_review_comment` with action `created`) from a different installation gets a `404`, handlers don't run, and the adapter logs a warning with both IDs. The check runs whether you verify with `webhookSecret` or a custom `webhookVerifier`, and other event types and actions aren't checked.
+
+<Callout type="info">
+Deliveries without an `installation` object still reach handlers. GitHub omits it from repository and organization webhooks, so those keep working in this mode. Vercel Connect mode (`installationToken`) has no configured installation ID and skips this check.
+</Callout>
 
 ```typescript
 createGitHubAdapter({

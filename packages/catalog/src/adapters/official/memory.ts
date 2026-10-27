@@ -1,7 +1,6 @@
 import type { CatalogAdapter } from "../../types";
 
 export const memory = {
-  beta: true,
   description:
     "In-memory state adapter for development and testing environments.",
   env: {

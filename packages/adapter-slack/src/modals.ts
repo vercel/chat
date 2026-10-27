@@ -14,11 +14,8 @@ import type {
   SelectOptionElement,
   TextInputElement,
 } from "chat";
-import {
-  convertFieldsToBlock,
-  convertTextToBlock,
-  type SlackBlock,
-} from "./cards";
+import { convertFieldsToBlock, convertTextToBlock } from "./cards";
+import type { SlackBlock } from "./event";
 
 export interface SlackView {
   blocks: SlackBlock[];

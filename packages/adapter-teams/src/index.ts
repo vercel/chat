@@ -9,6 +9,7 @@ import {
 import type {
   Account,
   Activity,
+  AdaptiveCardActionMessageResponse,
   IAdaptiveCardActionInvokeActivity,
   IConversationUpdateActivity,
   IMessageActivity,
@@ -67,6 +68,7 @@ import {
   createTeamsAttachment,
   rehydrateTeamsAttachment,
   type TeamsActivityAttachment,
+  type TeamsAttachmentFetchers,
 } from "./attachments";
 import { BridgeHttpAdapter } from "./bridge-adapter";
 import {
@@ -112,6 +114,16 @@ interface ActionSubmitData {
   actionId?: string;
   value?: string;
 }
+
+/**
+ * Valid adaptiveCard/action invoke acknowledgement.
+ * An empty `value` makes Teams show "Unable to reach app" and retry the invoke.
+ */
+const CARD_ACTION_INVOKE_ACK: AdaptiveCardActionMessageResponse = {
+  statusCode: 200,
+  type: "application/vnd.microsoft.activity.message",
+  value: "OK",
+};
 
 const MESSAGEID_CAPTURE_PATTERN = /messageid=(\d+)/;
 const MESSAGEID_STRIP_PATTERN = /;messageid=\d+/;
@@ -208,6 +220,7 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
       skipAuth: Boolean(this.config.webhookVerifier),
     });
     const graphReader = new TeamsGraphReader({
+      attachmentFetchers: this.attachmentFetchers,
       botId: app.id ?? "",
       graph: app.graph,
       logger: this.logger,
@@ -237,11 +250,7 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
     this.app.on("card.action", async (ctx) => {
       this.cacheUserContext(ctx.activity);
       await this.handleAdaptiveCardAction(ctx);
-      return {
-        statusCode: 200,
-        type: "application/vnd.microsoft.activity.message",
-        value: "",
-      };
+      return CARD_ACTION_INVOKE_ACK;
     });
 
     this.app.on(
@@ -592,13 +601,13 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
     const isMention = entities.some(
       (e: { type?: string; mentioned?: { id?: string } }) =>
         e.type === "mention" &&
-        e.mentioned?.id &&
-        (e.mentioned.id === this.app.id ||
-          e.mentioned.id.endsWith(`:${this.app.id}`))
+        !!e.mentioned?.id &&
+        this.isBotAccountId(e.mentioned.id)
     );
-    if (isMention) {
-      message.isMention = true;
-    }
+    // Set false too: Chat only guesses from `@userName` in the text when this
+    // is unset, and that guess matches mentions of other bots whose display
+    // name starts with ours ("@Bot Dev" for a bot named "Bot").
+    message.isMention = isMention;
 
     // For DMs, capture ctx.stream and await processing so the stream stays
     // alive for native streaming via emit(). Group chats use fire-and-forget.
@@ -1005,8 +1014,7 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
     return new Message({
       id: activity.id || "",
       threadId,
-      text: this.formatConverter.extractPlainText(normalizedText),
-      formatted: this.formatConverter.toAst(normalizedText),
+      ...this.formatConverter.parseIncoming(normalizedText),
       raw: activity,
       author: this.authorFromActivity(activity),
       metadata: {
@@ -1029,14 +1037,33 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
     att: TeamsActivityAttachment,
     serviceUrl?: string
   ): Attachment {
-    return createTeamsAttachment(att, serviceUrl, {
-      createAnonymousFetchData: (url) => this.createFetchDataFn(url),
-      fetchAuthenticated: (url) => this.fetchAuthenticatedAttachment(url),
-    });
+    return createTeamsAttachment(att, serviceUrl, this.attachmentFetchers);
   }
+
+  private readonly attachmentFetchers: TeamsAttachmentFetchers = {
+    createAnonymousFetchData: (url) => this.createFetchDataFn(url),
+    fetchAuthenticated: (url) => this.fetchAuthenticatedAttachment(url),
+    fetchGraphFile: (url) => this.fetchGraphFile(url),
+  };
 
   protected createFetchDataFn(url: string): () => Promise<Buffer> {
     return createAnonymousAttachmentFetchData(url);
+  }
+
+  /**
+   * Download a SharePoint or OneDrive file reference from a Graph message.
+   * Graph resolves the file to a pre-authenticated URL, which is then
+   * downloaded through `createFetchDataFn()` so the anonymous download
+   * limits and overrides still apply.
+   */
+  private async fetchGraphFile(url: string): Promise<Buffer> {
+    let downloadUrl: string;
+    try {
+      downloadUrl = await this.graphReader.resolveFileDownloadUrl(url);
+    } catch (error) {
+      handleTeamsError(error, "fetchGraphFile");
+    }
+    return this.createFetchDataFn(downloadUrl)();
   }
 
   private async fetchAuthenticatedAttachment(url: string): Promise<Buffer> {
@@ -1066,10 +1093,7 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
   }
 
   rehydrateAttachment(attachment: Attachment): Attachment {
-    return rehydrateTeamsAttachment(attachment, {
-      createAnonymousFetchData: (url) => this.createFetchDataFn(url),
-      fetchAuthenticated: (url) => this.fetchAuthenticatedAttachment(url),
-    });
+    return rehydrateTeamsAttachment(attachment, this.attachmentFetchers);
   }
 
   protected normalizeMentions(text: string): string {
@@ -1118,16 +1142,22 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
     }
 
     try {
-      const aadObjectId = await this.chat
-        .getState()
-        .get<string>(`teams:aadObjectId:${userId}`);
+      const state = this.chat.getState();
+      const [aadObjectId, tenantId] = await Promise.all([
+        state.get<string>(`teams:aadObjectId:${userId}`),
+        state.get<string>(`teams:tenantId:${userId}`),
+      ]);
 
       if (!aadObjectId) {
         this.logger.debug("No cached aadObjectId for user", { userId });
         return null;
       }
 
-      return await this.getUserByAadObjectId(userId, aadObjectId);
+      return await this.getUserByAadObjectId(
+        userId,
+        aadObjectId,
+        tenantId ?? undefined
+      );
     } catch (error) {
       this.logger.warn("Failed to read cached aadObjectId from state", {
         userId,
@@ -1179,7 +1209,8 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
 
   private async getUserByAadObjectId(
     userId: string,
-    aadObjectId: string
+    aadObjectId: string,
+    tenantId: string | undefined
   ): Promise<UserInfo | null> {
     const cacheKey = `teams:userInfo:${aadObjectId}`;
     const isBot = this.isBotUserId(userId);
@@ -1192,7 +1223,8 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
     }
 
     try {
-      const graphUser = await this.app.graph.call(users.get, {
+      // Users of other tenants only exist in their own tenant's directory
+      const graphUser = await this.app.graphFor(tenantId).call(users.get, {
         "user-id": aadObjectId,
       });
 

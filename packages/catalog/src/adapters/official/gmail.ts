@@ -2,7 +2,6 @@ import { env, secretEnv, urlEnv } from "../../env";
 import type { CatalogAdapter } from "../../types";
 
 export const gmail = {
-  beta: true,
   description:
     "Receive labelled emails and send threaded replies, or use standalone Gmail APIs without the Chat runtime.",
   env: {

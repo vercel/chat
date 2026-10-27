@@ -1,6 +1,7 @@
+import { ValidationError } from "@chat-adapter/shared";
 import type { App } from "@microsoft/teams.apps";
 import type { Client as GraphClient } from "@microsoft/teams.graph";
-import { chats, teams } from "@microsoft/teams.graph-endpoints";
+import { chats, shares, teams } from "@microsoft/teams.graph-endpoints";
 import type {
   Attachment,
   ChannelInfo,
@@ -13,6 +14,10 @@ import type {
   ThreadSummary,
 } from "chat";
 import { Message, NotImplementedError } from "chat";
+import {
+  createTeamsGraphAttachment,
+  type TeamsAttachmentFetchers,
+} from "./attachments";
 import type { TeamsFormatConverter } from "./markdown";
 import { decodeThreadId, encodeThreadId, isDM } from "./thread-id";
 import type {
@@ -34,7 +39,22 @@ type ChatMessageListResponse = Awaited<
 >;
 type GraphMessage = NonNullable<ChatMessageListResponse["value"]>[number];
 
+interface GraphMessagePage {
+  "@odata.nextLink"?: string | null;
+  value?: GraphMessage[] | null;
+}
+
+const TRUSTED_GRAPH_HOSTS = new Set([
+  "dod-graph.microsoft.us",
+  "graph.microsoft.com",
+  "graph.microsoft.de",
+  "graph.microsoft.us",
+  "microsoftgraph.chinacloudapi.cn",
+]);
+
 export interface TeamsGraphReaderDeps {
+  /** Fetchers used by attachments on messages read through Graph. */
+  attachmentFetchers: TeamsAttachmentFetchers;
   botId: string;
   formatConverter: TeamsFormatConverter;
   getGraphContext: (
@@ -222,82 +242,33 @@ export class TeamsGraphReader {
       let hasMoreMessages = false;
 
       if (graphContext && graphContext.type !== "dm") {
-        const channelParams = {
-          "team-id": graphContext.teamId,
-          "channel-id": graphContext.channelId,
-        };
-
-        if (direction === "forward") {
-          const allMessages: GraphMessage[] = [];
-          const firstPage = await this.deps.graph.call(
-            teams.channels.messages.list,
-            {
-              ...channelParams,
-              $top: 50,
-            }
-          );
-          allMessages.push(...(firstPage.value || []));
-          let nextLink = firstPage["@odata.nextLink"] ?? undefined;
-          while (nextLink) {
-            const page = await this.graphGetNextLink<{
-              value: GraphMessage[];
-              "@odata.nextLink"?: string;
-            }>(nextLink);
-            allMessages.push(...(page.value || []));
-            nextLink = page["@odata.nextLink"] ?? undefined;
-          }
-
-          allMessages.reverse();
-          let startIndex = 0;
-          if (options.cursor) {
-            const cursorVal = options.cursor;
-            startIndex = allMessages.findIndex(
-              (msg) => msg.createdDateTime && msg.createdDateTime > cursorVal
-            );
-            if (startIndex === -1) {
-              startIndex = allMessages.length;
-            }
-          }
-          hasMoreMessages = startIndex + limit < allMessages.length;
-          graphMessages = allMessages.slice(startIndex, startIndex + limit);
-        } else {
-          const response = await this.deps.graph.call(
-            teams.channels.messages.list,
-            {
-              ...channelParams,
-              $top: limit,
-            }
-          );
-          graphMessages = (response.value || []) as GraphMessage[];
-          graphMessages.reverse();
-          hasMoreMessages = graphMessages.length >= limit;
-        }
+        const allMessages = await this.fetchAllChannelRoots(graphContext);
+        return this.pageChannelMessages(allMessages, channelId, options);
+      }
+      const chatId = this.chatIdFromContext(graphContext, baseConversationId);
+      if (direction === "forward") {
+        const response = await this.deps.graph.call(chats.messages.list, {
+          "chat-id": chatId,
+          $top: limit,
+          $orderby: ["createdDateTime asc"],
+          $filter: options.cursor
+            ? `createdDateTime gt ${options.cursor}`
+            : undefined,
+        });
+        graphMessages = (response.value || []) as GraphMessage[];
+        hasMoreMessages = graphMessages.length >= limit;
       } else {
-        const chatId = this.chatIdFromContext(graphContext, baseConversationId);
-        if (direction === "forward") {
-          const response = await this.deps.graph.call(chats.messages.list, {
-            "chat-id": chatId,
-            $top: limit,
-            $orderby: ["createdDateTime asc"],
-            $filter: options.cursor
-              ? `createdDateTime gt ${options.cursor}`
-              : undefined,
-          });
-          graphMessages = (response.value || []) as GraphMessage[];
-          hasMoreMessages = graphMessages.length >= limit;
-        } else {
-          const response = await this.deps.graph.call(chats.messages.list, {
-            "chat-id": chatId,
-            $top: limit,
-            $orderby: ["createdDateTime desc"],
-            $filter: options.cursor
-              ? `createdDateTime lt ${options.cursor}`
-              : undefined,
-          });
-          graphMessages = (response.value || []) as GraphMessage[];
-          graphMessages.reverse();
-          hasMoreMessages = graphMessages.length >= limit;
-        }
+        const response = await this.deps.graph.call(chats.messages.list, {
+          "chat-id": chatId,
+          $top: limit,
+          $orderby: ["createdDateTime desc"],
+          $filter: options.cursor
+            ? `createdDateTime lt ${options.cursor}`
+            : undefined,
+        });
+        graphMessages = (response.value || []) as GraphMessage[];
+        graphMessages.reverse();
+        hasMoreMessages = graphMessages.length >= limit;
       }
 
       const messages = this.mapGraphMessages(graphMessages, channelId);
@@ -412,16 +383,28 @@ export class TeamsGraphReader {
       });
 
       const threads: ThreadSummary[] = [];
+      let nextCursor: string | undefined;
 
       if (graphContext && graphContext.type !== "dm") {
-        const response = await this.deps.graph.call(
-          teams.channels.messages.list,
-          {
-            "team-id": graphContext.teamId,
-            "channel-id": graphContext.channelId,
-            $top: limit,
-          }
-        );
+        let response: GraphMessagePage = options.cursor
+          ? await this.fetchChannelRootContinuation(
+              options.cursor,
+              graphContext
+            )
+          : await this.deps.graph.call(teams.channels.messages.list, {
+              "team-id": graphContext.teamId,
+              "channel-id": graphContext.channelId,
+              $top: Math.min(limit, 50),
+            });
+        while (
+          !(response.value ?? []).some((msg) => !!msg.id) &&
+          response["@odata.nextLink"]
+        ) {
+          response = await this.graphGetNextLink<GraphMessagePage>(
+            response["@odata.nextLink"]
+          );
+        }
+        nextCursor = response["@odata.nextLink"] ?? undefined;
         const messages = response.value || [];
 
         for (const msg of messages) {
@@ -466,7 +449,7 @@ export class TeamsGraphReader {
                 dateSent: msg.createdDateTime
                   ? new Date(msg.createdDateTime)
                   : new Date(),
-                edited: !!msg.lastModifiedDateTime,
+                edited: !!msg.lastEditedDateTime,
               },
               attachments: this.extractAttachmentsFromGraphMessage(msg),
             }),
@@ -529,7 +512,7 @@ export class TeamsGraphReader {
                 dateSent: msg.createdDateTime
                   ? new Date(msg.createdDateTime)
                   : new Date(),
-                edited: !!msg.lastModifiedDateTime,
+                edited: !!msg.lastEditedDateTime,
               },
               attachments: this.extractAttachmentsFromGraphMessage(msg),
             }),
@@ -541,7 +524,7 @@ export class TeamsGraphReader {
         threadCount: threads.length,
       });
 
-      return { threads };
+      return { threads, nextCursor };
     } catch (error) {
       this.deps.logger.error("Teams Graph API: listThreads error", { error });
       throw error;
@@ -576,90 +559,178 @@ export class TeamsGraphReader {
       "chatMessage-id": threadMessageId,
     };
 
-    let parentMessage: GraphMessage | null = null;
+    const [parentMessage, allReplies] = await Promise.all([
+      this.deps.graph
+        .call(teams.channels.messages.get, channelMsgParams)
+        .catch((err: unknown): GraphMessage | null => {
+          this.deps.logger.warn("Failed to fetch parent message", {
+            threadMessageId,
+            err,
+          });
+          return null;
+        }),
+      this.fetchAllChannelReplies(channelMsgParams),
+    ]);
+    const allMessages = parentMessage
+      ? [parentMessage, ...allReplies]
+      : allReplies;
+    return this.pageChannelMessages(allMessages, threadId, options);
+  }
+
+  private channelMessagePosition(msg: GraphMessage): {
+    timestamp: number;
+    id: string;
+  } {
+    return {
+      timestamp: Date.parse(msg.createdDateTime ?? "") || 0,
+      id: msg.id ?? "",
+    };
+  }
+
+  private compareChannelMessagePositions(
+    left: { timestamp: number; id: string },
+    right: { timestamp: number; id?: string }
+  ): number {
+    const timestampDifference = left.timestamp - right.timestamp;
+    if (timestampDifference || right.id === undefined) {
+      return timestampDifference;
+    }
+    if (left.id === right.id) {
+      return 0;
+    }
+    return left.id < right.id ? -1 : 1;
+  }
+
+  private parseChannelHistoryCursor(cursor: string): {
+    timestamp: number;
+    id?: string;
+  } {
+    if (!cursor.startsWith("teams-channel-history:")) {
+      const timestamp = Date.parse(cursor);
+      if (Number.isFinite(timestamp)) {
+        return { timestamp };
+      }
+      throw new ValidationError("teams", "Invalid channel history cursor");
+    }
     try {
-      parentMessage = await this.deps.graph.call(
-        teams.channels.messages.get,
-        channelMsgParams
+      const value: unknown = JSON.parse(
+        Buffer.from(
+          cursor.slice("teams-channel-history:".length),
+          "base64url"
+        ).toString("utf8")
       );
-    } catch (err) {
-      this.deps.logger.warn("Failed to fetch parent message", {
-        threadMessageId,
-        err,
-      });
-    }
-
-    let graphMessages: GraphMessage[];
-    let hasMoreMessages = false;
-
-    if (direction === "forward") {
-      const allReplies = await this.fetchAllChannelReplies(channelMsgParams);
-      allReplies.reverse();
-      const allMessages = parentMessage
-        ? [parentMessage, ...allReplies]
-        : allReplies;
-
-      let startIndex = 0;
-      if (cursor) {
-        startIndex = allMessages.findIndex(
-          (msg) => msg.createdDateTime && msg.createdDateTime > cursor
-        );
-        if (startIndex === -1) {
-          startIndex = allMessages.length;
-        }
+      if (
+        typeof value === "object" &&
+        value !== null &&
+        "timestamp" in value &&
+        typeof value.timestamp === "number" &&
+        Number.isFinite(value.timestamp) &&
+        "id" in value &&
+        typeof value.id === "string" &&
+        value.id.length > 0
+      ) {
+        return { timestamp: value.timestamp, id: value.id };
       }
-
-      hasMoreMessages = startIndex + limit < allMessages.length;
-      graphMessages = allMessages.slice(startIndex, startIndex + limit);
-    } else {
-      const allReplies = await this.fetchAllChannelReplies(channelMsgParams);
-      allReplies.reverse();
-      const allMessages = parentMessage
-        ? [parentMessage, ...allReplies]
-        : allReplies;
-
-      if (cursor) {
-        const cursorIndex = allMessages.findIndex(
-          (msg) => msg.createdDateTime && msg.createdDateTime >= cursor
-        );
-        if (cursorIndex > 0) {
-          const sliceStart = Math.max(0, cursorIndex - limit);
-          graphMessages = allMessages.slice(sliceStart, cursorIndex);
-          hasMoreMessages = sliceStart > 0;
-        } else {
-          graphMessages = allMessages.slice(-limit);
-          hasMoreMessages = allMessages.length > limit;
-        }
-      } else {
-        graphMessages = allMessages.slice(-limit);
-        hasMoreMessages = allMessages.length > limit;
-      }
+    } catch {
+      // Fall through to the adapter's cursor error.
     }
+    throw new ValidationError("teams", "Invalid channel history cursor");
+  }
 
-    this.deps.logger.debug("Teams Graph API: fetched channel thread messages", {
-      count: graphMessages.length,
-      direction,
-      hasMoreMessages,
-    });
+  private pageChannelMessages(
+    graphMessages: GraphMessage[],
+    channelId: string,
+    options: FetchOptions
+  ): FetchResult<unknown> {
+    const direction = options.direction ?? "backward";
+    const limit = options.limit || 50;
+    const boundary = options.cursor
+      ? this.parseChannelHistoryCursor(options.cursor)
+      : undefined;
+    const sorted = graphMessages
+      .filter((msg) => !!msg.id)
+      .map((msg) => ({ msg, position: this.channelMessagePosition(msg) }))
+      .sort((left, right) =>
+        this.compareChannelMessagePositions(left.position, right.position)
+      );
+    const remaining = boundary
+      ? sorted.filter(({ position }) => {
+          const comparison = this.compareChannelMessagePositions(
+            position,
+            boundary
+          );
+          return direction === "forward" ? comparison > 0 : comparison < 0;
+        })
+      : sorted;
+    const page =
+      direction === "forward"
+        ? remaining.slice(0, limit)
+        : remaining.slice(-limit);
+    const edge = direction === "forward" ? page.at(-1) : page[0];
+    const nextCursor =
+      remaining.length > limit && edge
+        ? `teams-channel-history:${Buffer.from(JSON.stringify(edge.position)).toString("base64url")}`
+        : undefined;
+    return {
+      messages: this.mapGraphMessages(
+        page.map(({ msg }) => msg),
+        channelId
+      ),
+      nextCursor,
+    };
+  }
 
-    const messages = this.mapGraphMessages(graphMessages, threadId);
-
-    let nextCursor: string | undefined;
-    if (hasMoreMessages && graphMessages.length > 0) {
-      if (direction === "forward") {
-        const lastMsg = graphMessages.at(-1);
-        if (lastMsg?.createdDateTime) {
-          nextCursor = lastMsg.createdDateTime;
-        }
-      } else {
-        const oldestMsg = graphMessages[0];
-        if (oldestMsg?.createdDateTime) {
-          nextCursor = oldestMsg.createdDateTime;
-        }
+  private async fetchAllChannelRoots(
+    context: TeamsChannelContext
+  ): Promise<GraphMessage[]> {
+    let page: GraphMessagePage = await this.deps.graph.call(
+      teams.channels.messages.list,
+      {
+        "team-id": context.teamId,
+        "channel-id": context.channelId,
+        $top: 50,
       }
+    );
+    const messages = [...(page.value ?? [])];
+    while (page["@odata.nextLink"]) {
+      page = await this.graphGetNextLink<GraphMessagePage>(
+        page["@odata.nextLink"]
+      );
+      messages.push(...(page.value ?? []));
     }
+    return messages;
+  }
 
-    return { messages, nextCursor };
+  private async fetchChannelRootContinuation(
+    cursor: string,
+    context: TeamsChannelContext
+  ): Promise<GraphMessagePage> {
+    let url: URL;
+    let pathname: string;
+    try {
+      url = new URL(cursor);
+      pathname = decodeURIComponent(url.pathname);
+    } catch {
+      throw new ValidationError(
+        "teams",
+        "Invalid channel thread continuation cursor"
+      );
+    }
+    const expectedPath = `/v1.0/teams/${context.teamId}/channels/${context.channelId}/messages`;
+    if (
+      url.protocol !== "https:" ||
+      !TRUSTED_GRAPH_HOSTS.has(url.hostname.toLowerCase()) ||
+      url.username ||
+      url.password ||
+      url.port ||
+      pathname.toLowerCase() !== expectedPath.toLowerCase()
+    ) {
+      throw new ValidationError(
+        "teams",
+        "Invalid channel thread continuation cursor"
+      );
+    }
+    return this.graphGetNextLink<GraphMessagePage>(cursor);
   }
 
   /**
@@ -695,6 +766,24 @@ export class TeamsGraphReader {
   private async graphGetNextLink<T>(nextLinkUrl: string): Promise<T> {
     const res = await this.deps.graph.http.get<T>(nextLinkUrl);
     return res.data;
+  }
+
+  /**
+   * Resolve a SharePoint or OneDrive file URL from a Graph `reference`
+   * attachment to a short-lived, pre-authenticated download URL.
+   */
+  async resolveFileDownloadUrl(fileUrl: string): Promise<string> {
+    const shareId = `u!${Buffer.from(fileUrl).toString("base64url")}`;
+    const item = (await this.deps.graph.call(shares.driveItem.get, {
+      "sharedDriveItem-id": shareId,
+    })) as Record<string, unknown>;
+    const downloadUrl = item["@microsoft.graph.downloadUrl"];
+    if (typeof downloadUrl !== "string" || !downloadUrl) {
+      throw new Error(
+        "Microsoft Graph did not return a download URL for the shared file"
+      );
+    }
+    return downloadUrl;
   }
 
   extractTextFromGraphMessage(msg: GraphMessage): string {
@@ -792,12 +881,7 @@ export class TeamsGraphReader {
         contentType?: string | null;
         contentUrl?: string | null;
         name?: string | null;
-      }) => ({
-        type: att.contentType?.includes("image") ? "image" : "file",
-        name: att.name ?? undefined,
-        url: att.contentUrl ?? undefined,
-        mimeType: att.contentType ?? undefined,
-      })
+      }) => createTeamsGraphAttachment(att, this.deps.attachmentFetchers)
     );
   }
 
@@ -838,7 +922,7 @@ export class TeamsGraphReader {
             dateSent: msg.createdDateTime
               ? new Date(msg.createdDateTime)
               : new Date(),
-            edited: !!msg.lastModifiedDateTime,
+            edited: !!msg.lastEditedDateTime,
           },
           attachments: this.extractAttachmentsFromGraphMessage(msg),
         });

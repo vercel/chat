@@ -13,6 +13,7 @@ import {
 } from "react";
 import { Check, Cross, Warn } from "@/components/custom/status-icons";
 import { AdapterSlugList } from "./adapter-slug-list";
+import { CreateChatSdk } from "./create-chat-sdk";
 import { FeatureSupport } from "./feature-support";
 import { GlobalFeatureMatrix } from "./global-feature-matrix";
 import { PackageInstall } from "./package-install";
@@ -94,6 +95,7 @@ export const getMDXComponents = (
     FeatureSupport,
     GlobalFeatureMatrix,
     AdapterSlugList,
+    CreateChatSdk,
     PackageInstall,
 
     // User components last to allow overwriting defaults

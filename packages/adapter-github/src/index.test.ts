@@ -1,5 +1,6 @@
 import type { AsyncLocalStorage } from "node:async_hooks";
 import { createHmac } from "node:crypto";
+import { ValidationError } from "@chat-adapter/shared";
 import {
   connectWebhookContract,
   createMockChatInstance,
@@ -8,8 +9,18 @@ import {
   selfMessageContract,
   threadIdContract,
 } from "@chat-adapter/tests";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { DEFAULT_MAX_INCOMING_PARSE_LENGTH, paragraph, root, text } from "chat";
+import {
+  afterEach,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  type MockInstance,
+  vi,
+} from "vitest";
 import { createGitHubAdapter, GitHubAdapter } from "./index";
+import { GitHubFormatConverter } from "./markdown";
 import type {
   GitHubThreadId,
   IssueCommentWebhookPayload,
@@ -95,6 +106,9 @@ const WEBHOOK_SECRET = "test-secret";
 const INSTALLATION_ERROR_PATTERN = /installation/i;
 const TEST_BOT_MENTION_WITH_WHITESPACE_REGEX = /@test-bot\s+hi there/;
 const EMPTY_INSTALLATION_TOKEN_PATTERN = /empty installation token/i;
+const MARKDOWN_BODY = "**bold** with [a link](https://example.com) and `code`";
+const MARKDOWN_PLAIN_TEXT = "bold with a link and code";
+const OVER_LIMIT_BODY = `**bold** ${"a".repeat(DEFAULT_MAX_INCOMING_PARSE_LENGTH)}`;
 const WEBHOOK_LOG_SENTINELS = [
   "secret-access-token",
   "secret-refresh-token",
@@ -555,6 +569,276 @@ describe("GitHubAdapter", () => {
   });
 
   describe("handleWebhook", () => {
+    describe.each([
+      "hmac",
+      "custom",
+    ] as const)("fixed installation with %s verification", (verification) => {
+      let fixed: GitHubAdapter;
+      let chat: ReturnType<typeof createMockChatInstance>;
+      let state: ReturnType<typeof createMockState>;
+
+      beforeEach(async () => {
+        fixed = new GitHubAdapter({
+          appId: "12345",
+          privateKey: "test-private-key",
+          installationId: 111,
+          botUserId: 777,
+          webhookSecret: WEBHOOK_SECRET,
+          webhookVerifier: verification === "custom" ? () => true : undefined,
+          logger: mockLogger,
+        });
+        state = createMockState();
+        chat = createMockChatInstance({ state });
+        await fixed.initialize(chat);
+      });
+
+      describe.each([
+        ["issue_comment", makeIssueCommentPayload],
+        ["pull_request_review_comment", makeReviewCommentPayload],
+      ] as const)("%s", (event, payload) => {
+        it("dispatches comments from the configured installation", async () => {
+          const body = JSON.stringify(payload({ installation: { id: 111 } }));
+          const response = await fixed.handleWebhook(
+            makeWebhookRequest(
+              body,
+              event,
+              verification === "hmac" ? signPayload(body) : undefined
+            )
+          );
+
+          expect(response.status).toBe(200);
+          expect(chat.processMessage).toHaveBeenCalledWith(
+            fixed,
+            expect.any(String),
+            expect.any(Object),
+            undefined
+          );
+        });
+
+        it.each([
+          ["missing", undefined],
+          ["null", null],
+          ["empty", {}],
+        ])("dispatches comments with a %s installation", async (_, installation) => {
+          const body = JSON.stringify({ ...payload(), installation });
+          const response = await fixed.handleWebhook(
+            makeWebhookRequest(
+              body,
+              event,
+              verification === "hmac" ? signPayload(body) : undefined
+            )
+          );
+
+          expect(response.status).toBe(200);
+          expect(chat.processMessage).toHaveBeenCalledWith(
+            fixed,
+            expect.any(String),
+            expect.any(Object),
+            undefined
+          );
+          expect(mockLogger.warn).not.toHaveBeenCalled();
+        });
+
+        it.each([
+          ["foreign", { id: 999 }],
+          ["string", { id: "111" }],
+          ["fractional", { id: 111.5 }],
+        ])("rejects a %s installation before dispatch", async (_, installation) => {
+          const body = JSON.stringify({ ...payload(), installation });
+          const response = await fixed.handleWebhook(
+            makeWebhookRequest(
+              body,
+              event,
+              verification === "hmac" ? signPayload(body) : undefined
+            )
+          );
+
+          expect(response.status).toBe(404);
+          expect(await response.text()).toBe("Unknown installation");
+          expect(chat).not.toHaveDispatched("processMessage");
+          expect(state.set).not.toHaveBeenCalled();
+          expect(mockUsersGetAuthenticated).not.toHaveBeenCalled();
+          expect(mockAppsGetAuthenticated).not.toHaveBeenCalled();
+        });
+      });
+
+      it("logs the expected and received installation IDs on rejection", async () => {
+        const body = JSON.stringify(
+          makeIssueCommentPayload({ installation: { id: 999 } })
+        );
+        await fixed.handleWebhook(
+          makeWebhookRequest(
+            body,
+            "issue_comment",
+            verification === "hmac" ? signPayload(body) : undefined
+          )
+        );
+
+        expect(mockLogger.warn).toHaveBeenCalledWith(
+          "GitHub webhook rejected for unknown installation",
+          expect.objectContaining({
+            eventType: "issue_comment",
+            expectedInstallationId: 111,
+            receivedInstallationId: 999,
+          })
+        );
+      });
+
+      it.each([
+        ["issues", { action: "opened" }],
+        ["pull_request", { action: "opened" }],
+        ["issue_comment", makeIssueCommentPayload({ action: "edited" })],
+      ] as const)("acknowledges %s deliveries from other installations without dispatching", async (event, basePayload) => {
+        for (const installation of [{ id: 999 }, undefined]) {
+          const body = JSON.stringify({ ...basePayload, installation });
+          const response = await fixed.handleWebhook(
+            makeWebhookRequest(
+              body,
+              event,
+              verification === "hmac" ? signPayload(body) : undefined
+            )
+          );
+
+          expect(response.status).toBe(200);
+          expect(await response.text()).toBe("ok");
+        }
+        expect(chat).not.toHaveDispatched("processMessage");
+        expect(mockLogger.warn).not.toHaveBeenCalled();
+      });
+
+      it("accepts an installationId passed as a numeric string", async () => {
+        fixed = new GitHubAdapter({
+          appId: "12345",
+          privateKey: "test-private-key",
+          installationId: "111" as unknown as number,
+          botUserId: 777,
+          webhookSecret: WEBHOOK_SECRET,
+          webhookVerifier: verification === "custom" ? () => true : undefined,
+          logger: mockLogger,
+        });
+        await fixed.initialize(chat);
+        const body = JSON.stringify(
+          makeIssueCommentPayload({ installation: { id: 111 } })
+        );
+        const response = await fixed.handleWebhook(
+          makeWebhookRequest(
+            body,
+            "issue_comment",
+            verification === "hmac" ? signPayload(body) : undefined
+          )
+        );
+
+        expect(response.status).toBe(200);
+        expect(chat.processMessage).toHaveBeenCalled();
+      });
+
+      it("acknowledges ping without dispatching", async () => {
+        const body = JSON.stringify({ zen: "test" });
+        const response = await fixed.handleWebhook(
+          makeWebhookRequest(body, "ping", signPayload(body))
+        );
+
+        expect(response.status).toBe(200);
+        expect(await response.text()).toBe("pong");
+        expect(chat).not.toHaveDispatched("processMessage");
+      });
+
+      it("rejects unverified deliveries before checking the installation", async () => {
+        fixed = new GitHubAdapter({
+          appId: "12345",
+          privateKey: "test-private-key",
+          installationId: 111,
+          botUserId: 777,
+          webhookSecret: WEBHOOK_SECRET,
+          webhookVerifier: verification === "custom" ? () => false : undefined,
+          logger: mockLogger,
+        });
+        await fixed.initialize(chat);
+        const body = JSON.stringify(
+          makeIssueCommentPayload({ installation: { id: 999 } })
+        );
+        const response = await fixed.handleWebhook(
+          makeWebhookRequest(body, "issue_comment", "sha256=invalid")
+        );
+
+        expect(response.status).toBe(401);
+        expect(chat).not.toHaveDispatched("processMessage");
+      });
+    });
+
+    it.each([
+      "abc",
+      "-1",
+      "111.5",
+    ])("throws a ValidationError for an invalid installationId %s", (installationId) => {
+      expect(
+        () =>
+          new GitHubAdapter({
+            appId: "12345",
+            privateKey: "test-private-key",
+            installationId: installationId as unknown as number,
+            webhookSecret: WEBHOOK_SECRET,
+            logger: mockLogger,
+          })
+      ).toThrow(ValidationError);
+    });
+
+    it("does not store a non-numeric installation ID in multi-tenant mode", async () => {
+      const multiTenantAdapter = new GitHubAdapter({
+        appId: "12345",
+        privateKey:
+          "-----BEGIN RSA PRIVATE KEY-----\nfake\n-----END RSA PRIVATE KEY-----",
+        webhookSecret: WEBHOOK_SECRET,
+        userName: "test-bot[bot]",
+        logger: mockLogger,
+      });
+      const state = createMockState();
+      const mockChat = createMockChatInstance({ state });
+      await multiTenantAdapter.initialize(mockChat);
+
+      const body = JSON.stringify({
+        ...makeIssueCommentPayload(),
+        installation: { id: "111" },
+      });
+      const response = await multiTenantAdapter.handleWebhook(
+        makeWebhookRequest(body, "issue_comment", signPayload(body))
+      );
+
+      expect(response.status).toBe(200);
+      expect(state.set).not.toHaveBeenCalledWith(
+        expect.stringContaining("github:install:"),
+        expect.anything()
+      );
+    });
+
+    it("enforces the installation configured through environment variables", async () => {
+      vi.stubEnv("GITHUB_TOKEN", "");
+      vi.stubEnv("GITHUB_APP_ID", "12345");
+      vi.stubEnv("GITHUB_PRIVATE_KEY", "test-private-key");
+      vi.stubEnv("GITHUB_INSTALLATION_ID", "111");
+
+      try {
+        const fixed = new GitHubAdapter({
+          botUserId: 777,
+          webhookSecret: WEBHOOK_SECRET,
+          logger: mockLogger,
+        });
+        const chat = createMockChatInstance();
+        await fixed.initialize(chat);
+        const body = JSON.stringify(
+          makeIssueCommentPayload({ installation: { id: 999 } })
+        );
+        const response = await fixed.handleWebhook(
+          makeWebhookRequest(body, "issue_comment", signPayload(body))
+        );
+
+        expect(response.status).toBe(404);
+        expect(chat).not.toHaveDispatched("processMessage");
+      } finally {
+        vi.unstubAllEnvs();
+      }
+    });
+
     it("should return 401 for missing signature", async () => {
       const body = JSON.stringify(makeIssueCommentPayload());
       const request = new Request("https://example.com/api/webhooks/github", {
@@ -1814,6 +2098,97 @@ describe("GitHubAdapter", () => {
       const message = adapter.parseMessage(raw);
       expect(message.metadata.edited).toBe(false);
       expect(message.metadata.editedAt).toBeUndefined();
+    });
+  });
+
+  describe("inbound markdown parsing (via parseMessage)", () => {
+    let toAstSpy: MockInstance<GitHubFormatConverter["toAst"]>;
+
+    beforeEach(() => {
+      toAstSpy = vi.spyOn(GitHubFormatConverter.prototype, "toAst");
+    });
+
+    afterEach(() => {
+      toAstSpy.mockRestore();
+    });
+
+    function issueComment(body: string) {
+      return {
+        type: "issue_comment" as const,
+        comment: {
+          id: 100,
+          body,
+          user: { id: 1, login: "testuser", type: "User" as const },
+          created_at: "2024-01-01T00:00:00Z",
+          updated_at: "2024-01-01T00:00:00Z",
+          html_url: "https://github.com/acme/app/pull/42#issuecomment-100",
+        },
+        repository: {
+          id: 1,
+          name: "app",
+          full_name: "acme/app",
+          owner: { id: 10, login: "acme", type: "User" as const },
+        },
+        prNumber: 42,
+      };
+    }
+
+    function reviewComment(body: string) {
+      return {
+        type: "review_comment" as const,
+        comment: {
+          id: 200,
+          body,
+          user: { id: 2, login: "reviewer", type: "User" as const },
+          created_at: "2024-01-01T00:00:00Z",
+          updated_at: "2024-01-01T00:00:00Z",
+          html_url: "https://github.com/acme/app/pull/42#discussion_r200",
+          path: "src/index.ts",
+          diff_hunk: "@@",
+          commit_id: "abc",
+          original_commit_id: "abc",
+        },
+        repository: {
+          id: 1,
+          name: "app",
+          full_name: "acme/app",
+          owner: { id: 10, login: "acme", type: "User" as const },
+        },
+        prNumber: 42,
+      };
+    }
+
+    it.each([
+      ["issue comment", issueComment],
+      ["review comment", reviewComment],
+    ])("parses %s markdown once into text and formatted", (_, build) => {
+      const message = adapter.parseMessage(build(MARKDOWN_BODY));
+
+      expect(message.text).toBe(MARKDOWN_PLAIN_TEXT);
+      expect(message.formatted).toMatchObject({
+        children: [
+          {
+            type: "paragraph",
+            children: expect.arrayContaining([
+              expect.objectContaining({ type: "strong" }),
+            ]),
+          },
+        ],
+      });
+      expect(toAstSpy).toHaveBeenCalledOnce();
+    });
+
+    it.each([
+      ["issue comment", issueComment],
+      ["review comment", reviewComment],
+    ])("keeps an over-limit %s verbatim without parsing", (_, build) => {
+      const message = adapter.parseMessage(build(OVER_LIMIT_BODY));
+
+      expect(message.text).toBe(OVER_LIMIT_BODY);
+      expect(message.formatted).toEqual(
+        root([paragraph([text(OVER_LIMIT_BODY)])])
+      );
+      expect(toAstSpy).not.toHaveBeenCalled();
     });
   });
 

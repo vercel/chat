@@ -6,8 +6,15 @@ slug: memory
 type: state
 logo: memory
 tagline: In-memory state adapter for local development and tests. State is lost on restart and locks don't work across instances, so don't use it in production.
-beta: true
 ---
+
+## Create a new bot
+
+Scaffold a Next.js bot that uses the Memory state adapter with [`create-chat-sdk`](/docs/create-chat-sdk). Replace `slack` with your platform adapter:
+
+<CreateChatSdk adapters="slack memory" />
+
+To add the adapter to an existing app, start at [Install](#install).
 
 ## Install
 

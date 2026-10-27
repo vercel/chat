@@ -6,8 +6,15 @@ slug: teams
 type: platform
 logo: teams
 tagline: Deploy bots to Microsoft Teams with Adaptive Cards, mentions, and conversation threading.
-beta: true
 ---
+
+## Create a new bot
+
+Scaffold a Next.js bot with the Microsoft Teams adapter using [`create-chat-sdk`](/docs/create-chat-sdk):
+
+<CreateChatSdk adapters="teams memory" />
+
+The generated app uses the [Memory state adapter](/adapters/official/memory) for local development. To add the adapter to an existing app, start at [Install](#install).
 
 ## Install
 
@@ -128,6 +135,17 @@ The callback requests separate tokens for `https://api.botframework.com/.default
 An `appId` resolver runs once during successful initialization. Call `await bot.initialize()` before using adapter methods directly; Chat initializes automatically before handling webhooks. `botUserId` becomes available after initialization when using a resolver.
 
 A custom `webhookVerifier` receives the incoming request and its raw body. Return a truthy value to accept, or return a falsy value or throw to reject with HTTP 401. Without a verifier, the adapter retains Microsoft's native JWT verification.
+
+Create the connector and attach it to your project with the [Vercel CLI](https://vercel.com/docs/cli/connect). `--trigger-path` registers the Teams webhook route as the trigger destination, and `vercel env pull` downloads a development OIDC token for local runs:
+
+```bash
+vercel link
+vercel connect create microsoft-teams --name acme-teams --triggers
+vercel connect attach microsoft-teams/acme-teams --triggers --trigger-path /api/webhooks/teams
+vercel env pull
+```
+
+Without `--trigger-branch`, Connect forwards webhooks to your production deployment. See [Vercel Connect](/docs/vercel-connect#set-up-a-connector) for the full setup.
 
 ### Client secret
 
@@ -261,6 +279,10 @@ az ad app permission add \
 
 az ad app permission admin-consent --id <appId>
 ```
+
+Channel history is returned in creation order. Pass the returned `nextCursor` unchanged to the next request to continue in the same direction. The cursor also keeps the message ID, so messages created at the same time are not skipped.
+
+Microsoft Graph lists channel posts by the latest activity in each reply chain and can't sort them by creation time, so every channel history request reads all of the channel's root posts, 50 per Graph request, before it returns a page. In channels with thousands of posts, each request makes many Graph calls and can be [throttled](https://learn.microsoft.com/en-us/graph/throttling).
 
 ## Receiving all messages
 
@@ -441,6 +463,37 @@ Live incoming message authors include `email` when the Teams conversation member
 Incoming inline images and files are exposed through `message.attachments` with a lazy `fetchData()` method. The adapter authenticates connector-hosted inline attachments through the configured Teams bot client, while [Teams file download cards](https://learn.microsoft.com/en-us/microsoftteams/platform/bots/how-to/bots-filesv4) use their direct download URL without the bot token.
 
 Anonymous downloads require HTTPS URLs that resolve to public addresses; private and internal hosts are refused, including after redirects. Responses are limited to 25 MB and downloads time out after 30 seconds. Inline attachments served by the connector use bot authentication instead, including the Bot Framework Emulator's plain-HTTP loopback connector. To change the limits or route downloads through a proxy, override `createFetchDataFn()` in a subclass and call `downloadAttachment` from `@chat-adapter/shared` with your own options.
+
+### Files in group chats and channels
+
+Teams only delivers file attachments to bots in personal (1:1) chats. When a user attaches a file in a group chat or channel, the incoming activity contains the message text but no file, so `message.attachments` is empty. This is a [Teams platform limitation](https://learn.microsoft.com/en-us/microsoftteams/platform/bots/how-to/bots-filesv4).
+
+To read those files, fetch the message through Microsoft Graph with `fetchMessages`. Graph returns each shared file as an attachment whose `fetchData()` resolves the SharePoint or OneDrive file through Graph and downloads it with the same limits as other anonymous downloads:
+
+```typescript title="lib/bot.ts"
+import { isDM } from "@chat-adapter/teams";
+
+bot.onNewMention(async (thread, message) => {
+  let { attachments } = message;
+
+  if (thread.adapter.name === "teams" && !isDM(thread.id)) {
+    const { messages } = await thread.adapter.fetchMessages(thread.id, {
+      limit: 10,
+    });
+    const graphMessage = messages.find((m) => m.id === message.id);
+    attachments = graphMessage?.attachments ?? attachments;
+  }
+
+  for (const attachment of attachments) {
+    const data = await attachment.fetchData?.();
+    // ...
+  }
+});
+```
+
+This requires the [message history](#message-history) permissions for the conversation type, plus the `Files.ReadWrite.All` application permission with admin consent, which Microsoft Graph requires to [access shared files](https://learn.microsoft.com/en-us/graph/api/shares-get) from an app.
+
+`fetchData()` downloads the file with the app's tenant-wide `Files.ReadWrite.All` permission. It doesn't check whether the person who posted the message, or the person your bot replies to, can open the file, so only share file contents with people who should have access to them.
 
 ## Low-level APIs
 

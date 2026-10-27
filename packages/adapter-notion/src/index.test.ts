@@ -2,8 +2,11 @@ import { ValidationError } from "@chat-adapter/shared";
 import {
   createMockChatInstance,
   createMockLogger,
+  createMockState,
   threadIdContract,
 } from "@chat-adapter/tests";
+import { Chat } from "chat";
+import { createChatTools } from "chat/ai";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   createNotionAdapter,
@@ -29,6 +32,17 @@ const REACTIONS_ERROR = /reactions/;
 const EDIT_PERMISSION_ERROR = /edit this comment/;
 const DELETE_PERMISSION_ERROR = /delete this comment/;
 const FILE_UPLOAD_SEND_ID_RE = /file_uploads\/([^/]+)\/send/;
+const FOREIGN_PAGE_ID = "eeeeeeee-1111-2222-3333-444444444444";
+const FOREIGN_DISCUSSION_ID = "22222222-3333-4444-5555-666666666666";
+const FOREIGN_COMMENT_ID = "66666666-7777-8888-9999-aaaaaaaaaaaa";
+const FOREIGN_BLOCK_ID = "33333333-4444-5555-6666-777777777777";
+const PAGE_BLOCK_ID = "44444444-5555-6666-7777-888888888888";
+const OTHER_DISCUSSION_ID = "55555555-6666-7777-8888-999999999999";
+const API_BASE_URL = "https://api.notion.test/v1";
+const COMMENT_PATH_RE = /^\/comments\/([^/]+)$/;
+const BLOCK_PATH_RE = /^\/blocks\/([^/]+)$/;
+const NOT_ON_PAGE_ERROR = /does not belong to page/;
+const UNCONFIRMED_DISCUSSION_ERROR = /Could not confirm Notion discussion/;
 
 function fixtureComment(overrides: Partial<NotionComment> = {}): NotionComment {
   return {
@@ -839,6 +853,358 @@ describe("unsupported operations", () => {
   });
 });
 
+describe.each([
+  "edit",
+  "delete",
+] as const)("%s comment ownership", (operation) => {
+  let fetchMock: ReturnType<typeof vi.fn>;
+  const mutate = (adapter: NotionAdapter, threadId: string) =>
+    operation === "edit"
+      ? adapter.editMessage(threadId, COMMENT_ID, "Updated")
+      : adapter.deleteMessage(threadId, COMMENT_ID);
+
+  beforeEach(() => {
+    fetchMock = vi
+      .fn()
+      .mockImplementation(async () => Response.json(fixtureComment()));
+    vi.stubGlobal("fetch", fetchMock);
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("rejects a comment on another page before mutation", async () => {
+    fetchMock.mockImplementation(async () =>
+      Response.json(
+        fixtureComment({ parent: { type: "page_id", page_id: BOT_USER_ID } })
+      )
+    );
+    await expect(
+      mutate(createTestAdapter(), `notion:${PAGE_ID}`)
+    ).rejects.toThrow(ValidationError);
+    expect(
+      fetchMock.mock.calls.every(
+        ([, init]) => (init as RequestInit).method === "GET"
+      )
+    ).toBe(true);
+  });
+
+  it("rejects another discussion on the same page", async () => {
+    fetchMock.mockImplementation(async () =>
+      Response.json(fixtureComment({ discussion_id: BOT_USER_ID }))
+    );
+    await expect(
+      mutate(createTestAdapter(), `notion:${PAGE_ID}:${DISCUSSION_ID}`)
+    ).rejects.toThrow(ValidationError);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it.each([
+    `notion:${PAGE_ID}`,
+    `notion:${PAGE_ID}:${DISCUSSION_ID}`,
+  ])("allows a comment in %s", async (threadId) => {
+    await mutate(createTestAdapter(), threadId);
+    expect(
+      fetchMock.mock.calls.map(([, init]) => (init as RequestInit).method)
+    ).toEqual(["GET", operation === "edit" ? "PATCH" : "DELETE"]);
+  });
+
+  it("normalizes the comment parent and discussion IDs", async () => {
+    fetchMock.mockImplementation(async () =>
+      Response.json(
+        fixtureComment({
+          parent: {
+            type: "page_id",
+            page_id: PAGE_ID.replaceAll("-", "").toUpperCase(),
+          },
+          discussion_id: DISCUSSION_ID.replaceAll("-", ""),
+        })
+      )
+    );
+    await mutate(createTestAdapter(), `notion:${PAGE_ID}:${DISCUSSION_ID}`);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("rejects a missing comment without mutation", async () => {
+    fetchMock.mockImplementation(
+      async () => new Response("not found", { status: 404 })
+    );
+    await expect(
+      mutate(createTestAdapter(), `notion:${PAGE_ID}`)
+    ).rejects.toThrow(ValidationError);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("rejects an invalid message ID before requesting Notion", async () => {
+    const adapter = createTestAdapter();
+    const result =
+      operation === "edit"
+        ? adapter.editMessage(`notion:${PAGE_ID}`, "../pages/other", "Updated")
+        : adapter.deleteMessage(`notion:${PAGE_ID}`, "../pages/other");
+    await expect(result).rejects.toThrow(ValidationError);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("does not mutate when block ownership cannot be retrieved", async () => {
+    fetchMock.mockImplementation(async (url: string) =>
+      String(url).includes("/blocks/")
+        ? new Response("forbidden", { status: 403 })
+        : Response.json(
+            fixtureComment({
+              parent: { type: "block_id", block_id: PERSON_USER_ID },
+            })
+          )
+    );
+    await expect(
+      mutate(createTestAdapter(), `notion:${PAGE_ID}:${DISCUSSION_ID}`)
+    ).rejects.toThrow();
+    expect(
+      fetchMock.mock.calls.map(([, init]) => (init as RequestInit).method)
+    ).toEqual(["GET", "GET"]);
+  });
+
+  it("rejects a page-level thread when a block ancestor is not found", async () => {
+    fetchMock.mockImplementation(async (url: string) =>
+      String(url).includes("/blocks/")
+        ? new Response("not found", { status: 404 })
+        : Response.json(
+            fixtureComment({
+              parent: { type: "block_id", block_id: PERSON_USER_ID },
+            })
+          )
+    );
+    await expect(
+      mutate(createTestAdapter(), `notion:${PAGE_ID}`)
+    ).rejects.toThrow("Comment does not belong to this thread");
+    expect(
+      fetchMock.mock.calls.map(([, init]) => (init as RequestInit).method)
+    ).toEqual(["GET", "GET"]);
+  });
+
+  it("verifies the current page of a block despite a stale cached page", async () => {
+    const block = PERSON_USER_ID;
+    fetchMock.mockImplementation(async (url: string) =>
+      Response.json(
+        String(url).includes("/blocks/")
+          ? { id: block, parent: { type: "page_id", page_id: BOT_USER_ID } }
+          : fixtureComment({ parent: { type: "block_id", block_id: block } })
+      )
+    );
+    const adapter = createTestAdapter();
+    (
+      adapter as unknown as { blockPageCache: Map<string, string> }
+    ).blockPageCache.set(block, PAGE_ID);
+    await expect(
+      mutate(adapter, `notion:${PAGE_ID}:${DISCUSSION_ID}`)
+    ).rejects.toThrow(ValidationError);
+    expect(
+      fetchMock.mock.calls.map(([, init]) => (init as RequestInit).method)
+    ).toEqual(["GET", "GET"]);
+  });
+
+  it("allows a comment on a nested block in the requested page", async () => {
+    fetchMock.mockImplementation(async (url: string) => {
+      if (String(url).endsWith(`/blocks/${PERSON_USER_ID}`)) {
+        return Response.json({
+          parent: { type: "block_id", block_id: BOT_USER_ID },
+        });
+      }
+      if (String(url).endsWith(`/blocks/${BOT_USER_ID}`)) {
+        return Response.json({ parent: { type: "page_id", page_id: PAGE_ID } });
+      }
+      return Response.json(
+        fixtureComment({
+          parent: { type: "block_id", block_id: PERSON_USER_ID },
+        })
+      );
+    });
+    await mutate(
+      createTestAdapter(),
+      `notion:${PAGE_ID}:block:${PERSON_USER_ID}`
+    );
+    expect(
+      fetchMock.mock.calls.map(([, init]) => (init as RequestInit).method)
+    ).toEqual(["GET", "GET", "GET", operation === "edit" ? "PATCH" : "DELETE"]);
+  });
+
+  it("walks a nested block for a page-level thread and refreshes the cache", async () => {
+    fetchMock.mockImplementation(async (url: string) => {
+      if (String(url).endsWith(`/blocks/${PERSON_USER_ID}`)) {
+        return Response.json({
+          parent: { type: "block_id", block_id: BOT_USER_ID },
+        });
+      }
+      if (String(url).endsWith(`/blocks/${BOT_USER_ID}`)) {
+        return Response.json({ parent: { type: "page_id", page_id: PAGE_ID } });
+      }
+      return Response.json(
+        fixtureComment({
+          parent: { type: "block_id", block_id: PERSON_USER_ID },
+        })
+      );
+    });
+    const adapter = createTestAdapter();
+    const cache = (
+      adapter as unknown as { blockPageCache: Map<string, string> }
+    ).blockPageCache;
+    cache.set(PERSON_USER_ID, DISCUSSION_ID);
+    await mutate(adapter, `notion:${PAGE_ID}`);
+    expect(
+      fetchMock.mock.calls.map(([, init]) => (init as RequestInit).method)
+    ).toEqual(["GET", "GET", "GET", operation === "edit" ? "PATCH" : "DELETE"]);
+    expect(cache.get(PERSON_USER_ID)).toBe(PAGE_ID);
+    expect(cache.get(BOT_USER_ID)).toBe(PAGE_ID);
+  });
+
+  it("rejects a synced block comment whose ancestry leads to another page", async () => {
+    const otherPage = PERSON_USER_ID;
+    fetchMock.mockImplementation(async (url: string) =>
+      Response.json(
+        String(url).includes("/blocks/")
+          ? { parent: { type: "page_id", page_id: PAGE_ID } }
+          : fixtureComment({
+              parent: { type: "block_id", block_id: BOT_USER_ID },
+            })
+      )
+    );
+    await expect(
+      mutate(createTestAdapter(), `notion:${otherPage}:${DISCUSSION_ID}`)
+    ).rejects.toThrow(ValidationError);
+    expect(
+      fetchMock.mock.calls.map(([, init]) => (init as RequestInit).method)
+    ).toEqual(["GET", "GET"]);
+  });
+
+  it("rejects a comment on another block in the requested page", async () => {
+    fetchMock.mockImplementation(async (url: string) =>
+      Response.json(
+        String(url).includes("/blocks/")
+          ? { parent: { type: "page_id", page_id: PAGE_ID } }
+          : fixtureComment({
+              parent: { type: "block_id", block_id: PERSON_USER_ID },
+            })
+      )
+    );
+    await expect(
+      mutate(createTestAdapter(), `notion:${PAGE_ID}:block:${BOT_USER_ID}`)
+    ).rejects.toThrow(ValidationError);
+    expect(
+      fetchMock.mock.calls.every(
+        ([, init]) => (init as RequestInit).method === "GET"
+      )
+    ).toBe(true);
+  });
+
+  it.each([
+    {
+      shape: "discussion",
+      threadId: `notion:${PAGE_ID}:${DISCUSSION_ID}`,
+      comment: fixtureComment({
+        parent: { type: "page_id", page_id: BOT_USER_ID },
+      }),
+    },
+    {
+      shape: "block",
+      threadId: `notion:${PAGE_ID}:block:${PERSON_USER_ID}`,
+      comment: fixtureComment({
+        parent: { type: "block_id", block_id: PERSON_USER_ID },
+      }),
+    },
+  ])("blocks a foreign $shape comment through the scoped public tool", async ({
+    threadId,
+    comment,
+  }) => {
+    fetchMock.mockImplementation(async (url: string) => {
+      if (String(url).endsWith("/users/me")) {
+        return Response.json({ id: BOT_USER_ID, type: "bot", bot: {} });
+      }
+      if (String(url).includes("/blocks/")) {
+        return Response.json({
+          parent: { type: "page_id", page_id: BOT_USER_ID },
+        });
+      }
+      return Response.json(comment);
+    });
+    const adapter = createTestAdapter();
+    const chat = new Chat({
+      userName: "test-bot",
+      adapters: { notion: adapter },
+      state: createMockState(),
+      logger: createMockLogger(),
+    });
+    await chat.initialize();
+    fetchMock.mockClear();
+    try {
+      const tools = createChatTools({
+        chat,
+        scope: `notion:${PAGE_ID}`,
+        strictScope: true,
+        requireApproval: false,
+      });
+      const input = { threadId, messageId: COMMENT_ID, message: "Updated" };
+      const tool =
+        operation === "edit" ? tools.editMessage : tools.deleteMessage;
+      await expect(
+        tool?.execute?.(input, { toolCallId: "ownership", messages: [] })
+      ).rejects.toThrow("Comment does not belong to this thread");
+      expect(
+        fetchMock.mock.calls.every(
+          ([, init]) => (init as RequestInit).method === "GET"
+        )
+      ).toBe(true);
+    } finally {
+      await chat.shutdown();
+    }
+  });
+
+  it("blocks a foreign comment through the scoped public tool", async () => {
+    fetchMock.mockImplementation(async (url: string) =>
+      Response.json(
+        String(url).endsWith("/users/me")
+          ? { id: BOT_USER_ID, type: "bot", bot: {} }
+          : fixtureComment({
+              parent: { type: "page_id", page_id: BOT_USER_ID },
+            })
+      )
+    );
+    const adapter = createTestAdapter();
+    const chat = new Chat({
+      userName: "test-bot",
+      adapters: { notion: adapter },
+      state: createMockState(),
+      logger: createMockLogger(),
+    });
+    await chat.initialize();
+    fetchMock.mockClear();
+    try {
+      const tools = createChatTools({
+        chat,
+        scope: `notion:${PAGE_ID}`,
+        strictScope: true,
+        requireApproval: false,
+      });
+      const input = {
+        threadId: `notion:${PAGE_ID}`,
+        messageId: COMMENT_ID,
+        message: "Updated",
+      };
+      const tool =
+        operation === "edit" ? tools.editMessage : tools.deleteMessage;
+      await expect(
+        tool?.execute?.(input, { toolCallId: "ownership", messages: [] })
+      ).rejects.toThrow("Comment does not belong to this thread");
+      expect(
+        fetchMock.mock.calls.every(
+          ([, init]) => (init as RequestInit).method === "GET"
+        )
+      ).toBe(true);
+    } finally {
+      await chat.shutdown();
+    }
+  });
+});
+
 describe("postMessage / editMessage / deleteMessage", () => {
   let fetchMock: ReturnType<typeof vi.fn>;
 
@@ -909,10 +1275,18 @@ describe("postMessage / editMessage / deleteMessage", () => {
   });
 
   it("replies with discussion_id", async () => {
-    fetchMock.mockResolvedValue(Response.json(fixtureComment()));
+    fetchMock.mockImplementation(async (_url: string, init?: RequestInit) =>
+      Response.json(
+        init?.method === "POST"
+          ? fixtureComment()
+          : { object: "list", results: [fixtureComment()], has_more: false }
+      )
+    );
     const adapter = createTestAdapter();
     await adapter.postMessage(`notion:${PAGE_ID}:${DISCUSSION_ID}`, "reply");
-    const [, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    const [, init] = fetchMock.mock.calls.find(
+      ([, i]) => (i as RequestInit).method === "POST"
+    ) as [string, RequestInit];
     const body = JSON.parse(String(init.body));
     expect(body.discussion_id).toBe(DISCUSSION_ID);
     expect(body.parent).toBeUndefined();
@@ -961,7 +1335,9 @@ describe("postMessage / editMessage / deleteMessage", () => {
   });
 
   it("maps edit 404 to PermissionError", async () => {
-    fetchMock.mockResolvedValue(new Response("not found", { status: 404 }));
+    fetchMock
+      .mockResolvedValueOnce(Response.json(fixtureComment()))
+      .mockResolvedValueOnce(new Response("not found", { status: 404 }));
     const adapter = createTestAdapter();
     await expect(
       adapter.editMessage(`notion:${PAGE_ID}:${DISCUSSION_ID}`, COMMENT_ID, "x")
@@ -969,7 +1345,9 @@ describe("postMessage / editMessage / deleteMessage", () => {
   });
 
   it("maps delete 404 to PermissionError", async () => {
-    fetchMock.mockResolvedValue(new Response("not found", { status: 404 }));
+    fetchMock
+      .mockResolvedValueOnce(Response.json(fixtureComment()))
+      .mockResolvedValueOnce(new Response("not found", { status: 404 }));
     const adapter = createTestAdapter();
     await expect(
       adapter.deleteMessage(`notion:${PAGE_ID}:${DISCUSSION_ID}`, COMMENT_ID)
@@ -1526,6 +1904,613 @@ describe("postMessage / editMessage / deleteMessage", () => {
   });
 });
 
+interface NotionRoutes {
+  /** Block ancestry: each block's parent is a page, or another block via `parentBlockId`. */
+  blocks?: Record<
+    string,
+    { pageId?: string; parentBlockId?: string; type?: string }
+  >;
+  comments?: NotionComment[];
+  /** Comment list pages per `block_id`, served in order via `start_cursor`. */
+  listings?: Record<string, NotionComment[][]>;
+  posted?: NotionComment;
+}
+
+function routeNotion({
+  blocks = {},
+  comments = [],
+  listings = {},
+  posted = fixtureComment(),
+}: NotionRoutes = {}) {
+  return async (input: string, init?: RequestInit): Promise<Response> => {
+    const url = new URL(String(input));
+    const path = url.pathname.replace(new URL(API_BASE_URL).pathname, "");
+    const method = init?.method ?? "GET";
+    if (path === "/users/me") {
+      return Response.json({ id: BOT_USER_ID, type: "bot", bot: {} });
+    }
+    if (method === "POST" && path === "/comments") {
+      return Response.json(posted);
+    }
+    if (method === "POST" && path === "/file_uploads") {
+      return Response.json({ id: "fu-1", object: "file_upload" });
+    }
+    if (method === "POST" && path === "/file_uploads/fu-1/send") {
+      return Response.json({ id: "fu-1", status: "uploaded" });
+    }
+    if (method === "GET" && path === "/comments") {
+      const pages = listings[url.searchParams.get("block_id") ?? ""] ?? [];
+      const index = Number(url.searchParams.get("start_cursor") ?? "0");
+      const hasMore = index + 1 < pages.length;
+      return Response.json({
+        object: "list",
+        results: pages[index] ?? [],
+        has_more: hasMore,
+        next_cursor: hasMore ? String(index + 1) : null,
+      });
+    }
+    const comment = comments.find(
+      (c) => c.id === COMMENT_PATH_RE.exec(path)?.[1]
+    );
+    if (method === "GET" && comment) {
+      return Response.json(comment);
+    }
+    const blockId = BLOCK_PATH_RE.exec(path)?.[1];
+    const block = blockId ? blocks[blockId] : undefined;
+    if (method === "GET" && block) {
+      return Response.json({
+        object: "block",
+        id: blockId,
+        type: block.type ?? "paragraph",
+        parent: block.parentBlockId
+          ? { type: "block_id", block_id: block.parentBlockId }
+          : { type: "page_id", page_id: block.pageId },
+      });
+    }
+    return new Response(`unexpected ${method} ${path}`, { status: 500 });
+  };
+}
+
+/** `METHOD /path?query` for every request, relative to the API base URL. */
+function requestsOf(fetchMock: ReturnType<typeof vi.fn>): string[] {
+  return fetchMock.mock.calls.map(
+    ([url, init]) =>
+      `${(init as RequestInit).method} ${String(url).replace(API_BASE_URL, "")}`
+  );
+}
+
+function listingsOf(fetchMock: ReturnType<typeof vi.fn>): URLSearchParams[] {
+  return fetchMock.mock.calls
+    .filter(([, init]) => (init as RequestInit).method === "GET")
+    .map(([url]) => new URL(String(url)))
+    .filter((url) => url.pathname.endsWith("/comments"))
+    .map((url) => url.searchParams);
+}
+
+function writesOf(fetchMock: ReturnType<typeof vi.fn>): string[] {
+  return requestsOf(fetchMock).filter(
+    (request) => !request.startsWith("GET") || request.includes("file_uploads")
+  );
+}
+
+function postBodyOf(fetchMock: ReturnType<typeof vi.fn>, index = 0) {
+  const posts = fetchMock.mock.calls.filter(
+    ([url, init]) =>
+      (init as RequestInit).method === "POST" &&
+      String(url).endsWith("/comments")
+  );
+  return JSON.parse(String((posts[index]?.[1] as RequestInit).body));
+}
+
+describe("postMessage target ownership", () => {
+  let fetchMock: ReturnType<typeof vi.fn>;
+
+  beforeEach(() => {
+    fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.unstubAllGlobals();
+  });
+
+  async function withScopedTools(
+    run: (tools: ReturnType<typeof createChatTools>) => Promise<void>
+  ): Promise<void> {
+    const chat = new Chat({
+      userName: "test-bot",
+      adapters: { notion: createTestAdapter() },
+      state: createMockState(),
+      logger: createMockLogger(),
+    });
+    await chat.initialize();
+    fetchMock.mockClear();
+    try {
+      await run(
+        createChatTools({
+          chat,
+          scope: `notion:${PAGE_ID}`,
+          requireApproval: false,
+        })
+      );
+    } finally {
+      await chat.shutdown();
+    }
+  }
+
+  async function receiveComment(
+    adapter: NotionAdapter,
+    state: ReturnType<typeof createMockState>,
+    comment: NotionComment,
+    pageId: string
+  ): Promise<void> {
+    await adapter.initialize(createMockChatInstance({ state }) as never);
+    const event = fixtureCommentCreatedEvent({
+      entity: { id: comment.id, type: "comment" },
+      data: { page_id: pageId, parent: { id: pageId, type: "page" } },
+    });
+    const response = await adapter.handleWebhook(signedRequest(event));
+    if (response.status !== 200) {
+      throw new Error(`Webhook for ${comment.id} failed: ${response.status}`);
+    }
+  }
+
+  const foreignRoutes = {
+    listings: {
+      [PAGE_ID]: [[fixtureComment()]],
+      [FOREIGN_PAGE_ID]: [
+        [
+          fixtureComment({
+            parent: { type: "page_id", page_id: FOREIGN_PAGE_ID },
+            discussion_id: FOREIGN_DISCUSSION_ID,
+          }),
+        ],
+      ],
+    },
+  };
+
+  it.each([
+    {
+      tool: "postMessage",
+      input: { threadId: `notion:${PAGE_ID}:${FOREIGN_DISCUSSION_ID}` },
+    },
+    {
+      tool: "postChannelMessage",
+      input: { channelId: `notion:${PAGE_ID}:${FOREIGN_DISCUSSION_ID}` },
+    },
+  ] as const)("rejects a foreign discussion through the scoped $tool tool", async ({
+    tool,
+    input,
+  }) => {
+    fetchMock.mockImplementation(routeNotion(foreignRoutes));
+    await withScopedTools(async (tools) => {
+      const execute = tools[tool]?.execute as
+        | ((args: unknown, options: unknown) => Promise<unknown>)
+        | undefined;
+      const result = execute?.(
+        { ...input, message: "hijack" },
+        { toolCallId: "ownership", messages: [] }
+      );
+      await expect(result).rejects.toThrow(ValidationError);
+      await expect(result).rejects.toThrow(UNCONFIRMED_DISCUSSION_ERROR);
+    });
+    expect(writesOf(fetchMock)).toEqual([]);
+    expect(listingsOf(fetchMock).map((p) => p.get("block_id"))).toEqual([
+      PAGE_ID,
+    ]);
+  });
+
+  it("rejects a foreign discussion before uploading its files", async () => {
+    fetchMock.mockImplementation(routeNotion(foreignRoutes));
+    const result = createTestAdapter().postMessage(
+      `notion:${PAGE_ID}:${FOREIGN_DISCUSSION_ID}`,
+      {
+        markdown: "x",
+        files: [
+          { filename: "a.png", data: Buffer.from("x"), mimeType: "image/png" },
+        ],
+      }
+    );
+    await expect(result).rejects.toThrow(ValidationError);
+    await expect(result).rejects.toThrow(UNCONFIRMED_DISCUSSION_ERROR);
+    expect(writesOf(fetchMock)).toEqual([]);
+  });
+
+  it("rejects a discussion recorded on another page without listing", async () => {
+    const foreignComment = fixtureComment({
+      id: FOREIGN_COMMENT_ID,
+      parent: { type: "page_id", page_id: FOREIGN_PAGE_ID },
+      discussion_id: FOREIGN_DISCUSSION_ID,
+    });
+    fetchMock.mockImplementation(
+      routeNotion({
+        comments: [foreignComment],
+        listings: { [PAGE_ID]: [[foreignComment]] },
+      })
+    );
+    const adapter = createTestAdapter({ mentionMode: "all-comments" });
+    await receiveComment(
+      adapter,
+      createMockState(),
+      foreignComment,
+      FOREIGN_PAGE_ID
+    );
+    fetchMock.mockClear();
+
+    const result = adapter.postMessage(
+      `notion:${PAGE_ID}:${FOREIGN_DISCUSSION_ID}`,
+      "hijack"
+    );
+    await expect(result).rejects.toThrow(ValidationError);
+    await expect(result).rejects.toThrow(NOT_ON_PAGE_ERROR);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("rejects a block on another page", async () => {
+    fetchMock.mockImplementation(
+      routeNotion({
+        blocks: { [FOREIGN_BLOCK_ID]: { pageId: FOREIGN_PAGE_ID } },
+      })
+    );
+    const result = createTestAdapter().postMessage(
+      `notion:${PAGE_ID}:block:${FOREIGN_BLOCK_ID}`,
+      "hijack"
+    );
+    await expect(result).rejects.toThrow(ValidationError);
+    await expect(result).rejects.toThrow(NOT_ON_PAGE_ERROR);
+    expect(requestsOf(fetchMock)).toEqual([`GET /blocks/${FOREIGN_BLOCK_ID}`]);
+  });
+
+  it.each([
+    "child_page",
+    "child_database",
+  ])("rejects a %s block even when its parent is the thread's page", async (type) => {
+    fetchMock.mockImplementation(
+      routeNotion({ blocks: { [PAGE_BLOCK_ID]: { pageId: PAGE_ID, type } } })
+    );
+    await expect(
+      createTestAdapter().postMessage(
+        `notion:${PAGE_ID}:block:${PAGE_BLOCK_ID}`,
+        "hello"
+      )
+    ).rejects.toThrow(ValidationError);
+    expect(requestsOf(fetchMock)).toEqual([`GET /blocks/${PAGE_BLOCK_ID}`]);
+  });
+
+  it("replies to a webhook discussion without listing", async () => {
+    fetchMock.mockImplementation(routeNotion({ comments: [fixtureComment()] }));
+    const adapter = createTestAdapter({ mentionMode: "all-comments" });
+    await receiveComment(adapter, createMockState(), fixtureComment(), PAGE_ID);
+    fetchMock.mockClear();
+
+    await adapter.postMessage(`notion:${PAGE_ID}:${DISCUSSION_ID}`, "reply");
+    expect(requestsOf(fetchMock)).toEqual(["POST /comments"]);
+    expect(postBodyOf(fetchMock).discussion_id).toBe(DISCUSSION_ID);
+  });
+
+  it("replies from another instance using the binding in shared state", async () => {
+    fetchMock.mockImplementation(routeNotion({ comments: [fixtureComment()] }));
+    const state = createMockState();
+    await receiveComment(
+      createTestAdapter({ mentionMode: "all-comments" }),
+      state,
+      fixtureComment(),
+      PAGE_ID
+    );
+    const other = createTestAdapter();
+    await other.initialize(createMockChatInstance({ state }) as never);
+    fetchMock.mockClear();
+
+    await other.postMessage(`notion:${PAGE_ID}:${DISCUSSION_ID}`, "reply");
+    expect(requestsOf(fetchMock)).toEqual(["POST /comments"]);
+    expect(postBodyOf(fetchMock).discussion_id).toBe(DISCUSSION_ID);
+  });
+
+  it("finds an unrecorded discussion on a later listing page once", async () => {
+    // The token bucket refills from Date.now(); advance it instead of sleeping.
+    vi.useFakeTimers({ toFake: ["Date"] });
+    fetchMock.mockImplementation(
+      routeNotion({
+        listings: {
+          [PAGE_ID]: [
+            [fixtureComment({ discussion_id: OTHER_DISCUSSION_ID })],
+            [fixtureComment()],
+          ],
+        },
+      })
+    );
+    const adapter = createTestAdapter();
+    const threadId = `notion:${PAGE_ID}:${DISCUSSION_ID}`;
+
+    await adapter.postMessage(threadId, "first");
+    expect(listingsOf(fetchMock).map((p) => p.get("start_cursor"))).toEqual([
+      null,
+      "1",
+    ]);
+    expect(writesOf(fetchMock)).toEqual(["POST /comments"]);
+
+    fetchMock.mockClear();
+    vi.setSystemTime(Date.now() + 1000);
+    await adapter.postMessage(threadId, "second");
+    expect(requestsOf(fetchMock)).toEqual(["POST /comments"]);
+    expect(postBodyOf(fetchMock).discussion_id).toBe(DISCUSSION_ID);
+  });
+
+  it("skips relisting a missed discussion until the miss expires", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    fetchMock.mockImplementation(
+      routeNotion({
+        listings: {
+          [PAGE_ID]: [[fixtureComment({ discussion_id: OTHER_DISCUSSION_ID })]],
+        },
+      })
+    );
+    const adapter = createTestAdapter();
+    const threadId = `notion:${PAGE_ID}:${DISCUSSION_ID}`;
+
+    await expect(adapter.postMessage(threadId, "first")).rejects.toThrow(
+      UNCONFIRMED_DISCUSSION_ERROR
+    );
+    expect(listingsOf(fetchMock)).toHaveLength(1);
+
+    fetchMock.mockClear();
+    await expect(adapter.postMessage(threadId, "retry")).rejects.toThrow(
+      UNCONFIRMED_DISCUSSION_ERROR
+    );
+    expect(requestsOf(fetchMock)).toEqual([]);
+
+    vi.setSystemTime(Date.now() + 60_001);
+    await expect(adapter.postMessage(threadId, "later")).rejects.toThrow(
+      UNCONFIRMED_DISCUSSION_ERROR
+    );
+    expect(listingsOf(fetchMock)).toHaveLength(1);
+    expect(writesOf(fetchMock)).toEqual([]);
+  });
+
+  it("accepts a discussion recorded in shared state after a miss", async () => {
+    fetchMock.mockImplementation(
+      routeNotion({
+        comments: [fixtureComment()],
+        listings: { [PAGE_ID]: [[]] },
+      })
+    );
+    const state = createMockState();
+    const adapter = createTestAdapter();
+    await adapter.initialize(createMockChatInstance({ state }) as never);
+    const threadId = `notion:${PAGE_ID}:${DISCUSSION_ID}`;
+    await expect(adapter.postMessage(threadId, "first")).rejects.toThrow(
+      UNCONFIRMED_DISCUSSION_ERROR
+    );
+
+    await receiveComment(
+      createTestAdapter({ mentionMode: "all-comments" }),
+      state,
+      fixtureComment(),
+      PAGE_ID
+    );
+    fetchMock.mockClear();
+
+    await adapter.postMessage(threadId, "reply");
+    expect(requestsOf(fetchMock)).toEqual(["POST /comments"]);
+  });
+
+  it("persists a discussion binding when a webhook retries after a failed state write", async () => {
+    fetchMock.mockImplementation(routeNotion({ comments: [fixtureComment()] }));
+    const state = createMockState();
+    const writeState = vi.mocked(state.set).getMockImplementation();
+    let failedOnce = false;
+    vi.mocked(state.set).mockImplementation(async (key, value, ttlMs) => {
+      if (!failedOnce && key.startsWith("notion:discussion-page:")) {
+        failedOnce = true;
+        throw new Error("state unavailable");
+      }
+      return writeState?.(key, value, ttlMs);
+    });
+    const receiver = createTestAdapter({ mentionMode: "all-comments" });
+    await receiver.initialize(createMockChatInstance({ state }) as never);
+    const event = fixtureCommentCreatedEvent();
+
+    const failed = await receiver.handleWebhook(signedRequest(event));
+    expect(failed.status).not.toBe(200);
+    const retried = await receiver.handleWebhook(signedRequest(event));
+    expect(retried.status).toBe(200);
+
+    const other = createTestAdapter();
+    await other.initialize(createMockChatInstance({ state }) as never);
+    fetchMock.mockClear();
+    await other.postMessage(`notion:${PAGE_ID}:${DISCUSSION_ID}`, "reply");
+    expect(requestsOf(fetchMock)).toEqual(["POST /comments"]);
+  });
+
+  it("keeps other listed discussions in memory without writing them to state", async () => {
+    fetchMock.mockImplementation(
+      routeNotion({
+        listings: {
+          [PAGE_ID]: [
+            [
+              fixtureComment({ discussion_id: OTHER_DISCUSSION_ID }),
+              fixtureComment(),
+            ],
+          ],
+        },
+      })
+    );
+    const state = createMockState();
+    const adapter = createTestAdapter();
+    await adapter.initialize(createMockChatInstance({ state }) as never);
+    fetchMock.mockClear();
+
+    await adapter.postMessage(`notion:${PAGE_ID}:${DISCUSSION_ID}`, "first");
+    fetchMock.mockClear();
+    await adapter.postMessage(
+      `notion:${PAGE_ID}:${OTHER_DISCUSSION_ID}`,
+      "second"
+    );
+
+    expect(requestsOf(fetchMock)).toEqual(["POST /comments"]);
+    expect(postBodyOf(fetchMock).discussion_id).toBe(OTHER_DISCUSSION_ID);
+    expect(await state.get(`notion:discussion-page:${DISCUSSION_ID}`)).toBe(
+      PAGE_ID
+    );
+    expect(
+      await state.get(`notion:discussion-page:${OTHER_DISCUSSION_ID}`)
+    ).toBeNull();
+  });
+
+  it("matches a listed discussion ID in another case and hyphenation", async () => {
+    fetchMock.mockImplementation(
+      routeNotion({
+        listings: {
+          [PAGE_ID]: [
+            [
+              fixtureComment({
+                discussion_id: DISCUSSION_ID.replaceAll("-", "").toUpperCase(),
+              }),
+            ],
+          ],
+        },
+      })
+    );
+    await createTestAdapter().postMessage(
+      `notion:${PAGE_ID}:${DISCUSSION_ID}`,
+      "reply"
+    );
+    expect(writesOf(fetchMock)).toEqual(["POST /comments"]);
+    expect(postBodyOf(fetchMock).discussion_id).toBe(DISCUSSION_ID);
+  });
+
+  it("starts a block discussion and replies to it without listing", async () => {
+    fetchMock.mockImplementation(
+      routeNotion({
+        blocks: { [PAGE_BLOCK_ID]: { pageId: PAGE_ID } },
+        posted: fixtureComment({
+          parent: { type: "block_id", block_id: PAGE_BLOCK_ID },
+        }),
+      })
+    );
+    const adapter = createTestAdapter();
+
+    const started = await adapter.postMessage(
+      `notion:${PAGE_ID}:block:${PAGE_BLOCK_ID}`,
+      "hello"
+    );
+    expect(requestsOf(fetchMock)).toEqual([
+      `GET /blocks/${PAGE_BLOCK_ID}`,
+      "POST /comments",
+    ]);
+    expect(postBodyOf(fetchMock).parent).toEqual({ block_id: PAGE_BLOCK_ID });
+    expect(started.threadId).toBe(`notion:${PAGE_ID}:${DISCUSSION_ID}`);
+
+    fetchMock.mockClear();
+    await adapter.postMessage(started.threadId, "follow-up");
+    expect(requestsOf(fetchMock)).toEqual(["POST /comments"]);
+    expect(postBodyOf(fetchMock).discussion_id).toBe(DISCUSSION_ID);
+  });
+
+  it("records a block start's page in shared state", async () => {
+    fetchMock.mockImplementation(
+      routeNotion({
+        blocks: { [PAGE_BLOCK_ID]: { pageId: PAGE_ID } },
+        posted: fixtureComment({
+          parent: { type: "block_id", block_id: PAGE_BLOCK_ID },
+        }),
+      })
+    );
+    const state = createMockState();
+    const adapter = createTestAdapter();
+    await adapter.initialize(createMockChatInstance({ state }) as never);
+
+    await adapter.postMessage(
+      `notion:${PAGE_ID}:block:${PAGE_BLOCK_ID}`,
+      "hello"
+    );
+    expect(await state.get(`notion:block-page:${PAGE_BLOCK_ID}`)).toBe(PAGE_ID);
+    expect(await state.get(`notion:discussion-page:${DISCUSSION_ID}`)).toBe(
+      PAGE_ID
+    );
+  });
+
+  it("walks a nested block's ancestry fresh before starting its discussion", async () => {
+    fetchMock.mockImplementation(
+      routeNotion({
+        blocks: {
+          [PAGE_BLOCK_ID]: { parentBlockId: FOREIGN_BLOCK_ID },
+          [FOREIGN_BLOCK_ID]: { pageId: PAGE_ID },
+        },
+        posted: fixtureComment({
+          parent: { type: "block_id", block_id: PAGE_BLOCK_ID },
+        }),
+      })
+    );
+    const adapter = createTestAdapter();
+    // A stale cached ancestry must not decide ownership.
+    (
+      adapter as unknown as { blockPageCache: Map<string, string> }
+    ).blockPageCache.set(FOREIGN_BLOCK_ID, FOREIGN_PAGE_ID);
+
+    await adapter.postMessage(
+      `notion:${PAGE_ID}:block:${PAGE_BLOCK_ID}`,
+      "hello"
+    );
+    expect(requestsOf(fetchMock)).toEqual([
+      `GET /blocks/${PAGE_BLOCK_ID}`,
+      `GET /blocks/${FOREIGN_BLOCK_ID}`,
+      "POST /comments",
+    ]);
+    expect(postBodyOf(fetchMock).parent).toEqual({ block_id: PAGE_BLOCK_ID });
+  });
+
+  it("rejects a nested block whose ancestor is on another page", async () => {
+    fetchMock.mockImplementation(
+      routeNotion({
+        blocks: {
+          [PAGE_BLOCK_ID]: { parentBlockId: FOREIGN_BLOCK_ID },
+          [FOREIGN_BLOCK_ID]: { pageId: FOREIGN_PAGE_ID },
+        },
+      })
+    );
+    const result = createTestAdapter().postMessage(
+      `notion:${PAGE_ID}:block:${PAGE_BLOCK_ID}`,
+      "hijack"
+    );
+    await expect(result).rejects.toThrow(ValidationError);
+    await expect(result).rejects.toThrow(NOT_ON_PAGE_ERROR);
+    expect(writesOf(fetchMock)).toEqual([]);
+  });
+
+  it("posts a page-level comment through the scoped tool with one request", async () => {
+    fetchMock.mockImplementation(routeNotion());
+    await withScopedTools(async (tools) => {
+      await tools.postMessage?.execute?.(
+        { threadId: `notion:${PAGE_ID}`, message: "hello" },
+        { toolCallId: "page", messages: [] }
+      );
+    });
+    expect(requestsOf(fetchMock)).toEqual(["POST /comments"]);
+    expect(postBodyOf(fetchMock).parent).toEqual({ page_id: PAGE_ID });
+  });
+
+  it("returns the posted comment when recording its discussion fails", async () => {
+    fetchMock.mockImplementation(routeNotion());
+    const state = createMockState();
+    vi.mocked(state.set).mockRejectedValue(new Error("state unavailable"));
+    const logger = createMockLogger();
+    const adapter = createTestAdapter({ logger });
+    await adapter.initialize(createMockChatInstance({ state }) as never);
+    fetchMock.mockClear();
+
+    const result = await adapter.postMessage(`notion:${PAGE_ID}`, "hello");
+
+    expect(result.threadId).toBe(`notion:${PAGE_ID}:${DISCUSSION_ID}`);
+    expect(writesOf(fetchMock)).toEqual(["POST /comments"]);
+    expect(logger.warn).toHaveBeenCalledWith(
+      "Failed to record Notion discussion page",
+      expect.objectContaining({ discussionId: DISCUSSION_ID })
+    );
+  });
+});
+
 describe("chunkMarkdown", () => {
   it("returns a single chunk when under the limit", () => {
     expect(chunkMarkdown("hello world", 1900)).toEqual(["hello world"]);
@@ -1602,6 +2587,13 @@ describe("Post+Edit streaming", () => {
         commentBody = body.markdown;
         return Response.json(fixtureComment({ id: COMMENT_ID }));
       }
+      if (String(url).includes("/comments?") && init?.method === "GET") {
+        return Response.json({
+          object: "list",
+          results: [fixtureComment()],
+          has_more: false,
+        });
+      }
       return new Response("nope", { status: 404 });
     });
 
@@ -1631,6 +2623,14 @@ describe("Post+Edit streaming", () => {
     );
     expect(postCalls.length).toBe(1);
     expect(patchCalls.length).toBeGreaterThanOrEqual(1);
+    expect(
+      fetchMock.mock.calls.filter(
+        ([url, init]) =>
+          String(url).includes("/blocks/") ||
+          (String(url).includes(`/comments/${COMMENT_ID}`) &&
+            (init as RequestInit | undefined)?.method !== "PATCH")
+      )
+    ).toEqual([]);
     const lastPatch = JSON.parse(
       String((patchCalls.at(-1)?.[1] as RequestInit).body)
     );

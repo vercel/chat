@@ -2,7 +2,6 @@ import { env, secretEnv, urlEnv } from "../../env";
 import type { CatalogAdapter } from "../../types";
 
 export const gchat = {
-  beta: true,
   description:
     "Integrate with Google Chat spaces for team collaboration and automated workflows.",
   env: {

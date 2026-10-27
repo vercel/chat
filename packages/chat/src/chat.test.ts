@@ -3680,6 +3680,294 @@ describe("Chat", () => {
       }
     });
 
+    describe("modal context lifetime", () => {
+      const submitEvent = (callbackId: string) => ({
+        callbackId,
+        viewId: "V789",
+        values: { message: "" },
+        user: {
+          userId: "U123",
+          userName: "user",
+          fullName: "Test User",
+          isBot: false,
+          isMe: false,
+        },
+        adapter: mockAdapter,
+        raw: {},
+      });
+
+      const openModalFromAction = async (
+        callbackId: string,
+        callbackUrl?: string
+      ): Promise<string> => {
+        let capturedActionEvent: ActionEvent | undefined;
+        chat.onAction("open_form", async (event: ActionEvent) => {
+          capturedActionEvent = event;
+        });
+        await chat.processAction(
+          {
+            actionId: "open_form",
+            user: {
+              userId: "U123",
+              userName: "user",
+              fullName: "Test User",
+              isBot: false,
+              isMe: false,
+            },
+            messageId: "msg-1",
+            threadId: "slack:C123:1234.5678",
+            adapter: mockAdapter,
+            raw: {},
+            triggerId: "trigger-123",
+          },
+          undefined
+        );
+        await capturedActionEvent?.openModal({
+          type: "modal",
+          callbackId,
+          title: "Feedback",
+          callbackUrl,
+          children: [],
+        });
+        const contextId = (mockAdapter.openModal as ReturnType<typeof vi.fn>)
+          .mock.calls[0]?.[2] as string;
+        return contextId;
+      };
+
+      const hasContext = (contextId: string) =>
+        (mockState as MockStateAdapter).cache.has(
+          `modal-context:slack:${contextId}`
+        );
+
+      it("should keep relatedThread when a submit returning errors is resubmitted", async () => {
+        const contextId = await openModalFromAction("retry_modal");
+        const threadIds: (string | undefined)[] = [];
+        let attempt = 0;
+        chat.onModalSubmit("retry_modal", (event) => {
+          threadIds.push(event.relatedThread?.id);
+          attempt++;
+          if (attempt === 1) {
+            return { action: "errors", errors: { message: "Required" } };
+          }
+          return { action: "close" };
+        });
+
+        await chat.processModalSubmit(submitEvent("retry_modal"), contextId);
+        expect(hasContext(contextId)).toBe(true);
+
+        await chat.processModalSubmit(submitEvent("retry_modal"), contextId);
+        expect(threadIds).toEqual([
+          "slack:C123:1234.5678",
+          "slack:C123:1234.5678",
+        ]);
+        expect(hasContext(contextId)).toBe(false);
+      });
+
+      it.each([
+        "update",
+        "push",
+      ] as const)("should keep context when submit returns %s", async (action) => {
+        const contextId = await openModalFromAction("stay_open");
+        chat.onModalSubmit("stay_open", () => ({
+          action,
+          modal: {
+            type: "modal",
+            callbackId: "stay_open",
+            title: "Next",
+            children: [],
+          },
+        }));
+
+        await chat.processModalSubmit(submitEvent("stay_open"), contextId);
+
+        expect(hasContext(contextId)).toBe(true);
+      });
+
+      it.each([
+        ["close", { action: "close" } as const],
+        ["clear", { action: "clear" } as const],
+        ["no response", undefined],
+      ])("should delete context when submit returns %s", async (_label, response) => {
+        const contextId = await openModalFromAction("closing");
+        chat.onModalSubmit("closing", () => response);
+
+        await chat.processModalSubmit(submitEvent("closing"), contextId);
+
+        expect(hasContext(contextId)).toBe(false);
+      });
+
+      it("should delete context when the submit handler throws", async () => {
+        const contextId = await openModalFromAction("throwing");
+        chat.onModalSubmit("throwing", () => {
+          throw new Error("boom");
+        });
+
+        await chat.processModalSubmit(submitEvent("throwing"), contextId);
+
+        expect(hasContext(contextId)).toBe(false);
+      });
+
+      it("should delete context on modal close even when the handler throws", async () => {
+        const contextId = await openModalFromAction("close_modal");
+        chat.onModalClose("close_modal", () => {
+          throw new Error("boom");
+        });
+        const tasks: Promise<unknown>[] = [];
+
+        chat.processModalClose(
+          {
+            callbackId: "close_modal",
+            viewId: "V789",
+            user: submitEvent("close_modal").user,
+            adapter: mockAdapter,
+            raw: {},
+          },
+          contextId,
+          { waitUntil: (task) => tasks.push(task) }
+        );
+        await Promise.all(tasks);
+
+        expect(hasContext(contextId)).toBe(false);
+      });
+
+      it("should POST to callbackUrl only once across an update and a later submit", async () => {
+        const mockFetch = vi.fn().mockResolvedValue(new Response("ok"));
+        vi.stubGlobal("fetch", mockFetch);
+
+        try {
+          const contextId = await openModalFromAction(
+            "multi_step",
+            "https://example.com/webhook/modal-hook"
+          );
+          let attempt = 0;
+          chat.onModalSubmit("multi_step", () => {
+            attempt++;
+            if (attempt === 1) {
+              return {
+                action: "update",
+                modal: {
+                  type: "modal",
+                  callbackId: "multi_step",
+                  title: "Step 2",
+                  children: [],
+                },
+              };
+            }
+            return { action: "close" };
+          });
+          const tasks: Promise<unknown>[] = [];
+          const options = {
+            waitUntil: (task: Promise<unknown>) => {
+              tasks.push(task);
+            },
+          };
+
+          await chat.processModalSubmit(
+            submitEvent("multi_step"),
+            contextId,
+            options
+          );
+          expect(hasContext(contextId)).toBe(true);
+          await chat.processModalSubmit(
+            submitEvent("multi_step"),
+            contextId,
+            options
+          );
+          await Promise.all(tasks);
+
+          expect(mockFetch).toHaveBeenCalledTimes(1);
+          expect(hasContext(contextId)).toBe(false);
+        } finally {
+          vi.unstubAllGlobals();
+        }
+      });
+
+      it("should POST to callbackUrl once when a resubmit succeeds after errors", async () => {
+        const mockFetch = vi.fn().mockResolvedValue(new Response("ok"));
+        vi.stubGlobal("fetch", mockFetch);
+
+        try {
+          const contextId = await openModalFromAction(
+            "retry_hook",
+            "https://example.com/webhook/modal-hook"
+          );
+          let attempt = 0;
+          chat.onModalSubmit("retry_hook", () => {
+            attempt++;
+            return attempt === 1
+              ? { action: "errors", errors: { message: "Required" } }
+              : undefined;
+          });
+          const tasks: Promise<unknown>[] = [];
+          const options = {
+            waitUntil: (task: Promise<unknown>) => {
+              tasks.push(task);
+            },
+          };
+
+          await chat.processModalSubmit(
+            submitEvent("retry_hook"),
+            contextId,
+            options
+          );
+          await chat.processModalSubmit(
+            submitEvent("retry_hook"),
+            contextId,
+            options
+          );
+          await Promise.all(tasks);
+
+          expect(mockFetch).toHaveBeenCalledTimes(1);
+        } finally {
+          vi.unstubAllGlobals();
+        }
+      });
+
+      it("should POST to callbackUrl once when duplicate submits overlap", async () => {
+        const mockFetch = vi.fn().mockResolvedValue(new Response("ok"));
+        vi.stubGlobal("fetch", mockFetch);
+
+        try {
+          const contextId = await openModalFromAction(
+            "slow_hook",
+            "https://example.com/webhook/modal-hook"
+          );
+          let release: () => void = () => undefined;
+          const gate = new Promise<void>((resolve) => {
+            release = resolve;
+          });
+          chat.onModalSubmit("slow_hook", async () => {
+            await gate;
+          });
+          const tasks: Promise<unknown>[] = [];
+          const options = {
+            waitUntil: (task: Promise<unknown>) => {
+              tasks.push(task);
+            },
+          };
+
+          const first = chat.processModalSubmit(
+            submitEvent("slow_hook"),
+            contextId,
+            options
+          );
+          const second = chat.processModalSubmit(
+            submitEvent("slow_hook"),
+            contextId,
+            options
+          );
+          await new Promise((resolve) => setTimeout(resolve, 0));
+          release();
+          await Promise.all([first, second]);
+          await Promise.all(tasks);
+
+          expect(mockFetch).toHaveBeenCalledTimes(1);
+        } finally {
+          vi.unstubAllGlobals();
+        }
+      });
+    });
+
     it("should not wait for modal callbackUrl before returning response", async () => {
       const mockFetch = vi.fn(() => new Promise<Response>(() => undefined));
       vi.stubGlobal("fetch", mockFetch);
@@ -5889,6 +6177,168 @@ describe("Chat", () => {
             concurrency: { strategy: "concurrent", maxConcurrent: 0 },
           })
       ).toThrow("maxConcurrent must be >= 1");
+    });
+  });
+
+  describe("concurrency scope", () => {
+    const scopedThreadId = "slack:C123:1234.5678";
+
+    function createScopedAdapter(scope = "T1") {
+      const adapter = createMockAdapter("slack");
+      const getConcurrencyScope = vi.fn(() => scope);
+      adapter.getConcurrencyScope = getConcurrencyScope;
+      return { adapter, getConcurrencyScope };
+    }
+
+    function createWarnLogger() {
+      const warn = vi.fn();
+      const logger = {
+        debug: vi.fn(),
+        info: vi.fn(),
+        warn,
+        error: vi.fn(),
+        child: () => logger,
+      };
+      return { logger, warn };
+    }
+
+    it("resolves the scope once per incoming message under queue strategy", async () => {
+      const state = createMockState();
+      const { adapter, getConcurrencyScope } = createScopedAdapter();
+      const scopedChat = new Chat({
+        userName: "testbot",
+        adapters: { slack: adapter },
+        state,
+        logger: mockLogger,
+        concurrency: "queue",
+      });
+      await scopedChat.webhooks.slack(
+        new Request("http://test.com", { method: "POST" })
+      );
+
+      let releaseFirst: () => void = () => {
+        throw new Error("releaseFirst not assigned");
+      };
+      let notifyStarted: () => void = () => {
+        throw new Error("notifyStarted not assigned");
+      };
+      const started = new Promise<void>((resolve) => {
+        notifyStarted = resolve;
+      });
+      const received: string[] = [];
+      scopedChat.onNewMention(async (_thread, message) => {
+        received.push(message.text);
+        if (received.length === 1) {
+          notifyStarted();
+          await new Promise<void>((resolve) => {
+            releaseFirst = resolve;
+          });
+        }
+      });
+
+      const first = scopedChat.handleIncomingMessage(
+        adapter,
+        scopedThreadId,
+        createTestMessage("msg-scope-1", "Hey @slack-bot first")
+      );
+      await started;
+      await scopedChat.handleIncomingMessage(
+        adapter,
+        scopedThreadId,
+        createTestMessage("msg-scope-2", "Hey @slack-bot second")
+      );
+      releaseFirst();
+      await first;
+
+      expect(received).toEqual([
+        "Hey @slack-bot first",
+        "Hey @slack-bot second",
+      ]);
+      expect(getConcurrencyScope).toHaveBeenCalledTimes(2);
+      expect(state.acquireLock).toHaveBeenCalledWith(
+        `concurrency:${JSON.stringify(["slack", "T1", scopedThreadId])}`,
+        expect.any(Number)
+      );
+    });
+
+    it("resolves the scope once when deduplication is disabled", async () => {
+      const state = createMockState();
+      const { adapter, getConcurrencyScope } = createScopedAdapter();
+      const scopedChat = new Chat({
+        userName: "testbot",
+        adapters: { slack: adapter },
+        state,
+        logger: mockLogger,
+      });
+      await scopedChat.webhooks.slack(
+        new Request("http://test.com", { method: "POST" })
+      );
+      const handler = vi.fn().mockResolvedValue(undefined);
+      scopedChat.onNewMention(handler);
+
+      await scopedChat.processMessage(
+        adapter,
+        scopedThreadId,
+        createTestMessage("msg-scope-nodedupe", "Hey @slack-bot"),
+        { deduplicate: false }
+      );
+
+      expect(handler).toHaveBeenCalledTimes(1);
+      expect(getConcurrencyScope).toHaveBeenCalledTimes(1);
+    });
+
+    it("logs the real thread ID when turn cancellation polling fails", async () => {
+      const state = createMockState();
+      const { adapter } = createScopedAdapter();
+      adapter.supportsTurnCancellation = true;
+      const { logger, warn } = createWarnLogger();
+      const scopedChat = new Chat({
+        userName: "testbot",
+        adapters: { slack: adapter },
+        state,
+        logger,
+      });
+      await scopedChat.webhooks.slack(
+        new Request("http://test.com", { method: "POST" })
+      );
+      scopedChat.onNewMention(vi.fn().mockResolvedValue(undefined));
+      const pollError = new Error("state unavailable");
+      state.get.mockImplementation(async (key: string) => {
+        if (key.startsWith("abort-turn:")) {
+          throw pollError;
+        }
+        return null;
+      });
+
+      await scopedChat.handleIncomingMessage(
+        adapter,
+        scopedThreadId,
+        createTestMessage("msg-scope-log", "Hey @slack-bot")
+      );
+
+      expect(state.get).toHaveBeenCalledWith(
+        `abort-turn:concurrency:${JSON.stringify(["slack", "T1", scopedThreadId])}`
+      );
+      expect(warn).toHaveBeenCalledWith(
+        "Could not poll turn cancellation state",
+        { error: pollError, threadId: scopedThreadId }
+      );
+      expect(warn).toHaveBeenCalledWith(
+        "Could not clear turn cancellation state",
+        { error: pollError, threadId: scopedThreadId }
+      );
+    });
+
+    it("throws INVALID_THREAD_ID from abortTurn for an empty adapter prefix", async () => {
+      await expect(chat.abortTurn(":C123:1234.5678")).rejects.toMatchObject({
+        code: "INVALID_THREAD_ID",
+      });
+    });
+
+    it("throws ADAPTER_NOT_FOUND from abortTurn for an unknown adapter", async () => {
+      await expect(
+        chat.abortTurn("unknown:C123:1234.5678")
+      ).rejects.toMatchObject({ code: "ADAPTER_NOT_FOUND" });
     });
   });
 

@@ -2,7 +2,6 @@ import { env, secretEnv, urlEnv } from "../../env";
 import type { CatalogAdapter } from "../../types";
 
 export const twitch = {
-  beta: true,
   description:
     "Read and reply in Twitch channel chat with EventSub webhooks and the Helix Chat API, plus whispers.",
   env: {

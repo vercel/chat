@@ -2,7 +2,6 @@ import { env, secretEnv, urlEnv } from "../../env";
 import type { CatalogAdapter } from "../../types";
 
 export const telegram = {
-  beta: true,
   description:
     "Connect to Telegram with support for groups, channels, and inline keyboards.",
   env: {

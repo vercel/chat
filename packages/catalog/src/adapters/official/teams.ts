@@ -2,7 +2,6 @@ import { env, secretEnv, urlEnv } from "../../env";
 import type { CatalogAdapter } from "../../types";
 
 export const teams = {
-  beta: true,
   description:
     "Deploy bots to Microsoft Teams with adaptive cards, mentions, and conversation threading.",
   env: {
@@ -69,6 +68,7 @@ export const teams = {
     "@microsoft/teams.api",
     "@microsoft/teams.apps",
     "@microsoft/teams.cards",
+    "@microsoft/teams.graph",
     "@microsoft/teams.graph-endpoints",
   ],
   readme: "https://github.com/vercel/chat/tree/main/packages/adapter-teams",
