@@ -175,7 +175,7 @@ Create a bot via [BotFather](https://t.me/BotFather) and provide its token direc
       type: "boolean",
       default: "true",
       description:
-        "Persist incoming messages in the Chat state adapter so `thread.messages` and `channel.messages` return earlier turns. Telegram has no Bot API for reading chat history, so with `false` handlers see only messages cached in the current process. Turn it off when your app keeps its own transcript. Config only, no env var.",
+        "Save incoming messages and the bot's own posts in the Chat state adapter so `thread.messages` and `channel.messages` return earlier turns. Telegram has no Bot API for reading chat history, so with `false` nothing is saved in either direction and handlers see only messages cached in the current process. Turn it off when your app keeps its own transcript. Config only, no env var.",
     },
     streamingEditIntervalMs: {
       type: "number",

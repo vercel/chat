@@ -51,7 +51,7 @@ bot.onNewMention(async (thread, message) => {
 
 ## Configuration
 
-Most options are auto-detected from environment variables when not provided. `nativeStreaming`, `streamingEditIntervalMs`, and `longMessages` are config only and have no environment variables.
+Most options are auto-detected from environment variables when not provided. `nativeStreaming`, `persistThreadHistory`, `streamingEditIntervalMs`, and `longMessages` are config only and have no environment variables.
 
 | Option | Required | Description |
 |--------|----------|-------------|
@@ -65,6 +65,7 @@ Most options are auto-detected from environment variables when not provided. `na
 | `userName` | No | Bot username used for mention detection. Auto-detected from `TELEGRAM_BOT_USERNAME` or `getMe` |
 | `mentionOnReply` | No | Treat a reply to one of the bot's own messages as a mention, so it routes to `onNewMention`. Defaults to `false`. Auto-detected from `TELEGRAM_MENTION_ON_REPLY=true`. Implicit forum-topic replies and the bot's own messages never count |
 | `nativeStreaming` | No | Stream with Telegram's native draft previews in private chats. Defaults to `false`, which uses post-and-edit in every chat type |
+| `persistThreadHistory` | No | Save incoming messages and the bot's own posts in the Chat state adapter so `thread.messages` and `channel.messages` return earlier turns. Defaults to `true`. Telegram has no Bot API for reading chat history, so with `false` handlers see only messages cached in the current process. Turn it off when your app keeps its own transcript |
 | `streamingEditIntervalMs` | No | Minimum interval between edits on the post-and-edit streaming path. Defaults to `1100` in private chats and `3100` in other chats, and acts as a floor for the Chat-level `streamingUpdateIntervalMs` |
 | `longMessages` | No | How text posts longer than Telegram's message limit are sent: `truncate` (default) cuts them with an ellipsis, `split` sends the full text as consecutive messages. See [Long messages](#long-messages) |
 | `apiUrl` | No | Telegram API base URL. Auto-detected from `TELEGRAM_API_BASE_URL`. Use `apiUrl` for cross-adapter consistency; the legacy `apiBaseUrl` alias is still accepted |

@@ -2903,7 +2903,8 @@ export interface UserHistoryConfig {
 export interface HistoryConfig {
   /**
    * Per-thread message history backfill.
-   * Used by adapters that set `persistThreadHistory: true` (e.g. Telegram, WhatsApp).
+   * Used by adapters that set `persistThreadHistory: true` (e.g. WhatsApp, and
+   * Telegram by default).
    * Replaces the top-level `threadHistory` / `messageHistory` config fields.
    */
   thread?: {

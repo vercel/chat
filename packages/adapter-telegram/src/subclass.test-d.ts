@@ -65,8 +65,13 @@ describe("subclass extensibility", () => {
   });
 
   it("lets a subclass turn thread history persistence off", () => {
+    expectTypeOf<
+      TelegramAdapter["persistThreadHistory"]
+    >().toEqualTypeOf<boolean>();
+
     class NoHistorySubclass extends TelegramAdapter {
-      // Compile-time check: fails if persistThreadHistory is typed as the literal `true`.
+      // Compile-time check: this override fails to type-check if the base
+      // narrows persistThreadHistory back to the literal `true`.
       override readonly persistThreadHistory = false;
     }
     expectTypeOf<

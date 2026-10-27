@@ -23,7 +23,7 @@ History scopes are configured under the `history` key on `ChatConfig`.
       type: 'UserHistoryConfig | undefined',
     },
     thread: {
-      description: 'Per-thread message history backfill. Used by adapters that set `persistThreadHistory: true` (e.g. Telegram, WhatsApp). Replaces the legacy `threadHistory` / `messageHistory` fields.',
+      description: 'Per-thread message history backfill. Used by adapters that set `persistThreadHistory: true` (e.g. WhatsApp, and Telegram by default). Replaces the legacy `threadHistory` / `messageHistory` fields.',
       type: '{ maxMessages?: number; ttlMs?: number } | undefined',
     },
   }}
@@ -187,7 +187,7 @@ Wipes every entry stored under the user key. Returns the count that was removed.
 
 ## bot.history.thread
 
-Per-thread message history. Always available, and delegates to the adapter's `fetchMessages`. For adapters that persist history in the SDK-maintained `ThreadHistoryCache` (`persistThreadHistory: true`, e.g. Telegram, WhatsApp), an empty platform response falls back to that cache. Every method throws when the adapter named in the thread ID prefix is not registered, so a typo'd ID fails loudly instead of reading as an empty thread.
+Per-thread message history. Always available, and delegates to the adapter's `fetchMessages`. For adapters that persist history in the SDK-maintained `ThreadHistoryCache` (`persistThreadHistory: true`, e.g. WhatsApp, and Telegram by default), an empty platform response falls back to that cache. Every method throws when the adapter named in the thread ID prefix is not registered, so a typo'd ID fails loudly instead of reading as an empty thread.
 
 ### list
 

@@ -15,6 +15,7 @@ import {
 } from "@chat-adapter/tests";
 import {
   type Attachment,
+  Chat,
   type ChatInstance,
   convertEmojiPlaceholders,
   Message,
@@ -276,12 +277,85 @@ describe("createTelegramAdapter", () => {
     expect(adapter.persistThreadHistory).toBe(false);
   });
 
+  it("lets a subclass turn thread history persistence off", () => {
+    class NoHistoryAdapter extends TelegramAdapter {
+      override readonly persistThreadHistory = false;
+    }
+    const adapter = new NoHistoryAdapter({
+      botToken: "token",
+      logger: mockLogger,
+    });
+    expect(adapter.persistThreadHistory).toBe(false);
+  });
+
   it("accepts an async bot token resolver", () => {
     const adapter = createTelegramAdapter({
       botToken: async () => "resolved-token",
       logger: mockLogger,
     });
     expect(adapter).toBeInstanceOf(TelegramAdapter);
+  });
+});
+
+describe("thread history persistence", () => {
+  const threadId = "telegram:123";
+
+  async function exchangeMessages(persistThreadHistory?: boolean) {
+    mockFetch.mockImplementation(async (input: RequestInfo | URL) =>
+      String(input).endsWith("/getMe")
+        ? telegramOk({
+            id: 999,
+            is_bot: true,
+            first_name: "Bot",
+            username: "mybot",
+          })
+        : telegramOk(
+            sampleMessage({
+              message_id: 12,
+              from: {
+                id: 999,
+                is_bot: true,
+                first_name: "Bot",
+                username: "mybot",
+              },
+              text: "reply",
+            })
+          )
+    );
+    const adapter = createTelegramAdapter({
+      botToken: "token",
+      logger: mockLogger,
+      mode: "webhook",
+      persistThreadHistory,
+      userName: "mybot",
+    });
+    const state = createMockState();
+    const chat = new Chat({
+      adapters: { telegram: adapter },
+      logger: mockLogger,
+      state,
+      userName: "mybot",
+    });
+    await chat.initialize();
+
+    await chat.handleIncomingMessage(
+      adapter,
+      threadId,
+      adapter.parseMessage(sampleMessage())
+    );
+    await chat.thread(threadId).post("reply");
+
+    return state.getList<{ id: string }>(`msg-history:${threadId}`);
+  }
+
+  it("saves incoming messages and the bot's posts by default", async () => {
+    const history = await exchangeMessages();
+    expect(history.map((message) => message.id)).toEqual(["123:11", "123:12"]);
+  });
+
+  it("saves nothing when persistThreadHistory is false", async () => {
+    const history = await exchangeMessages(false);
+    expect(history).toEqual([]);
   });
 });
 
