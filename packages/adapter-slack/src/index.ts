@@ -108,6 +108,7 @@ import {
   type SlackModalResponse,
   selectOptionToSlackOption,
 } from "./modals";
+import { richTextBody } from "./rich-text";
 import { verifySlackRequest } from "./webhook/index";
 
 // Enterprise Grid users can have W-prefixed IDs anywhere a U-prefixed ID appears
@@ -6665,7 +6666,9 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
   ): FormattedContent {
     const body = layoutBlockBody(event);
     return this.assembleContent(
-      body ? this.bodyNodes(body) : this.textNodes(text, eventTables(event)),
+      body
+        ? this.bodyNodes(body)
+        : this.textNodes(richTextBody(event) ?? text, eventTables(event)),
       attachments.flatMap((attachment) => this.attachmentNodes(attachment))
     );
   }
@@ -6675,7 +6678,8 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
    * `resolveInlineMentions`, and inside table cells, layout block text, and
    * attachment content the same way. Mention IDs outside `rawText` are
    * collected up front and looked up in a single parallel wave so no ID is
-   * fetched twice.
+   * fetched twice. Like `content`, a composer list replaces `rawText` with the
+   * body rendered from its `rich_text` blocks.
    */
   protected async resolvedContent(
     event: SlackEvent,
@@ -6722,10 +6726,13 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
                 : resolvePart(item)
             )
           )
-        : this.textNodes(await this.resolveInlineMentions(rawText), {
-            leading: leading.map(resolveTable),
-            trailing: trailing.map(resolveTable),
-          }),
+        : this.textNodes(
+            await this.resolveInlineMentions(richTextBody(event) ?? rawText),
+            {
+              leading: leading.map(resolveTable),
+              trailing: trailing.map(resolveTable),
+            }
+          ),
       attachments.flatMap((attachment) =>
         this.attachmentNodes({
           ...attachment,

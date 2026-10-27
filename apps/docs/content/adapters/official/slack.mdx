@@ -759,6 +759,12 @@ await thread.post(
 
 Charts that violate Slack's constraints (50-character title, 12 segments/series, 20 categories, 20-character labels, one data point per category, at most 2 charts per message) fall back to a text rendering of the data instead of being rejected by the Slack API.
 
+## Incoming message formatting
+
+Bulleted and numbered lists created in Slack's composer become nested mdast `list` nodes in `message.formatted`. In `message.text`, list items are separated by newlines without bullet markers. Literal list text such as `---` and `[x]` stays literal, and paragraphs in subsequent rich text blocks stay outside the list.
+
+If a message with a list contains unsupported rich text elements, such as a `message_mention`, the adapter uses Slack's `event.text` fallback for the body. This preserves the fallback's content, but list structure is unavailable for those messages.
+
 ## Inbound attachments
 
 Incoming file attachments expose a lazy `fetchData()`. Downloads go through a guarded fetcher that limits responses to 25 MB, times out after 30 seconds, and, with the default transport, refuses private and internal addresses (including after redirects). The bot token is sent only to trusted Slack origins and never follows a redirect to another host. Set `fileTransport` to route downloads through a proxy, or override `createFileTransport()` in a subclass. A custom transport takes over the destination-address policy, so see [Egress proxies](#egress-proxies) for what it must enforce.

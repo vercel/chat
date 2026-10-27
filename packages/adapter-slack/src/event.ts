@@ -55,8 +55,17 @@ export function collectMentionIds(
 export interface SlackMessageBlock extends SlackBlock {
   elements?: SlackMessageBlock[];
   rows?: unknown;
-  /** `{ code: true }` marks an inline-code text element. */
-  style?: { code?: boolean };
+  /**
+   * Inline styling on a rich text element. `{ code: true }` marks inline code.
+   * On a `rich_text_list`, Slack sends `"bullet"` or `"ordered"` here instead,
+   * so check the runtime type before reading it.
+   */
+  style?: {
+    bold?: boolean;
+    code?: boolean;
+    italic?: boolean;
+    strike?: boolean;
+  };
   text?: string;
   url?: string;
   user_id?: string;
@@ -151,7 +160,7 @@ function str(value: unknown): string | undefined {
  * Mentions, channels, and links are emitted as mrkdwn tokens so the format
  * converter renders them the same way it renders body text.
  */
-function blocktext(value: unknown): string {
+export function blocktext(value: unknown): string {
   if (!(isRecord(value) && typeof value.type === "string")) {
     return "";
   }
@@ -168,7 +177,8 @@ function blocktext(value: unknown): string {
       if (!url) {
         return text ?? "";
       }
-      return text ? `<${url}|${text}>` : `<${url}>`;
+      // Escape the label so a `>` in it cannot close the token early.
+      return text ? `<${url}|${escapeSlackText(text)}>` : `<${url}>`;
     }
     case "emoji": {
       const name = str(value.name);
