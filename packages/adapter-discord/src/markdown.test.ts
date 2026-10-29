@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { DiscordFormatConverter } from "./markdown";
 
 describe("DiscordFormatConverter", () => {
@@ -376,5 +376,34 @@ describe("DiscordFormatConverter", () => {
       expect(result).toContain("Name");
       expect(result).toContain("Alice");
     });
+  });
+});
+
+describe("parseIncoming budget", () => {
+  const converter = new DiscordFormatConverter();
+  const unparsed = (value: string) => ({
+    text: value,
+    formatted: {
+      type: "root",
+      children: [{ type: "paragraph", children: [{ type: "text", value }] }],
+    },
+  });
+
+  it("counts the brackets that spoilers convert to", () => {
+    const input = "||a|| ".repeat(129).trim();
+    const toAst = vi.spyOn(converter, "toAst");
+    try {
+      expect(converter.parseIncoming(input)).toEqual(unparsed(input));
+      expect(toAst).not.toHaveBeenCalled();
+    } finally {
+      toAst.mockRestore();
+    }
+  });
+
+  it("parses spoilers within the budget", () => {
+    const input = "||a|| ".repeat(128).trim();
+    const result = converter.parseIncoming(input);
+    expect(result.formatted).toEqual(converter.toAst(input));
+    expect(result.text).toBe("[spoiler: a] ".repeat(128).trim());
   });
 });

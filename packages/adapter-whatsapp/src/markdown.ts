@@ -161,10 +161,25 @@ export class WhatsAppFormatConverter extends BaseFormatConverter {
    * then parses with the standard parser.
    */
   toAst(markdown: string): Root {
-    const standardMarkdown = normalizeCodeFences(markdown, {
+    return parseMarkdown(this.toStandardMarkdown(markdown));
+  }
+
+  /**
+   * Check the budget against the markdown that `toAst` parses, so the checks
+   * see the same code fences as the parser. The length limit still applies to
+   * the text as delivered.
+   */
+  protected override exceedsIncomingBudget(markdown: string): boolean {
+    return (
+      markdown.length > this.maxIncomingParseLength ||
+      super.exceedsIncomingBudget(this.toStandardMarkdown(markdown))
+    );
+  }
+
+  private toStandardMarkdown(markdown: string): string {
+    return normalizeCodeFences(markdown, {
       convertText: (text) => this.fromWhatsAppFormat(text),
     });
-    return parseMarkdown(standardMarkdown);
   }
 
   /**
