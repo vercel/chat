@@ -5,7 +5,7 @@ import {
   createMockState,
   threadIdContract,
 } from "@chat-adapter/tests";
-import { Chat } from "chat";
+import { Chat, type Message, parseMarkdown } from "chat";
 import { createChatTools } from "chat/ai";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
@@ -19,6 +19,7 @@ import {
   buildCommentCreatedEvent,
   buildSignedNotionWebhook,
 } from "./testing";
+import type { NotionRichText } from "./types";
 import { chunkMarkdown, signNotionBody } from "./utils";
 
 const PAGE_ID = "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee";
@@ -2934,5 +2935,114 @@ describe("fetchSubject", () => {
     });
     expect(result).toBeNull();
     expect(fetchMock).not.toHaveBeenCalled();
+  });
+});
+
+describe("inbound markdown parsing", () => {
+  let fetchMock: ReturnType<typeof vi.fn>;
+
+  beforeEach(() => {
+    fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  function span(
+    plainText: string,
+    overrides: Partial<NotionRichText> = {}
+  ): NotionRichText {
+    return {
+      type: "text",
+      plain_text: plainText,
+      annotations: {
+        bold: false,
+        italic: false,
+        strikethrough: false,
+        underline: false,
+        code: false,
+        color: "default",
+      },
+      text: { content: plainText },
+      ...overrides,
+    };
+  }
+
+  async function dispatchComment(
+    richText: NotionRichText[]
+  ): Promise<{ status: number; message: Message | undefined }> {
+    const comment = fixtureComment({ rich_text: richText });
+    fetchMock.mockImplementation(async (url: string) => {
+      if (String(url).endsWith("/users/me")) {
+        return Response.json({
+          object: "user",
+          id: BOT_USER_ID,
+          name: "Docs Bot",
+          avatar_url: null,
+          type: "bot",
+          bot: {},
+        });
+      }
+      if (String(url).includes(`/comments/${COMMENT_ID}`)) {
+        return Response.json(comment);
+      }
+      return new Response("not found", { status: 404 });
+    });
+
+    const adapter = createTestAdapter({ mentionMode: "all-comments" });
+    const chat = createMockChatInstance();
+    await adapter.initialize(chat as never);
+
+    const res = await adapter.handleWebhook(
+      signedRequest(fixtureCommentCreatedEvent())
+    );
+    const factory = vi.mocked(chat.processMessage).mock.calls[0]?.[2] as
+      | (() => Promise<Message>)
+      | undefined;
+    return { status: res.status, message: await factory?.() };
+  }
+
+  it("parses rich-text annotations into a structured AST", async () => {
+    const { status, message } = await dispatchComment([
+      span("Ship it", {
+        annotations: {
+          bold: true,
+          italic: false,
+          strikethrough: false,
+          underline: false,
+          code: false,
+          color: "default",
+        },
+      }),
+      span(" after "),
+      span("review", { href: "https://notion.so/review" }),
+    ]);
+
+    expect(status).toBe(200);
+    expect(message?.text).toBe("Ship it after review");
+    expect(message?.formatted).toEqual(
+      parseMarkdown("**Ship it** after [review](https://notion.so/review)")
+    );
+  });
+
+  it.each([
+    ["unmatched emphasis markers", "*a".repeat(8192)],
+    ["deeply nested blockquotes", ">".repeat(6000)],
+    ["a footnote opening 40 nested lists", `[^a]: ${"- ".repeat(40)}a`],
+    ["65 www. autolinks in one word", "www.example.com/".repeat(65)],
+  ])("keeps a comment with %s as one text node", async (_name, body) => {
+    const { status, message } = await dispatchComment([span(body)]);
+
+    expect(status).toBe(200);
+    expect(message?.text).toBe(body);
+    expect(message?.formatted).toStrictEqual({
+      type: "root",
+      children: [
+        { type: "paragraph", children: [{ type: "text", value: body }] },
+      ],
+    });
+    expect(() => JSON.stringify(message?.formatted)).not.toThrow();
   });
 });

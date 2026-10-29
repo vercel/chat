@@ -1,3 +1,4 @@
+import { parseMarkdown, toPlainText } from "chat";
 import { describe, expect, it } from "vitest";
 import { TeamsFormatConverter } from "./markdown";
 
@@ -300,6 +301,108 @@ describe("TeamsFormatConverter", () => {
       const result = converter.fromMarkdown("| A | B |\n|---|---|\n| 1 | 2 |");
       expect(result).toContain("|");
       expect(result).not.toContain("```");
+    });
+  });
+
+  describe("HTML conversion", () => {
+    it.each([
+      ["<at>John</at> said hi", "@John said hi"],
+      ["<b>bold</b>", "**bold**"],
+      ["<strong>bold</strong>", "**bold**"],
+      ["<i>italic</i>", "_italic_"],
+      ["<em>italic</em>", "_italic_"],
+      ["<s>struck</s>", "~~struck~~"],
+      ['<a href="https://example.com">link</a>', "[link](https://example.com)"],
+      ["<code>const x</code>", "`const x`"],
+      ["<pre>const x = 1;</pre>", "```\nconst x = 1;\n```"],
+      ["<div><span>hello</span></div>", "hello"],
+      ["Hi <at>Alex Smith</at>", "Hi @Alex Smith"],
+      ["<at>Chat SDK Demo</at> test", "@Chat SDK Demo test"],
+      [
+        '<p><span itemtype="http://schema.skype.com/Mention" itemscope="" itemid="0">Chat SDK Demo</span>&nbsp;AI What is love?</p>',
+        "Chat SDK Demo&nbsp;AI What is love?",
+      ],
+      [
+        '<p><span itemtype="http://schema.skype.com/Mention" itemscope="" itemid="0">Chat SDK Demo</span>&nbsp;test</p>',
+        "Chat SDK Demo&nbsp;test",
+      ],
+      ["<p>test</p>", "test"],
+      ["<p>Who are you?</p>", "Who are you?"],
+      [
+        '<a href="https://example.com/docs?a=1&amp;b=2" title="Docs" target="_blank" rel="noreferrer noopener">the docs</a>',
+        "[the docs](https://example.com/docs?a=1&b=2)",
+      ],
+      [
+        '<p>See <a href="https://a.example">A</a> and <a class="x" href="https://b.example">B</a>.</p>',
+        "See [A](https://a.example) and [B](https://b.example).",
+      ],
+      [
+        '<A HREF="https://example.com/UPPER">Upper</A>',
+        "[Upper](https://example.com/UPPER)",
+      ],
+      [
+        '<a\nhref="https://example.com/newline">wrapped</a>',
+        "[wrapped](https://example.com/newline)",
+      ],
+      [
+        '<a data-href="https://first.example" href="https://second.example">two hrefs</a>',
+        "[two hrefs](https://second.example)",
+      ],
+      [
+        '<at>Bot</at> please check <a href="https://github.com/vercel/chat/pull/1">PR #1</a> &amp; <b>merge</b>',
+        "@Bot please check [PR #1](https://github.com/vercel/chat/pull/1) & **merge**",
+      ],
+      [
+        `${"<a b".repeat(500)} href="https://example.com">t</a>`,
+        "[t](https://example.com)",
+      ],
+      ["a <<b>> c", "a > c"],
+      ["&amp;lt;b&amp;gt;", "&lt;b&gt;"],
+    ])("should convert %j to %j", (html, markdown) => {
+      expect(converter.toAst(html)).toEqual(parseMarkdown(markdown));
+    });
+  });
+
+  describe("plain text for skipped messages", () => {
+    class SkipAllConverter extends TeamsFormatConverter {
+      protected override maxIncomingParseLength = 0;
+    }
+    const skipping = new SkipAllConverter();
+
+    it.each([
+      "<at>John</at> said hi",
+      "<b>bold</b> and <i>italic</i>",
+      '<p>See <a href="https://a.example">A</a> and <a class="x" href="https://b.example">B</a>.</p>',
+      '<p><span itemtype="http://schema.skype.com/Mention" itemscope="" itemid="0">Chat SDK Demo</span>&nbsp;test</p>',
+      "<pre>const x = 1;</pre>",
+      "Tom &amp; Jerry &lt;x&gt; &quot;q&quot; &#39;s&#39;",
+    ])("should match the parsed plain text for %j", (html) => {
+      expect(skipping.parseIncoming(html).text).toBe(
+        toPlainText(converter.toAst(html))
+      );
+    });
+
+    it.each([
+      ["<at>Bot</at> hi", "@Bot hi"],
+      ["Tom &amp; Jerry &lt;3", "Tom & Jerry <3"],
+      ["a&nbsp;b", "a\u00a0b"],
+      ["&amp;lt;b&amp;gt;", "&lt;b&gt;"],
+      ["<p>a</p><p>b</p>", "a\nb"],
+      ["<p>a</p>\n<p>b</p>", "a\n\nb"],
+      ["line<br>break<br/>again", "line\nbreak\nagain"],
+      ["<ul><li>one</li><li>two</li></ul>", "one\ntwo"],
+      ["<div>x</div>\n\n\n<div>y</div>", "x\n\ny"],
+      ["keep **markdown** as typed", "keep **markdown** as typed"],
+      ["a < b > c", "a  c"],
+    ])("should render %j as %j", (html, plain) => {
+      const result = skipping.parseIncoming(html);
+      expect(result.text).toBe(plain);
+      expect(result.formatted).toEqual({
+        type: "root",
+        children: [
+          { type: "paragraph", children: [{ type: "text", value: plain }] },
+        ],
+      });
     });
   });
 });

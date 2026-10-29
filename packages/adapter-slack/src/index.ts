@@ -580,6 +580,55 @@ function eventTables(event: SlackEvent): SlackEventTables {
 /** One piece of a layout block body, in block order. */
 type SlackBodyItem = SlackAttachmentPart | { table: SlackTableData };
 
+/** A message body: layout block items, or text between tables. */
+type SlackContentSource =
+  | { body: SlackBodyItem[] }
+  | { tables: SlackEventTables; text: string };
+
+type SlackMrkdwnParser = (mrkdwn: string) => FormattedContent;
+
+/** Every mrkdwn string the content of one message parses. */
+function contentParts(
+  source: SlackContentSource,
+  attachments: SlackAttachmentContent[]
+): string[] {
+  const parts: string[] = [];
+  const addTable = (data: SlackTableData) => {
+    for (const row of data.rows) {
+      for (const cell of row) {
+        if (cell) {
+          parts.push(cell);
+        }
+      }
+    }
+  };
+  if ("body" in source) {
+    for (const item of source.body) {
+      if ("table" in item) {
+        addTable(item.table);
+      } else if ("mrkdwn" in item) {
+        parts.push(item.mrkdwn);
+      }
+    }
+  } else {
+    parts.push(source.text);
+    for (const data of [...source.tables.leading, ...source.tables.trailing]) {
+      addTable(data);
+    }
+  }
+  for (const attachment of attachments) {
+    for (const part of attachment.parts) {
+      if ("mrkdwn" in part) {
+        parts.push(part.mrkdwn);
+      }
+    }
+    for (const data of attachment.tables) {
+      addTable(data);
+    }
+  }
+  return parts;
+}
+
 /**
  * Block types `layoutBlockBody` can render. `divider` and `actions` carry no
  * body text; `actions` is interactive only, which `cardToFallbackText` mirrors
@@ -6739,9 +6788,9 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
     const body = layoutBlockBody(event);
     return this.assembleContent(
       body
-        ? this.bodyNodes(body)
-        : this.textNodes(richTextBody(event) ?? text, eventTables(event)),
-      attachments.flatMap((attachment) => this.attachmentNodes(attachment))
+        ? { body }
+        : { text: richTextBody(event) ?? text, tables: eventTables(event) },
+      attachments
     );
   }
 
@@ -6791,46 +6840,64 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
 
     return this.assembleContent(
       body
-        ? this.bodyNodes(
-            body.map((item) =>
+        ? {
+            body: body.map((item) =>
               "table" in item
                 ? { table: resolveTable(item.table) }
                 : resolvePart(item)
-            )
-          )
-        : this.textNodes(
-            await this.resolveInlineMentions(richTextBody(event) ?? rawText),
-            {
+            ),
+          }
+        : {
+            text: await this.resolveInlineMentions(
+              richTextBody(event) ?? rawText
+            ),
+            tables: {
               leading: leading.map(resolveTable),
               trailing: trailing.map(resolveTable),
-            }
-          ),
-      attachments.flatMap((attachment) =>
-        this.attachmentNodes({
-          ...attachment,
-          parts: attachment.parts.map(resolvePart),
-          tables: attachment.tables.map(resolveTable),
-        })
-      )
+            },
+          },
+      attachments.map((attachment) => ({
+        ...attachment,
+        parts: attachment.parts.map(resolvePart),
+        tables: attachment.tables.map(resolveTable),
+      }))
     );
   }
 
+  /**
+   * Render a message body and its attachments. All of the message's mrkdwn
+   * shares one parse budget (see `incomingPartsParser`).
+   */
   private assembleContent(
-    body: SlackContentNode[],
-    attachments: SlackContentNode[]
+    source: SlackContentSource,
+    attachments: SlackAttachmentContent[]
   ): FormattedContent {
-    return { type: "root", children: [...body, ...attachments] };
+    const parse = this.formatConverter.incomingPartsParser(
+      contentParts(source, attachments)
+    );
+    return {
+      type: "root",
+      children: [
+        ...("body" in source
+          ? this.bodyNodes(source.body, parse)
+          : this.textNodes(source.text, source.tables, parse)),
+        ...attachments.flatMap((attachment) =>
+          this.attachmentNodes(attachment, parse)
+        ),
+      ],
+    };
   }
 
   /** Render `text` as the message body, between its leading and trailing tables. */
   private textNodes(
     text: string,
-    tables: SlackEventTables
+    tables: SlackEventTables,
+    parse: SlackMrkdwnParser
   ): SlackContentNode[] {
     return [
-      ...tables.leading.map((data) => this.tableNode(data)),
-      ...this.formatConverter.toAst(text).children,
-      ...tables.trailing.map((data) => this.tableNode(data)),
+      ...tables.leading.map((data) => this.tableNode(data, parse)),
+      ...parse(text).children,
+      ...tables.trailing.map((data) => this.tableNode(data, parse)),
     ];
   }
 
@@ -6838,13 +6905,16 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
    * Render a layout block body. Each text object becomes its own block, the
    * way Slack lays out headers, fields, and context elements separately.
    */
-  private bodyNodes(items: SlackBodyItem[]): SlackContentNode[] {
+  private bodyNodes(
+    items: SlackBodyItem[],
+    parse: SlackMrkdwnParser
+  ): SlackContentNode[] {
     return items.flatMap((item): SlackContentNode[] => {
       if ("table" in item) {
-        return [this.tableNode(item.table)];
+        return [this.tableNode(item.table, parse)];
       }
       if ("mrkdwn" in item) {
-        return this.formatConverter.toAst(item.mrkdwn).children;
+        return parse(item.mrkdwn).children;
       }
       return literalParagraphs(item.literal);
     });
@@ -6858,7 +6928,10 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
    * Tables from the attachment's blocks follow its text, keeping each
    * attachment's content adjacent.
    */
-  private attachmentNodes(content: SlackAttachmentContent): SlackContentNode[] {
+  private attachmentNodes(
+    content: SlackAttachmentContent,
+    parse: SlackMrkdwnParser
+  ): SlackContentNode[] {
     const nodes: SlackContentNode[] = [];
     let literals: string[] = [];
     const flush = () => {
@@ -6869,22 +6942,25 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
     for (const part of content.parts) {
       if ("mrkdwn" in part) {
         flush();
-        nodes.push(...this.formatConverter.toAst(part.mrkdwn).children);
+        nodes.push(...parse(part.mrkdwn).children);
       } else {
         literals.push(part.literal);
       }
     }
     flush();
-    nodes.push(...content.tables.map((data) => this.tableNode(data)));
+    nodes.push(...content.tables.map((data) => this.tableNode(data, parse)));
     return nodes;
   }
 
-  private tableNode(data: SlackTableData): SlackTable {
+  private tableNode(
+    data: SlackTableData,
+    parse: SlackMrkdwnParser
+  ): SlackTable {
     const rows: SlackTableRow[] = data.rows.map((row) => ({
       type: "tableRow",
       children: row.map((cell) => ({
         type: "tableCell",
-        children: this.cellChildren(cell),
+        children: this.cellChildren(cell, parse),
       })),
     }));
     if (data.headerless) {
@@ -6905,12 +6981,15 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
    * same format converter used for body text, so mentions, links, and emoji
    * render consistently.
    */
-  private cellChildren(cell: string): SlackTableCell["children"] {
+  private cellChildren(
+    cell: string,
+    parse: SlackMrkdwnParser
+  ): SlackTableCell["children"] {
     if (!cell) {
       return [];
     }
     const children: SlackTableCell["children"] = [];
-    for (const node of this.formatConverter.toAst(cell).children) {
+    for (const node of parse(cell).children) {
       if (children.length > 0) {
         children.push({ type: "text", value: "\n" });
       }

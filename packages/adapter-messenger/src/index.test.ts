@@ -13,7 +13,7 @@ import {
   selfMessageContract,
   threadIdContract,
 } from "@chat-adapter/tests";
-import type { ChatInstance } from "chat";
+import { type ChatInstance, type Message, parseMarkdown } from "chat";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   createMessengerAdapter,
@@ -2128,4 +2128,66 @@ selfMessageContract({
       body,
     });
   },
+});
+
+describe("inbound markdown parsing", () => {
+  async function dispatchText(
+    text: string
+  ): Promise<{ status: number; message: Message | undefined }> {
+    const adapter = createAdapter();
+    const chat = createMockChat();
+    mockFetch.mockResolvedValueOnce(
+      graphApiOk({ id: "PAGE_456", name: "Test Page" })
+    );
+    await adapter.initialize(chat);
+
+    const body = JSON.stringify(
+      createWebhookPayload([
+        sampleMessagingEvent({ message: { mid: "mid.markdown", text } }),
+      ])
+    );
+    const response = await adapter.handleWebhook(
+      new Request("https://example.com/webhook", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "x-hub-signature-256": signPayload(body),
+        },
+        body,
+      })
+    );
+
+    const message = vi.mocked(chat.processMessage).mock.calls[0]?.[2] as
+      | Message
+      | undefined;
+    return { status: response.status, message };
+  }
+
+  it("parses markdown in inbound messages into a structured AST", async () => {
+    const body = "**Ship it** after [review](https://example.com/review)";
+    const { status, message } = await dispatchText(body);
+
+    expect(status).toBe(200);
+    expect(message?.text).toBe(body);
+    expect(message?.formatted).toEqual(parseMarkdown(body));
+  });
+
+  it.each([
+    ["unmatched emphasis markers", "*a".repeat(8192)],
+    ["deeply nested blockquotes", ">".repeat(6000)],
+    ["a footnote opening 40 nested lists", `[^a]: ${"- ".repeat(40)}a`],
+    ["65 www. autolinks in one word", "www.example.com/".repeat(65)],
+  ])("keeps an inbound message with %s as one text node", async (_name, body) => {
+    const { status, message } = await dispatchText(body);
+
+    expect(status).toBe(200);
+    expect(message?.text).toBe(body);
+    expect(message?.formatted).toStrictEqual({
+      type: "root",
+      children: [
+        { type: "paragraph", children: [{ type: "text", value: body }] },
+      ],
+    });
+    expect(() => JSON.stringify(message?.formatted)).not.toThrow();
+  });
 });

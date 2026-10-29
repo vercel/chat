@@ -1,6 +1,6 @@
 import { ValidationError } from "@chat-adapter/shared";
 import { createMemoryState } from "@chat-adapter/state-memory";
-import { Chat, type StreamChunk } from "chat";
+import { Chat, type Message, parseMarkdown, type StreamChunk } from "chat";
 import { describe, expect, it, vi } from "vitest";
 import { createWebAdapter, WebAdapter } from "./index";
 import { createSseResponse, webProtocols } from "./protocol";
@@ -482,7 +482,7 @@ describe("WebAdapter — end-to-end handler dispatch", () => {
     const response = await chat.webhooks.web(
       makeWebRequest({
         id: "conv-1",
-        messages: [makeUserMessage("hello world")],
+        messages: [makeUserMessage("hello **world**")],
       })
     );
 
@@ -505,13 +505,14 @@ describe("WebAdapter — end-to-end handler dispatch", () => {
       .filter((e) => e.type === "text-delta")
       .map((e) => e.delta)
       .join("");
-    expect(textDeltas).toContain("echo: hello world");
+    expect(textDeltas).toContain("echo: hello **world**");
 
     expect(directHandler).toHaveBeenCalledTimes(1);
     expect(mentionHandler).not.toHaveBeenCalled();
 
     const [thread, message] = directHandler.mock.calls[0];
-    expect(message.text).toBe("hello world");
+    expect(message.text).toBe("hello **world**");
+    expect(message.formatted).toEqual(parseMarkdown("hello **world**"));
     expect(message.author.userId).toBe("u-test");
     expect(message.author.isMe).toBe(false);
     expect(thread.id).toBe("web:u-test:conv-1");
@@ -897,5 +898,85 @@ describe("WebAdapter — AG-UI protocol", () => {
     }>;
     expect(events.map((e) => e.type)).toEqual(["RUN_STARTED", "RUN_ERROR"]);
     expect(events[1]?.message).toBe("handler exploded");
+  });
+});
+
+function unparsed(value: string) {
+  return {
+    type: "root",
+    children: [{ type: "paragraph", children: [{ type: "text", value }] }],
+  };
+}
+
+const NORMAL_MARKDOWN =
+  "**bold** text\n\n> quoted\n\n| a | b |\n| - | - |\n| 1 | 2 |";
+const UNPARSED_CASES = [
+  ["too many emphasis markers", "*a".repeat(8192)],
+  ["nesting too deep", ">".repeat(6000)],
+  ["a footnote opening 40 nested lists", `[^a]: ${"- ".repeat(40)}a`],
+  ["65 www. autolinks in one word", "www.example.com/".repeat(65)],
+];
+
+describe("WebAdapter — inbound markdown parsing", () => {
+  async function deliver(text: string) {
+    const { chat } = buildChat({});
+    const handler = vi.fn(async (_thread, _message) => {});
+    chat.onDirectMessage(handler);
+
+    const response = await chat.webhooks.web(
+      makeWebRequest({ id: "conv-parse", messages: [makeUserMessage(text)] })
+    );
+    await readSseEvents(response);
+    return {
+      messages: handler.mock.calls.map((call) => call[1] as Message),
+      status: response.status,
+    };
+  }
+
+  it("parses markdown in a user message", async () => {
+    const { messages, status } = await deliver(NORMAL_MARKDOWN);
+    expect(status).toBe(200);
+    expect(messages).toHaveLength(1);
+    const [message] = messages;
+
+    expect(message.text).toBe(NORMAL_MARKDOWN);
+    expect(message.formatted).toEqual(parseMarkdown(NORMAL_MARKDOWN));
+  });
+
+  it.each(
+    UNPARSED_CASES
+  )("keeps a user message with %s as plain text", async (_label, text) => {
+    const { messages, status } = await deliver(text);
+    expect(status).toBe(200);
+    expect(messages).toHaveLength(1);
+    const [message] = messages;
+
+    expect(message.text).toBe(text);
+    expect(message.formatted).toEqual(unparsed(text));
+    expect(() => JSON.stringify(message.formatted)).not.toThrow();
+  });
+});
+
+describe("WebAdapter.parseMessage — inbound markdown parsing", () => {
+  const adapter = createWebAdapter({
+    userName: "testbot",
+    getUser: () => TEST_USER,
+  });
+
+  it("parses markdown in a user message", () => {
+    const message = adapter.parseMessage(makeUserMessage(NORMAL_MARKDOWN));
+
+    expect(message.text).toBe(NORMAL_MARKDOWN);
+    expect(message.formatted).toEqual(parseMarkdown(NORMAL_MARKDOWN));
+  });
+
+  it.each(
+    UNPARSED_CASES
+  )("keeps a user message with %s as plain text", (_label, text) => {
+    const message = adapter.parseMessage(makeUserMessage(text));
+
+    expect(message.text).toBe(text);
+    expect(message.formatted).toEqual(unparsed(text));
+    expect(() => JSON.stringify(message.formatted)).not.toThrow();
   });
 });

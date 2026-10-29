@@ -8,7 +8,7 @@ import {
   createMockState,
   threadIdContract,
 } from "@chat-adapter/tests";
-import type { CardElement } from "chat";
+import type { CardElement, Message } from "chat";
 import {
   afterEach,
   beforeEach,
@@ -26,6 +26,7 @@ import {
   WhatsAppApiError,
   type WhatsAppThreadId,
 } from "./index";
+import { WhatsAppFormatConverter } from "./markdown";
 import type {
   WhatsAppContact,
   WhatsAppInboundMessage,
@@ -3416,5 +3417,87 @@ describe("createWhatsAppAdapter", () => {
     expect((adapter as unknown as { graphApiUrl: string }).graphApiUrl).toBe(
       "https://custom-graph.example.com/v19.0"
     );
+  });
+});
+
+describe("inbound markdown parsing", () => {
+  const pathologicalBodies = [
+    ["unmatched emphasis markers", "*a".repeat(8192)],
+    ["deeply nested blockquotes", ">".repeat(6000)],
+    ["a footnote opening 40 nested lists", `[^a]: ${"- ".repeat(40)}a`],
+    ["65 www. autolinks in one word", "www.example.com/".repeat(65)],
+  ] as const;
+
+  // WhatsApp's single-asterisk bold becomes standard markdown before parsing.
+  const markdownBody = "*Ship it* after [review](https://example.com/review)";
+  const expectedMarkdownAst = new WhatsAppFormatConverter().toAst(markdownBody);
+
+  function fallbackAst(body: string) {
+    return {
+      type: "root",
+      children: [
+        { type: "paragraph", children: [{ type: "text", value: body }] },
+      ],
+    };
+  }
+
+  async function dispatchText(
+    body: string
+  ): Promise<{ status: number; message: Message | undefined }> {
+    const adapter = createTestAdapter();
+    const chat = createMockChatInstance();
+    await adapter.initialize(chat);
+
+    const response = await adapter.handleWebhook(
+      webhook(notification([inbound({ from: "15551234567", text: { body } })]))
+    );
+
+    const message = vi.mocked(chat.processMessage).mock.calls[0]?.[2] as
+      | Message
+      | undefined;
+    return { status: response.status, message };
+  }
+
+  function parseText(body: string): Message {
+    return createTestAdapter().parseMessage({
+      message: inbound({ from: "15551234567", text: { body } }),
+      phoneNumberId: "123456789",
+    });
+  }
+
+  it("parses WhatsApp formatting in webhook messages", async () => {
+    const { status, message } = await dispatchText(markdownBody);
+
+    expect(status).toBe(200);
+    expect(message?.text).toBe(markdownBody);
+    expect(message?.formatted).toEqual(expectedMarkdownAst);
+  });
+
+  it.each(
+    pathologicalBodies
+  )("keeps a webhook message with %s as one text node", async (_name, body) => {
+    const { status, message } = await dispatchText(body);
+
+    expect(status).toBe(200);
+    expect(message?.text).toBe(body);
+    expect(message?.formatted).toStrictEqual(fallbackAst(body));
+    expect(() => JSON.stringify(message?.formatted)).not.toThrow();
+  });
+
+  it("parses WhatsApp formatting when reparsing raw messages", () => {
+    const message = parseText(markdownBody);
+
+    expect(message.text).toBe(markdownBody);
+    expect(message.formatted).toEqual(expectedMarkdownAst);
+  });
+
+  it.each(
+    pathologicalBodies
+  )("keeps a reparsed raw message with %s as one text node", (_name, body) => {
+    const message = parseText(body);
+
+    expect(message.text).toBe(body);
+    expect(message.formatted).toStrictEqual(fallbackAst(body));
+    expect(() => JSON.stringify(message.formatted)).not.toThrow();
   });
 });

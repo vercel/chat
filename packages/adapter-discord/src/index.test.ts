@@ -10,7 +10,7 @@ import {
   mockLogger,
   threadIdContract,
 } from "@chat-adapter/tests";
-import type { ChatInstance } from "chat";
+import type { ChatInstance, Message } from "chat";
 import {
   Actions,
   Button,
@@ -1909,6 +1909,19 @@ describe("inbound markdown parsing", () => {
       root([paragraph([text(OVER_LIMIT_BODY)])])
     );
     expect(toAstSpy).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["too many emphasis markers", "*a".repeat(8192)],
+    ["a line opening too many blockquotes", ">".repeat(6000)],
+    ["a footnote opening 40 nested lists", `[^a]: ${"- ".repeat(40)}a`],
+    ["65 www. autolinks in one word", "www.example.com/".repeat(65)],
+  ])("keeps a message with %s verbatim", (_case, value) => {
+    const message = adapter.parseMessage(rawMessage(value));
+
+    expect(message.text).toBe(value);
+    expect(message.formatted).toEqual(root([paragraph([text(value)])]));
+    expect(() => JSON.stringify(message.formatted)).not.toThrow();
   });
 });
 
@@ -6443,5 +6456,197 @@ describe("getUser", () => {
     expect(spy).toHaveBeenCalledWith("/users/777888", "GET");
 
     spy.mockRestore();
+  });
+});
+
+// ============================================================================
+// Inbound markdown budget Tests
+// ============================================================================
+
+describe("inbound markdown budget", () => {
+  const VERBATIM_CASES = [
+    ["too many emphasis markers", "*a".repeat(8192)],
+    ["a line opening too many blockquotes", ">".repeat(6000)],
+    ["a footnote opening 40 nested lists", `[^a]: ${"- ".repeat(40)}a`],
+    ["65 www. autolinks in one word", "www.example.com/".repeat(65)],
+  ] as const;
+
+  class TestGatewayDiscordAdapter extends DiscordAdapter {
+    listen(client: Client) {
+      this.setupLegacyGatewayHandlers(client, () => false);
+    }
+  }
+
+  function createAdapter() {
+    return new TestGatewayDiscordAdapter({
+      botToken: "test-token",
+      publicKey: testPublicKey,
+      applicationId: "test-app-id",
+      logger: mockLogger,
+      respondToChannelIds: ["channel456"],
+    });
+  }
+
+  function incomingMessage(chat: ChatInstance) {
+    const handleIncomingMessage = chat.handleIncomingMessage as ReturnType<
+      typeof vi.fn
+    >;
+    if (handleIncomingMessage.mock.calls.length !== 1) {
+      throw new Error("Expected exactly one incoming message");
+    }
+    return handleIncomingMessage.mock.calls[0][2] as Message;
+  }
+
+  const MARKDOWN_AST = new DiscordFormatConverter().toAst(MARKDOWN_BODY);
+
+  describe("forwarded gateway messages", () => {
+    async function forward(content: string) {
+      const adapter = createAdapter();
+      const chat = createMockChatInstance();
+      await adapter.initialize(chat);
+      const response = await adapter.handleWebhook(
+        new Request("https://example.com/webhook", {
+          method: "POST",
+          headers: {
+            "x-discord-gateway-token": "test-token",
+            "content-type": "application/json",
+          },
+          body: JSON.stringify({
+            type: "GATEWAY_MESSAGE_CREATE",
+            timestamp: Date.now(),
+            data: {
+              id: "msg123",
+              channel_id: "thread789",
+              guild_id: "guild1",
+              content,
+              timestamp: "2021-01-01T00:00:00.000Z",
+              author: { id: "user789", username: "testuser", bot: false },
+              mentions: [],
+              attachments: [],
+              thread: { id: "thread789", parent_id: "channel456" },
+            },
+          }),
+        })
+      );
+      if (response.status !== 200) {
+        throw new Error(`Unexpected webhook status ${response.status}`);
+      }
+      return incomingMessage(chat);
+    }
+
+    it("parses markdown into formatting nodes", async () => {
+      const message = await forward(MARKDOWN_BODY);
+
+      expect(message.text).toBe(MARKDOWN_BODY);
+      expect(message.formatted).toEqual(MARKDOWN_AST);
+    });
+
+    it.each(
+      VERBATIM_CASES
+    )("keeps content with %s verbatim", async (_case, value) => {
+      const message = await forward(value);
+
+      expect(message.formatted).toEqual(root([paragraph([text(value)])]));
+      expect(message.text).toBe(value);
+      expect(() => JSON.stringify(message.formatted)).not.toThrow();
+    });
+  });
+
+  describe("legacy gateway messages", () => {
+    async function receive(content: string) {
+      const adapter = createAdapter();
+      const chat = createMockChatInstance();
+      await adapter.initialize(chat);
+      const client = new EventEmitter() as Client;
+      adapter.listen(client);
+      client.emit(Events.MessageCreate, {
+        id: "msg123",
+        channelId: "thread789",
+        guildId: "guild1",
+        content,
+        author: {
+          id: "user789",
+          username: "testuser",
+          displayName: "Test User",
+          bot: false,
+        },
+        mentions: { everyone: false, roles: [], has: () => false },
+        channel: { isThread: () => true, parentId: "channel456" },
+        createdAt: new Date("2021-01-01T00:00:00.000Z"),
+        editedAt: null,
+        attachments: [],
+      });
+      await waitForGatewayHandlers();
+      return incomingMessage(chat);
+    }
+
+    it("parses markdown into formatting nodes", async () => {
+      const message = await receive(MARKDOWN_BODY);
+
+      expect(message.text).toBe(MARKDOWN_BODY);
+      expect(message.formatted).toEqual(MARKDOWN_AST);
+    });
+
+    it.each(
+      VERBATIM_CASES
+    )("keeps content with %s verbatim", async (_case, value) => {
+      const message = await receive(value);
+
+      expect(message.formatted).toEqual(root([paragraph([text(value)])]));
+      expect(message.text).toBe(value);
+      expect(() => JSON.stringify(message.formatted)).not.toThrow();
+    });
+  });
+
+  describe("thread placeholders", () => {
+    async function placeholder(name: string) {
+      const adapter = createAdapter();
+      const spy = vi
+        .spyOn(adapter as any, "discordFetch")
+        .mockImplementation((path) => {
+          if (String(path).includes("/guilds/")) {
+            return Promise.resolve(
+              Response.json({
+                threads: [
+                  {
+                    id: "thread1",
+                    name,
+                    parent_id: "channel456",
+                    total_message_sent: 1,
+                  },
+                ],
+              })
+            );
+          }
+          if (String(path).includes("/threads/archived/")) {
+            return Promise.resolve(Response.json({ threads: [] }));
+          }
+          return Promise.reject(new Error("Failed to fetch"));
+        });
+      const result = await adapter.listThreads("discord:guild1:channel456");
+      spy.mockRestore();
+      const [thread] = result.threads;
+      if (result.threads.length !== 1 || !thread) {
+        throw new Error("Expected exactly one thread");
+      }
+      return thread.rootMessage;
+    }
+
+    it("parses the thread name into formatting nodes", async () => {
+      const message = await placeholder(MARKDOWN_BODY);
+
+      expect(message.text).toBe(MARKDOWN_BODY);
+      expect(message.formatted).toEqual(MARKDOWN_AST);
+    });
+
+    it.each(
+      VERBATIM_CASES
+    )("keeps a thread name with %s verbatim", async (_case, value) => {
+      const message = await placeholder(value);
+
+      expect(message.formatted).toEqual(root([paragraph([text(value)])]));
+      expect(message.text).toBe(value);
+      expect(() => JSON.stringify(message.formatted)).not.toThrow();
+    });
   });
 });

@@ -728,7 +728,7 @@ export class InstagramAdapter
         event.message?.mid ?? event.postback?.mid ?? `event:${event.timestamp}`,
       threadId,
       text,
-      formatted: this.formatConverter.toAst(text),
+      formatted: this.formatConverter.parseIncoming(text).formatted,
       raw: event,
       author: {
         userId: event.sender.id,

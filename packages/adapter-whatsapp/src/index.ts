@@ -1013,7 +1013,8 @@ export class WhatsAppAdapter
 
     const author = this.author(user, contact);
 
-    const formatted: FormattedContent = this.formatConverter.toAst(text);
+    const formatted: FormattedContent =
+      this.formatConverter.parseIncoming(text).formatted;
 
     const raw: WhatsAppRawMessage = {
       message: inbound,
@@ -1927,7 +1928,8 @@ export class WhatsAppAdapter
    */
   parseMessage(raw: WhatsAppRawMessage): Message<WhatsAppRawMessage> {
     const text = this.extractTextContent(raw.message) || "";
-    const formatted: FormattedContent = this.formatConverter.toAst(text);
+    const formatted: FormattedContent =
+      this.formatConverter.parseIncoming(text).formatted;
     const attachments = this.buildAttachments(raw.message);
     // A stored canonical userId wins; otherwise derive the identity with
     // the same precedence the webhook path uses.

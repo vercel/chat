@@ -2872,7 +2872,8 @@ export class TelegramAdapter
       threadId,
       text,
       formatted:
-        content?.formatted ?? this.formatConverter.toAst(richMarkdown || text),
+        content?.formatted ??
+        this.formatConverter.parseIncoming(richMarkdown || text).formatted,
       raw,
       author,
       metadata: {

@@ -9,7 +9,14 @@ import {
   selfMessageContract,
   threadIdContract,
 } from "@chat-adapter/tests";
-import { DEFAULT_MAX_INCOMING_PARSE_LENGTH, paragraph, root, text } from "chat";
+import {
+  DEFAULT_MAX_INCOMING_PARSE_LENGTH,
+  Message,
+  paragraph,
+  parseMarkdown,
+  root,
+  text,
+} from "chat";
 import {
   afterEach,
   beforeEach,
@@ -2192,6 +2199,72 @@ describe("GitHubAdapter", () => {
     });
   });
 
+  describe("inbound markdown bounds (via handleWebhook)", () => {
+    async function dispatchComment(
+      eventType: "issue_comment" | "pull_request_review_comment",
+      body: string
+    ): Promise<Message> {
+      const mockChat = createMockChatInstance();
+      mockUsersGetAuthenticated.mockResolvedValueOnce({
+        data: { id: 777, login: "test-bot" },
+      });
+      await adapter.initialize(mockChat);
+
+      const payload =
+        eventType === "issue_comment"
+          ? makeIssueCommentPayload({
+              comment: { ...makeIssueCommentPayload().comment, body },
+            })
+          : makeReviewCommentPayload({
+              comment: { ...makeReviewCommentPayload().comment, body },
+            });
+      const rawBody = JSON.stringify(payload);
+      const response = await adapter.handleWebhook(
+        makeWebhookRequest(rawBody, eventType, signPayload(rawBody))
+      );
+
+      const message = vi.mocked(mockChat.processMessage).mock.calls[0]?.[2];
+      if (response.status !== 200 || !(message instanceof Message)) {
+        throw new Error("Expected processMessage to receive a Message");
+      }
+      return message;
+    }
+
+    it.each([
+      "issue_comment",
+      "pull_request_review_comment",
+    ] as const)("parses markdown in %s webhooks into real structure", async (eventType) => {
+      const message = await dispatchComment(eventType, MARKDOWN_BODY);
+
+      expect(message.text).toBe(MARKDOWN_PLAIN_TEXT);
+      expect(message.formatted).toEqual(parseMarkdown(MARKDOWN_BODY));
+    });
+
+    const verbatimBodies = [
+      ["a maximum-length (65,536-character) body", "`x` ".repeat(16_384)],
+      ["a 16,384-character emphasis run", "*a".repeat(8192)],
+      ["6,000 nested blockquotes", ">".repeat(6000)],
+      ["a footnote opening 40 nested lists", `[^a]: ${"- ".repeat(40)}a`],
+      ["65 www. autolinks in one word", "www.example.com/".repeat(65)],
+    ] as const;
+
+    it.each(
+      (["issue_comment", "pull_request_review_comment"] as const).flatMap(
+        (eventType) =>
+          verbatimBodies.map(
+            ([label, body]) => [eventType, label, body] as const
+          )
+      )
+    )("keeps %s webhooks with %s verbatim", async (eventType, _, body) => {
+      const message = await dispatchComment(eventType, body);
+
+      expect(message.text).toBe(body);
+      expect(message.formatted).toEqual(root([paragraph([text(body)])]));
+      expect(() => JSON.stringify(message.formatted)).not.toThrow();
+      expect(() => JSON.stringify(message.toJSON())).not.toThrow();
+    });
+  });
+
   describe("parseAuthor (via parseMessage)", () => {
     it("should identify bot users", () => {
       const raw = {
@@ -2609,6 +2682,49 @@ describe("GitHubAdapter", () => {
       const result = await adapter.listThreads("github:acme/app");
       // raw.comment.body should be the title since body is null
       expect(result.threads[0].rootMessage.raw.comment.body).toBe("No body PR");
+    });
+
+    function pullWithTitle(title: string) {
+      return {
+        number: 7,
+        title,
+        body: null,
+        state: "open",
+        html_url: "https://github.com/acme/app/pull/7",
+        user: { id: 1, login: "testuser", type: "User" },
+        created_at: "2024-01-01T00:00:00Z",
+        updated_at: "2024-01-01T00:00:00Z",
+      };
+    }
+
+    it("parses markdown in a PR title into the root message", async () => {
+      mockPullsList.mockResolvedValueOnce({
+        data: [pullWithTitle("Fix `parser` for **bold** input")],
+      });
+
+      const result = await adapter.listThreads("github:acme/app");
+      const { rootMessage } = result.threads[0];
+
+      expect(rootMessage.text).toBe("Fix `parser` for **bold** input");
+      expect(rootMessage.formatted).toEqual(
+        parseMarkdown("Fix `parser` for **bold** input")
+      );
+    });
+
+    it.each([
+      ["an emphasis run", "*a".repeat(8192)],
+      ["6,000 nested blockquotes", ">".repeat(6000)],
+      ["a footnote opening 40 nested lists", `[^a]: ${"- ".repeat(40)}a`],
+      ["65 www. autolinks in one word", "www.example.com/".repeat(65)],
+    ])("keeps a PR title with %s verbatim", async (_, title) => {
+      mockPullsList.mockResolvedValueOnce({ data: [pullWithTitle(title)] });
+
+      const result = await adapter.listThreads("github:acme/app");
+      const { rootMessage } = result.threads[0];
+
+      expect(rootMessage.text).toBe(title);
+      expect(rootMessage.formatted).toEqual(root([paragraph([text(title)])]));
+      expect(() => JSON.stringify(rootMessage.formatted)).not.toThrow();
     });
   });
 

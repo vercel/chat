@@ -1563,7 +1563,7 @@ export class GitHubAdapter
           id: pr.number.toString(),
           threadId,
           text: pr.title,
-          formatted: this.formatConverter.toAst(pr.title),
+          formatted: this.formatConverter.parseIncoming(pr.title).formatted,
           raw: {
             type: "issue_comment",
             comment: {

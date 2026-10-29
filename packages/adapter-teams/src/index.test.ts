@@ -14,6 +14,7 @@ import {
   ConsoleLogger,
   DEFAULT_MAX_INCOMING_PARSE_LENGTH,
   getEmoji,
+  type Message,
   paragraph,
   root,
   text,
@@ -30,6 +31,7 @@ import {
 import type { TeamsActivityAttachment } from "./attachments";
 import { createTeamsAdapter, TeamsAdapter, type TeamsThreadId } from "./index";
 import { TeamsFormatConverter } from "./markdown";
+import { appId, TestTeamsAdapter } from "./test-utils";
 
 const WHITESPACE_START_PATTERN = /^\s/;
 const WHITESPACE_END_PATTERN = /\s$/;
@@ -1146,6 +1148,181 @@ describe("TeamsAdapter", () => {
         root([paragraph([text(OVER_LIMIT_BODY)])])
       );
       expect(toAstSpy).not.toHaveBeenCalled();
+    });
+
+    it.each([
+      ["too many emphasis markers", "*a".repeat(8192)],
+      ["a line opening too many blockquotes", ">".repeat(6000)],
+    ])("should keep a message with %s verbatim", (_case, value) => {
+      const message = parse(value);
+
+      expect(message.text).toBe(value);
+      expect(message.formatted).toEqual(root([paragraph([text(value)])]));
+      expect(() => JSON.stringify(message.formatted)).not.toThrow();
+    });
+  });
+
+  // ==========================================================================
+  // Inbound markdown budget (via handleWebhook)
+  // ==========================================================================
+
+  describe("inbound markdown budget (via handleWebhook)", () => {
+    afterEach(() => {
+      vi.restoreAllMocks();
+    });
+
+    async function receive(body: string) {
+      const adapter = new TestTeamsAdapter({
+        appId,
+        appPassword: "test",
+        logger,
+      });
+      adapter.allowUnauthenticatedWebhooks();
+      vi.spyOn(adapter, "getUser").mockResolvedValue(null);
+      const chat = createMockChatInstance();
+      await adapter.initialize(chat);
+      const toAst = vi.spyOn(TeamsFormatConverter.prototype, "toAst");
+      try {
+        await adapter.handleWebhook(
+          new Request("https://example.com/api/webhooks/teams", {
+            method: "POST",
+            body: JSON.stringify({
+              type: "message",
+              id: "msg-400",
+              channelId: "msteams",
+              serviceUrl: TEST_SERVICE_URL,
+              text: body,
+              from: { id: "29:user-1", name: "Alice" },
+              recipient: { id: `28:${appId}` },
+              conversation: {
+                id: "19:abc@thread.tacv2",
+                conversationType: "channel",
+                isGroup: true,
+              },
+            }),
+            headers: { "content-type": "application/json" },
+          })
+        );
+        const message = vi.mocked(chat.processMessage).mock.calls[0]?.[2] as
+          | Message
+          | undefined;
+        return { message, parsed: toAst.mock.calls.length > 0 };
+      } finally {
+        toAst.mockRestore();
+      }
+    }
+
+    it.each([
+      [
+        "a blockquote marker followed by list markers",
+        `&gt;${"- ".repeat(8000)}a`,
+      ],
+      ["repeated blockquote and list markers", "&gt;- ".repeat(2700)],
+      [
+        "a blockquote marker followed by ordered list markers",
+        `&gt;${"1. ".repeat(3000)}`,
+      ],
+    ])("should check the budget after decoding entities: %s", async (_case, body) => {
+      const expected = body.replaceAll("&gt;", ">").trim();
+      const { message, parsed } = await receive(body);
+
+      expect(message?.text).toBe(expected);
+      expect(message?.formatted).toEqual(root([paragraph([text(expected)])]));
+      expect(parsed).toBe(false);
+    });
+
+    it("should still parse an encoded blockquote under the budget", async () => {
+      const { message, parsed } = await receive("&gt; quoted &amp; kept");
+
+      expect(message?.text).toBe("quoted & kept");
+      expect(message?.formatted.children).toMatchObject([
+        {
+          type: "blockquote",
+          children: [
+            {
+              type: "paragraph",
+              children: [{ type: "text", value: "quoted & kept" }],
+            },
+          ],
+        },
+      ]);
+      expect(parsed).toBe(true);
+    });
+
+    it("should convert links in a message under the budget", async () => {
+      const { message } = await receive(
+        '<p><at>Bot</at> see <a href="https://example.com/a?b=1&amp;c=2" target="_blank">the docs</a></p>'
+      );
+
+      expect(message?.text).toBe("@Bot see the docs");
+      expect(message?.formatted.children).toMatchObject([
+        {
+          type: "paragraph",
+          children: [
+            { type: "text", value: "@Bot see " },
+            {
+              type: "link",
+              url: "https://example.com/a?b=1&c=2",
+              children: [{ type: "text", value: "the docs" }],
+            },
+          ],
+        },
+      ]);
+    });
+
+    it("should handle unclosed link tags without backtracking", async () => {
+      const unclosedHref = '<a href="'.repeat(1820);
+      const unclosedAttributes = '<a b href="x"'.repeat(1260);
+      const unquotedValues = '<a href="x"'.repeat(1489);
+      const closedAtEnd = `${'<a href="'.repeat(1800)}">t</a>`;
+
+      for (const body of [unclosedHref, unclosedAttributes, unquotedValues]) {
+        const { message, parsed } = await receive(body);
+        expect(message?.text).toBe(body);
+        expect(parsed).toBe(false);
+      }
+      const { message, parsed } = await receive(closedAtEnd);
+      expect(message?.text).toBe("[t](<a href=)");
+      expect(parsed).toBe(true);
+    });
+
+    it("should apply the length limit before decoding entities", async () => {
+      const body = `**bold** ${"&amp;".repeat(4000)}`;
+      const { message, parsed } = await receive(body);
+
+      expect(message?.text).toBe(`**bold** ${"&".repeat(4000)}`);
+      expect(parsed).toBe(false);
+    });
+
+    it("should keep a huge run of unclosed tags as text", async () => {
+      const body = "<".repeat(200_000);
+      const { message, parsed } = await receive(body);
+
+      expect(message?.text).toBe(body);
+      expect(parsed).toBe(false);
+    });
+
+    it("should render skipped HTML as plain text", async () => {
+      const brackets = "[x]".repeat(513);
+      const { message, parsed } = await receive(
+        `<p><at>Bot</at> Tom &amp; Jerry &lt;3 &quot;cheese&quot; &#39;n&#39;&nbsp;crackers ${brackets}</p>`
+      );
+
+      expect(message?.text).toBe(
+        `@Bot Tom & Jerry <3 "cheese" 'n'\u00a0crackers ${brackets}`
+      );
+      expect(parsed).toBe(false);
+    });
+
+    it("should turn line breaks and block ends into newlines when skipped", async () => {
+      const brackets = "]".repeat(129);
+      const { message } = await receive(
+        `<div><p>first</p><p>second<br>third &amp;lt;b&amp;gt;</p>\n\n<ul><li>one</li><li><b>two</b></li></ul></div>${brackets}`
+      );
+
+      expect(message?.text).toBe(
+        `first\nsecond\nthird &lt;b&gt;\n\none\ntwo\n\n${brackets}`
+      );
     });
   });
 

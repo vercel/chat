@@ -5977,6 +5977,9 @@ describe("applyTelegramEntities", () => {
     expect(parsed.text).toBe(
       "Visit our [website](https://example.com) for details"
     );
+    const link = findMdNode(parsed.formatted as MdNode, "link");
+    expect(link?.url).toBe("https://example.com");
+    expect(link?.children?.[0]?.value).toBe("website");
   });
 
   it("normalizes inbound rich messages", async () => {
@@ -9014,5 +9017,111 @@ describe("longMessages: split", { timeout: 20_000 }, () => {
         }),
       ],
     ]);
+  });
+});
+
+interface MdNode {
+  children?: MdNode[];
+  type: string;
+  url?: string;
+  value?: string;
+}
+
+function findMdNode(node: MdNode, type: string): MdNode | undefined {
+  if (node.type === type) {
+    return node;
+  }
+  for (const child of node.children ?? []) {
+    const found = findMdNode(child, type);
+    if (found) {
+      return found;
+    }
+  }
+  return undefined;
+}
+
+describe("inbound markdown parsing", () => {
+  let updateId = 0;
+
+  async function deliver(
+    overrides: Partial<TelegramMessage>
+  ): Promise<{ messages: Message[]; status: number }> {
+    mockFetch.mockResolvedValue(
+      telegramOk({
+        id: 999,
+        is_bot: true,
+        first_name: "Bot",
+        username: "mybot",
+      })
+    );
+    const adapter = createTelegramAdapter({
+      botToken: "token",
+      mode: "webhook",
+      logger: mockLogger,
+      secretToken: "secret",
+      userName: "mybot",
+    });
+    const chat = createMockChat();
+    await adapter.initialize(chat);
+
+    updateId++;
+    const response = await adapter.handleWebhook(
+      new Request("https://example.com/webhook", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "x-telegram-bot-api-secret-token": "secret",
+        },
+        body: JSON.stringify({
+          update_id: updateId,
+          message: sampleMessage({
+            chat: { id: -100_123, type: "supergroup", title: "General" },
+            ...overrides,
+          }),
+        }),
+      })
+    );
+    const processMessage = chat.processMessage as ReturnType<typeof vi.fn>;
+    return {
+      messages: processMessage.mock.calls.map((call) => call[2] as Message),
+      status: response.status,
+    };
+  }
+
+  it("parses entity-applied markdown in a webhook message", async () => {
+    const { messages, status } = await deliver({
+      text: "bold words\n\n> quoted",
+      entities: [{ type: "bold", offset: 0, length: 4 }],
+    });
+    expect(status).toBe(200);
+    expect(messages).toHaveLength(1);
+    const [message] = messages;
+
+    // The bold entity becomes markdown before parsing.
+    expect(message.text).toBe("**bold** words\n\n> quoted");
+    expect(message.formatted).toEqual(
+      parseMarkdown("**bold** words\n\n> quoted")
+    );
+  });
+
+  it.each([
+    ["too many emphasis markers", "*a".repeat(8192)],
+    ["nesting too deep", ">".repeat(6000)],
+    ["a footnote opening 40 nested lists", `[^a]: ${"- ".repeat(40)}a`],
+    ["65 www. autolinks in one word", "www.example.com/".repeat(65)],
+  ])("keeps a webhook message with %s as plain text", async (_label, text) => {
+    const { messages, status } = await deliver({ text });
+    expect(status).toBe(200);
+    expect(messages).toHaveLength(1);
+    const [message] = messages;
+
+    expect(message.text).toBe(text);
+    expect(message.formatted).toEqual({
+      type: "root",
+      children: [
+        { type: "paragraph", children: [{ type: "text", value: text }] },
+      ],
+    });
+    expect(() => JSON.stringify(message.formatted)).not.toThrow();
   });
 });

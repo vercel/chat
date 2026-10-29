@@ -12,7 +12,7 @@ import {
   selfMessageContract,
   threadIdContract,
 } from "@chat-adapter/tests";
-import type { ChatInstance } from "chat";
+import { type ChatInstance, link, Message, paragraph, root, text } from "chat";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   createTwitchAdapter,
@@ -730,6 +730,83 @@ describe("handleWebhook", () => {
     const adapter = createAdapter();
     const response = await adapter.handleWebhook(chatNotification());
     expect(response.status).toBe(200);
+  });
+});
+
+describe("inbound text parsing", () => {
+  const LINK = "https://example.com/clip";
+  const sources = {
+    chat: async (body: string) => {
+      const { adapter, chat } = await initialized();
+      await adapter.handleWebhook(
+        chatNotification({ message: { fragments: [], text: body } })
+      );
+      const { message } = dispatched(chat);
+      if (!(message instanceof Message)) {
+        throw new Error("Expected the chat message to be dispatched directly");
+      }
+      return message;
+    },
+    reply: async (body: string) => {
+      const { adapter, chat } = await initialized();
+      await adapter.handleWebhook(
+        chatNotification({
+          message: { fragments: [], text: "replying" },
+          reply: {
+            parent_message_body: body,
+            parent_message_id: "parent-1",
+            parent_user_id: "1234",
+            parent_user_login: "other",
+            parent_user_name: "Other",
+            thread_message_id: "parent-1",
+            thread_user_id: "1234",
+            thread_user_login: "other",
+            thread_user_name: "Other",
+          },
+        })
+      );
+      const { message } = dispatched(chat);
+      const replyTo = message instanceof Message ? message.replyTo : undefined;
+      if (!replyTo) {
+        throw new Error("Expected the chat message to carry replyTo");
+      }
+      return replyTo;
+    },
+    whisper: async (body: string) => {
+      const { adapter, chat } = await initialized();
+      await adapter.handleWebhook(
+        signedRequest({
+          event: whisperEvent({ whisper: { text: body } }),
+          subscription: subscription("user.whisper.message"),
+        })
+      );
+      return (await dispatchedWhisper(chat)).message;
+    },
+  };
+
+  it.each(
+    Object.entries(sources)
+  )("promotes URLs in %s text to link nodes", async (_, load) => {
+    const body = `clip ${LINK} here`;
+    const message = await load(body);
+
+    expect(message.text).toBe(body);
+    expect(message.formatted).toEqual(
+      root([
+        paragraph([text("clip "), link(LINK, [text(LINK)]), text(" here")]),
+      ])
+    );
+  });
+
+  it.each(
+    Object.keys(sources) as (keyof typeof sources)[]
+  )("keeps link nodes in long underscore-heavy %s text", async (source) => {
+    const prefix = `${"_".repeat(20_000)} `;
+    const message = await sources[source](`${prefix}${LINK}`);
+
+    expect(message.formatted).toEqual(
+      root([paragraph([text(prefix), link(LINK, [text(LINK)])])])
+    );
   });
 });
 

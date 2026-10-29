@@ -614,7 +614,20 @@ export class MatrixFormatConverter extends BaseFormatConverter {
 
 For platforms with non-standard formatting, implement custom parsing in `toAst()` and rendering in `fromAst()`. See the [Discord adapter](https://github.com/vercel/chat/blob/main/packages/adapter-discord/src/markdown.ts) for an example of handling platform-specific mention syntax.
 
-Use `parseIncoming()` to build a message's `text` and `formatted` fields from incoming platform text. It calls `toAst()` once and derives the plain text from that AST. Very long text can be slow to parse, so text longer than `maxIncomingParseLength` (16,384 characters by default) skips `toAst()` and arrives as a single unformatted text node. Override `maxIncomingParseLength` in your converter if your platform needs a different limit.
+Use `parseIncoming()` to build a message's `text` and `formatted` fields from incoming platform text, including messages fetched from history. It calls `toAst()` once and derives the plain text from that AST. Some inputs are slow to parse or produce trees too deep to serialize, so before parsing, `parseIncoming()` checks the text against these limits in linear time. Characters inside top-level fenced code blocks don't count toward the limits, since markdown isn't parsed there.
+
+| Limit | Default | Protected field |
+|-------|---------|-----------------|
+| Text length | 16,384 characters | `maxIncomingParseLength` |
+| `*`, `_`, and `~` characters | 2,048 | `maxIncomingEmphasisMarkers` |
+| `]` characters | 128 | `maxIncomingClosingBrackets` |
+| `<` characters | 512 | `maxIncomingAngleBrackets` |
+| `www.` links in one word | 8 | `maxIncomingWwwAutolinks` |
+| Nesting on one line: blockquote, list, and footnote markers plus half the columns of leading indentation | 32 | `maxIncomingContainerMarkers` |
+
+When text exceeds a limit, `parseIncoming()` skips `toAst()` and keeps the text verbatim in a single unformatted text node. It does the same after parsing when the tree is deeper than `maxIncomingAstDepth` (128 levels), or when `toAst()` throws a `RangeError`, such as a stack overflow. Other errors from `toAst()` propagate. Override these fields in your converter if your platform needs different limits, and call `parseIncoming()` rather than `toAst()` for any text that users write.
+
+The checks run on the text passed to `parseIncoming()`. If your `toAst()` rewrites platform text before parsing it, for example by decoding HTML entities, override `exceedsIncomingBudget()` to check the rewritten text instead. If your platform text carries markup that shouldn't reach users unparsed, such as entities or mention tokens, override `incomingFallbackText()` to clean up the text kept on fallback. Both run on input that may be too costly to parse, so keep them linear. When one message arrives as several parts that you parse separately, check the parts together with `exceedsIncomingBudget()` so their combined size stays within the limits.
 
 ## Optional methods
 

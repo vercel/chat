@@ -28,6 +28,7 @@ import {
   Card,
   CardText,
   Chat,
+  DEFAULT_MAX_INCOMING_PARSE_LENGTH,
   Field,
   Fields,
   Image,
@@ -47,6 +48,7 @@ import {
   createSlackAdapter,
   SlackAdapter,
 } from "./index";
+import { SlackFormatConverter } from "./markdown";
 import { incomingMessage } from "./test-fixtures";
 
 const FILE_ID_PATTERN = /^file-/;
@@ -16235,6 +16237,489 @@ describe("event routing via authorizations[]", () => {
       installationId: "E_ORG_1",
       isEnterpriseInstall: true,
       token: "xoxb-org",
+    });
+  });
+});
+
+// ============================================================================
+// Inbound markdown budget Tests
+// ============================================================================
+
+describe("inbound markdown budget", () => {
+  const secret = "test-signing-secret";
+  const EMPHASIS = "*a".repeat(8192);
+  const NESTED = ">".repeat(6000);
+  const ESCAPED_NESTED = "&gt;".repeat(4000);
+  const channel = "C456";
+  const ts = "1234567890.424242";
+  const converter = new SlackFormatConverter();
+
+  function unparsed(value: string) {
+    return { type: "paragraph", children: [{ type: "text", value }] };
+  }
+
+  /** The content the adapter builds when it parses each mrkdwn part. */
+  function parsed(...parts: string[]) {
+    return {
+      type: "root",
+      children: parts.flatMap((part) => converter.toAst(part).children),
+    };
+  }
+
+  function unparsedTable(rows: string[][]) {
+    return {
+      type: "table",
+      children: rows.map((row) => ({
+        type: "tableRow",
+        children: row.map((value) => ({
+          type: "tableCell",
+          children: [{ type: "text", value }],
+        })),
+      })),
+    };
+  }
+
+  async function createAdapter() {
+    const state = createMockState();
+    // A cached (empty) unfurl result skips the wait for Slack's unfurls.
+    await state.set(`slack:unfurls:${channel}:${ts}`, {});
+    const chatInstance = createMockChatInstance({ state });
+    chatInstance.processMessage = vi.fn();
+    const adapter = createSlackAdapter({
+      botToken: "xoxb-test-token",
+      signingSecret: secret,
+      logger: mockLogger,
+      botUserId: "U_BOT",
+    });
+    mockClientMethod(
+      adapter,
+      "users.info",
+      vi.fn().mockResolvedValue({
+        ok: true,
+        user: { name: "alice", profile: { display_name: "alice" } },
+      })
+    );
+    mockClientMethod(
+      adapter,
+      "conversations.info",
+      vi.fn().mockResolvedValue({ ok: true, channel: { name: "general" } })
+    );
+    await adapter.initialize(chatInstance);
+    return { adapter, chatInstance };
+  }
+
+  /**
+   * Parse `event` through a signed webhook and through `parseMessage`, which
+   * build content on the async and sync paths respectively.
+   */
+  async function parseBoth(
+    event: Record<string, unknown>
+  ): Promise<Message<unknown>[]> {
+    const { adapter, chatInstance } = await createAdapter();
+    const message = { type: "message", user: "U123", channel, ts, ...event };
+    const response = await adapter.handleWebhook(
+      createWebhookRequest(
+        JSON.stringify({
+          type: "event_callback",
+          team_id: "T123",
+          event: message,
+        }),
+        secret
+      )
+    );
+    const processMessage = chatInstance.processMessage as ReturnType<
+      typeof vi.fn
+    >;
+    if (response.status !== 200 || processMessage.mock.calls.length !== 1) {
+      throw new Error("Expected the webhook to dispatch one message");
+    }
+    const factory = processMessage.mock.calls[0][2] as () => Promise<
+      Message<unknown>
+    >;
+    return [await factory(), adapter.parseMessage(message as SlackEvent)];
+  }
+
+  describe("message text", () => {
+    it("parses Slack mrkdwn into formatting nodes", async () => {
+      const input = "*bold* _it_ <https://example.com|label>";
+      for (const message of await parseBoth({ text: input })) {
+        expect(message.text).toBe("bold it label");
+        expect(message.formatted).toEqual(parsed(input));
+      }
+    });
+
+    it.each([
+      ["too many emphasis markers", EMPHASIS, EMPHASIS],
+      ["deep nesting", NESTED, NESTED],
+      ["entity-escaped deep nesting", ESCAPED_NESTED, ">".repeat(4000)],
+      [
+        "a footnote opening 40 nested lists",
+        `[^a]: ${"- ".repeat(40)}a`,
+        `[^a]: ${"- ".repeat(40)}a`,
+      ],
+      [
+        "65 www. autolinks in one word",
+        "www.example.com/".repeat(65),
+        "www.example.com/".repeat(65),
+      ],
+    ])("keeps text with %s unparsed", async (_case, input, value) => {
+      for (const message of await parseBoth({ text: input })) {
+        expect(message.formatted).toEqual({
+          type: "root",
+          children: [unparsed(value)],
+        });
+        expect(message.text).toBe(value);
+        expect(() => JSON.stringify(message.formatted)).not.toThrow();
+      }
+    });
+
+    it("keeps oversized history messages unparsed", async () => {
+      const { adapter } = await createAdapter();
+      mockClientMethod(
+        adapter,
+        "conversations.replies",
+        vi.fn().mockResolvedValue({
+          ok: true,
+          messages: [
+            { type: "message", user: "U123", text: EMPHASIS, ts },
+            { type: "message", user: "U123", text: "*bold*", ts: "1.2" },
+          ],
+        })
+      );
+
+      const { messages } = await adapter.fetchMessages(
+        `slack:${channel}:${ts}`,
+        { direction: "forward" }
+      );
+
+      expect(messages[0]?.formatted).toEqual({
+        type: "root",
+        children: [unparsed(EMPHASIS)],
+      });
+      expect(messages[0]?.text).toBe(EMPHASIS);
+      expect(messages[1]?.formatted).toEqual(parsed("*bold*"));
+    });
+  });
+
+  describe("layout block text", () => {
+    function sectionEvent(mrkdwn: string) {
+      return {
+        text: "fallback",
+        blocks: [{ type: "section", text: { type: "mrkdwn", text: mrkdwn } }],
+      };
+    }
+
+    it("parses section mrkdwn into formatting nodes", async () => {
+      const mrkdwn = "*Deploy* <https://example.com|done>";
+      for (const message of await parseBoth(sectionEvent(mrkdwn))) {
+        expect(message.text).toBe("Deploy done");
+        expect(message.formatted).toEqual(parsed(mrkdwn));
+      }
+    });
+
+    it.each([
+      ["too many emphasis markers", EMPHASIS],
+      ["deep nesting", NESTED],
+    ])("keeps section text with %s unparsed", async (_case, value) => {
+      for (const message of await parseBoth(sectionEvent(value))) {
+        expect(message.formatted).toEqual({
+          type: "root",
+          children: [unparsed(value)],
+        });
+        expect(message.text).toBe(value);
+        expect(() => JSON.stringify(message.formatted)).not.toThrow();
+      }
+    });
+  });
+
+  describe("attachment text", () => {
+    function attachmentEvent(mrkdwn: string) {
+      return {
+        text: "See attachment",
+        attachments: [{ text: mrkdwn, mrkdwn_in: ["text"] }],
+      };
+    }
+
+    it("parses mrkdwn attachment text into formatting nodes", async () => {
+      for (const message of await parseBoth(
+        attachmentEvent("_Alert_ ~resolved~")
+      )) {
+        expect(message.text).toBe("See attachment\n\nAlert resolved");
+        expect(message.formatted).toEqual(
+          parsed("See attachment", "_Alert_ ~resolved~")
+        );
+      }
+    });
+
+    it.each([
+      ["too many emphasis markers", EMPHASIS],
+      ["deep nesting", NESTED],
+    ])("keeps attachment text with %s unparsed", async (_case, value) => {
+      for (const message of await parseBoth(attachmentEvent(value))) {
+        expect(message.formatted).toEqual({
+          type: "root",
+          children: [unparsed("See attachment"), unparsed(value)],
+        });
+        expect(message.text).toBe(`See attachment\n\n${value}`);
+        expect(() => JSON.stringify(message.formatted)).not.toThrow();
+      }
+    });
+  });
+
+  describe("table cells", () => {
+    function tableEvent(cell: Record<string, unknown>) {
+      return {
+        text: "",
+        blocks: [
+          {
+            type: "data_table",
+            rows: [[{ type: "raw_text", text: "Header" }], [cell]],
+          },
+        ],
+      };
+    }
+
+    function bodyCell(message: Message<unknown>) {
+      const [table, ...rest] = message.formatted.children;
+      if (table?.type !== "table" || rest.length > 0) {
+        throw new Error("Expected a message containing only a table");
+      }
+      return table.children[1]?.children[0];
+    }
+
+    it("parses rich text cells into formatting nodes", async () => {
+      for (const message of await parseBoth(
+        tableEvent({
+          type: "rich_text",
+          elements: [
+            {
+              type: "rich_text_section",
+              elements: [
+                { type: "text", text: "*Strong* " },
+                { type: "link", text: "docs", url: "https://example.com" },
+              ],
+            },
+          ],
+        })
+      )) {
+        const [cellParagraph] = converter.toAst(
+          "*Strong* <https://example.com|docs>"
+        ).children;
+        expect(cellParagraph?.type).toBe("paragraph");
+        expect(bodyCell(message)).toEqual({
+          type: "tableCell",
+          children:
+            cellParagraph && "children" in cellParagraph
+              ? cellParagraph.children
+              : [],
+        });
+      }
+    });
+
+    it.each([
+      ["too many emphasis markers", EMPHASIS, EMPHASIS],
+      ["entity-escaped deep nesting", ">".repeat(4000), ">".repeat(4000)],
+    ])("keeps a cell with %s unparsed", async (_case, cell, value) => {
+      for (const message of await parseBoth(
+        tableEvent({ type: "raw_text", text: cell })
+      )) {
+        expect(bodyCell(message)).toEqual({
+          type: "tableCell",
+          children: [{ type: "text", value }],
+        });
+        expect(() => JSON.stringify(message.formatted)).not.toThrow();
+      }
+    });
+  });
+
+  describe("per-message budget", () => {
+    const SECTION = "*a".repeat(1000);
+
+    function sectionsEvent(sections: string[]) {
+      return {
+        text: "fallback",
+        blocks: sections.map((mrkdwn) => ({
+          type: "section",
+          text: { type: "mrkdwn", text: mrkdwn },
+        })),
+      };
+    }
+
+    it("keeps every part unparsed when the parts together exceed the budget", async () => {
+      const sections = Array.from({ length: 50 }, () => SECTION);
+      for (const message of await parseBoth(sectionsEvent(sections))) {
+        expect(message.formatted).toEqual({
+          type: "root",
+          children: sections.map(unparsed),
+        });
+        expect(message.text).toBe(sections.join("\n\n"));
+        expect(() => JSON.stringify(message.formatted)).not.toThrow();
+      }
+    });
+
+    it("counts text, table cells, and attachments toward one budget", async () => {
+      // Each part is within the budget alone, and only all four exceed it.
+      const part = "*a".repeat(600);
+      const table = (cell: string) => ({
+        type: "data_table",
+        rows: [
+          [{ type: "raw_text", text: "Header" }],
+          [{ type: "raw_text", text: cell }],
+        ],
+      });
+      for (const message of await parseBoth({
+        text: part,
+        blocks: [table(part)],
+        attachments: [
+          { text: part, mrkdwn_in: ["text"] },
+          { blocks: [table(part)] },
+        ],
+      })) {
+        expect(message.formatted).toEqual({
+          type: "root",
+          children: [
+            unparsedTable([["Header"], [part]]),
+            unparsed(part),
+            unparsed(part),
+            unparsedTable([["Header"], [part]]),
+          ],
+        });
+      }
+    });
+
+    it("parses each part when the parts together are within the budget", async () => {
+      const section = "*bold* _it_ ".repeat(10).trim();
+      const sections = Array.from({ length: 50 }, () => section);
+      for (const message of await parseBoth(sectionsEvent(sections))) {
+        expect(message.formatted).toEqual(parsed(...sections));
+      }
+    });
+
+    it("applies the budget to history messages", async () => {
+      const { adapter } = await createAdapter();
+      const sections = Array.from({ length: 50 }, () => SECTION);
+      mockClientMethod(
+        adapter,
+        "conversations.replies",
+        vi.fn().mockResolvedValue({
+          ok: true,
+          messages: [
+            { type: "message", user: "U123", ts, ...sectionsEvent(sections) },
+          ],
+        })
+      );
+
+      const { messages } = await adapter.fetchMessages(
+        `slack:${channel}:${ts}`,
+        { direction: "forward" }
+      );
+
+      expect(messages[0]?.formatted).toEqual({
+        type: "root",
+        children: sections.map(unparsed),
+      });
+    });
+  });
+
+  describe("unparsed text", () => {
+    const FILLER = " and more words".repeat(1100);
+
+    it("renders control tokens and entities as plain text", async () => {
+      const input =
+        "Tom &amp; Jerry <@U123|alice> joined <#C789|general>, see " +
+        `<https://example.com|the docs> &lt;now&gt; *as typed*${FILLER}`;
+      const expected =
+        "Tom & Jerry @alice joined #general (C789), see the docs <now> " +
+        `*as typed*${FILLER}`;
+      expect(input.length).toBeGreaterThan(DEFAULT_MAX_INCOMING_PARSE_LENGTH);
+
+      for (const message of await parseBoth({ text: input })) {
+        expect(message.formatted).toEqual({
+          type: "root",
+          children: [unparsed(expected)],
+        });
+        expect(message.text).toBe(expected);
+      }
+    });
+
+    it("renders control tokens in unparsed history messages", async () => {
+      const { adapter } = await createAdapter();
+      mockClientMethod(
+        adapter,
+        "conversations.replies",
+        vi.fn().mockResolvedValue({
+          ok: true,
+          messages: [
+            {
+              type: "message",
+              user: "U123",
+              ts,
+              text: `<!subteam^S123|@devs> <mailto:a@example.com|mail> <https://example.com>${FILLER}`,
+            },
+          ],
+        })
+      );
+
+      const { messages } = await adapter.fetchMessages(
+        `slack:${channel}:${ts}`,
+        { direction: "forward" }
+      );
+
+      const expected = `@devs mail https://example.com${FILLER}`;
+      expect(messages[0]?.formatted).toEqual({
+        type: "root",
+        children: [unparsed(expected)],
+      });
+      expect(messages[0]?.text).toBe(expected);
+    });
+
+    it("keeps over-length text as typed apart from control tokens", async () => {
+      const input =
+        "Plain *bold* words and <https://example.com|a link>.\n".repeat(330);
+      const expected = "Plain *bold* words and a link.\n".repeat(330);
+      expect(input.length).toBeGreaterThan(DEFAULT_MAX_INCOMING_PARSE_LENGTH);
+
+      for (const message of await parseBoth({ text: input })) {
+        expect(message.formatted).toEqual({
+          type: "root",
+          children: [unparsed(expected)],
+        });
+        expect(message.text).toBe(expected);
+      }
+    });
+  });
+
+  describe("entity-escaped containers", () => {
+    it.each([
+      ["a run of escaped blockquote markers", ESCAPED_NESTED, ">".repeat(4000)],
+      [
+        "one line opening too many escaped blockquotes",
+        "&gt; ".repeat(129),
+        "> ".repeat(129),
+      ],
+    ])("keeps %s unparsed without parsing", async (_case, input, value) => {
+      const toAst = vi.spyOn(SlackFormatConverter.prototype, "toAst");
+      try {
+        for (const message of await parseBoth({ text: input })) {
+          expect(message.formatted).toEqual({
+            type: "root",
+            children: [unparsed(value)],
+          });
+          expect(message.text).toBe(value);
+          expect(() => JSON.stringify(message.formatted)).not.toThrow();
+        }
+        expect(toAst).not.toHaveBeenCalled();
+      } finally {
+        toAst.mockRestore();
+      }
+    });
+
+    it("parses an escaped blockquote within the limit", async () => {
+      for (const message of await parseBoth({ text: "&gt; quote" })) {
+        expect(message.text).toBe("quote");
+        expect(message.formatted).toEqual(parsed("&gt; quote"));
+        expect(message.formatted.children[0]?.type).toBe("blockquote");
+      }
     });
   });
 });

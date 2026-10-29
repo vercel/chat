@@ -1142,7 +1142,7 @@ export class DiscordAdapter implements Adapter<DiscordThreadId, unknown> {
       id: data.id,
       threadId,
       text: content.text,
-      formatted: this.formatConverter.toAst(content.text),
+      formatted: this.formatConverter.parseIncoming(content.text).formatted,
       author: {
         userId: data.author.id,
         userName: data.author.username,
@@ -2832,7 +2832,7 @@ export class DiscordAdapter implements Adapter<DiscordThreadId, unknown> {
       id: message.id,
       threadId,
       text: content.text,
-      formatted: this.formatConverter.toAst(content.text),
+      formatted: this.formatConverter.parseIncoming(content.text).formatted,
       author: {
         userId: message.author.id,
         userName: message.author.username,
@@ -3137,7 +3137,8 @@ export class DiscordAdapter implements Adapter<DiscordThreadId, unknown> {
             id: thread.id,
             threadId,
             text: thread.name ?? "",
-            formatted: this.formatConverter.toAst(thread.name ?? ""),
+            formatted: this.formatConverter.parseIncoming(thread.name ?? "")
+              .formatted,
             raw: thread,
             author: {
               userId: "unknown",

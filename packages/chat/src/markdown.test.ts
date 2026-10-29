@@ -520,6 +520,77 @@ describe("BaseFormatConverter", () => {
   });
 
   describe("parseIncoming", () => {
+    const unparsed = (input: string) => ({
+      text: input,
+      formatted: root([paragraph([text(input)])]),
+    });
+
+    const parsed = (input: string) => {
+      const formatted = parseMarkdown(input);
+      return { text: toPlainText(formatted), formatted };
+    };
+
+    // Recursive, so only call it on shallow trees.
+    const maxDepth = (node: Root | Content): number => {
+      if (!("children" in node) || node.children.length === 0) {
+        return 0;
+      }
+      let deepest = 0;
+      for (const child of node.children) {
+        deepest = Math.max(deepest, maxDepth(child as Content));
+      }
+      return deepest + 1;
+    };
+
+    const countNodes = (node: Root | Content, type: string): number => {
+      let count = node.type === type ? 1 : 0;
+      if ("children" in node) {
+        for (const child of node.children) {
+          count += countNodes(child as Content, type);
+        }
+      }
+      return count;
+    };
+
+    const countMarkers = (value: string): number => {
+      let count = 0;
+      for (const char of value) {
+        if (char === "*" || char === "_" || char === "~") {
+          count++;
+        }
+      }
+      return count;
+    };
+
+    const parseWithSpy = (input: string, parsing = new TestConverter()) => {
+      const toAst = vi.spyOn(parsing, "toAst");
+      const result = parsing.parseIncoming(input);
+      return { result, toAstCalls: toAst.mock.calls.length };
+    };
+    const parsedOnce = (input: string) => ({
+      result: parsed(input),
+      toAstCalls: 1,
+    });
+    const skipped = (input: string) => ({
+      result: unparsed(input),
+      toAstCalls: 0,
+    });
+
+    // Emphasis nested inline, so its depth is levels + 2 with no container
+    // markers.
+    const nestedEmphasis = (levels: number): string =>
+      `${"*a ".repeat(levels)}${"a* ".repeat(levels)}`;
+
+    // Lists nested by indentation, one marker per line.
+    const staircase = (levels: number): string =>
+      Array.from({ length: levels }, (_, i) => `${"  ".repeat(i)}- a`).join(
+        "\n"
+      );
+
+    // Each line holds 8 emphasis markers, so 256 lines hold exactly 2,048.
+    const emphasisLine = "*a* _b_ ~~c~~\n";
+    const maxMarkersInput = emphasisLine.repeat(256);
+
     it("matches extractPlainText and toAst for markdown input", () => {
       const input =
         "# Title\n\n**bold** and _italic_ with `code`\n\n- one\n- two\n\n| a | b |\n| - | - |\n| 1 | 2 |";
@@ -528,57 +599,955 @@ describe("BaseFormatConverter", () => {
         "Title\n\nbold and italic with code\n\none\ntwo\n\na\tb\n1\t2"
       );
       expect(result.text).toBe(converter.extractPlainText(input));
-      expect(result.formatted).toEqual(parseMarkdown(input));
+      expect(result).toEqual(parsed(input));
+      expect(result).not.toEqual(unparsed(input));
     });
 
     it("parses input once", () => {
       const parsing = new TestConverter();
       const toAst = vi.spyOn(parsing, "toAst");
-      parsing.parseIncoming("**bold** text");
-      expect(toAst).toHaveBeenCalledTimes(1);
-    });
-
-    it("defaults the length limit to 16,384 characters", () => {
-      expect(DEFAULT_MAX_INCOMING_PARSE_LENGTH).toBe(16_384);
-    });
-
-    it("parses input at the length limit", () => {
-      const parsing = new TestConverter();
-      const toAst = vi.spyOn(parsing, "toAst");
-      const input = `**bold**${"a".repeat(DEFAULT_MAX_INCOMING_PARSE_LENGTH - 8)}`;
-      const result = parsing.parseIncoming(input);
-      expect(toAst).toHaveBeenCalledTimes(1);
-      expect(result.text).toBe(
-        `bold${"a".repeat(DEFAULT_MAX_INCOMING_PARSE_LENGTH - 8)}`
+      const result = parsing.parseIncoming("**bold** text");
+      expect(result.text).toBe("bold text");
+      expect(result.formatted).toMatchObject(
+        root([paragraph([strong([text("bold")]), text(" text")])])
       );
+      expect(result).toEqual(parsed("**bold** text"));
+      expect(result).not.toEqual(unparsed("**bold** text"));
+      expect(toAst).toHaveBeenCalledTimes(1);
     });
 
-    it("keeps input over the length limit as a single text node", () => {
-      const parsing = new TestConverter();
-      const toAst = vi.spyOn(parsing, "toAst");
-      const input = `**bold**${"a".repeat(DEFAULT_MAX_INCOMING_PARSE_LENGTH - 7)}`;
-      const result = parsing.parseIncoming(input);
-      expect(toAst).not.toHaveBeenCalled();
-      expect(result.text).toBe(input);
-      expect(result.formatted).toEqual({
-        type: "root",
-        children: [
-          { type: "paragraph", children: [{ type: "text", value: input }] },
-        ],
+    describe("length limit", () => {
+      it("defaults to 16,384 characters", () => {
+        expect(DEFAULT_MAX_INCOMING_PARSE_LENGTH).toBe(16_384);
+      });
+
+      it("parses input at the limit", () => {
+        const parsing = new TestConverter();
+        const toAst = vi.spyOn(parsing, "toAst");
+        const input = `**bold**${"a".repeat(DEFAULT_MAX_INCOMING_PARSE_LENGTH - 8)}`;
+        const result = parsing.parseIncoming(input);
+        expect(result.text).toBe(
+          `bold${"a".repeat(DEFAULT_MAX_INCOMING_PARSE_LENGTH - 8)}`
+        );
+        expect(result).toEqual(parsed(input));
+        expect(result).not.toEqual(unparsed(input));
+        expect(toAst).toHaveBeenCalledTimes(1);
+      });
+
+      it("keeps input over the limit as a single text node", () => {
+        const parsing = new TestConverter();
+        const toAst = vi.spyOn(parsing, "toAst");
+        const input = `**bold**${"a".repeat(DEFAULT_MAX_INCOMING_PARSE_LENGTH - 7)}`;
+        const result = parsing.parseIncoming(input);
+        expect(result).toEqual({
+          text: input,
+          formatted: {
+            type: "root",
+            children: [
+              { type: "paragraph", children: [{ type: "text", value: input }] },
+            ],
+          },
+        });
+        expect(toAst).not.toHaveBeenCalled();
+      });
+
+      it("respects a lower subclass limit", () => {
+        class SmallLimitConverter extends TestConverter {
+          protected override maxIncomingParseLength = 5;
+        }
+        const parsing = new SmallLimitConverter();
+        const toAst = vi.spyOn(parsing, "toAst");
+        const result = parsing.parseIncoming("**bold**");
+        expect(result).toEqual(unparsed("**bold**"));
+        expect(toAst).not.toHaveBeenCalled();
+      });
+
+      it("respects a higher subclass limit", () => {
+        class LargeLimitConverter extends TestConverter {
+          protected override maxIncomingParseLength = 20_000;
+        }
+        const input = `**bold**${"a".repeat(DEFAULT_MAX_INCOMING_PARSE_LENGTH)}`;
+        const result = new LargeLimitConverter().parseIncoming(input);
+        expect(result).toEqual(parsed(input));
+        expect(result).not.toEqual(unparsed(input));
       });
     });
 
-    it("respects a subclass length limit", () => {
-      class SmallLimitConverter extends TestConverter {
-        protected override maxIncomingParseLength = 5;
+    describe("emphasis marker limit", () => {
+      it("parses input with exactly 2,048 markers", () => {
+        expect(countMarkers(maxMarkersInput)).toBe(2048);
+        const result = converter.parseIncoming(maxMarkersInput);
+        expect(result).toEqual(parsed(maxMarkersInput));
+        expect(result).not.toEqual(unparsed(maxMarkersInput));
+        expect(countNodes(result.formatted, "emphasis")).toBe(512);
+        expect(countNodes(result.formatted, "delete")).toBe(256);
+      });
+
+      it.each([
+        "*",
+        "_",
+        "~",
+      ])("keeps input with 2,049 markers as a single text node when the extra marker is %s", (marker) => {
+        const parsing = new TestConverter();
+        const toAst = vi.spyOn(parsing, "toAst");
+        const input = `${maxMarkersInput}x${marker}`;
+        expect(countMarkers(input)).toBe(2049);
+        expect(parsing.parseIncoming(input)).toEqual(unparsed(input));
+        expect(toAst).not.toHaveBeenCalled();
+      });
+
+      it("parses unmatched markers up to the limit", () => {
+        const input = "*a".repeat(2048);
+        const result = converter.parseIncoming(input);
+        expect(result).toEqual(parsed(input));
+        expect(result).not.toEqual(unparsed(input));
+        expect(countNodes(result.formatted, "emphasis")).toBeGreaterThan(0);
+      });
+
+      it("keeps unmatched markers over the limit as a single text node", () => {
+        const input = `${"*a".repeat(2048)}*`;
+        expect(converter.parseIncoming(input)).toEqual(unparsed(input));
+      });
+
+      it("does not count other punctuation", () => {
+        const input = `${maxMarkersInput}\n${"-+=^|#!?.,;:'\"()".repeat(400)}`;
+        expect(input.length).toBeLessThanOrEqual(
+          DEFAULT_MAX_INCOMING_PARSE_LENGTH
+        );
+        expect(countMarkers(input)).toBe(2048);
+        const result = converter.parseIncoming(input);
+        expect(result).toEqual(parsed(input));
+        expect(result).not.toEqual(unparsed(input));
+        expect(countNodes(result.formatted, "emphasis")).toBe(512);
+      });
+
+      it("parses a long realistic message", () => {
+        const section =
+          "Hey team, here is the **update** for _today_: see [the doc](https://example.com/doc) and `config.ts`.\n\n- item one with ~~old~~ text\n- item two\n\n> quoted line\n\n| a | b |\n| - | - |\n| 1 | 2 |\n\n```ts\nconst x = 1;\n```\n\n";
+        const input = section.repeat(60);
+        expect(input.length).toBeLessThanOrEqual(
+          DEFAULT_MAX_INCOMING_PARSE_LENGTH
+        );
+        expect(countMarkers(input)).toBeLessThanOrEqual(2048);
+        const result = converter.parseIncoming(input);
+        expect(result).toEqual(parsed(input));
+        expect(result).not.toEqual(unparsed(input));
+        expect(countNodes(result.formatted, "table")).toBe(60);
+        expect(countNodes(result.formatted, "link")).toBe(60);
+      });
+
+      it("respects a lower subclass limit", () => {
+        class FewMarkersConverter extends TestConverter {
+          protected override maxIncomingEmphasisMarkers = 3;
+        }
+        const parsing = new FewMarkersConverter();
+        const result = parsing.parseIncoming("*a*");
+        expect(result).toEqual(parsed("*a*"));
+        expect(result).not.toEqual(unparsed("*a*"));
+        expect(parsing.parseIncoming("**a**")).toEqual(unparsed("**a**"));
+      });
+
+      it("respects a higher subclass limit", () => {
+        class ManyMarkersConverter extends TestConverter {
+          protected override maxIncomingEmphasisMarkers = 10_000;
+        }
+        const input = `${maxMarkersInput}x*`;
+        const result = new ManyMarkersConverter().parseIncoming(input);
+        expect(result).toEqual(parsed(input));
+        expect(result).not.toEqual(unparsed(input));
+      });
+    });
+
+    describe("closing bracket limit", () => {
+      it("parses input with exactly 128 closing brackets", () => {
+        const input = `# Brackets\n\n${"a]".repeat(128)}`;
+        const result = converter.parseIncoming(input);
+        expect(result).toEqual(parsed(input));
+        expect(result).not.toEqual(unparsed(input));
+        expect(countNodes(result.formatted, "heading")).toBe(1);
+      });
+
+      it("keeps input with 129 closing brackets as a single text node", () => {
+        const parsing = new TestConverter();
+        const toAst = vi.spyOn(parsing, "toAst");
+        const input = `# Brackets\n\n${"a]".repeat(129)}`;
+        expect(parsing.parseIncoming(input)).toEqual(unparsed(input));
+        expect(toAst).not.toHaveBeenCalled();
+      });
+
+      it("does not count opening brackets", () => {
+        const input = `# Brackets\n\n${"[".repeat(8192)}`;
+        const result = converter.parseIncoming(input);
+        expect(result).toEqual(parsed(input));
+        expect(result).not.toEqual(unparsed(input));
+      });
+
+      it("counts brackets that close links", () => {
+        const atLimit = "[a](b) ".repeat(128);
+        const result = converter.parseIncoming(atLimit);
+        expect(result).toEqual(parsed(atLimit));
+        expect(countNodes(result.formatted, "link")).toBe(128);
+        const overLimit = "[a](b) ".repeat(129);
+        expect(converter.parseIncoming(overLimit)).toEqual(unparsed(overLimit));
+      });
+
+      it("respects a lower subclass limit", () => {
+        class FewBracketsConverter extends TestConverter {
+          protected override maxIncomingClosingBrackets = 1;
+        }
+        const parsing = new FewBracketsConverter();
+        const link1 = "[a](https://example.com)";
+        const link2 = `${link1} [b](https://example.com)`;
+        const result = parsing.parseIncoming(link1);
+        expect(result).toEqual(parsed(link1));
+        expect(result).not.toEqual(unparsed(link1));
+        expect(parsing.parseIncoming(link2)).toEqual(unparsed(link2));
+      });
+
+      it("respects a higher subclass limit", () => {
+        class ManyBracketsConverter extends TestConverter {
+          protected override maxIncomingClosingBrackets = 10_000;
+        }
+        const input = `# Brackets\n\n${"a]".repeat(2049)}`;
+        const result = new ManyBracketsConverter().parseIncoming(input);
+        expect(result).toEqual(parsed(input));
+        expect(result).not.toEqual(unparsed(input));
+      });
+    });
+
+    describe("angle bracket limit", () => {
+      it("parses input with exactly 512 angle brackets", () => {
+        const input = `# Angles\n\n${"1 < 2 ".repeat(512)}`;
+        const result = parseWithSpy(input);
+        expect(result).toEqual(parsedOnce(input));
+        expect(result.result).not.toEqual(unparsed(input));
+      });
+
+      it("keeps input with 513 angle brackets as a single text node", () => {
+        const input = `# Angles\n\n${"1 < 2 ".repeat(513)}`;
+        expect(parseWithSpy(input)).toEqual(skipped(input));
+      });
+
+      it("does not count closing angle brackets", () => {
+        const input = `# Angles\n\n${"2 > 1 ".repeat(2000)}`;
+        const result = parseWithSpy(input);
+        expect(result).toEqual(parsedOnce(input));
+        expect(result.result).not.toEqual(unparsed(input));
+      });
+
+      it("respects a lower subclass limit", () => {
+        class FewAnglesConverter extends TestConverter {
+          protected override maxIncomingAngleBrackets = 1;
+        }
+        const result = parseWithSpy("**a** <b>", new FewAnglesConverter());
+        expect(result).toEqual(parsedOnce("**a** <b>"));
+        expect(parseWithSpy("**a** <b> <c>", new FewAnglesConverter())).toEqual(
+          skipped("**a** <b> <c>")
+        );
+      });
+
+      it("respects a higher subclass limit", () => {
+        class ManyAnglesConverter extends TestConverter {
+          protected override maxIncomingAngleBrackets = 10_000;
+        }
+        const input = `# Angles\n\n${"1 < 2 ".repeat(513)}`;
+        const result = parseWithSpy(input, new ManyAnglesConverter());
+        expect(result).toEqual(parsedOnce(input));
+        expect(result.result).not.toEqual(unparsed(input));
+      });
+    });
+
+    describe("www autolink limit", () => {
+      const wwwWord = (count: number, prefixes = ["www."]): string => {
+        let word = "";
+        for (let i = 0; i < count; i++) {
+          word += `${prefixes[i % prefixes.length]}a`;
+        }
+        return word;
+      };
+
+      it("parses a word with exactly 8 www. occurrences", () => {
+        const input = `**see** ${wwwWord(8)} now`;
+        const result = parseWithSpy(input);
+        expect(result).toEqual(parsedOnce(input));
+        expect(result.result).not.toEqual(unparsed(input));
+      });
+
+      it.each([
+        ["lowercase", ["www."]],
+        ["uppercase", ["WWW."]],
+        ["mixed case", ["www.", "WWW.", "wWw."]],
+      ])("keeps a word with 9 %s www. occurrences as a single text node", (_name, prefixes) => {
+        const input = `**see** ${wwwWord(9, prefixes)} now`;
+        expect(parseWithSpy(input)).toEqual(skipped(input));
+      });
+
+      it("parses many www. links separated by whitespace", () => {
+        const input = "see www.example.com and ".repeat(70);
+        const result = parseWithSpy(input);
+        expect(result).toEqual(parsedOnce(input));
+        expect(countNodes(result.result.formatted, "link")).toBe(70);
+      });
+
+      it("limits each word, not the line", () => {
+        const atLimit = `${wwwWord(8)} `.repeat(20);
+        const result = parseWithSpy(atLimit);
+        expect(result).toEqual(parsedOnce(atLimit));
+        expect(result.result).not.toEqual(unparsed(atLimit));
+        const overLimit = `${atLimit}${wwwWord(9)}`;
+        expect(parseWithSpy(overLimit)).toEqual(skipped(overLimit));
+      });
+
+      it("splits words on tabs as well as spaces", () => {
+        const input = `**see** ${wwwWord(8)}\t${wwwWord(8)}`;
+        const result = parseWithSpy(input);
+        expect(result).toEqual(parsedOnce(input));
+        expect(result.result).not.toEqual(unparsed(input));
+      });
+
+      it("respects a lower subclass limit", () => {
+        class FewLinksConverter extends TestConverter {
+          protected override maxIncomingWwwAutolinks = 1;
+        }
+        const separate = "see www.a.com and www.b.com";
+        const result = parseWithSpy(separate, new FewLinksConverter());
+        expect(result).toEqual(parsedOnce(separate));
+        expect(result.result).not.toEqual(unparsed(separate));
+        const joined = "see www.a.com/www.b.com";
+        expect(parseWithSpy(joined, new FewLinksConverter())).toEqual(
+          skipped(joined)
+        );
+      });
+
+      it("respects a higher subclass limit", () => {
+        class ManyLinksConverter extends TestConverter {
+          protected override maxIncomingWwwAutolinks = 100;
+        }
+        const input = `**see** ${wwwWord(9)} now`;
+        const result = parseWithSpy(input, new ManyLinksConverter());
+        expect(result).toEqual(parsedOnce(input));
+        expect(result.result).not.toEqual(unparsed(input));
+      });
+    });
+
+    describe("container marker limit", () => {
+      const mixedMarkers = (count: number): string => {
+        const markers = ["> ", "- ", "1. ", "1) "];
+        let line = "";
+        for (let i = 0; i < count; i++) {
+          line += markers[i % markers.length];
+        }
+        return `${line}a`;
+      };
+
+      it.each([
+        [">", (n: number) => `${">".repeat(n)}a`],
+        ["> ", (n: number) => `${"> ".repeat(n)}a`],
+        ["- ", (n: number) => `${"- ".repeat(n)}a`],
+        ["+ ", (n: number) => `${"+ ".repeat(n)}a`],
+        ["* ", (n: number) => `${"* ".repeat(n)}a`],
+        ["1. ", (n: number) => `${"1. ".repeat(n)}a`],
+        ["1) ", (n: number) => `${"1) ".repeat(n)}a`],
+        ["123456789. ", (n: number) => `${"123456789. ".repeat(n)}a`],
+        ["tab-separated -", (n: number) => `${"-\t".repeat(n)}a`],
+        ["mixed > - 1. 1)", mixedMarkers],
+      ])("parses a line with 32 %s markers and skips parsing one with 33", (_name, line) => {
+        const atLimit = line(32);
+        const result = parseWithSpy(atLimit);
+        expect(result).toEqual(parsedOnce(atLimit));
+        expect(result.result).not.toEqual(unparsed(atLimit));
+        const overLimit = line(33);
+        expect(parseWithSpy(overLimit)).toEqual(skipped(overLimit));
+      });
+
+      it("counts markers on every line", () => {
+        const input = `**intro**\n\n${">".repeat(10)}a\n${">".repeat(33)}a`;
+        expect(parseWithSpy(input)).toEqual(skipped(input));
+      });
+
+      it.each([
+        ["- without a following space", "-a"],
+        ["a 10-digit ordered list number", "1000000000. a"],
+        ["an 11-digit ordered list number", "10000000000. a"],
+        ["an ordered list number without a following space", "1.x"],
+        ["a number with another delimiter", "1: a"],
+        ["a number without a delimiter", "1 a"],
+        ["a delimiter without a number", ". a"],
+        ["text", "a"],
+      ])("does not count %s", (_name, tail) => {
+        const input = `${">".repeat(32)}${tail}`;
+        const result = parseWithSpy(input);
+        expect(result).toEqual(parsedOnce(input));
+        expect(result.result).not.toEqual(unparsed(input));
+      });
+
+      it("counts a 9-digit ordered list number, an empty item, and a trailing marker", () => {
+        for (const tail of ["123456789. a", "1.", "-"]) {
+          const input = `${">".repeat(32)}${tail}`;
+          expect(parseWithSpy(input)).toEqual(skipped(input));
+        }
+      });
+
+      it("ignores markers after other text on the line", () => {
+        for (const input of [
+          `**a** ${">".repeat(200)}`,
+          `**a** ${"- ".repeat(200)}`,
+          `**a** ${"1. ".repeat(200)}`,
+        ]) {
+          const result = converter.parseIncoming(input);
+          expect(result).toEqual(parsed(input));
+          expect(result).not.toEqual(unparsed(input));
+        }
+      });
+
+      it("limits markers per line, not in total", () => {
+        for (const input of [
+          `${">".repeat(32)}a\n`.repeat(100),
+          `${"- ".repeat(32)}a\n`.repeat(100),
+        ]) {
+          const result = converter.parseIncoming(input);
+          expect(result).toEqual(parsed(input));
+          expect(result).not.toEqual(unparsed(input));
+        }
+      });
+
+      it("counts each - of a thematic break, so a long one is kept as text", () => {
+        const atLimit = "- ".repeat(32);
+        const result = converter.parseIncoming(atLimit);
+        expect(result).toEqual(parsed(atLimit));
+        expect(result.formatted.children).toMatchObject([
+          { type: "thematicBreak" },
+        ]);
+        for (const overLimit of ["- ".repeat(33), "- ".repeat(200)]) {
+          expect(parseWithSpy(overLimit)).toEqual(skipped(overLimit));
+        }
+      });
+
+      it("parses ordinary thematic breaks", () => {
+        for (const input of ["a\n\n---\n\nb", "a\n\n- - -\n\nb"]) {
+          const result = converter.parseIncoming(input);
+          expect(result).toEqual(parsed(input));
+          expect(countNodes(result.formatted, "thematicBreak")).toBe(1);
+        }
+      });
+
+      it("counts a footnote definition label as a marker", () => {
+        const atLimit = `[^a]: ${"- ".repeat(31)}a`;
+        const result = parseWithSpy(atLimit);
+        expect(result).toEqual(parsedOnce(atLimit));
+        expect(result.result).not.toEqual(unparsed(atLimit));
+        const overLimit = `[^a]: ${"- ".repeat(32)}a`;
+        expect(parseWithSpy(overLimit)).toEqual(skipped(overLimit));
+      });
+
+      it("does not count a footnote reference without a colon", () => {
+        const input = `[^a] ${"- ".repeat(40)}a`;
+        const result = parseWithSpy(input);
+        expect(result).toEqual(parsedOnce(input));
+        expect(result.result).not.toEqual(unparsed(input));
+      });
+
+      it.each([
+        ["spaces", " ".repeat(64), " ".repeat(66)],
+        ["tabs", "\t".repeat(16), `${"\t".repeat(16)}  `],
+        ["a space then a tab", " \t".repeat(16), `${" \t".repeat(16)}  `],
+      ])("counts every two columns of leading %s as a marker", (_name, atLimit, overLimit) => {
+        const parsedInput = `para\n\n${atLimit}a`;
+        const result = parseWithSpy(parsedInput);
+        expect(result).toEqual(parsedOnce(parsedInput));
+        expect(result.result).not.toEqual(unparsed(parsedInput));
+        const skippedInput = `para\n\n${overLimit}a`;
+        expect(parseWithSpy(skippedInput)).toEqual(skipped(skippedInput));
+      });
+
+      it("ignores lines that hold only whitespace", () => {
+        for (const blank of [" ".repeat(200), "\t".repeat(100)]) {
+          const input = `**a**\n${blank}\nb`;
+          const result = parseWithSpy(input);
+          expect(result).toEqual(parsedOnce(input));
+          expect(result.result).not.toEqual(unparsed(input));
+        }
+      });
+
+      it("adds leading indentation to the markers on a line", () => {
+        const atLimit = `para\n\n${" ".repeat(20)}${"- ".repeat(22)}a`;
+        const result = parseWithSpy(atLimit);
+        expect(result).toEqual(parsedOnce(atLimit));
+        expect(result.result).not.toEqual(unparsed(atLimit));
+        const overLimit = `para\n\n${" ".repeat(20)}${"- ".repeat(23)}a`;
+        expect(parseWithSpy(overLimit)).toEqual(skipped(overLimit));
+      });
+
+      it("counts markers on lines ending in CRLF", () => {
+        const input = `a\r\n${"- ".repeat(33)}a`;
+        expect(parseWithSpy(input)).toEqual(skipped(input));
+      });
+
+      it("counts markers on lines ending in a bare CR", () => {
+        // micromark treats a bare \r as a line ending.
+        const input = `a\r${"- ".repeat(33)}a`;
+        expect(parseWithSpy(input)).toEqual(skipped(input));
+        const middle = `a\r${"- ".repeat(33)}a\rb`;
+        expect(parseWithSpy(middle)).toEqual(skipped(middle));
+      });
+
+      it("parses bare CR separated lines that are each under the limit", () => {
+        const input = `${"- ".repeat(32)}a\r`.repeat(10);
+        const result = parseWithSpy(input);
+        expect(result).toEqual(parsedOnce(input));
+        expect(result.result).not.toEqual(unparsed(input));
+      });
+
+      it("respects a lower subclass limit", () => {
+        class FewMarkersConverter extends TestConverter {
+          protected override maxIncomingContainerMarkers = 2;
+        }
+        const result = parseWithSpy("> > a", new FewMarkersConverter());
+        expect(result).toEqual(parsedOnce("> > a"));
+        expect(result.result).not.toEqual(unparsed("> > a"));
+        expect(parseWithSpy("> > > a", new FewMarkersConverter())).toEqual(
+          skipped("> > > a")
+        );
+      });
+
+      it("respects a higher subclass limit", () => {
+        class ManyMarkersConverter extends TestConverter {
+          protected override maxIncomingContainerMarkers = 200;
+        }
+        const input = `${">".repeat(100)}a`;
+        expect(parseWithSpy(input)).toEqual(skipped(input));
+        const result = parseWithSpy(input, new ManyMarkersConverter());
+        expect(result).toEqual(parsedOnce(input));
+        expect(result.result).not.toEqual(unparsed(input));
+      });
+
+      it("is independent of the AST depth limit", () => {
+        class DeepConverter extends TestConverter {
+          protected override maxIncomingAstDepth = 1000;
+        }
+        const input = `${">".repeat(33)}a`;
+        expect(parseWithSpy(input, new DeepConverter())).toEqual(
+          skipped(input)
+        );
+      });
+    });
+
+    describe("fenced code blocks", () => {
+      const overBrackets = "a]".repeat(129);
+
+      it("does not count closing brackets inside a JSON fence", () => {
+        const json = "[1]\n".repeat(521);
+        const input = `**data**\n\n\`\`\`json\n${json}\`\`\`\n`;
+        const result = parseWithSpy(input);
+        expect(result).toEqual(parsedOnce(input));
+        expect(result.result.formatted.children).toMatchObject([
+          { type: "paragraph" },
+          { type: "code", lang: "json", value: json.slice(0, -1) },
+        ]);
+        const unfenced = `**data**\n\n${json}`;
+        expect(parseWithSpy(unfenced)).toEqual(skipped(unfenced));
+      });
+
+      it("does not count emphasis markers inside a Python fence", () => {
+        const python = "__init__ = 1\n".repeat(1100);
+        const input = `**code**\n\n\`\`\`python\n${python}\`\`\`\n`;
+        const result = parseWithSpy(input);
+        expect(result).toEqual(parsedOnce(input));
+        expect(countNodes(result.result.formatted, "code")).toBe(1);
+        const unfenced = `**code**\n\n${python}`;
+        expect(parseWithSpy(unfenced)).toEqual(skipped(unfenced));
+      });
+
+      it("counts text after a closed fence", () => {
+        const over = `\`\`\`\nx\n\`\`\`\n${overBrackets}`;
+        expect(parseWithSpy(over)).toEqual(skipped(over));
+        const under = `\`\`\`\nx\n\`\`\`\n${"a]".repeat(128)}`;
+        const result = parseWithSpy(under);
+        expect(result).toEqual(parsedOnce(under));
+        expect(result.result).not.toEqual(unparsed(under));
+      });
+
+      it.each([
+        ["a shorter closer", `\`\`\`\`\nx\n\`\`\`\n${overBrackets}`],
+        [
+          "a closer indented 4 spaces",
+          `\`\`\`\nx\n    \`\`\`\n${overBrackets}`,
+        ],
+        [
+          "a tilde closer for a backtick fence",
+          `\`\`\`\nx\n~~~\n${overBrackets}`,
+        ],
+        [
+          "a backtick closer for a tilde fence",
+          `~~~\nx\n\`\`\`\n${overBrackets}`,
+        ],
+        [
+          "a closer with an info string",
+          `\`\`\`\nx\n\`\`\`js\n${overBrackets}`,
+        ],
+        ["no closer", `\`\`\`\n${overBrackets}`],
+        [
+          "a tilde fence with a backtick in its info",
+          `~~~ a\`b\n${overBrackets}`,
+        ],
+      ])("keeps skipping after %s", (_name, input) => {
+        const result = parseWithSpy(input);
+        expect(result).toEqual(parsedOnce(input));
+        expect(countNodes(result.result.formatted, "code")).toBe(1);
+      });
+
+      it.each([
+        ["a closer indented 3 spaces", `\`\`\`\nx\n   \`\`\`\n${overBrackets}`],
+        ["a longer closer", `\`\`\`\nx\n\`\`\`\`\n${overBrackets}`],
+        [
+          "a closer with trailing whitespace",
+          `\`\`\`\nx\n\`\`\` \t\n${overBrackets}`,
+        ],
+        [
+          "a backtick fence with a backtick in its info",
+          `\`\`\`a\`b\n${overBrackets}`,
+        ],
+        ["an indented opener", `  \`\`\`\n${overBrackets}`],
+        ["an opener inside a list item", `- a\n  \`\`\`\n${overBrackets}`],
+      ])("counts text after %s", (_name, input) => {
+        expect(parseWithSpy(input)).toEqual(skipped(input));
+      });
+
+      it("handles fences with bare CR line endings", () => {
+        const inside = `\`\`\`\r${overBrackets}\r\`\`\`\rb`;
+        const result = parseWithSpy(inside);
+        expect(result).toEqual(parsedOnce(inside));
+        expect(countNodes(result.result.formatted, "code")).toBe(1);
+        const after = `\`\`\`\rx\r\`\`\`\r${overBrackets}`;
+        expect(parseWithSpy(after)).toEqual(skipped(after));
+      });
+
+      it.each([
+        ["an indented opener", "  ```\nx\n  ```"],
+        ["an indented tilde opener", "   ~~~\nx\n   ~~~"],
+        ["a closer indented 2 spaces", "```\nx\n  ```"],
+      ])("counts fenced content when the text contains %s anywhere", (_name, elsewhere) => {
+        const fenced = `\`\`\`\n${overBrackets}\n\`\`\`\n`;
+        const control = `${fenced}\nlater`;
+        const result = parseWithSpy(control);
+        expect(result).toEqual(parsedOnce(control));
+        expect(countNodes(result.result.formatted, "code")).toBe(1);
+        for (const input of [
+          `${fenced}\n${elsewhere}\n`,
+          `${elsewhere}\n\n${fenced}`,
+        ]) {
+          expect(parseWithSpy(input)).toEqual(skipped(input));
+        }
+      });
+
+      it("counts fenced content when the text may start an HTML block", () => {
+        const input = `<div>\n\n\`\`\`\n${overBrackets}\n\`\`\`\n`;
+        expect(parseWithSpy(input)).toEqual(skipped(input));
+      });
+
+      describe("never skips text that is parsed as markdown", () => {
+        class BudgetConverter extends TestConverter {
+          exceedsBudget(platformText: string): boolean {
+            return this.exceedsIncomingBudget(platformText);
+          }
+        }
+        const budget = new BudgetConverter();
+        const attack = "*a".repeat(2100);
+        const columnZeroFences = ["```", "~~~", "````", "```js", "~~~ a`b"];
+        // The empty entry puts the attack straight after the context, where a
+        // fence the context leaves open or closed decides how it parses.
+        const fences = [...columnZeroFences, " ```", "   ~~~", ""];
+
+        const attackInCode = (node: Root | Content): boolean => {
+          if (node.type === "code") {
+            return node.value.includes(attack);
+          }
+          return (
+            "children" in node &&
+            node.children.some((child) => attackInCode(child as Content))
+          );
+        };
+
+        it("skips the attack inside a fence with no other context", () => {
+          for (const fence of columnZeroFences) {
+            expect(budget.exceedsBudget(`${fence}\n${attack}`)).toBe(false);
+          }
+        });
+
+        it.each([
+          "",
+          "para\n",
+          "- item\n",
+          "> quote\n",
+          "[^x]: note\n",
+          "    indented\n",
+          "| a |\n| - |\n| b |\n",
+          "Title\n===\n",
+          "1. one\n",
+          "<div>\n",
+          "  - nested\n    more\n",
+          "> - a\n> ",
+          "- a\n\n  ",
+          "- a\n  ",
+          "* * *\n",
+          "[x]: /url\n",
+          "<!-- c -->\n",
+          "  ```\n```\n",
+          "```\n  ```\n",
+        ])("after %j", (context) => {
+          for (const fence of fences) {
+            const input = `${context}${fence}\n${attack}`;
+            if (!budget.exceedsBudget(input)) {
+              expect({
+                fence,
+                inCode: attackInCode(parseMarkdown(input)),
+              }).toEqual({
+                fence,
+                inCode: true,
+              });
+            }
+          }
+        });
+
+        it.each([
+          ["a backtick fence indented 2 spaces", "  ```\n```\n"],
+          ["a backtick fence indented 3 spaces", "   ```\n```\n"],
+          ["a tilde fence indented 1 space", " ~~~\n~~~\n"],
+        ])("counts text after %s closed by a fence at column 0", (_name, context) => {
+          const input = `${context}${attack}`;
+          expect(attackInCode(parseMarkdown(input))).toBe(false);
+          expect(budget.exceedsBudget(input)).toBe(true);
+        });
+      });
+    });
+
+    describe("stack overflow while parsing", () => {
+      it("keeps input that overflows the parser as a single text node", () => {
+        // A higher marker limit lets the input past the pre-scan.
+        class ManyMarkersConverter extends TestConverter {
+          protected override maxIncomingContainerMarkers = 100_000;
+        }
+        const parsing = new ManyMarkersConverter();
+        const toAst = vi.spyOn(parsing, "toAst");
+        const input = ">".repeat(16_000);
+        expect(() => parseMarkdown(input)).toThrow(RangeError);
+        expect(parsing.parseIncoming(input)).toEqual(unparsed(input));
+        expect(toAst).toHaveBeenCalledTimes(1);
+      });
+
+      it("keeps 6,000 nested blockquote markers as a single text node", () => {
+        const input = ">".repeat(6000);
+        let result: { formatted: Root; text: string } | undefined;
+        expect(() => {
+          result = converter.parseIncoming(input);
+        }).not.toThrow();
+        expect(result).toEqual(unparsed(input));
+      });
+
+      it("falls back when toAst throws a RangeError", () => {
+        class OverflowConverter extends TestConverter {
+          override toAst(): Root {
+            throw new RangeError("Maximum call stack size exceeded");
+          }
+        }
+        expect(new OverflowConverter().parseIncoming("**bold**")).toEqual(
+          unparsed("**bold**")
+        );
+      });
+
+      it("propagates other errors from toAst", () => {
+        class BrokenConverter extends TestConverter {
+          override toAst(): Root {
+            throw new TypeError("broken parser");
+          }
+        }
+        expect(() => new BrokenConverter().parseIncoming("**bold**")).toThrow(
+          new TypeError("broken parser")
+        );
+      });
+    });
+
+    describe("AST depth limit", () => {
+      // A higher marker limit lets single-line nesting past the pre-scan, so
+      // these reach the depth check.
+      class ManyMarkersConverter extends TestConverter {
+        protected override maxIncomingContainerMarkers = 1000;
       }
-      const parsing = new SmallLimitConverter();
-      const toAst = vi.spyOn(parsing, "toAst");
-      const result = parsing.parseIncoming("**bold**");
-      expect(toAst).not.toHaveBeenCalled();
-      expect(result).toEqual({
-        text: "**bold**",
-        formatted: root([paragraph([text("**bold**")])]),
+
+      it.each([
+        ["blockquotes", (n: number) => `${">".repeat(n)}a`, 126, 128, 127, 129],
+        ["lists", (n: number) => `${"- ".repeat(n)}a`, 63, 128, 64, 130],
+        ["lists nested by indentation", staircase, 63, 128, 64, 130],
+      ])("parses %s at depth 128 and rejects them after parsing beyond it", (_name, build, atLevels, atDepth, overLevels, overDepth) => {
+        const atLimit = build(atLevels);
+        expect(maxDepth(parseMarkdown(atLimit))).toBe(atDepth);
+        const result = parseWithSpy(atLimit, new ManyMarkersConverter());
+        expect(result).toEqual({ result: parsed(atLimit), toAstCalls: 1 });
+        expect(result.result).not.toEqual(unparsed(atLimit));
+
+        const overLimit = build(overLevels);
+        expect(maxDepth(parseMarkdown(overLimit))).toBe(overDepth);
+        expect(parseWithSpy(overLimit, new ManyMarkersConverter())).toEqual({
+          result: unparsed(overLimit),
+          toAstCalls: 1,
+        });
+      });
+
+      it("checks the depth of nested emphasis with default limits", () => {
+        const atLimit = nestedEmphasis(126);
+        expect(maxDepth(parseMarkdown(atLimit))).toBe(128);
+        const result = parseWithSpy(atLimit);
+        expect(result).toEqual(parsedOnce(atLimit));
+        expect(result.result).not.toEqual(unparsed(atLimit));
+
+        const overLimit = nestedEmphasis(127);
+        expect(maxDepth(parseMarkdown(overLimit))).toBe(129);
+        expect(parseWithSpy(overLimit)).toEqual({
+          result: unparsed(overLimit),
+          toAstCalls: 1,
+        });
+      });
+
+      it("keeps input with thousands of nested markers as a single text node", () => {
+        const input = ">".repeat(3000);
+        expect(converter.parseIncoming(input)).toEqual(unparsed(input));
+      });
+
+      it("respects a lower subclass limit", () => {
+        class ShallowConverter extends TestConverter {
+          protected override maxIncomingAstDepth = 3;
+        }
+        expect(maxDepth(parseMarkdown("> a"))).toBe(3);
+        const result = new ShallowConverter().parseIncoming("> a");
+        expect(result).toEqual(parsed("> a"));
+        expect(result).not.toEqual(unparsed("> a"));
+        expect(parseWithSpy(">> a", new ShallowConverter())).toEqual({
+          result: unparsed(">> a"),
+          toAstCalls: 1,
+        });
+      });
+
+      it("respects a higher subclass limit", () => {
+        class DeepConverter extends TestConverter {
+          protected override maxIncomingAstDepth = 1000;
+        }
+        const input = nestedEmphasis(200);
+        expect(maxDepth(parseMarkdown(input))).toBe(202);
+        expect(converter.parseIncoming(input)).toEqual(unparsed(input));
+        const result = new DeepConverter().parseIncoming(input);
+        expect(result).toEqual(parsed(input));
+        expect(result).not.toEqual(unparsed(input));
+      });
+    });
+
+    describe("subclass hooks", () => {
+      class PrefixedFallbackConverter extends TestConverter {
+        readonly fallbackCalls: string[] = [];
+
+        protected override incomingFallbackText(platformText: string): string {
+          this.fallbackCalls.push(platformText);
+          return `unparsed: ${platformText}`;
+        }
+      }
+
+      class ManyMarkersPrefixedFallbackConverter extends PrefixedFallbackConverter {
+        protected override maxIncomingContainerMarkers = 100_000;
+      }
+
+      it.each([
+        [
+          "length",
+          `**bold**${"a".repeat(DEFAULT_MAX_INCOMING_PARSE_LENGTH)}`,
+          PrefixedFallbackConverter,
+          0,
+        ],
+        [
+          "emphasis markers",
+          `${maxMarkersInput}x*`,
+          PrefixedFallbackConverter,
+          0,
+        ],
+        ["closing brackets", "a]".repeat(513), PrefixedFallbackConverter, 0],
+        [
+          "container markers",
+          `${">".repeat(33)}a`,
+          PrefixedFallbackConverter,
+          0,
+        ],
+        [
+          "stack overflow",
+          ">".repeat(16_000),
+          ManyMarkersPrefixedFallbackConverter,
+          1,
+        ],
+        ["AST depth", nestedEmphasis(127), PrefixedFallbackConverter, 1],
+      ])("uses incomingFallbackText for the %s fallback", (_name, input, Converter, toAstCalls) => {
+        const parsing = new Converter();
+        const toAst = vi.spyOn(parsing, "toAst");
+        const expected = `unparsed: ${input}`;
+        expect(parsing.parseIncoming(input)).toEqual({
+          text: expected,
+          formatted: root([paragraph([text(expected)])]),
+        });
+        expect(parsing.fallbackCalls).toEqual([input]);
+        expect(toAst).toHaveBeenCalledTimes(toAstCalls);
+      });
+
+      it("does not call incomingFallbackText when parsing succeeds", () => {
+        const parsing = new PrefixedFallbackConverter();
+        const result = parsing.parseIncoming("**bold** text");
+        expect(result).toEqual(parsed("**bold** text"));
+        expect(parsing.fallbackCalls).toEqual([]);
+      });
+
+      it("falls back without parsing when exceedsIncomingBudget returns true", () => {
+        class NoBudgetConverter extends TestConverter {
+          protected override exceedsIncomingBudget(): boolean {
+            return true;
+          }
+        }
+        const parsing = new NoBudgetConverter();
+        const toAst = vi.spyOn(parsing, "toAst");
+        expect(parsing.parseIncoming("**bold**")).toEqual(unparsed("**bold**"));
+        expect(toAst).not.toHaveBeenCalled();
+      });
+
+      it("parses over-budget input when exceedsIncomingBudget returns false", () => {
+        class UnlimitedConverter extends TestConverter {
+          protected override exceedsIncomingBudget(): boolean {
+            return false;
+          }
+        }
+        const input = `${maxMarkersInput}x*`;
+        const result = new UnlimitedConverter().parseIncoming(input);
+        expect(result).toEqual(parsed(input));
+        expect(result).not.toEqual(unparsed(input));
+      });
+    });
+
+    describe("adversarial input", () => {
+      const pipeTable = `| a | b |\n| - | - |\n${"| 1 | 2 |\n".repeat(1636)}`;
+
+      it.each([
+        ["unmatched *", "*a".repeat(8192)],
+        ["unmatched ~", "~a".repeat(8192)],
+        ["6,000 nested >", ">".repeat(6000)],
+        ["3,000 nested >", ">".repeat(3000)],
+        ["16K pipe table", pipeTable],
+      ])("returns a serializable AST for %s", (_name, input) => {
+        const result = converter.parseIncoming(input);
+        expect(() => JSON.stringify(result.formatted)).not.toThrow();
+        expect(() => stringifyMarkdown(result.formatted)).not.toThrow();
+      });
+
+      it("parses a 16K pipe table", () => {
+        expect(pipeTable.length).toBeLessThanOrEqual(
+          DEFAULT_MAX_INCOMING_PARSE_LENGTH
+        );
+        const result = converter.parseIncoming(pipeTable);
+        expect(result).toEqual(parsed(pipeTable));
+        expect(result).not.toEqual(unparsed(pipeTable));
+        expect(countNodes(result.formatted, "tableRow")).toBe(1637);
       });
     });
   });

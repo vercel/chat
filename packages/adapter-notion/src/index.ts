@@ -654,7 +654,8 @@ export class NotionAdapter
       id: comment.id,
       threadId,
       text: plain,
-      formatted: this.formatConverter.toAst(markdown || plain || ""),
+      formatted: this.formatConverter.parseIncoming(markdown || plain || "")
+        .formatted,
       raw: { comment, pageId: this.decodeThreadId(threadId).pageId, event },
       author: {
         userId: comment.created_by.id,
