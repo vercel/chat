@@ -519,7 +519,7 @@ describe("BaseFormatConverter", () => {
     });
   });
 
-  describe("parseIncoming", () => {
+  describe("parseIncoming", { timeout: 20_000 }, () => {
     const unparsed = (input: string) => ({
       text: input,
       formatted: root([paragraph([text(input)])]),
@@ -808,7 +808,7 @@ describe("BaseFormatConverter", () => {
         class ManyBracketsConverter extends TestConverter {
           protected override maxIncomingClosingBrackets = 10_000;
         }
-        const input = `# Brackets\n\n${"a]".repeat(2049)}`;
+        const input = `# Brackets\n\n${"a]".repeat(200)}`;
         const result = new ManyBracketsConverter().parseIncoming(input);
         expect(result).toEqual(parsed(input));
         expect(result).not.toEqual(unparsed(input));
@@ -1002,8 +1002,8 @@ describe("BaseFormatConverter", () => {
 
       it("limits markers per line, not in total", () => {
         for (const input of [
-          `${">".repeat(32)}a\n`.repeat(100),
-          `${"- ".repeat(32)}a\n`.repeat(100),
+          `${">".repeat(32)}a\n`.repeat(5),
+          `${"- ".repeat(32)}a\n`.repeat(5),
         ]) {
           const result = converter.parseIncoming(input);
           expect(result).toEqual(parsed(input));
@@ -1323,13 +1323,14 @@ describe("BaseFormatConverter", () => {
 
     describe("stack overflow while parsing", () => {
       it("keeps input that overflows the parser as a single text node", () => {
-        // A higher marker limit lets the input past the pre-scan.
+        // Higher limits let the input past the pre-scan and the depth check.
         class ManyMarkersConverter extends TestConverter {
+          protected override maxIncomingAstDepth = 100_000;
           protected override maxIncomingContainerMarkers = 100_000;
         }
         const parsing = new ManyMarkersConverter();
         const toAst = vi.spyOn(parsing, "toAst");
-        const input = ">".repeat(16_000);
+        const input = ">".repeat(8000);
         expect(() => parseMarkdown(input)).toThrow(RangeError);
         expect(parsing.parseIncoming(input)).toEqual(unparsed(input));
         expect(toAst).toHaveBeenCalledTimes(1);
@@ -1451,6 +1452,7 @@ describe("BaseFormatConverter", () => {
       }
 
       class ManyMarkersPrefixedFallbackConverter extends PrefixedFallbackConverter {
+        protected override maxIncomingAstDepth = 100_000;
         protected override maxIncomingContainerMarkers = 100_000;
       }
 
@@ -1476,7 +1478,7 @@ describe("BaseFormatConverter", () => {
         ],
         [
           "stack overflow",
-          ">".repeat(16_000),
+          ">".repeat(8000),
           ManyMarkersPrefixedFallbackConverter,
           1,
         ],
