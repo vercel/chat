@@ -156,14 +156,15 @@ export class SlackFormatConverter extends BaseFormatConverter {
   }
 
   /**
-   * Check the budget against the text with entities decoded, which is what
-   * the markdown parser sees, so `&gt;` blockquote markers count as
-   * containers. The length limit still applies to the text as delivered.
+   * Check the budget against the markdown that `toAst` parses, with entities
+   * decoded and Slack code fences, emphasis, and tokens converted, so the
+   * checks see the same blockquotes and fences as the parser. The length
+   * limit still applies to the text as delivered.
    */
   protected override exceedsIncomingBudget(mrkdwn: string): boolean {
     return (
       mrkdwn.length > this.maxIncomingParseLength ||
-      super.exceedsIncomingBudget(unescapeSlackText(mrkdwn))
+      super.exceedsIncomingBudget(slackMrkdwnToMarkdown(mrkdwn))
     );
   }
 

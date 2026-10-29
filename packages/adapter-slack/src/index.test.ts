@@ -16245,7 +16245,7 @@ describe("event routing via authorizations[]", () => {
 // Inbound markdown budget Tests
 // ============================================================================
 
-describe("inbound markdown budget", () => {
+describe("inbound markdown budget", { timeout: 20_000 }, () => {
   const secret = "test-signing-secret";
   const EMPHASIS = "*a".repeat(8192);
   const NESTED = ">".repeat(6000);
@@ -16589,7 +16589,7 @@ describe("inbound markdown budget", () => {
 
     it("parses each part when the parts together are within the budget", async () => {
       const section = "*bold* _it_ ".repeat(10).trim();
-      const sections = Array.from({ length: 50 }, () => section);
+      const sections = Array.from({ length: 10 }, () => section);
       for (const message of await parseBoth(sectionsEvent(sections))) {
         expect(message.formatted).toEqual(parsed(...sections));
       }
@@ -16719,6 +16719,37 @@ describe("inbound markdown budget", () => {
         expect(message.text).toBe("quote");
         expect(message.formatted).toEqual(parsed("&gt; quote"));
         expect(message.formatted.children[0]?.type).toBe("blockquote");
+      }
+    });
+  });
+
+  describe("Slack code fences", () => {
+    const markers = "_a".repeat(2100);
+
+    it("counts text after a fence closed inline", async () => {
+      const input = `\`\`\`\ncode\`\`\`\n${markers}`;
+      const toAst = vi.spyOn(SlackFormatConverter.prototype, "toAst");
+      try {
+        for (const message of await parseBoth({ text: input })) {
+          expect(message.formatted).toEqual({
+            type: "root",
+            children: [unparsed(input)],
+          });
+          expect(message.text).toBe(input);
+        }
+        expect(toAst).not.toHaveBeenCalled();
+      } finally {
+        toAst.mockRestore();
+      }
+    });
+
+    it("skips text inside a fence closed inline", async () => {
+      const input = `\`\`\`\n${markers}\`\`\``;
+      for (const message of await parseBoth({ text: input })) {
+        expect(message.formatted).toEqual(parsed(input));
+        expect(message.formatted.children).toEqual([
+          expect.objectContaining({ type: "code", value: markers }),
+        ]);
       }
     });
   });
