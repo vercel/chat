@@ -167,6 +167,8 @@ emits:
 - Fields → bulleted MarkdownV2 lines.
 - Buttons → `reply_markup.inline_keyboard[][]` rows. Each button has
   either `callback_data` (callback id) or `url` (`<LinkButton>`).
+  An `Actions` block with more than 8 buttons wraps into rows of 8:
+  Telegram keeps only the first 8 buttons of a row and drops the rest.
 - LinkButton → `url` button.
 - Select → emitted as a row of buttons because Telegram has no native
   select widget. Use a modal-style flow for many options.
