@@ -1270,18 +1270,20 @@ describe("TeamsAdapter", () => {
       ]);
     });
 
-    it("should handle unclosed link tags without backtracking", async () => {
-      const unclosedHref = '<a href="'.repeat(1820);
-      const unclosedAttributes = '<a b href="x"'.repeat(1260);
-      const unquotedValues = '<a href="x"'.repeat(1489);
-      const closedAtEnd = `${'<a href="'.repeat(1800)}">t</a>`;
+    it.each([
+      ["unclosed hrefs", '<a href="'.repeat(1820)],
+      ["unclosed attributes", '<a b href="x"'.repeat(1260)],
+      ["unquoted values", '<a href="x"'.repeat(1489)],
+    ])("should keep %s as text without backtracking", async (_name, body) => {
+      const { message, parsed } = await receive(body);
+      expect(message?.text).toBe(body);
+      expect(parsed).toBe(false);
+    });
 
-      for (const body of [unclosedHref, unclosedAttributes, unquotedValues]) {
-        const { message, parsed } = await receive(body);
-        expect(message?.text).toBe(body);
-        expect(parsed).toBe(false);
-      }
-      const { message, parsed } = await receive(closedAtEnd);
+    it("should convert a link closed after many unclosed tags without backtracking", async () => {
+      const { message, parsed } = await receive(
+        `${'<a href="'.repeat(1800)}">t</a>`
+      );
       expect(message?.text).toBe("[t](<a href=)");
       expect(parsed).toBe(true);
     });
