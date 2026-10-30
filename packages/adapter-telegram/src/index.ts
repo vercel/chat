@@ -193,6 +193,7 @@ const EMOJI_NAME_PATTERN = /^[a-z0-9_+-]+$/i;
 const TELEGRAM_DEFAULT_POLLING_TIMEOUT_SECONDS = 30;
 const TELEGRAM_DEFAULT_POLLING_LIMIT = 100;
 const TELEGRAM_DEFAULT_POLLING_RETRY_DELAY_MS = 1000;
+const TELEGRAM_POLLING_DEADLINE_GRACE_MS = 30_000;
 const TELEGRAM_DEFAULT_STREAM_UPDATE_INTERVAL_MS = 250;
 const TELEGRAM_DEFAULT_PRIVATE_STREAMING_EDIT_INTERVAL_MS = 1100;
 const TELEGRAM_DEFAULT_NON_PRIVATE_STREAMING_EDIT_INTERVAL_MS = 3100;
@@ -4482,6 +4483,7 @@ export class TelegramAdapter
             this.pollingAbortController?.abort();
           }, remaining);
         }
+        const timeout = remaining === 0 ? 0 : config.timeout;
         let updates: TelegramUpdate[];
         try {
           updates = await this.telegramFetch<TelegramUpdate[]>(
@@ -4490,9 +4492,16 @@ export class TelegramAdapter
               allowed_updates: config.allowedUpdates,
               limit: config.limit,
               offset: checkpoint.offset,
-              timeout: remaining === 0 ? 0 : config.timeout,
+              timeout,
             },
-            { signal: this.pollingAbortController.signal }
+            {
+              signal: AbortSignal.any([
+                this.pollingAbortController.signal,
+                AbortSignal.timeout(
+                  timeout * 1000 + TELEGRAM_POLLING_DEADLINE_GRACE_MS
+                ),
+              ]),
+            }
           );
         } catch (error) {
           if (collecting && this.pollingActive && this.isAbortError(error)) {
