@@ -34,6 +34,8 @@ import type { AdapterPostableMessage } from "./types";
 // Alias for use within this file
 type PostableMessageInput = AdapterPostableMessage;
 
+const LINE_BREAK_REGEX = /\r\n|\r|\n/;
+
 // Re-export types for adapters
 export type {
   Blockquote,
@@ -543,38 +545,94 @@ export abstract class BaseFormatConverter implements FormatConverter {
   abstract fromAst(ast: Root): string;
   abstract toAst(platformText: string): Root;
 
+  /**
+   * Whether `renderList` indents every line of a multi-line block in a list
+   * item, such as a code block or block quote, to the item's content column.
+   * Enable it for CommonMark targets, where an unindented line leaves the
+   * item. Nested lists are always indented.
+   */
+  protected indentListContinuationLines = false;
+
   protected renderList(
     node: List,
     depth: number,
     nodeConverter: (node: Content) => string,
     unorderedBullet = "-"
   ): string {
-    const indent = "  ".repeat(depth);
+    return this.renderListLines(
+      node,
+      "  ".repeat(depth),
+      nodeConverter,
+      unorderedBullet
+    ).join("\n");
+  }
+
+  private renderListLines(
+    node: List,
+    indent: string,
+    nodeConverter: (node: Content) => string,
+    unorderedBullet: string
+  ): string[] {
     const start = node.start ?? 1;
     const lines: string[] = [];
     for (const [i, item] of getNodeChildren(node).entries()) {
       const prefix = node.ordered ? `${start + i}.` : unorderedBullet;
-      let isFirstContent = true;
+      const marker = `${indent}${prefix} `;
+      // Content after the marker starts at this column, so "1. " needs
+      // three spaces for a nested list to stay inside the item.
+      const contentIndent = " ".repeat(marker.length);
+      let previous: Content | undefined;
       for (const child of getNodeChildren(item)) {
         if (isListNode(child)) {
-          lines.push(
-            this.renderList(child, depth + 1, nodeConverter, unorderedBullet)
+          const nested = this.renderListLines(
+            child,
+            contentIndent,
+            nodeConverter,
+            unorderedBullet
           );
+          if (nested.length === 0) {
+            continue;
+          }
+          if (previous) {
+            // A nested list can follow its parent's text directly, except
+            // after HTML, or when it is ordered and doesn't start at 1,
+            // because then it can't interrupt a paragraph.
+            const canInterrupt =
+              previous.type !== "html" &&
+              (!child.ordered || (child.start ?? 1) === 1);
+            if (!canInterrupt) {
+              lines.push("");
+            }
+            lines.push(...nested);
+          } else {
+            lines.push(`${marker}${nested[0].slice(contentIndent.length)}`);
+            lines.push(...nested.slice(1));
+          }
+          previous = child;
           continue;
         }
         const text = nodeConverter(child);
         if (!text.trim()) {
           continue;
         }
-        if (isFirstContent) {
-          lines.push(`${indent}${prefix} ${text}`);
-          isFirstContent = false;
+        const [firstLine, ...rest] = text.split(LINE_BREAK_REGEX);
+        if (previous) {
+          // Two blocks need a blank line between them or they merge.
+          lines.push("", `${contentIndent}${firstLine}`);
         } else {
-          lines.push(`${indent}  ${text}`);
+          lines.push(`${marker}${firstLine}`);
         }
+        for (const line of rest) {
+          lines.push(
+            this.indentListContinuationLines && line
+              ? `${contentIndent}${line}`
+              : line
+          );
+        }
+        previous = child;
       }
     }
-    return lines.join("\n");
+    return lines;
   }
 
   /**

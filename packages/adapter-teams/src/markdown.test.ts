@@ -49,6 +49,134 @@ describe("TeamsFormatConverter", () => {
       expect(result).toContain("> quoted text");
     });
 
+    it("should quote every paragraph of a multi-paragraph blockquote", () => {
+      const ast = converter.toAst("> first paragraph\n>\n> second paragraph");
+      const result = converter.fromAst(ast);
+      expect(result).toBe("> first paragraph\n>\n> second paragraph");
+    });
+
+    it("should quote every list item inside a blockquote", () => {
+      const ast = converter.toAst(
+        [
+          "> Thanks for asking.",
+          ">",
+          "> You can change the default region in your settings.",
+          ">",
+          "> 1. Open **Settings**.",
+          "> 2. Pick a region under **Region**.",
+          "> 3. Click **Save**.",
+          ">",
+          "> New projects use the new region.",
+        ].join("\n")
+      );
+      const result = converter.fromAst(ast);
+      expect(result).toBe(
+        [
+          "> Thanks for asking.",
+          ">",
+          "> You can change the default region in your settings.",
+          ">",
+          "> 1. Open **Settings**.",
+          "> 2. Pick a region under **Region**.",
+          "> 3. Click **Save**.",
+          ">",
+          "> New projects use the new region.",
+        ].join("\n")
+      );
+      const reparsed = converter.toAst(result);
+      expect(reparsed.children).toHaveLength(1);
+      expect(reparsed.children[0]).toMatchObject({
+        type: "blockquote",
+        children: [
+          { type: "paragraph" },
+          { type: "paragraph" },
+          { type: "list", ordered: true, children: [{}, {}, {}] },
+          { type: "paragraph" },
+        ],
+      });
+    });
+
+    it("should prefix nested blockquotes and code blocks on every line", () => {
+      const ast = converter.toAst(
+        [
+          "> outer",
+          ">",
+          "> > inner one",
+          "> >",
+          "> > inner two",
+          ">",
+          "> ```",
+          "> line one",
+          "> line two",
+          "> ```",
+        ].join("\n")
+      );
+      const result = converter.fromAst(ast);
+      expect(result).toBe(
+        [
+          "> outer",
+          ">",
+          "> > inner one",
+          "> >",
+          "> > inner two",
+          ">",
+          "> ```",
+          "> line one",
+          "> line two",
+          "> ```",
+        ].join("\n")
+      );
+    });
+
+    it("should treat a carriage return as a line break inside a quote", () => {
+      const ast = converter.toAst("> ```\r> first\r>\r> second\r> ```");
+      expect(converter.fromAst(ast)).toBe("> ```\n> first\n>\n> second\n> ```");
+    });
+
+    it("should keep a quote under an ordered item that doesn't start at 1", () => {
+      const markdown = "- parent\n\n  10. > first\n      >\n      > second";
+      const result = converter.fromMarkdown(markdown);
+      expect(result).toBe(markdown);
+      expect(converter.toAst(result).children[0]).toMatchObject({
+        type: "list",
+        children: [
+          {
+            type: "listItem",
+            children: [
+              { type: "paragraph" },
+              {
+                type: "list",
+                start: 10,
+                children: [{ children: [{ type: "blockquote" }] }],
+              },
+            ],
+          },
+        ],
+      });
+    });
+
+    it("should keep a multi-line blockquote inside its list item", () => {
+      const ast = converter.toAst("- > first line\n  >\n  > second line");
+      const result = converter.fromAst(ast);
+      expect(result).toBe("- > first line\n  >\n  > second line");
+      expect(converter.toAst(result).children).toMatchObject([
+        {
+          type: "list",
+          children: [
+            {
+              type: "listItem",
+              children: [
+                {
+                  type: "blockquote",
+                  children: [{ type: "paragraph" }, { type: "paragraph" }],
+                },
+              ],
+            },
+          ],
+        },
+      ]);
+    });
+
     it("should handle unordered lists", () => {
       const ast = converter.toAst("- item 1\n- item 2");
       const result = converter.fromAst(ast);
@@ -87,6 +215,19 @@ describe("TeamsFormatConverter", () => {
       expect(result).toContain("- level 1");
       expect(result).toContain("  - level 2");
       expect(result).toContain("    - level 3");
+    });
+
+    it("should keep every line of a code block inside its list item", () => {
+      const markdown = "- item\n\n  ```\n  x\n  ```\n- next";
+      const result = converter.fromMarkdown(markdown);
+      expect(result).toBe(markdown);
+      expect(converter.toAst(result).children[0]).toMatchObject({
+        type: "list",
+        children: [
+          { type: "listItem", children: [{}, { type: "code", value: "x" }] },
+          { type: "listItem" },
+        ],
+      });
     });
 
     it("should keep sibling items at the same indent level", () => {

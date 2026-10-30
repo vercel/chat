@@ -33,7 +33,13 @@ import {
   type Root,
 } from "chat";
 
+const LINE_BREAK_REGEX = /\r\n|\r|\n/;
+
 export class TeamsFormatConverter extends BaseFormatConverter {
+  // Messages are sent with textFormat "markdown", where an unindented line
+  // ends the list item it belongs to.
+  protected override indentListContinuationLines = true;
+
   /**
    * Render text messages while preserving raw strings.
    */
@@ -176,9 +182,16 @@ export class TeamsFormatConverter extends BaseFormatConverter {
     }
 
     if (isBlockquoteNode(node)) {
+      // Quote every line, and keep a quoted blank line between blocks,
+      // so paragraphs and list items stay apart inside the quote.
       return getNodeChildren(node)
-        .map((child) => `> ${this.nodeToTeams(child)}`)
-        .join("\n");
+        .map((child) =>
+          this.nodeToTeams(child)
+            .split(LINE_BREAK_REGEX)
+            .map((line) => (line ? `> ${line}` : ">"))
+            .join("\n")
+        )
+        .join("\n>\n");
     }
 
     if (isListNode(node)) {
