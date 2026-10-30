@@ -2,7 +2,7 @@
  * Tests for markdown parsing, AST building, and format conversion utilities.
  */
 
-import type { Content, Root } from "mdast";
+import type { Content, List, Root } from "mdast";
 import { describe, expect, it, vi } from "vitest";
 import {
   Actions,
@@ -706,6 +706,126 @@ describe("BaseFormatConverter", () => {
     it("extracts plain text from platform format", () => {
       const result = converter.toPlainText("**bold** text");
       expect(result).toBe("bold text");
+    });
+  });
+
+  describe("renderList", () => {
+    class ListTestConverter extends BaseFormatConverter {
+      constructor(indentContinuationLines = false) {
+        super();
+        this.indentListContinuationLines = indentContinuationLines;
+      }
+
+      fromAst(ast: Root): string {
+        return this.fromAstWithNodeConverter(ast, (node) =>
+          this.nodeToText(node)
+        );
+      }
+
+      toAst(inputText: string): Root {
+        return parseMarkdown(inputText);
+      }
+
+      private nodeToText(node: Content): string {
+        if (isListNode(node)) {
+          return this.renderList(node, 0, (child) => this.nodeToText(child));
+        }
+        if (isCodeNode(node)) {
+          return `\`\`\`\n${node.value}\n\`\`\``;
+        }
+        return toPlainText({ type: "root", children: [node] });
+      }
+    }
+
+    const listConverter = new ListTestConverter();
+    const commonMarkConverter = new ListTestConverter(true);
+
+    it("indents nested lists to the parent's content column", () => {
+      const markdown = "1. parent\n   1. child\n2. next";
+      expect(listConverter.fromMarkdown(markdown)).toBe(markdown);
+    });
+
+    it("indents nested lists under multi-digit markers", () => {
+      const result = listConverter.fromMarkdown("10. parent\n    - child");
+      expect(result).toBe("10. parent\n    - child");
+    });
+
+    it("separates paragraphs inside one item with a blank line", () => {
+      const markdown = "- first\n\n  second\n- next";
+      expect(listConverter.fromMarkdown(markdown)).toBe(markdown);
+    });
+
+    it("separates a nested ordered list that doesn't start at 1", () => {
+      const result = listConverter.fromMarkdown(
+        "1. parent\n\n   3. child\n2. next"
+      );
+      expect(result).toBe("1. parent\n\n   3. child\n2. next");
+      const list = parseMarkdown(result).children[0] as List;
+      expect(list.children[0]?.children.map((child) => child.type)).toEqual([
+        "paragraph",
+        "list",
+      ]);
+    });
+
+    it("separates a nested list from HTML before it", () => {
+      const result = commonMarkConverter.fromMarkdown(
+        "- <div>\n  content\n  </div>\n\n  - child\n- next"
+      );
+      const list = parseMarkdown(result).children[0] as List;
+      expect(list.children[0]?.children.map((child) => child.type)).toEqual([
+        "html",
+        "list",
+      ]);
+    });
+
+    it("leaves later lines of a multi-line block unindented by default", () => {
+      const result = listConverter.fromMarkdown("- item\n\n  ```\n  x\n  ```");
+      expect(result).toBe("- item\n\n  ```\nx\n```");
+    });
+
+    it("leaves later lines unindented in nested items by default", () => {
+      const result = listConverter.fromMarkdown(
+        "- parent\n  - item\n\n    ```\n    x\n\n    y\n    ```"
+      );
+      expect(result).toBe("- parent\n  - item\n\n    ```\nx\n\ny\n```");
+    });
+
+    it("indents every line of a multi-line block when enabled", () => {
+      const markdown = "- item\n\n  ```\n  x\n\n  y\n  ```\n- next";
+      expect(commonMarkConverter.fromMarkdown(markdown)).toBe(markdown);
+    });
+
+    it("treats a carriage return as a line break when indenting", () => {
+      const ast = root([
+        {
+          type: "list",
+          ordered: false,
+          children: [
+            {
+              type: "listItem",
+              children: [paragraph([text("item")]), codeBlock("x\ry")],
+            },
+          ],
+        },
+      ]);
+      expect(commonMarkConverter.fromAst(ast)).toBe(
+        "- item\n\n  ```\n  x\n  y\n  ```"
+      );
+    });
+
+    it("round-trips its output through the Markdown parser when enabled", () => {
+      const markdown =
+        "1. parent\n\n   more\n\n   ```\n   code\n   ```\n   - child\n2. next";
+      const once = commonMarkConverter.fromMarkdown(markdown);
+      expect(once).toBe(markdown);
+      const list = parseMarkdown(once).children[0] as List;
+      expect(list.children).toHaveLength(2);
+      expect(list.children[0]?.children.map((child) => child.type)).toEqual([
+        "paragraph",
+        "paragraph",
+        "code",
+        "list",
+      ]);
     });
   });
 

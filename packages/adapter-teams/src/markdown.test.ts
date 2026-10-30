@@ -89,6 +89,19 @@ describe("TeamsFormatConverter", () => {
       expect(result).toContain("    - level 3");
     });
 
+    it("should keep every line of a code block inside its list item", () => {
+      const markdown = "- item\n\n  ```\n  x\n  ```\n- next";
+      const result = converter.fromMarkdown(markdown);
+      expect(result).toBe(markdown);
+      expect(converter.toAst(result).children[0]).toMatchObject({
+        type: "list",
+        children: [
+          { type: "listItem", children: [{}, { type: "code", value: "x" }] },
+          { type: "listItem" },
+        ],
+      });
+    });
+
     it("should keep sibling items at the same indent level", () => {
       const result = converter.fromMarkdown("- item 1\n- item 2\n- item 3");
       expect(result).toBe("- item 1\n- item 2\n- item 3");
