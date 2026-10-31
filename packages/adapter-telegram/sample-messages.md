@@ -214,6 +214,120 @@ messages in a supergroup. `reply_to_message.from` is the bot account. With
 }
 ```
 
+## Reply in a regular supergroup reply thread
+
+Sanitized from a `getUpdates` capture in a regular supergroup, whose `chat`
+has no `is_forum`. A user replies to one of the bot's messages, and Telegram
+sets `message_thread_id` to that message's id (62), the root of the reply
+thread, without `is_topic_message`. The root message itself carries no
+`message_thread_id`. This is a reply thread, not a forum topic, so the message
+belongs to the chat's thread, `telegram:{chatId}`. With `mentionOnReply`
+enabled it counts as a mention.
+
+```json
+{
+  "update_id": 312744904,
+  "message": {
+    "message_id": 63,
+    "from": {
+      "id": 100000001,
+      "is_bot": false,
+      "first_name": "Test User",
+      "username": "testuser",
+      "language_code": "en"
+    },
+    "chat": {
+      "id": -1001000000001,
+      "title": "Test Group",
+      "type": "supergroup"
+    },
+    "date": 1793192673,
+    "message_thread_id": 62,
+    "reply_to_message": {
+      "message_id": 62,
+      "from": {
+        "id": 8000000001,
+        "is_bot": true,
+        "first_name": "Test Bot",
+        "username": "testbot"
+      },
+      "chat": {
+        "id": -1001000000001,
+        "title": "Test Group",
+        "type": "supergroup"
+      },
+      "date": 1793172648,
+      "rich_message": {
+        "blocks": [
+          {
+            "type": "paragraph",
+            "text": { "type": "bold", "text": "Daily summary" }
+          },
+          { "type": "paragraph", "text": "No meetings today." },
+          { "type": "paragraph", "text": "No new messages need a reply." },
+          {
+            "type": "paragraph",
+            "text": "Reply here to change tomorrow's summary."
+          }
+        ]
+      }
+    },
+    "text": "test"
+  }
+}
+```
+
+## Reply to a reply in a regular supergroup reply thread
+
+Captured right after the previous update: the user replies to their own
+reply. `message_thread_id` stays 62, the reply thread's root, instead of the
+id of the message being answered (63), and the replied-to message carries the
+same value. The message still belongs to the chat's thread. The replied-to
+message is the user's, not the bot's, so it does not count as a mention under
+`mentionOnReply`.
+
+```json
+{
+  "update_id": 312744905,
+  "message": {
+    "message_id": 64,
+    "from": {
+      "id": 100000001,
+      "is_bot": false,
+      "first_name": "Test User",
+      "username": "testuser",
+      "language_code": "en"
+    },
+    "chat": {
+      "id": -1001000000001,
+      "title": "Test Group",
+      "type": "supergroup"
+    },
+    "date": 1793192677,
+    "message_thread_id": 62,
+    "reply_to_message": {
+      "message_id": 63,
+      "from": {
+        "id": 100000001,
+        "is_bot": false,
+        "first_name": "Test User",
+        "username": "testuser",
+        "language_code": "en"
+      },
+      "chat": {
+        "id": -1001000000001,
+        "title": "Test Group",
+        "type": "supergroup"
+      },
+      "date": 1793192673,
+      "message_thread_id": 62,
+      "text": "test"
+    },
+    "text": "test 2"
+  }
+}
+```
+
 ## Forum topic message with an implicit reply
 
 Sanitized from a captured webhook in a forum supergroup. Every message posted
