@@ -297,6 +297,14 @@ const DEFAULT_STREAM_SEGMENT_MAX_AGE_MS = 240_000;
  * five-minute stream expiry.
  */
 const STREAM_SEGMENT_ROTATION_GRACE_MS = 30_000;
+/**
+ * In chunk mode (a segment that has appended structured chunks), text is
+ * buffered adapter-side up to this many characters before going out as a
+ * single markdown_text chunk. Mirrors the ChatStreamer default
+ * buffer_size that paces markdown_text appends, so both modes deliver
+ * text at the same cadence instead of one awaited API call per delta.
+ */
+const CHUNK_MODE_TEXT_FLUSH_SIZE = 256;
 /** Slack's error for appending to or stopping a stream it already expired. */
 const STREAM_EXPIRED_ERROR = "message_not_in_streaming_state";
 /**
@@ -5769,6 +5777,17 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
        * travel as `markdown_text` chunks instead.
        */
       appendedChunks: boolean;
+      /**
+       * Text held back in chunk mode. The streamer flushes on ANY append
+       * that carries chunks, so sending each delta as its own chunk would
+       * cost one awaited API call per token-sized delta; chunk-mode text
+       * accumulates here instead and goes out as a single markdown_text
+       * chunk once it reaches CHUNK_MODE_TEXT_FLUSH_SIZE, or at the next
+       * ordering boundary (a structured chunk, a rotation, or the final
+       * stop). Holds the wire form (segment prefix already applied), like
+       * the streamer's own markdown_text buffer.
+       */
+      pendingChunkText: string;
     } = {
       streamer: createStreamer(),
       startedAt: undefined,
@@ -5776,6 +5795,7 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
       reopenFence: "",
       tableHeader: "",
       appendedChunks: false,
+      pendingChunkText: "",
     };
     let rotations = 0;
     /** Message IDs of the segments finalized so far, in order. */
@@ -5999,6 +6019,7 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
       segment.startedAt = undefined;
       segment.flushNextAppend = true;
       segment.appendedChunks = false;
+      segment.pendingChunkText = "";
       const fence = openFenceIn(sent);
       segment.reopenFence = fence ? `${fence.opening}\n` : "";
       segment.tableHeader = fence ? "" : tableContinuation(sent);
@@ -6065,9 +6086,16 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
         ? `${sent.endsWith("\n") ? "" : "\n"}${fence.marker}`
         : "";
       // `head` may be this segment's first text, so it takes any prefix a
-      // previous rotation queued for it.
+      // previous rotation queued for it. Chunk-mode text still buffered in
+      // the adapter rides the same stop call ahead of it — the streamer's
+      // stop converts its markdown_text argument to a chunk, and the
+      // expired-stop recovery below recomputes the tail from lastFlushed,
+      // which still covers the buffered text in resolved coordinates.
       const finalText =
-        (head.length > 0 ? withSegmentPrefix(head) : "") + closer;
+        segment.pendingChunkText +
+        (head.length > 0 ? withSegmentPrefix(head) : "") +
+        closer;
+      segment.pendingChunkText = "";
       const ageMs = segmentAgeMs();
       const closingTaskChunks =
         structuredChunksSupported && openTasks.size > 0
@@ -6133,6 +6161,27 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
     };
 
     /**
+     * Deliver chunk-mode text buffered in the adapter as a single
+     * markdown_text chunk. Returns the append response, or null when
+     * nothing was buffered. On failure the text stays buffered, so a
+     * later flush can retry it.
+     */
+    const flushPendingChunkText = async () => {
+      if (segment.pendingChunkText.length === 0) {
+        return null;
+      }
+      const text = segment.pendingChunkText;
+      const response = await segment.streamer.append({
+        chunks: [
+          { text, type: "markdown_text" },
+        ] as ChatAppendStreamArguments["chunks"],
+        token,
+      });
+      segment.pendingChunkText = "";
+      return response;
+    };
+
+    /**
      * Send a resolved-text delta to the native stream, rotating the segment
      * first when it is due. Rotation carries the leading part of the delta
      * out with the old segment, so only what it returns goes to the new one.
@@ -6152,20 +6201,29 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
         // segment that has appended structured chunks is in chunk mode:
         // Slack rejects the markdown_text parameter there
         // (streaming_mode_mismatch), so the delta travels as a
-        // markdown_text chunk — which also flushes right away.
+        // markdown_text chunk instead. But the streamer flushes on ANY
+        // append carrying chunks, so chunk-mode deltas are buffered in the
+        // adapter first (see pendingChunkText) and sent as one chunk per
+        // flush — the cadence the streamer's own buffer gives the
+        // markdown_text path — not one awaited API call per delta.
         const prefixed = withSegmentPrefix(text);
-        const response = segment.appendedChunks
-          ? await segment.streamer.append({
-              chunks: [
-                { text: prefixed, type: "markdown_text" },
-              ] as ChatAppendStreamArguments["chunks"],
-              token,
-            })
-          : await segment.streamer.append({
-              markdown_text: prefixed,
-              token,
-              ...(segment.flushNextAppend ? { chunks: [] } : {}),
-            });
+        let response: Awaited<ReturnType<typeof segment.streamer.append>> =
+          null;
+        if (segment.appendedChunks) {
+          segment.pendingChunkText += prefixed;
+          if (
+            segment.flushNextAppend ||
+            segment.pendingChunkText.length >= CHUNK_MODE_TEXT_FLUSH_SIZE
+          ) {
+            response = await flushPendingChunkText();
+          }
+        } else {
+          response = await segment.streamer.append({
+            markdown_text: prefixed,
+            token,
+            ...(segment.flushNextAppend ? { chunks: [] } : {}),
+          });
+        }
         if (response) {
           markSegmentStarted();
           lastFlushed = resolvedCommitted;
@@ -6227,6 +6285,15 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
       await sendDelta("", true);
 
       try {
+        // A structured chunk must not overtake chunk-mode text still
+        // buffered in the adapter, so flush that first, in order. A
+        // failure lands in the same catch as a failed chunk append,
+        // mirroring how this append flushes the streamer's own text
+        // buffer in markdown mode.
+        if (await flushPendingChunkText()) {
+          markSegmentStarted();
+          lastFlushed = lastAppended;
+        }
         await segment.streamer.append({
           chunks: [chunk] as ChatAppendStreamArguments["chunks"],
           token,
@@ -6296,6 +6363,13 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
     };
     let result: Awaited<ReturnType<typeof segment.streamer.stop>>;
     try {
+      // Chunk mode may still hold text buffered in the adapter that the
+      // streamer never saw; deliver it before stop finalizes the message.
+      // Inside the try so an expired segment lands in the recovery below,
+      // whose unconfirmed tail still covers the buffered text.
+      if (await flushPendingChunkText()) {
+        lastFlushed = lastAppended;
+      }
       result = await segment.streamer.stop(stopArgs);
     } catch (error) {
       if (!fallback.nativeRendered) {

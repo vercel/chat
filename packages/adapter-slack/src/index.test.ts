@@ -13896,7 +13896,10 @@ describe("native stream rotation", () => {
       expect(segments[0].stop).toHaveBeenCalledTimes(2);
       expect(segments[0].stop).toHaveBeenNthCalledWith(1, {
         chunks: [{ ...task, status: "complete" }],
-        markdown_text: "second\n\n",
+        // "first\n" arrived after the task chunk, so it sat in the
+        // adapter's chunk-mode buffer; it rides the rotation stop ahead
+        // of the delta's head instead of going out as its own append.
+        markdown_text: "first\nsecond\n\n",
         token: TOKEN,
       });
       // The streamer kept the text from the rejected call, so the retry
@@ -14291,6 +14294,100 @@ describe("native streaming after structured chunks", () => {
     } finally {
       dateNow.mockRestore();
     }
+  });
+
+  it("buffers token-sized deltas in chunk mode instead of one append per delta", async () => {
+    const { adapter, segments } = setup();
+    async function* stream() {
+      yield { title: "Plan", type: "plan_update" as const };
+      yield "```ts\n";
+      yield "const answer = ";
+      yield "40 + ";
+      yield "2;\n";
+      yield "```\n\n";
+    }
+
+    await adapter.stream(THREAD, stream());
+
+    const append = segments[0].append;
+    expect(markdownParamCalls(append)).toHaveLength(0);
+    // One append for the plan chunk and a single one for the buffered
+    // text, flushed at stream end — not one awaited append per delta,
+    // which is what sending every delta as its own chunk would cost
+    // (the streamer flushes on any append that carries chunks).
+    expect(append).toHaveBeenCalledTimes(2);
+    expect(chunkFormText(append)).toContain("const answer = 40 + 2;");
+  });
+
+  it("flushes buffered chunk-mode text once it reaches the flush size", async () => {
+    const { adapter, segments } = setup();
+    const line = "x".repeat(100);
+    async function* stream() {
+      yield { title: "Plan", type: "plan_update" as const };
+      yield `${line}\n`;
+      yield `${line}\n`;
+      yield `${line}\n`;
+      yield "tail\n";
+    }
+
+    await adapter.stream(THREAD, stream());
+
+    const append = segments[0].append;
+    // Plan chunk, one mid-stream flush once the buffer passes the flush
+    // size (303 chars over three deltas), one stream-end flush for the
+    // tail.
+    expect(append).toHaveBeenCalledTimes(3);
+    const textChunks = append.mock.calls
+      .flatMap(([args]) => args.chunks ?? [])
+      .filter((chunk) => chunk.type === "markdown_text");
+    expect(textChunks.map((chunk) => chunk.text)).toEqual([
+      `${line}\n${line}\n${line}\n`,
+      "tail\n",
+    ]);
+  });
+
+  it("flushes buffered text before a structured chunk so order is preserved", async () => {
+    const { adapter, segments } = setup();
+    async function* stream() {
+      yield { title: "Plan", type: "plan_update" as const };
+      yield "before task\n";
+      yield {
+        id: "t1",
+        status: "complete" as const,
+        title: "Task one",
+        type: "task_update" as const,
+      };
+      yield "after task\n";
+    }
+
+    await adapter.stream(THREAD, stream());
+
+    const append = segments[0].append;
+    expect(markdownParamCalls(append)).toHaveLength(0);
+    expect(append).toHaveBeenCalledTimes(4);
+    expect(append).toHaveBeenNthCalledWith(1, {
+      chunks: [{ title: "Plan", type: "plan_update" }],
+      token: TOKEN,
+    });
+    expect(append).toHaveBeenNthCalledWith(2, {
+      chunks: [{ text: "before task\n", type: "markdown_text" }],
+      token: TOKEN,
+    });
+    expect(append).toHaveBeenNthCalledWith(3, {
+      chunks: [
+        {
+          id: "t1",
+          status: "complete",
+          title: "Task one",
+          type: "task_update",
+        },
+      ],
+      token: TOKEN,
+    });
+    expect(append).toHaveBeenNthCalledWith(4, {
+      chunks: [{ text: "after task\n", type: "markdown_text" }],
+      token: TOKEN,
+    });
   });
 });
 
