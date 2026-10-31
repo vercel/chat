@@ -745,6 +745,11 @@ describe("BaseFormatConverter", () => {
       expect(listConverter.fromMarkdown(markdown)).toBe(markdown);
     });
 
+    it("puts a nested list that is an item's first child on the marker line", () => {
+      const markdown = "- - a\n  - b\n- c";
+      expect(listConverter.fromMarkdown(markdown)).toBe(markdown);
+    });
+
     it("indents nested lists under multi-digit markers", () => {
       const result = listConverter.fromMarkdown("10. parent\n    - child");
       expect(result).toBe("10. parent\n    - child");
