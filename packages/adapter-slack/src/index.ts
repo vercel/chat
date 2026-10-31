@@ -5761,12 +5761,21 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
        * text if that text continues the table cut by the previous segment.
        */
       tableHeader: string;
+      /**
+       * Whether this segment has appended structured chunks. The first
+       * chunks append puts the Slack stream in chunk mode, and Slack then
+       * rejects text sent through the `markdown_text` parameter with
+       * `streaming_mode_mismatch`, so once this is set, text deltas must
+       * travel as `markdown_text` chunks instead.
+       */
+      appendedChunks: boolean;
     } = {
       streamer: createStreamer(),
       startedAt: undefined,
       flushNextAppend: false,
       reopenFence: "",
       tableHeader: "",
+      appendedChunks: false,
     };
     let rotations = 0;
     /** Message IDs of the segments finalized so far, in order. */
@@ -5989,6 +5998,7 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
       segment.streamer = createStreamer();
       segment.startedAt = undefined;
       segment.flushNextAppend = true;
+      segment.appendedChunks = false;
       const fence = openFenceIn(sent);
       segment.reopenFence = fence ? `${fence.opening}\n` : "";
       segment.tableHeader = fence ? "" : tableContinuation(sent);
@@ -6004,6 +6014,7 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
             token,
           });
           markSegmentStarted();
+          segment.appendedChunks = true;
         } catch (error) {
           disableStructuredChunks("replay", error);
         }
@@ -6137,12 +6148,24 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
         // append() buffers small deltas in memory and returns null until it
         // actually calls the API — only a non-null response proves content
         // is rendering natively. An empty chunks array makes it flush right
-        // away, so a segment opened by rotation is visible immediately.
-        const response = await segment.streamer.append({
-          markdown_text: withSegmentPrefix(text),
-          token,
-          ...(segment.flushNextAppend ? { chunks: [] } : {}),
-        });
+        // away, so a segment opened by rotation is visible immediately. A
+        // segment that has appended structured chunks is in chunk mode:
+        // Slack rejects the markdown_text parameter there
+        // (streaming_mode_mismatch), so the delta travels as a
+        // markdown_text chunk — which also flushes right away.
+        const prefixed = withSegmentPrefix(text);
+        const response = segment.appendedChunks
+          ? await segment.streamer.append({
+              chunks: [
+                { text: prefixed, type: "markdown_text" },
+              ] as ChatAppendStreamArguments["chunks"],
+              token,
+            })
+          : await segment.streamer.append({
+              markdown_text: prefixed,
+              token,
+              ...(segment.flushNextAppend ? { chunks: [] } : {}),
+            });
         if (response) {
           markSegmentStarted();
           lastFlushed = resolvedCommitted;
@@ -6209,6 +6232,7 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
           token,
         });
         markSegmentStarted();
+        segment.appendedChunks = true;
         // Sending chunks flushes the streamer's text buffer as well.
         lastFlushed = lastAppended;
         rememberStructuredChunk(chunk);

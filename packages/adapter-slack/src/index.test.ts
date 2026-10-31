@@ -14146,6 +14146,154 @@ describe("native stream rotation", () => {
   });
 });
 
+describe("native streaming after structured chunks", () => {
+  const THREAD = "slack:D123:1234567890.000000";
+  const TOKEN = "xoxb-test-token";
+
+  function setup(config: Record<string, unknown> = {}, segmentCount = 1) {
+    const adapter = createSlackAdapter({
+      botToken: TOKEN,
+      signingSecret: "test-signing-secret",
+      logger: mockLogger,
+      ...config,
+    });
+    const segments = Array.from({ length: segmentCount }, (_, index) => ({
+      append: vi.fn().mockResolvedValue({ ok: true }),
+      stop: vi.fn().mockResolvedValue({ ok: true, ts: `1234567890.${index}` }),
+      ts: `1234567890.${index}`,
+    }));
+    const chatStream = vi
+      .fn()
+      .mockImplementation(() => segments[chatStream.mock.calls.length - 1]);
+    mockClientMethod(adapter, "chatStream", chatStream);
+    return { adapter, segments, chatStream };
+  }
+
+  /** Append calls that carry text through the `markdown_text` parameter. */
+  function markdownParamCalls(append: ReturnType<typeof vi.fn>) {
+    return append.mock.calls.filter(([args]) => "markdown_text" in args);
+  }
+
+  /** Text carried by append calls made in chunk form. */
+  function chunkFormText(append: ReturnType<typeof vi.fn>): string {
+    return append.mock.calls
+      .flatMap(([args]) => args.chunks ?? [])
+      .filter((chunk) => chunk.type === "markdown_text")
+      .map((chunk) => chunk.text)
+      .join("");
+  }
+
+  it("sends text deltas as markdown_text chunks once a segment has plan/task chunks", async () => {
+    const { adapter, segments } = setup();
+    async function* stream() {
+      yield { title: "Plan", type: "plan_update" as const };
+      yield {
+        id: "t1",
+        status: "complete" as const,
+        title: "Task one",
+        type: "task_update" as const,
+      };
+      yield "The answer is 42.\n\n";
+      yield "More detail follows.\n\n";
+    }
+
+    await adapter.stream(THREAD, stream());
+
+    const append = segments[0].append;
+    // The plan and task chunks go out as chunks.
+    expect(append).toHaveBeenNthCalledWith(1, {
+      chunks: [{ title: "Plan", type: "plan_update" }],
+      token: TOKEN,
+    });
+    expect(append).toHaveBeenNthCalledWith(2, {
+      chunks: [
+        {
+          id: "t1",
+          status: "complete",
+          title: "Task one",
+          type: "task_update",
+        },
+      ],
+      token: TOKEN,
+    });
+    // Once the segment has chunks, Slack rejects appends that use the
+    // markdown_text parameter with streaming_mode_mismatch, so every text
+    // delta after the chunks must travel as a markdown_text chunk instead.
+    expect(markdownParamCalls(append)).toHaveLength(0);
+    expect(chunkFormText(append)).toContain("The answer is 42.");
+    expect(chunkFormText(append)).toContain("More detail follows.");
+  });
+
+  it("keeps the markdown_text parameter for text sent before any structured chunk", async () => {
+    const { adapter, segments } = setup();
+    async function* stream() {
+      yield "Intro first.\n\n";
+      yield { title: "Plan", type: "plan_update" as const };
+      yield "Body after plan.\n\n";
+    }
+
+    await adapter.stream(THREAD, stream());
+
+    const append = segments[0].append;
+    expect(append).toHaveBeenNthCalledWith(1, {
+      markdown_text: "Intro first.\n\n",
+      token: TOKEN,
+    });
+    // Only the pre-chunk delta may use the parameter; the post-chunk one
+    // must switch to chunk form.
+    expect(markdownParamCalls(append)).toHaveLength(1);
+    expect(chunkFormText(append)).toContain("Body after plan.");
+  });
+
+  it("keeps chunk form for text after a rotation replays plan/task chunks", async () => {
+    let now = 0;
+    const dateNow = vi.spyOn(Date, "now").mockImplementation(() => now);
+    try {
+      const { adapter, segments, chatStream } = setup(
+        { streamSegmentMaxAgeMs: 100 },
+        2
+      );
+      async function* stream() {
+        yield { title: "Plan", type: "plan_update" as const };
+        yield {
+          id: "t1",
+          status: "in_progress" as const,
+          title: "Task one",
+          type: "task_update" as const,
+        };
+        yield "First part.\n\n";
+        now = 100 + 30_001;
+        yield "Second part.\n\nThird part.\n";
+      }
+
+      await adapter.stream(THREAD, stream());
+
+      expect(chatStream).toHaveBeenCalledTimes(2);
+      // The new segment opens by replaying the plan and the open task.
+      expect(segments[1].append).toHaveBeenNthCalledWith(1, {
+        chunks: [
+          { title: "Plan", type: "plan_update" },
+          {
+            id: "t1",
+            status: "in_progress",
+            title: "Task one",
+            type: "task_update",
+          },
+        ],
+        token: TOKEN,
+      });
+      // The replay puts the new segment in chunk mode from the start: the
+      // text rotated into it ("Second part." travels with the old segment's
+      // stop call) must use chunk form too, never the markdown_text
+      // parameter.
+      expect(markdownParamCalls(segments[1].append)).toHaveLength(0);
+      expect(chunkFormText(segments[1].append)).toContain("Third part.");
+    } finally {
+      dateNow.mockRestore();
+    }
+  });
+});
+
 describe("native streaming fallback", () => {
   function createAdapter(config?: Record<string, unknown>) {
     const adapter = createSlackAdapter({
