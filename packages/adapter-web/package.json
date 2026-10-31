@@ -1,6 +1,6 @@
 {
   "name": "@chat-adapter/web",
-  "version": "4.43.0",
+  "version": "4.44.0",
   "description": "Web adapter for Chat SDK — browser chat UI over the AI SDK or AG-UI (TanStack AI) stream protocols",
   "type": "module",
   "engines": {
