@@ -244,6 +244,59 @@ describe("GoogleChatFormatConverter", () => {
         children: [{ type: "code", value: "x = *a*" }],
       });
     });
+
+    it("keeps bold that wraps or follows inline code", () => {
+      expect(converter.toAst("*bold with `*` inside*")).toMatchObject({
+        children: [
+          {
+            type: "paragraph",
+            children: [
+              {
+                type: "strong",
+                children: [
+                  { type: "text", value: "bold with " },
+                  { type: "inlineCode", value: "*" },
+                  { type: "text", value: " inside" },
+                ],
+              },
+            ],
+          },
+        ],
+      });
+      expect(converter.toAst("run `npm i` then *restart*")).toMatchObject({
+        children: [
+          {
+            type: "paragraph",
+            children: [
+              { type: "text", value: "run " },
+              { type: "inlineCode", value: "npm i" },
+              { type: "text", value: " then " },
+              {
+                type: "strong",
+                children: [{ type: "text", value: "restart" }],
+              },
+            ],
+          },
+        ],
+      });
+    });
+
+    it("pairs each code block's own fences", () => {
+      expect(
+        converter.toAst("```\na *1*\n```\n*bold*\n```\nb *2*\n```")
+      ).toMatchObject({
+        children: [
+          { type: "code", value: "a *1*" },
+          {
+            type: "paragraph",
+            children: [
+              { type: "strong", children: [{ type: "text", value: "bold" }] },
+            ],
+          },
+          { type: "code", value: "b *2*" },
+        ],
+      });
+    });
   });
 
   describe("extractPlainText", () => {
