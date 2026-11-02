@@ -1,5 +1,19 @@
 # @chat-adapter/shared
 
+## 4.44.0
+
+### Minor Changes
+
+- 17f6005: Add the `@chat-adapter/shared/mentions` subpath, which exports `maskCodeSpans` and `replaceBareMentions` without importing `chat` or any other runtime package. Runtime-free entry points, such as `@chat-adapter/slack/webhook`, can use the same code-span rules as the adapters.
+
+### Patch Changes
+
+- Updated dependencies [b8b6f0f]
+- Updated dependencies [49e6833]
+- Updated dependencies [d3dc15a]
+- Updated dependencies [6c4457e]
+  - chat@4.44.0
+
 ## 4.43.0
 
 ### Patch Changes

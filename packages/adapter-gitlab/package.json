@@ -1,6 +1,6 @@
 {
   "name": "@chat-adapter/gitlab",
-  "version": "4.43.0",
+  "version": "4.44.0",
   "description": "GitLab adapter for Chat SDK — respond to @mentions in merge request and issue comment threads",
   "type": "module",
   "engines": {
