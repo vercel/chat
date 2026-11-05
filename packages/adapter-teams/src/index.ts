@@ -14,6 +14,7 @@ import type {
   IConversationUpdateActivity,
   IMessageActivity,
   IMessageReactionActivity,
+  IMessageUpdateActivity,
   InstallUpdateActivity,
   ITaskFetchInvokeActivity,
   ITaskSubmitInvokeActivity,
@@ -240,6 +241,11 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
     this.app.on("message", async (ctx) => {
       this.cacheUserContext(ctx.activity);
       await this.handleMessageActivity(ctx);
+    });
+
+    this.app.on("messageUpdate", async (ctx) => {
+      this.cacheUserContext(ctx.activity);
+      await this.handleMessageUpdateActivity(ctx);
     });
 
     this.app.on("messageReaction", async (ctx) => {
@@ -580,34 +586,7 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
     }
 
     const threadId = this.threadIdFromActivity(activity);
-
-    const message = this.parseTeamsMessage(activity, threadId);
-    let user: UserInfo | null = null;
-    if (activity.from?.aadObjectId) {
-      user = await this.getIncomingUser(
-        ctx,
-        message.author.userId,
-        activity.from.aadObjectId
-      );
-    } else if (!message.author.isBot) {
-      user = await this.getUser(message.author.userId);
-    }
-    if (user?.email) {
-      message.author.email = user.email;
-    }
-
-    // Detect @mention by checking if any mentioned entity matches our app ID
-    const entities = activity.entities || [];
-    const isMention = entities.some(
-      (e: { type?: string; mentioned?: { id?: string } }) =>
-        e.type === "mention" &&
-        !!e.mentioned?.id &&
-        this.isBotAccountId(e.mentioned.id)
-    );
-    // Set false too: Chat only guesses from `@userName` in the text when this
-    // is unset, and that guess matches mentions of other bots whose display
-    // name starts with ours ("@Bot Dev" for a bot named "Bot").
-    message.isMention = isMention;
+    const message = await this.parseIncomingMessage(ctx, threadId);
 
     // For DMs, capture ctx.stream and await processing so the stream stays
     // alive for native streaming via emit(). Group chats use fire-and-forget.
@@ -644,6 +623,71 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
         this.bridgeAdapter.getWebhookOptions(activity.id)
       );
     }
+  }
+
+  /**
+   * Handle an edited message. Teams sends only the new version, so the
+   * update carries no `previousMessage`. Undeletes are ignored.
+   */
+  protected async handleMessageUpdateActivity(
+    ctx: IActivityContext<IMessageUpdateActivity>
+  ): Promise<void> {
+    if (!this.chat) {
+      this.logger.warn("Chat instance not initialized, ignoring event");
+      return;
+    }
+    const activity = ctx.activity;
+    if (activity.channelData?.eventType !== "editMessage") {
+      this.logger.debug("Ignoring messageUpdate", {
+        eventType: activity.channelData?.eventType,
+      });
+      return;
+    }
+
+    const threadId = this.threadIdFromActivity(activity);
+    const message = await this.parseIncomingMessage(ctx, threadId);
+    message.metadata.edited = true;
+    message.metadata.editedAt = message.metadata.dateSent;
+    this.chat.processMessageUpdated(
+      { adapter: this, message, threadId },
+      this.bridgeAdapter.getWebhookOptions(activity.id)
+    );
+  }
+
+  /** Parse an inbound message or edit, with the sender's email and `isMention`. */
+  private async parseIncomingMessage(
+    ctx: IActivityContext<IMessageActivity | IMessageUpdateActivity>,
+    threadId: string
+  ): Promise<Message<unknown>> {
+    const activity = ctx.activity;
+    const message = this.parseTeamsMessage(activity, threadId);
+    let user: UserInfo | null = null;
+    if (activity.from?.aadObjectId) {
+      user = await this.getIncomingUser(
+        ctx,
+        message.author.userId,
+        activity.from.aadObjectId
+      );
+    } else if (!message.author.isBot) {
+      user = await this.getUser(message.author.userId);
+    }
+    if (user?.email) {
+      message.author.email = user.email;
+    }
+
+    // Detect @mention by checking if any mentioned entity matches our app ID
+    const entities = activity.entities || [];
+    const isMention = entities.some(
+      (e: { type?: string; mentioned?: { id?: string } }) =>
+        e.type === "mention" &&
+        !!e.mentioned?.id &&
+        this.isBotAccountId(e.mentioned.id)
+    );
+    // Set false too: Chat only guesses from `@userName` in the text when this
+    // is unset, and that guess matches mentions of other bots whose display
+    // name starts with ours ("@Bot Dev" for a bot named "Bot").
+    message.isMention = isMention;
+    return message;
   }
 
   /**
@@ -1168,7 +1212,7 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
   }
 
   private async getIncomingUser(
-    ctx: IActivityContext<IMessageActivity>,
+    ctx: IActivityContext<IMessageActivity | IMessageUpdateActivity>,
     userId: string,
     aadObjectId: string
   ): Promise<UserInfo | null> {

@@ -43,7 +43,7 @@ export const teams = {
     addReactions: "yes",
     removeReactions: "yes",
     typingIndicator: "yes",
-    messageUpdatedEvents: "no",
+    messageUpdatedEvents: "yes",
     messageDeletedEvents: "no",
     directMessages: "yes",
     ephemeralMessages: { status: "yes", label: "Targeted messages" },
