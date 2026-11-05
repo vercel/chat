@@ -4664,6 +4664,10 @@ export class TelegramAdapter
     return error instanceof Error && error.name === "AbortError";
   }
 
+  protected isTimeoutError(error: unknown): boolean {
+    return error instanceof Error && error.name === "TimeoutError";
+  }
+
   protected async sleep(delayMs: number, signal?: AbortSignal): Promise<void> {
     if (delayMs <= 0 || signal?.aborted) {
       return;
@@ -4716,7 +4720,9 @@ export class TelegramAdapter
 
       throw new NetworkError(
         "telegram",
-        `Network error calling Telegram ${method}`,
+        this.isTimeoutError(error)
+          ? `Telegram ${method} request timed out`
+          : `Network error calling Telegram ${method}`,
         error instanceof Error ? error : undefined
       );
     }
@@ -4724,10 +4730,17 @@ export class TelegramAdapter
     let data: TelegramApiResponse<TResult>;
     try {
       data = (await response.json()) as TelegramApiResponse<TResult>;
-    } catch {
+    } catch (error) {
+      if (this.isAbortError(error)) {
+        throw error;
+      }
+
       throw new NetworkError(
         "telegram",
-        `Failed to parse Telegram API response for ${method}`
+        this.isTimeoutError(error)
+          ? `Telegram ${method} request timed out`
+          : `Failed to parse Telegram API response for ${method}`,
+        error instanceof Error ? error : undefined
       );
     }
 
