@@ -3,9 +3,11 @@
  * handler registered by App.initialize() and exposes dispatch() for
  * handleWebhook() to call.  We never own the HTTP server.
  *
- * Also manages per-request WebhookOptions so event handlers can retrieve
- * the correct options for their activity without shared mutable state.
+ * Also scopes WebhookOptions to each request, so event handlers get their
+ * own request's options even when an edit reuses its message's activity id.
  */
+
+import { AsyncLocalStorage } from "node:async_hooks";
 
 import type {
   HttpMethod,
@@ -17,7 +19,9 @@ import type { TeamsWebhookVerifier } from "./types";
 
 export class BridgeHttpAdapter implements IHttpServerAdapter {
   private handler: HttpRouteHandler | null = null;
-  private readonly webhookOptionsMap = new Map<string, WebhookOptions>();
+  private readonly webhookOptions = new AsyncLocalStorage<
+    WebhookOptions | undefined
+  >();
   private readonly logger: Logger;
 
   private readonly webhookVerifier?: TeamsWebhookVerifier;
@@ -74,13 +78,11 @@ export class BridgeHttpAdapter implements IHttpServerAdapter {
       headers[key] = value;
     });
 
-    const activityId = (parsedBody as { id?: string })?.id;
-    if (activityId && options) {
-      this.webhookOptionsMap.set(activityId, options);
-    }
-
+    const handler = this.handler;
     try {
-      const serverResponse = await this.handler({ body: parsedBody, headers });
+      const serverResponse = await this.webhookOptions.run(options, () =>
+        handler({ body: parsedBody, headers })
+      );
 
       const hasBody =
         serverResponse.body !== undefined && serverResponse.body !== null;
@@ -97,19 +99,10 @@ export class BridgeHttpAdapter implements IHttpServerAdapter {
         status: 500,
         headers: { "Content-Type": "application/json" },
       });
-    } finally {
-      if (activityId) {
-        this.webhookOptionsMap.delete(activityId);
-      }
     }
   }
 
-  getWebhookOptions(
-    activityId: string | undefined
-  ): WebhookOptions | undefined {
-    if (!activityId) {
-      return undefined;
-    }
-    return this.webhookOptionsMap.get(activityId);
+  getWebhookOptions(): WebhookOptions | undefined {
+    return this.webhookOptions.getStore();
   }
 }

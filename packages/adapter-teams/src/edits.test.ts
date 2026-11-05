@@ -6,9 +6,13 @@ import { appId, botId, serviceUrl, TestTeamsAdapter } from "./test-utils";
 const conversationId = "19:channel@thread.tacv2;messageid=1766459963017";
 const logger = createMockLogger();
 
-function edit(eventType: string, entities: unknown[] = []) {
+function edit(
+  eventType: string,
+  entities: unknown[] = [],
+  type = "messageUpdate"
+) {
   return {
-    type: "messageUpdate",
+    type,
     id: "1766459963017",
     timestamp: "2025-12-23T03:21:02.000Z",
     channelId: "msteams",
@@ -37,12 +41,13 @@ describe("Teams message edits", () => {
   let adapter: TestTeamsAdapter;
   let chat: ReturnType<typeof createMockChatInstance>;
   let options: WebhookOptions;
+  let optionsStub: ReturnType<TestTeamsAdapter["stubWebhookOptions"]>;
 
   beforeEach(async () => {
     adapter = new TestTeamsAdapter({ appId, appPassword: "test", logger });
     chat = createMockChatInstance();
     options = { waitUntil: vi.fn() };
-    adapter.stubWebhookOptions(options);
+    optionsStub = adapter.stubWebhookOptions(options);
     vi.spyOn(adapter, "getUser").mockResolvedValue(null);
     await adapter.initialize(chat);
   });
@@ -53,10 +58,15 @@ describe("Teams message edits", () => {
 
   function updated() {
     const calls = vi.mocked(chat.processMessageUpdated).mock.calls;
-    return calls.map(([event, eventOptions]) => ({
-      ...(event as { message: Message; threadId: string }),
-      options: eventOptions,
-    }));
+    return Promise.all(
+      calls.map(async ([event, eventOptions]) => {
+        const { message, ...rest } = event as {
+          message: () => Promise<Message>;
+          threadId: string;
+        };
+        return { ...rest, message: await message(), options: eventOptions };
+      })
+    );
   }
 
   it("dispatches an edited message through the SDK router as a message update", async () => {
@@ -66,8 +76,9 @@ describe("Teams message edits", () => {
 
     expect(response.status).toBe(200);
     expect(chat.processMessage).not.toHaveBeenCalled();
-    const [update] = updated();
-    expect(updated()).toHaveLength(1);
+    const updates = await updated();
+    expect(updates).toHaveLength(1);
+    const [update] = updates;
     expect(update?.threadId).toBe(
       adapter.encodeThreadId({
         conversationId,
@@ -88,7 +99,65 @@ describe("Teams message edits", () => {
 
   it("marks an edit that mentions only another bot as not a mention", async () => {
     await adapter.receive(edit("editMessage", [mentionOf("28:other-app")]));
-    expect(updated()[0]?.message.isMention).toBe(false);
+    expect((await updated())[0]?.message.isMention).toBe(false);
+  });
+
+  it("hydrates the editor's email", async () => {
+    vi.mocked(chat.getState().get).mockImplementation(async (key: string) =>
+      key === "teams:userInfo:aad-user"
+        ? JSON.stringify({ email: "alice@contoso.com", fullName: "Alice" })
+        : null
+    );
+    const body = edit("editMessage", [mentionOf(botId)]);
+    await adapter.receive({
+      ...body,
+      from: { ...body.from, aadObjectId: "aad-user" },
+    });
+    expect((await updated())[0]?.message.author.email).toBe(
+      "alice@contoso.com"
+    );
+  });
+
+  it("keeps each request's webhook options when an edit reuses its message's id", async () => {
+    optionsStub.mockRestore();
+    adapter.allowUnauthenticatedWebhooks();
+    let parked: () => void = () => {};
+    let resume: (user: null) => void = () => {};
+    const reached = new Promise<void>((resolve) => {
+      parked = resolve;
+    });
+    vi.mocked(adapter.getUser).mockImplementationOnce(() => {
+      parked();
+      return new Promise((resolve) => {
+        resume = resolve;
+      });
+    });
+    const request = (body: unknown) =>
+      new Request("https://example.com/api/webhooks/teams", {
+        method: "POST",
+        body: JSON.stringify(body),
+        headers: { "content-type": "application/json" },
+      });
+    const messageOptions: WebhookOptions = { waitUntil: vi.fn() };
+    const editOptions: WebhookOptions = { waitUntil: vi.fn() };
+
+    // The original message waits on its sender lookup while the edit is handled.
+    const original = adapter.handleWebhook(
+      request(edit("", [mentionOf(botId)], "message")),
+      messageOptions
+    );
+    await reached;
+    await adapter.handleWebhook(
+      request(edit("editMessage", [mentionOf(botId)])),
+      editOptions
+    );
+    resume(null);
+    await original;
+
+    expect((await updated())[0]?.options).toBe(editOptions);
+    expect(vi.mocked(chat.processMessage).mock.calls[0]?.[3]).toBe(
+      messageOptions
+    );
   });
 
   it("ignores an undelete", async () => {

@@ -336,7 +336,7 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
       locale: activity.locale,
       raw: activity,
     };
-    const options = this.bridgeAdapter.getWebhookOptions(activity.id);
+    const options = this.bridgeAdapter.getWebhookOptions();
     if (isInstallAction(action)) {
       this.chat.processInstalled?.({ ...event, action }, options);
     } else {
@@ -379,7 +379,7 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
         userId,
         inviterId: activity.from?.id,
       },
-      this.bridgeAdapter.getWebhookOptions(activity.id)
+      this.bridgeAdapter.getWebhookOptions()
     );
   }
 
@@ -598,7 +598,7 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
         resolveProcessing = resolve;
       });
 
-      const baseOptions = this.bridgeAdapter.getWebhookOptions(activity.id);
+      const baseOptions = this.bridgeAdapter.getWebhookOptions();
       this.chat.processMessage(this, threadId, message, {
         ...baseOptions,
         waitUntil: (task: Promise<unknown>) => {
@@ -620,7 +620,7 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
         this,
         threadId,
         message,
-        this.bridgeAdapter.getWebhookOptions(activity.id)
+        this.bridgeAdapter.getWebhookOptions()
       );
     }
   }
@@ -645,12 +645,19 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
     }
 
     const threadId = this.threadIdFromActivity(activity);
-    const message = await this.parseIncomingMessage(ctx, threadId);
-    message.metadata.edited = true;
-    message.metadata.editedAt = message.metadata.dateSent;
     this.chat.processMessageUpdated(
-      { adapter: this, message, threadId },
-      this.bridgeAdapter.getWebhookOptions(activity.id)
+      {
+        adapter: this,
+        message: async () => {
+          const message = await this.parseIncomingMessage(ctx, threadId);
+          // The activity timestamp is the edit time; Teams doesn't send the original send time.
+          message.metadata.edited = true;
+          message.metadata.editedAt = message.metadata.dateSent;
+          return message;
+        },
+        threadId,
+      },
+      this.bridgeAdapter.getWebhookOptions()
     );
   }
 
@@ -731,7 +738,7 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
 
     this.chat.processAction(
       actionEvent,
-      this.bridgeAdapter.getWebhookOptions(activity.id)
+      this.bridgeAdapter.getWebhookOptions()
     );
   }
 
@@ -785,7 +792,7 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
 
     this.chat.processAction(
       actionEvent,
-      this.bridgeAdapter.getWebhookOptions(activity.id)
+      this.bridgeAdapter.getWebhookOptions()
     );
   }
 
@@ -803,7 +810,7 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
       return;
     }
 
-    const webhookOptions = this.bridgeAdapter.getWebhookOptions(activity.id);
+    const webhookOptions = this.bridgeAdapter.getWebhookOptions();
     const entries = (Object.entries(payload) as [string, unknown][]).filter(
       ([key]) => !AUTO_SUBMIT_KEYS.has(key)
     );
@@ -881,7 +888,7 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
       threadId,
     });
 
-    const webhookOptions = this.bridgeAdapter.getWebhookOptions(activity.id);
+    const webhookOptions = this.bridgeAdapter.getWebhookOptions();
     let timer: ReturnType<typeof setTimeout> | undefined;
 
     const actionPromise = this.chat.processAction(actionEvent, {
@@ -969,7 +976,7 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
     const response = await this.chat.processModalSubmit(
       event,
       contextId,
-      this.bridgeAdapter.getWebhookOptions(activity.id)
+      this.bridgeAdapter.getWebhookOptions()
     );
     return modalResponseToTaskModuleResponse(response, this.logger, contextId);
   }
@@ -1016,7 +1023,7 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
 
       this.chat.processReaction(
         { ...event, adapter: this },
-        this.bridgeAdapter.getWebhookOptions(activity.id)
+        this.bridgeAdapter.getWebhookOptions()
       );
     }
 
@@ -1043,7 +1050,7 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
 
       this.chat.processReaction(
         { ...event, adapter: this },
-        this.bridgeAdapter.getWebhookOptions(activity.id)
+        this.bridgeAdapter.getWebhookOptions()
       );
     }
   }
