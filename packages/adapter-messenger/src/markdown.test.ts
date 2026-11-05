@@ -38,6 +38,17 @@ describe("MessengerFormatConverter", () => {
       expect(result).toContain("bold");
       expect(result).toContain("italic");
     });
+
+    it("doesn't change the AST it's given", () => {
+      const ast = root([
+        paragraph([link("https://example.com", [text("https://example.com")])]),
+      ]);
+      const before = structuredClone(ast);
+
+      converter.fromAst(ast);
+
+      expect(ast).toEqual(before);
+    });
   });
 
   describe("renderPostable", () => {
@@ -85,6 +96,7 @@ describe("MessengerFormatConverter", () => {
       ["https://example.com/_private_/x", "https://example.com/_private_/x"],
       ["Email help@example.com", "Email help@example.com"],
       ["Go to www.example.com", "Go to www.example.com"],
+      ["Go to WWW.example.com", "Go to WWW.example.com"],
     ])("sends the bare address in %s as written", (markdown, expected) => {
       expect(converter.renderPostable({ markdown })).toBe(expected);
     });
@@ -105,6 +117,13 @@ describe("MessengerFormatConverter", () => {
       expect(converter.fromAst(ast)).toBe(
         "[https://example.com docs](https://example.com)"
       );
+    });
+
+    it.each([
+      "[**https://example.com**](https://example.com)",
+      "[`https://example.com`](https://example.com)",
+    ])("keeps %s as a Markdown link because its only child isn't text", (markdown) => {
+      expect(converter.renderPostable({ markdown })).toBe(markdown);
     });
   });
 

@@ -66,6 +66,9 @@ export {
   ValidationError,
 } from "./errors";
 
+// Markdown output for platforms that show Markdown syntax as typed
+export { literalTextHandlers, unwrapBareLinks } from "./literal-text";
+
 // Bare @mention resolution (skips code, URLs, hosts, and existing tokens)
 export {
   type MentionReplacer,
