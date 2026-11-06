@@ -1,5 +1,12 @@
 # @chat-adapter/github
 
+## 4.44.1
+
+### Patch Changes
+
+- chat@4.44.1
+  - @chat-adapter/shared@4.44.1
+
 ## 4.44.0
 
 ### Patch Changes

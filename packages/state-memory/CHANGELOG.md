@@ -1,5 +1,11 @@
 # @chat-adapter/state-memory
 
+## 4.44.1
+
+### Patch Changes
+
+- chat@4.44.1
+
 ## 4.44.0
 
 ### Patch Changes

@@ -1,5 +1,13 @@
 # @chat-adapter/gmail
 
+## 4.44.1
+
+### Patch Changes
+
+- b81a4d9: prevent deeply nested HTML emails and conversion failures from blocking mailbox synchronization
+- chat@4.44.1
+  - @chat-adapter/shared@4.44.1
+
 ## 4.44.0
 
 ### Patch Changes
