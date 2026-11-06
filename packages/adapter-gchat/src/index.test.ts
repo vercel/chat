@@ -826,6 +826,124 @@ describe("GoogleChatAdapter", () => {
     });
   });
 
+  describe("isMention", () => {
+    const mention = (name: string, displayName: string, type = "HUMAN") => ({
+      type: "USER_MENTION",
+      startIndex: 0,
+      length: displayName.length + 1,
+      userMention: { user: { name, displayName, type }, type: "MENTION" },
+    });
+
+    it("is false when a user whose name starts with the bot's is mentioned", async () => {
+      const { adapter } = await createInitializedAdapter({
+        botUserId: "users/111",
+        userName: "Bot",
+      });
+      const event = makeMessageEvent({
+        messageText: "@Bot Dev can you look at this",
+        annotations: [mention("users/222", "Bot Dev")],
+      });
+
+      expect(adapter.parseMessage(event).isMention).toBe(false);
+    });
+
+    it("is true when the bot is mentioned alongside other users", async () => {
+      const { adapter } = await createInitializedAdapter({
+        botUserId: "users/111",
+        userName: "Bot",
+      });
+      const event = makeMessageEvent({
+        messageText: "@Bot Dev @Bot hi",
+        annotations: [
+          mention("users/222", "Bot Dev"),
+          { ...mention("users/111", "Bot", "BOT"), startIndex: 9 },
+        ],
+      });
+
+      expect(adapter.parseMessage(event).isMention).toBe(true);
+    });
+
+    it("is false when there are no annotations", async () => {
+      const { adapter } = await createInitializedAdapter({
+        botUserId: "users/111",
+        userName: "Bot",
+      });
+      const event = makeMessageEvent({ messageText: "@Bot hi" });
+
+      expect(adapter.parseMessage(event).isMention).toBe(false);
+    });
+
+    it("is false for a non USER_MENTION annotation naming the bot", async () => {
+      const { adapter } = await createInitializedAdapter({
+        botUserId: "users/111",
+        userName: "Bot",
+      });
+      const event = makeMessageEvent({
+        messageText: "/help",
+        annotations: [
+          { ...mention("users/111", "Bot", "BOT"), type: "SLASH_COMMAND" },
+        ],
+      });
+
+      expect(adapter.parseMessage(event).isMention).toBe(false);
+    });
+
+    it("is false when a mention annotation has no user", async () => {
+      const { adapter } = await createInitializedAdapter({
+        botUserId: "users/111",
+        userName: "Bot",
+      });
+      const event = makeMessageEvent({
+        messageText: "@Bot hi",
+        annotations: [
+          {
+            type: "USER_MENTION",
+            startIndex: 0,
+            length: 4,
+            userMention: { type: "MENTION" },
+          } as any,
+        ],
+      });
+
+      expect(adapter.parseMessage(event).isMention).toBe(false);
+    });
+
+    it("is left unset without botUserId so text detection still applies", async () => {
+      const { adapter } = await createInitializedAdapter({ userName: "Bot" });
+      const event = makeMessageEvent({
+        messageText: "@Bot Dev hi",
+        annotations: [mention("users/222", "Bot Dev")],
+      });
+
+      expect(adapter.parseMessage(event).isMention).toBeUndefined();
+    });
+
+    it("reads annotations on Pub/Sub messages", async () => {
+      const { adapter } = await createInitializedAdapter({
+        botUserId: "users/111",
+        userName: "Bot",
+      });
+      const notification: WorkspaceEventNotification = {
+        eventType: "google.workspace.chat.message.v1.created",
+        targetResource: "//chat.googleapis.com/spaces/ABC123",
+        message: {
+          name: "spaces/ABC123/messages/msg1",
+          sender: { name: "users/100", displayName: "Alice", type: "HUMAN" },
+          text: "@Bot Dev hi",
+          createTime: new Date().toISOString(),
+          annotations: [mention("users/222", "Bot Dev")],
+        },
+      };
+
+      const msg = await (adapter as any).parsePubSubMessage(
+        notification,
+        "gchat:spaces/ABC123"
+      );
+
+      expect(msg.isMention).toBe(false);
+    });
+  });
+
   describe("isMessageFromSelf (via parseMessage)", () => {
     it("should detect self messages when botUserId is known", async () => {
       const { adapter } = await createInitializedAdapter({
