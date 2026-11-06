@@ -873,6 +873,41 @@ describe("GoogleChatAdapter", () => {
       expect(adapter.parseMessage(event).isMention).toBe(false);
     });
 
+    it("is false for a non USER_MENTION annotation naming the bot", async () => {
+      const { adapter } = await createInitializedAdapter({
+        botUserId: "users/111",
+        userName: "Bot",
+      });
+      const event = makeMessageEvent({
+        messageText: "/help",
+        annotations: [
+          { ...mention("users/111", "Bot", "BOT"), type: "SLASH_COMMAND" },
+        ],
+      });
+
+      expect(adapter.parseMessage(event).isMention).toBe(false);
+    });
+
+    it("is false when a mention annotation has no user", async () => {
+      const { adapter } = await createInitializedAdapter({
+        botUserId: "users/111",
+        userName: "Bot",
+      });
+      const event = makeMessageEvent({
+        messageText: "@Bot hi",
+        annotations: [
+          {
+            type: "USER_MENTION",
+            startIndex: 0,
+            length: 4,
+            userMention: { type: "MENTION" },
+          } as any,
+        ],
+      });
+
+      expect(adapter.parseMessage(event).isMention).toBe(false);
+    });
+
     it("is left unset without botUserId so text detection still applies", async () => {
       const { adapter } = await createInitializedAdapter({ userName: "Bot" });
       const event = makeMessageEvent({
