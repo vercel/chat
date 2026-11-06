@@ -34,6 +34,7 @@ import { web } from "./official/web";
 import { whatsapp } from "./official/whatsapp";
 import { x } from "./official/x";
 import { xchat } from "./official/xchat";
+import { adeli } from "./vendor-official/adeli";
 import { agentphone } from "./vendor-official/agentphone";
 import { cloudflareAgents } from "./vendor-official/cloudflare-agents";
 import { dial } from "./vendor-official/dial";
@@ -90,6 +91,7 @@ export const ADAPTERS = {
   linq,
   photon,
   dial,
+  adeli,
 } as const satisfies Record<string, CatalogAdapter>;
 
 /**
