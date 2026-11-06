@@ -19,6 +19,13 @@ import { createWaitUntilTracker } from "./test-scenarios";
 
 const HELP_REGEX = /help/i;
 const ANY_CHAR_REGEX = /./;
+const STREAM_MESSAGE_ID_REGEX = /^stream-message-\d+$/;
+
+async function* createTextStream(chunks: string[]): AsyncIterable<string> {
+  for (const chunk of chunks) {
+    yield chunk;
+  }
+}
 
 const mockLogger: Logger = {
   debug: vi.fn(),
@@ -68,6 +75,24 @@ describe("Teams Integration", () => {
   afterEach(async () => {
     await chat.shutdown();
   });
+
+  /**
+   * Send an activity through the webhook and drain its background tasks.
+   * Asserts how many `waitUntil` tasks the request registered, because
+   * draining an empty tracker passes without the handlers having run.
+   */
+  const sendActivity = async (activity: unknown, expectedTasks = 1) => {
+    const before = tracker.taskCount();
+    const response = await chat.webhooks.teams(
+      createTeamsWebhookRequest(activity),
+      { waitUntil: tracker.waitUntil }
+    );
+    // biome-ignore lint/suspicious/noMisplacedAssertion: helper called from tests
+    expect(response.status).toBe(200);
+    // biome-ignore lint/suspicious/noMisplacedAssertion: helper called from tests
+    expect(tracker.taskCount() - before).toBe(expectedTasks);
+    await tracker.waitForAll();
+  };
 
   describe.each(["text", "card"] as const)("%s channel receipts", (kind) => {
     it.each([
@@ -150,13 +175,7 @@ describe("Teams Integration", () => {
         ],
       });
 
-      const request = createTeamsWebhookRequest(activity);
-      const response = await chat.webhooks.teams(request, {
-        waitUntil: tracker.waitUntil,
-      });
-      expect(response.status).toBe(200);
-
-      await tracker.waitForAll();
+      await sendActivity(activity);
 
       expect(handlerMock).toHaveBeenCalledWith(
         TEST_THREAD_ID,
@@ -196,10 +215,7 @@ describe("Teams Integration", () => {
         ],
       });
 
-      await chat.webhooks.teams(createTeamsWebhookRequest(mentionActivity), {
-        waitUntil: tracker.waitUntil,
-      });
-      await tracker.waitForAll();
+      await sendActivity(mentionActivity);
 
       expect(mockTeamsApp.sentActivities).toContainEqual(
         expect.objectContaining({ text: "I'm now listening!" })
@@ -216,10 +232,7 @@ describe("Teams Integration", () => {
         fromName: "John Doe",
       });
 
-      await chat.webhooks.teams(createTeamsWebhookRequest(followUpActivity), {
-        waitUntil: tracker.waitUntil,
-      });
-      await tracker.waitForAll();
+      await sendActivity(followUpActivity);
 
       expect(subscribedHandler).toHaveBeenCalledWith(
         TEST_THREAD_ID,
@@ -248,10 +261,7 @@ describe("Teams Integration", () => {
         fromName: "John Doe",
       });
 
-      await chat.webhooks.teams(createTeamsWebhookRequest(activity), {
-        waitUntil: tracker.waitUntil,
-      });
-      await tracker.waitForAll();
+      await sendActivity(activity);
 
       expect(patternHandler).toHaveBeenCalledWith("I need help with something");
       expect(mockTeamsApp.sentActivities).toContainEqual(
@@ -275,10 +285,7 @@ describe("Teams Integration", () => {
         recipientId: TEAMS_BOT_ID,
       });
 
-      await chat.webhooks.teams(createTeamsWebhookRequest(activity), {
-        waitUntil: tracker.waitUntil,
-      });
-      await tracker.waitForAll();
+      await sendActivity(activity);
 
       expect(handlerMock).not.toHaveBeenCalled();
     });
@@ -298,10 +305,7 @@ describe("Teams Integration", () => {
         fromName: "John Doe",
       });
 
-      await chat.webhooks.teams(createTeamsWebhookRequest(activity), {
-        waitUntil: tracker.waitUntil,
-      });
-      await tracker.waitForAll();
+      await sendActivity(activity, 0);
 
       expect(handlerMock).not.toHaveBeenCalled();
     });
@@ -329,10 +333,7 @@ describe("Teams Integration", () => {
         ],
       });
 
-      await chat.webhooks.teams(createTeamsWebhookRequest(activity), {
-        waitUntil: tracker.waitUntil,
-      });
-      await tracker.waitForAll();
+      await sendActivity(activity);
 
       expect(mockTeamsApp.updatedActivities).toContainEqual(
         expect.objectContaining({ text: "Edited message" })
@@ -362,10 +363,7 @@ describe("Teams Integration", () => {
         ],
       });
 
-      await chat.webhooks.teams(createTeamsWebhookRequest(activity), {
-        waitUntil: tracker.waitUntil,
-      });
-      await tracker.waitForAll();
+      await sendActivity(activity);
 
       expect(capturedMessage).toBeDefined();
       const msg = capturedMessage as {
@@ -402,10 +400,7 @@ describe("Teams Integration", () => {
         ],
       });
 
-      await chat.webhooks.teams(createTeamsWebhookRequest(activity), {
-        waitUntil: tracker.waitUntil,
-      });
-      await tracker.waitForAll();
+      await sendActivity(activity);
 
       // Check that sent activities contain markdown
       const sentWithText = mockTeamsApp.sentActivities.find(
@@ -440,10 +435,7 @@ describe("Teams Integration", () => {
         ],
       });
 
-      await chat.webhooks.teams(createTeamsWebhookRequest(activity), {
-        waitUntil: tracker.waitUntil,
-      });
-      await tracker.waitForAll();
+      await sendActivity(activity);
 
       const sentActivity = mockTeamsApp.sentActivities[0] as { text: string };
       expect(sentActivity.text).toBe("Hey @Alex Smith, check this out!");
@@ -500,10 +492,7 @@ describe("Teams Integration", () => {
         ],
       });
 
-      await chat.webhooks.teams(createTeamsWebhookRequest(mentionActivity), {
-        waitUntil: tracker.waitUntil,
-      });
-      await tracker.waitForAll();
+      await sendActivity(mentionActivity);
 
       expect(conversationLog).toContain(`mention: @${TEAMS_BOT_NAME} hey bot!`);
       expect(mockTeamsApp.sentActivities).toContainEqual(
@@ -523,10 +512,7 @@ describe("Teams Integration", () => {
         fromName: "John Doe",
       });
 
-      await chat.webhooks.teams(createTeamsWebhookRequest(weatherActivity), {
-        waitUntil: tracker.waitUntil,
-      });
-      await tracker.waitForAll();
+      await sendActivity(weatherActivity);
 
       expect(conversationLog).toContain("subscribed: What's the weather like?");
       expect(mockTeamsApp.sentActivities).toContainEqual(
@@ -549,10 +535,7 @@ describe("Teams Integration", () => {
         fromName: "John Doe",
       });
 
-      await chat.webhooks.teams(createTeamsWebhookRequest(followUpActivity), {
-        waitUntil: tracker.waitUntil,
-      });
-      await tracker.waitForAll();
+      await sendActivity(followUpActivity);
 
       expect(conversationLog).toContain("subscribed: That sounds nice!");
 
@@ -567,10 +550,7 @@ describe("Teams Integration", () => {
         fromName: "John Doe",
       });
 
-      await chat.webhooks.teams(createTeamsWebhookRequest(thanksActivity), {
-        waitUntil: tracker.waitUntil,
-      });
-      await tracker.waitForAll();
+      await sendActivity(thanksActivity);
 
       expect(conversationLog).toContain("subscribed: thanks for your help!");
       expect(mockTeamsApp.sentActivities).toContainEqual(
@@ -637,10 +617,7 @@ describe("Teams Integration", () => {
         ],
       });
 
-      await chat.webhooks.teams(createTeamsWebhookRequest(thread1Mention), {
-        waitUntil: tracker.waitUntil,
-      });
-      await tracker.waitForAll();
+      await sendActivity(thread1Mention);
 
       // Start thread 2
       const thread2Mention = createTeamsActivity({
@@ -658,10 +635,7 @@ describe("Teams Integration", () => {
         ],
       });
 
-      await chat.webhooks.teams(createTeamsWebhookRequest(thread2Mention), {
-        waitUntil: tracker.waitUntil,
-      });
-      await tracker.waitForAll();
+      await sendActivity(thread2Mention);
 
       mockTeamsApp.clearMocks();
 
@@ -674,10 +648,7 @@ describe("Teams Integration", () => {
         fromName: "User A",
       });
 
-      await chat.webhooks.teams(createTeamsWebhookRequest(thread1FollowUp), {
-        waitUntil: tracker.waitUntil,
-      });
-      await tracker.waitForAll();
+      await sendActivity(thread1FollowUp);
 
       // Follow-up to thread 2
       const thread2FollowUp = createTeamsActivity({
@@ -688,10 +659,7 @@ describe("Teams Integration", () => {
         fromName: "User B",
       });
 
-      await chat.webhooks.teams(createTeamsWebhookRequest(thread2FollowUp), {
-        waitUntil: tracker.waitUntil,
-      });
-      await tracker.waitForAll();
+      await sendActivity(thread2FollowUp);
 
       expect(threadResponses[thread1Id]).toEqual([
         `@${TEAMS_BOT_NAME} Thread 1 start`,
@@ -735,10 +703,7 @@ describe("Teams Integration", () => {
         ],
       });
 
-      await chat.webhooks.teams(createTeamsWebhookRequest(activity), {
-        waitUntil: tracker.waitUntil,
-      });
-      await tracker.waitForAll();
+      await sendActivity(activity);
 
       const sentWithAttachments = mockTeamsApp.sentActivities.find(
         (act: unknown) =>
@@ -759,6 +724,37 @@ describe("Teams Integration", () => {
           (a) => a.name === "test.txt" && a.contentType === "text/plain"
         )
       ).toBe(true);
+    });
+  });
+
+  describe("native DM streaming", () => {
+    it("streams a DM reply through the requesting activity's stream", async () => {
+      let sentId: string | undefined;
+      chat.onDirectMessage(async (thread) => {
+        const sent = await thread.post(createTextStream(["Hello ", "there"]));
+        sentId = sent.id;
+      });
+
+      const activity = createTeamsActivity({
+        text: "hi",
+        messageId: "dm-msg-001",
+        conversationId: "a:personal-chat-id",
+        conversationType: "personal",
+        fromId: "user-123",
+        fromName: "John Doe",
+      });
+
+      await sendActivity(activity);
+
+      const contexts = mockTeamsApp.contexts.get("dm-msg-001");
+      expect(contexts).toHaveLength(1);
+      const stream = contexts?.[0]?.stream;
+      expect(stream?.emit.mock.calls).toEqual([["Hello "], ["there"]]);
+      expect(stream?.close).toHaveBeenCalledOnce();
+      expect(sentId).toMatch(STREAM_MESSAGE_ID_REGEX);
+      expect(mockTeamsApp.sentActivities).not.toContainEqual(
+        expect.objectContaining({ text: expect.stringContaining("Hello") })
+      );
     });
   });
 });

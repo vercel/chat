@@ -32,8 +32,8 @@ import {
 import {
   createGchatRequest,
   createSignedSlackRequest,
-  createTeamsRequest,
   createWaitUntilTracker,
+  sendTeamsWebhook,
 } from "./replay-test-utils";
 import {
   createMockSlackClient,
@@ -557,10 +557,7 @@ describe("DM Replay Tests", () => {
     });
 
     const sendWebhook = async (fixture: unknown) => {
-      await chat.webhooks.teams(createTeamsRequest(fixture), {
-        waitUntil: tracker.waitUntil,
-      });
-      await tracker.waitForAll();
+      await sendTeamsWebhook(chat, tracker, fixture);
     };
 
     it("should handle mention in channel", async () => {
