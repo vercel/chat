@@ -1,5 +1,5 @@
-import type { Attachment } from "chat";
-import { StreamingMarkdownRenderer } from "chat";
+import type { Attachment, Nodes } from "chat";
+import { parseMarkdown, StreamingMarkdownRenderer } from "chat";
 import type {
   TelegramFile,
   TelegramRichBlock,
@@ -14,6 +14,7 @@ export const TELEGRAM_RICH_MESSAGE_LIMIT = 32_768;
 const MARKDOWN_PUNCTUATION = /[!-/:-@[-`{-~]/g;
 const LINE_BREAKS = /[\r\n]/g;
 const BACKTICKS = /`+/g;
+const RICH_TEXT_SPECIALS = /\\[\s\S]|\$|\r?\n/g;
 
 /**
  * Whether `markdown` fits in one rich message, which Telegram measures in
@@ -25,6 +26,61 @@ export function fitsRichMessage(markdown: string): boolean {
     return true;
   }
   return Array.from(markdown).length <= TELEGRAM_RICH_MESSAGE_LIMIT;
+}
+
+function collectTextRanges(
+  node: Nodes,
+  markdown: string,
+  ranges: [number, number][]
+): void {
+  const start = node.position?.start.offset;
+  const end = node.position?.end.offset;
+  if (node.type === "text") {
+    if (start !== undefined && end !== undefined) {
+      ranges.push([start, end]);
+    }
+    return;
+  }
+  // Autolinks (`<https://...>`, bare URLs and emails) keep their text as is.
+  if (node.type === "link" && markdown[start ?? 0] !== "[") {
+    return;
+  }
+  if ("children" in node) {
+    for (const child of node.children) {
+      collectTextRanges(child, markdown, ranges);
+    }
+  }
+}
+
+function escapeRichText(source: string): string {
+  return source.replace(RICH_TEXT_SPECIALS, (match) => {
+    if (match === "$") {
+      return "\\$";
+    }
+    if (match.endsWith("\n")) {
+      return `\\${match}`;
+    }
+    return match;
+  });
+}
+
+/**
+ * Adapt CommonMark to Telegram's rich-message parser. Telegram reads `$...$`
+ * as inline math and joins soft line breaks, so text outside code escapes
+ * `$` and ends each soft-wrapped line with a backslash hard break.
+ */
+export function escapeRichMarkdown(markdown: string): string {
+  const ranges: [number, number][] = [];
+  collectTextRanges(parseMarkdown(markdown), markdown, ranges);
+
+  let result = "";
+  let cursor = 0;
+  for (const [start, end] of ranges) {
+    result += markdown.slice(cursor, start);
+    result += escapeRichText(markdown.slice(start, end));
+    cursor = end;
+  }
+  return result + markdown.slice(cursor);
 }
 
 export function truncateRichMarkdown(markdown: string): string {

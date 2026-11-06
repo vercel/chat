@@ -1,6 +1,7 @@
 import { parseMarkdown, toPlainText } from "chat";
 import { describe, expect, it } from "vitest";
 import {
+  escapeRichMarkdown,
   fitsRichMessage,
   richMessageToMarkdown,
   richMessageToText,
@@ -287,5 +288,50 @@ describe("Telegram rich messages", () => {
     const markdown = `${prefix}${"b".repeat(100)}`;
 
     expect(truncateRichMarkdown(markdown)).toContain("| tail |");
+  });
+});
+
+describe("escapeRichMarkdown", () => {
+  it("escapes dollar signs so Telegram does not render them as math", () => {
+    expect(
+      escapeRichMarkdown("MU ~$950 (-3.3% from $983.23). TSLA ~$403")
+    ).toBe("MU ~\\$950 (-3.3% from \\$983.23). TSLA ~\\$403");
+  });
+
+  it("escapes dollar signs inside formatting and link text", () => {
+    expect(escapeRichMarkdown("**$5** and [$10](https://example.com/$x)")).toBe(
+      "**\\$5** and [\\$10](https://example.com/$x)"
+    );
+  });
+
+  it("keeps dollar signs that are already escaped", () => {
+    expect(escapeRichMarkdown("\\$5 and \\\\$6")).toBe("\\$5 and \\\\\\$6");
+  });
+
+  it("leaves inline code, code blocks, and autolinks unchanged", () => {
+    const markdown =
+      "Run `echo $HOME`\n\n```sh\nexport A=$B\necho $A\n```\n\n<https://example.com/$a>";
+    expect(escapeRichMarkdown(markdown)).toBe(markdown);
+  });
+
+  it("turns soft line breaks into hard breaks", () => {
+    expect(escapeRichMarkdown("Prices:\n• a\n• b")).toBe(
+      "Prices:\\\n• a\\\n• b"
+    );
+  });
+
+  it("keeps paragraph breaks and existing hard breaks", () => {
+    expect(escapeRichMarkdown("a\\\nb  \nc\n\nd")).toBe("a\\\nb  \nc\n\nd");
+  });
+
+  it("adds hard breaks inside blockquotes and list items", () => {
+    expect(escapeRichMarkdown("> a\n> b\n\n- c\n  d")).toBe(
+      "> a\\\n> b\n\n- c\\\n  d"
+    );
+  });
+
+  it("does not add hard breaks inside code blocks", () => {
+    const markdown = "```\none\ntwo\n```";
+    expect(escapeRichMarkdown(markdown)).toBe(markdown);
   });
 });
