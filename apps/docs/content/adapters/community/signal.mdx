@@ -1,0 +1,205 @@
+---
+title: Signal
+description: Community Signal adapter for Chat SDK that talks to your own signal-cli instance, with 1:1 and group messages, attachments, reactions, edits, and read receipts.
+packageName: "@stibbons/chat-adapter-signal"
+slug: signal
+type: platform
+tagline: Signal adapter for Chat SDK. Connects to a signal-cli daemon you run yourself over HTTP, a Unix socket, or TCP, or spawns signal-cli, and speaks as one Signal account.
+community: true
+mdxBody: true
+---
+
+<Callout type="warn">
+This adapter doesn't use an official Signal API. It talks to [signal-cli](https://github.com/AsamK/signal-cli), an independently maintained command-line client for Signal that you install and run yourself. signal-cli releases older than about three months may stop working when Signal changes its servers, so keep signal-cli up to date.
+</Callout>
+
+## Install
+
+<PackageInstall package="@stibbons/chat-adapter-signal chat @chat-adapter/state-memory" />
+
+## Quick start
+
+The package is ESM only and needs Node.js 24 or newer and `chat` 4.43 or a later 4.x release.
+
+```typescript title="bot.ts" lineNumbers
+import { Chat } from "chat";
+import { createMemoryState } from "@chat-adapter/state-memory";
+import { createSignalAdapter } from "@stibbons/chat-adapter-signal";
+
+const bot = new Chat({
+  userName: "echo-bot",
+  adapters: {
+    signal: createSignalAdapter({
+      account: "+15550000001",
+      transport: { type: "http", url: "http://signal-cli:8080" },
+    }),
+  },
+  state: createMemoryState(),
+  // Chat's default, "drop", discards a message that arrives
+  // while the conversation's handler is still running.
+  concurrency: "queue",
+});
+
+bot.onDirectMessage(async (thread, message) => {
+  await thread.post(`echo: ${message.text}`);
+});
+
+await bot.initialize();
+```
+
+The memory state adapter keeps subscriptions, locks, and the receive cursor in process memory, which suits local development. Use [Redis](/adapters/official/redis) or [PostgreSQL](/adapters/official/postgres) in production so the bot keeps them across restarts.
+
+## Platform setup
+
+1. Install signal-cli 0.14.9 or newer and provision the bot's Signal account with signal-cli's own CLI, using the data directory the daemon will use. In the [Docker Compose example](https://github.com/stibbons-ai/chat-adapter-signal/tree/c85ae16eb4392f4b0cac81ef04ca8a0c31a4ea2c/examples/echo-bot), that means a one-off container on the daemon's volume: `docker compose run --rm signal-cli <arguments>`. The daemon loads accounts only when it starts, so stop a running daemon first and start it again afterwards.
+   - Register a dedicated number with `signal-cli -a <number> register`, then `signal-cli -a <number> verify <code>`. The number must be able to receive an SMS or a call. Don't use the number of a phone that uses Signal: registering moves the account away from that phone. Registration usually needs a captcha first; the [adapter README](https://github.com/stibbons-ai/chat-adapter-signal/tree/c85ae16eb4392f4b0cac81ef04ca8a0c31a4ea2c#provisioning-the-bot-account) walks through it.
+   - Or link signal-cli to an existing account as a linked device with `signal-cli link -n <device name>` and scan the QR code under **Settings** > **Linked devices** in Signal on the phone. The bot then reads everything sent to that number and answers as you, and it ignores messages you send from your own devices, so test from another account.
+2. Run signal-cli as an HTTP daemon in its own container next to your bot, for example `signal-cli daemon --http 0.0.0.0:8080 --receive-mode on-connection`. The Docker Compose example runs signal-cli this way, together with an echo bot.
+3. Set `account` to the bot's number and `transport` to the daemon's address.
+
+signal-cli's HTTP, socket, and TCP daemons have no authentication: anyone who can reach them can read the bot's messages and send as the bot. Keep the daemon on a private network and don't publish its port. When the bot runs on another machine, put a reverse proxy with TLS and authentication in front of signal-cli and pass its credentials in `transport.headers`. The [adapter README](https://github.com/stibbons-ai/chat-adapter-signal/tree/c85ae16eb4392f4b0cac81ef04ca8a0c31a4ea2c#security) covers the proxy requirements.
+
+## Configuration
+
+<TypeTable
+  type={{
+    account: {
+      type: "string",
+      description:
+        "The bot's phone number, or its ACI (Signal's account identifier), as registered in signal-cli. One adapter instance speaks as exactly one account. Falls back to `SIGNAL_ACCOUNT`.",
+    },
+    transport: {
+      type: "SignalTransportConfig",
+      description:
+        "How to reach signal-cli. See [Transport](#transport). Falls back to `SIGNAL_CLI_URL`, which implies `{ type: \"http\" }`.",
+    },
+    userName: {
+      type: "string",
+      description: "Bot name. Defaults to the `Chat` instance's `userName`.",
+    },
+    logger: {
+      type: "Logger",
+      description: "Defaults to the `Chat` instance's logger.",
+    },
+    requestTimeoutMs: {
+      type: "number",
+      default: "60000",
+      description:
+        "How long one request to signal-cli may take before it fails with a `NetworkError`. A send with attachments and an attachment's `fetchData()` get 1 ms more per 64 bytes of base64 content.",
+    },
+    drainTimeoutMs: {
+      type: "number",
+      default: "10000",
+      description:
+        "How long `disconnect()` waits for running handlers and the final receive-cursor write.",
+    },
+    reconnect: {
+      type: "{ minDelayMs?: number; maxDelayMs?: number }",
+      default: "{ minDelayMs: 1000, maxDelayMs: 30000 }",
+      description:
+        "Exponential backoff with jitter for reconnecting a dropped event stream. The adapter retries until `chat.shutdown()`.",
+    },
+  }}
+/>
+
+### Environment variables
+
+| Variable | Required | Description |
+| --- | --- | --- |
+| `SIGNAL_ACCOUNT` | Yes, unless `account` is passed | The bot's phone number or ACI in signal-cli |
+| `SIGNAL_CLI_URL` | Yes, unless `transport` is passed | URL of signal-cli's HTTP daemon |
+
+`createSignalAdapter()` throws a `ValidationError` when it finds neither the option nor the environment variable.
+
+## Transport
+
+The adapter receives messages over an event stream from signal-cli, not through webhooks, and `handleWebhook()` answers `501`. Run the bot as a long-running process such as a container, VM, or server. Serverless and edge functions don't work.
+
+| `transport` | signal-cli side |
+| --- | --- |
+| `{ type: "http", url, headers?, idleTimeoutMs? }` | `signal-cli daemon --http <host:port>`. `headers` are sent on every request, including the event stream. When no data, not even signal-cli's keep-alive, arrives for `idleTimeoutMs` (default `60000`), the adapter treats the connection as dead and reconnects. |
+| `{ type: "socket", path }` | `signal-cli daemon --socket <path>` |
+| `{ type: "tcp", host, port }` | `signal-cli daemon --tcp <host:port>` |
+| `{ type: "spawn", command?, args? }` | The adapter runs `<command> <args> -a <account> jsonRpc` and talks over its stdin and stdout. `command` defaults to `signal-cli` on `PATH`. |
+
+`initialize()` checks that signal-cli is reachable and opens the event stream.
+
+HTTP is the recommended transport and the only one that replays missed events. Run its daemon with `--receive-mode on-connection` and use a persistent state adapter. signal-cli keeps only the last 1,000 events of its current run for replay. The socket, TCP, and spawn transports also reconnect but resume nothing: events a socket or TCP daemon receives while the adapter is disconnected are lost. See [Reliable receive](https://github.com/stibbons-ai/chat-adapter-signal/tree/c85ae16eb4392f4b0cac81ef04ca8a0c31a4ea2c#reliable-receive) for how resuming works and its limits.
+
+## Direct messages
+
+`adapter.openDM()` takes an ACI, a phone number such as `+15550001111`, or `u:<username>`, and returns the 1:1 thread ID. signal-cli looks numbers and usernames up on the Signal server, and `openDM()` throws `ResourceNotFoundError` when it finds no ACI for the user. `chat.openDM()` and `chat.getUser()` can't route Signal user IDs to this adapter. Chat picks the adapter from the user ID's format, and an ACI has the UUID format Chat assigns to Linear, so with the Linear adapter also registered these calls go to Linear instead of failing. Call the adapter directly and open the thread yourself:
+
+```typescript
+const signal = bot.getAdapter("signal");
+const thread = bot.thread(await signal.openDM("+15550001111"));
+await thread.post("Hello!");
+```
+
+The adapter's `getUser(aci)` returns a user whose `fullName` is the name signal-cli knows (nickname, contact name, or profile name), falling back to the phone number and then the username. It returns `null` when signal-cli knows none of them.
+
+## Groups and mentions
+
+Each Signal group is one thread, so `thread.subscribe()` covers all of its messages and `thread.post()` sends to the whole group. The adapter sets `message.isMention` on every group message: `true` for a native Signal @mention of the bot account or a quote-reply to one of the bot's messages, and `false` otherwise, including when the bot's name only appears as text. In a group the bot hasn't subscribed to, a mention fires `onNewMention`; in a subscribed group, every message goes to `onSubscribedMessage`.
+
+In `message.text`, a native @mention of the bot reads `@<userName>` and a mention of anyone else reads `@<ACI>`, because Signal sends no names with mentions. Legacy (v1) groups aren't supported.
+
+## Streaming
+
+`thread.post(stream)` shows Signal's typing indicator while the stream runs, then sends the whole answer as one message. It never posts a draft and edits it, so the answer doesn't count against Signal's edit limit or show as edited. A stream that fails or ends without text sends nothing, stops the indicator, and rejects.
+
+`thread.startTyping()` keeps Signal's typing indicator up until the bot posts, the adapter's `endTyping(threadId)` is called, or 2 minutes pass. Signal shows no status text.
+
+## Formatting and cards
+
+Signal styles text with ranges instead of markup, and the adapter converts both ways. Outbound markdown becomes bold, italic, strikethrough, monospace, and spoiler (`||spoiler||`) styles. Headings become bold lines, links become `label (url)`, and tables become monospace text tables. A plain string or `{ raw }` is sent verbatim. Inbound, Signal's bold, italic, strikethrough, monospace, and spoiler ranges arrive in `message.formatted` as the matching markdown nodes.
+
+Cards render as formatted text: a bold title, the subtitle, text as markdown, bold field labels, images, links, and link buttons as URLs, and tables and charts as monospace text. Buttons and select menus are dropped, because Signal has no interactive elements. A card's `fallbackText`, when set, is sent instead.
+
+Signal takes up to 64 KiB of UTF-8 text per message. A longer post goes out as several messages, split at the last paragraph break that fits, and the first message's ID stands for the post, so `sent.edit()` and `sent.delete()` act on the first message only. If a later part fails to send, the earlier ones stay sent and the post rejects.
+
+## Attachments
+
+Attachments travel through signal-cli's JSON-RPC, not a shared file system, so they work with signal-cli in another container or on another host. Send them with `files` (or postable `attachments` that carry `data`). Incoming `message.attachments` carry `type`, `name`, `mimeType`, and `size`, and `fetchData()` asks signal-cli for the content. signal-cli must have downloaded the file, which it does on receive unless it runs with `--ignore-attachments`.
+
+Each file crosses JSON-RPC as one base64 message held in memory, and signal-cli 0.14.9 refuses attachments over 150 MiB. Edits can't add attachments.
+
+## Message actions
+
+- `editMessage()` and `deleteMessage()` work on the bot's own messages only. Signal limits edits and remote deletes by message age (24 hours by default) and edits to 10 per message, and its clients show edited messages as edited.
+- `addReaction()` and `removeReaction()` work on any message in the thread. Signal keeps one reaction per user per message, so a new reaction replaces the bot's previous one. Incoming reactions fire `onReaction`.
+- `thread.markAsRead()` sends a read receipt to the message's author. In a group, only the author sees it.
+
+## Message history
+
+Signal keeps no history on a server, so the adapter sets `persistThreadHistory` and Chat records each conversation in its state adapter. `fetchMessages()`, and with it `thread.messages` and `chat.history.thread`, returns that record: the messages the bot handled and posted, within Chat's `history.thread` limits (100 messages per thread and 7 days by default). Recorded messages have `raw: null`. The record is keyed by thread ID only, so give each bot account its own state store.
+
+`fetchThread()` returns the user's name for a 1:1 thread, and the group's name, description, and member ACIs for a group.
+
+## Thread IDs
+
+Users are keyed by their ACI, never by phone number.
+
+| Conversation | Thread and channel ID |
+| --- | --- |
+| 1:1 | `signal:dm:<ACI>`, for example `signal:dm:3f2a8c4e-1b7d-4e9a-9c5f-2d8b6e0a4f17` |
+| Group | `signal:group:<groupId>`, with the Groups v2 ID in base64url without padding |
+
+A 1:1 conversation or group is both the thread and the channel. Message IDs take the form `<authorACI>:<timestamp>`.
+
+## Limitations
+
+- No webhooks, scheduled messages, modals, slash commands, or ephemeral messages.
+- `thread.reply()` isn't supported. Post to the thread instead.
+- Edits and remote deletes from Signal users don't fire Chat events. The adapter also ignores sync messages from the bot account's own linked devices, story replies, and view-once messages.
+
+## Feature support
+
+<FeatureSupport />
+
+## Resources
+
+- [Adapter source](https://github.com/stibbons-ai/chat-adapter-signal)
+- [Docker Compose example](https://github.com/stibbons-ai/chat-adapter-signal/tree/c85ae16eb4392f4b0cac81ef04ca8a0c31a4ea2c/examples/echo-bot)
+- [`@stibbons/chat-adapter-signal` on npm](https://www.npmjs.com/package/@stibbons/chat-adapter-signal)
+- [signal-cli](https://github.com/AsamK/signal-cli)
