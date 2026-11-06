@@ -1270,6 +1270,7 @@ export class GoogleChatAdapter implements Adapter<GoogleChatThreadId, unknown> {
       threadId,
       ...this.formatConverter.parseIncoming(text),
       raw: notification,
+      isMention: this.mentionsBot(message),
       author: {
         userId,
         userName: displayName,
@@ -1477,6 +1478,7 @@ export class GoogleChatAdapter implements Adapter<GoogleChatThreadId, unknown> {
       threadId,
       ...this.formatConverter.parseIncoming(text),
       raw: event,
+      isMention: this.mentionsBot(message),
       author: {
         userId,
         userName: displayName,
@@ -2786,6 +2788,17 @@ export class GoogleChatAdapter implements Adapter<GoogleChatThreadId, unknown> {
     }
 
     return text;
+  }
+
+  private mentionsBot(message: GoogleChatMessage): boolean | undefined {
+    if (!this.botUserId) {
+      return undefined;
+    }
+    return (message.annotations ?? []).some(
+      (annotation) =>
+        annotation.type === "USER_MENTION" &&
+        annotation.userMention?.user?.name === this.botUserId
+    );
   }
 
   /**
