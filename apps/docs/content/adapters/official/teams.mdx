@@ -296,6 +296,8 @@ The adapter sets `isBot` for the adapter's own bot, senders with `from.role: "bo
 
 The adapter assumes that a channel edit's `conversation.id` carries `;messageid=<root>`, the same as a new channel message, so the thread ID points at the reply chain. This hasn't been checked against a captured channel edit yet.
 
+In a DM, a stream that an `onMessageUpdated` handler posts goes out as its own message, the same as in group chats and channels. It doesn't use native DM streaming, because that stream belongs to the reply to the original message, which may still be in progress.
+
 ## Bot joins
 
 `onMemberJoinedChannel` fires when a `conversationUpdate` activity adds this bot to a channel or group chat. `adapter.botUserId` is the Teams bot ID (`28:<appId>`), so the same bot-join guard works across adapters:

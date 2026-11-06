@@ -1,3 +1,5 @@
+import { AsyncLocalStorage } from "node:async_hooks";
+
 import {
   bufferToDataUri,
   extractCard,
@@ -195,6 +197,11 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
   protected readonly formatConverter = new TeamsFormatConverter();
   protected readonly config: TeamsAdapterConfig;
   private readonly activeStreams = new Map<string, IStreamer>();
+  /**
+   * Set while handling an activity that must not write into a DM's active
+   * streamer, which belongs to the message request still in flight.
+   */
+  private readonly nativeStreamBlocked = new AsyncLocalStorage<true>();
 
   constructor(config: TeamsAdapterConfig = {}) {
     this.config = { ...config };
@@ -645,19 +652,22 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
     }
 
     const threadId = this.threadIdFromActivity(activity);
-    this.chat.processMessageUpdated(
-      {
-        adapter: this,
-        message: async () => {
-          const message = await this.parseIncomingMessage(ctx, threadId);
-          // The activity timestamp is the edit time; Teams doesn't send the original send time.
-          message.metadata.edited = true;
-          message.metadata.editedAt = message.metadata.dateSent;
-          return message;
+    const chat = this.chat;
+    this.nativeStreamBlocked.run(true, () =>
+      chat.processMessageUpdated(
+        {
+          adapter: this,
+          message: async () => {
+            const message = await this.parseIncomingMessage(ctx, threadId);
+            // The activity timestamp is the edit time; Teams doesn't send the original send time.
+            message.metadata.edited = true;
+            message.metadata.editedAt = message.metadata.dateSent;
+            return message;
+          },
+          threadId,
         },
-        threadId,
-      },
-      this.bridgeAdapter.getWebhookOptions()
+        this.bridgeAdapter.getWebhookOptions()
+      )
     );
   }
 
@@ -1834,7 +1844,9 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
     textStream: AsyncIterable<string | StreamChunk>,
     options?: StreamOptions
   ): Promise<RawMessage<unknown> | null> {
-    const activeStream = this.activeStreams.get(threadId);
+    const activeStream = this.nativeStreamBlocked.getStore()
+      ? undefined
+      : this.activeStreams.get(threadId);
 
     if (activeStream && !activeStream.canceled) {
       return this.streamViaEmit(
