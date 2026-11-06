@@ -51,7 +51,7 @@ The memory state adapter keeps subscriptions, locks, and the receive cursor in p
 
 ## Platform setup
 
-1. Install signal-cli 0.14.9 or newer and provision the bot's Signal account with signal-cli's own CLI, using the data directory the daemon will use. In the [Docker Compose example](https://github.com/stibbons-ai/chat-adapter-signal/tree/main/examples/echo-bot), that means a one-off container on the daemon's volume: `docker compose run --rm signal-cli <arguments>`. The daemon loads accounts only when it starts, so stop a running daemon first and start it again afterwards.
+1. Install signal-cli 0.14.9 or newer and provision the bot's Signal account with signal-cli's own CLI, using the data directory the daemon will use. In the [Docker Compose example](https://github.com/stibbons-ai/chat-adapter-signal/tree/c85ae16eb4392f4b0cac81ef04ca8a0c31a4ea2c/examples/echo-bot), that means a one-off container on the daemon's volume: `docker compose run --rm signal-cli <arguments>`. The daemon loads accounts only when it starts, so stop a running daemon first and start it again afterwards.
    - Register a dedicated number with `signal-cli -a <number> register`, then `signal-cli -a <number> verify <code>`. The number must be able to receive an SMS or a call. Don't use the number of a phone that uses Signal: registering moves the account away from that phone. Registration usually needs a captcha first; the [adapter README](https://github.com/stibbons-ai/chat-adapter-signal/tree/c85ae16eb4392f4b0cac81ef04ca8a0c31a4ea2c#provisioning-the-bot-account) walks through it.
    - Or link signal-cli to an existing account as a linked device with `signal-cli link -n <device name>` and scan the QR code under **Settings** > **Linked devices** in Signal on the phone. The bot then reads everything sent to that number and answers as you, and it ignores messages you send from your own devices, so test from another account.
 2. Run signal-cli as an HTTP daemon in its own container next to your bot, for example `signal-cli daemon --http 0.0.0.0:8080 --receive-mode on-connection`. The Docker Compose example runs signal-cli this way, together with an echo bot.
@@ -128,7 +128,7 @@ HTTP is the recommended transport and the only one that replays missed events. R
 
 ## Direct messages
 
-`adapter.openDM()` takes an ACI, a phone number such as `+15550001111`, or `u:<username>`, and returns the 1:1 thread ID. signal-cli looks numbers and usernames up on the Signal server, and `openDM()` throws `ResourceNotFoundError` when it finds no ACI for the user. `chat.openDM()` and `chat.getUser()` can't route Signal user IDs to this adapter, so call the adapter directly and open the thread yourself:
+`adapter.openDM()` takes an ACI, a phone number such as `+15550001111`, or `u:<username>`, and returns the 1:1 thread ID. signal-cli looks numbers and usernames up on the Signal server, and `openDM()` throws `ResourceNotFoundError` when it finds no ACI for the user. `chat.openDM()` and `chat.getUser()` can't route Signal user IDs to this adapter. Chat picks the adapter from the user ID's format, and an ACI has the UUID format Chat assigns to Linear, so with the Linear adapter also registered these calls go to Linear instead of failing. Call the adapter directly and open the thread yourself:
 
 ```typescript
 const signal = bot.getAdapter("signal");
@@ -200,6 +200,6 @@ A 1:1 conversation or group is both the thread and the channel. Message IDs take
 ## Resources
 
 - [Adapter source](https://github.com/stibbons-ai/chat-adapter-signal)
-- [Docker Compose example](https://github.com/stibbons-ai/chat-adapter-signal/tree/main/examples/echo-bot)
+- [Docker Compose example](https://github.com/stibbons-ai/chat-adapter-signal/tree/c85ae16eb4392f4b0cac81ef04ca8a0c31a4ea2c/examples/echo-bot)
 - [`@stibbons/chat-adapter-signal` on npm](https://www.npmjs.com/package/@stibbons/chat-adapter-signal)
 - [signal-cli](https://github.com/AsamK/signal-cli)

@@ -19,7 +19,7 @@ export const signal = {
     tables: { status: "partial", label: "Monospace text" },
     charts: { status: "partial", label: "Monospace text" },
     fields: { status: "partial", label: "Formatted text" },
-    imagesInCards: "no",
+    imagesInCards: { status: "partial", label: "Sent as URLs" },
     modals: "no",
     slashCommands: "no",
     mentions: "yes",
