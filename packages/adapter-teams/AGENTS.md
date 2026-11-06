@@ -296,7 +296,12 @@ When you add support for a new Activity type, capture a fresh fixture
 in `sample-messages.md` so the parser tests stay grounded. The
 `installationUpdate` tests use a synthetic payload modeled on Microsoft's
 documented schema because no captured traffic exists yet; replace it with
-a real capture when one is available.
+a real capture when one is available. The `messageUpdate` tests in
+`edits.test.ts` read Microsoft's documented personal-chat edit from
+`sample-messages.md` and derive channel edits from the captured channel
+post. Add a captured channel edit (a top-level post and a thread reply)
+when one is available, and check that its `conversation.id` still carries
+`;messageid=<root>`.
 
 ## Coding conventions
 
