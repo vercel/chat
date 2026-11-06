@@ -1,3 +1,4 @@
+import { literalTextHandlers, unwrapBareLinks } from "@chat-adapter/shared";
 import {
   type AdapterPostableMessage,
   BaseFormatConverter,
@@ -8,7 +9,9 @@ import {
 
 export class MessengerFormatConverter extends BaseFormatConverter {
   fromAst(ast: Root): string {
-    return stringifyMarkdown(ast).trim();
+    return stringifyMarkdown(unwrapBareLinks(ast), {
+      handlers: literalTextHandlers,
+    }).trim();
   }
 
   toAst(text: string): Root {
