@@ -1,5 +1,18 @@
 # @chat-adapter/catalog
 
+## 4.44.1
+
+### Patch Changes
+
+- a6ec788: Add the community Signal adapter `@stibbons/chat-adapter-signal` to the catalog.
+- 6e0bba3: The Teams adapter reports edited messages to `onMessageUpdated`. It used to drop Teams `messageUpdate` activities, so a bot never saw an edit. The updated message has `isMention` set from its mention entities, like a new message. Teams sends only the new version, so `previousMessage` is `undefined`. Undeletes are still ignored.
+  
+  Webhook options are now scoped to each request instead of the activity id, so an edit that reuses its message's id no longer loses its `waitUntil` while the original message is still being handled.
+  
+  In a DM, a stream posted from `onMessageUpdated` goes out as its own message instead of being written into the reply to the original message, which may still be streaming.
+  
+  The catalog lists Teams message edit events as partial, because channel edits haven't been checked against captured traffic.
+
 ## 4.44.0
 
 ### Patch Changes
