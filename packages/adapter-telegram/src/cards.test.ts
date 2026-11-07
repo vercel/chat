@@ -58,6 +58,27 @@ describe("cardToTelegramInlineKeyboard", () => {
     });
   });
 
+  it("wraps an actions block longer than 8 buttons into rows of 8", () => {
+    const ids = Array.from({ length: 11 }, (_, i) => `agent-${i + 1}`);
+    const keyboard = cardToTelegramInlineKeyboard({
+      type: "card",
+      children: [
+        {
+          type: "actions",
+          children: ids.map((id) => ({ type: "button", id, label: id })),
+        },
+      ],
+    });
+
+    const buttons = ids.map((id) => ({
+      text: id,
+      callback_data: encodeTelegramCallbackData(id),
+    }));
+    expect(keyboard).toEqual({
+      inline_keyboard: [buttons.slice(0, 8), buttons.slice(8)],
+    });
+  });
+
   it("ignores unsupported action controls", () => {
     const keyboard = cardToTelegramInlineKeyboard({
       type: "card",

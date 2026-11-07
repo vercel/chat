@@ -8,6 +8,9 @@ import type {
 
 const CALLBACK_DATA_PREFIX = "chat:";
 const TELEGRAM_CALLBACK_DATA_LIMIT_BYTES = 64;
+// Telegram keeps the first 8 buttons of an inline keyboard row and silently
+// drops the rest, so longer rows are wrapped.
+const TELEGRAM_MAX_BUTTONS_PER_ROW = 8;
 
 interface TelegramCardActionPayload {
   a: string;
@@ -50,8 +53,8 @@ function collectInlineKeyboardRows(
   for (const child of children) {
     if (child.type === "actions") {
       const row = toInlineKeyboardRow(child);
-      if (row.length > 0) {
-        rows.push(row);
+      for (let i = 0; i < row.length; i += TELEGRAM_MAX_BUTTONS_PER_ROW) {
+        rows.push(row.slice(i, i + TELEGRAM_MAX_BUTTONS_PER_ROW));
       }
       continue;
     }
