@@ -195,6 +195,31 @@ function createAbortError(): Error {
   return new DOMException("Aborted", "AbortError");
 }
 
+function stallBeforeHeaders(init?: RequestInit): Promise<Response> {
+  return new Promise<Response>((_resolve, reject) => {
+    init?.signal?.addEventListener("abort", () => reject(init.signal?.reason), {
+      once: true,
+    });
+  });
+}
+
+function stallMidBody(init?: RequestInit): Promise<Response> {
+  return Promise.resolve(
+    new Response(
+      new ReadableStream({
+        start(controller) {
+          controller.enqueue(new TextEncoder().encode('{"ok":true,"result":['));
+          init?.signal?.addEventListener(
+            "abort",
+            () => controller.error(init.signal?.reason),
+            { once: true }
+          );
+        },
+      })
+    )
+  );
+}
+
 async function waitForCondition(
   predicate: () => boolean,
   timeoutMs = 1_000
@@ -2052,6 +2077,200 @@ describe("TelegramAdapter", () => {
     } finally {
       await adapter.stopPolling();
     }
+  });
+
+  it("gives a non blocking drain poll a deadline without the long polling timeout", async () => {
+    vi.useFakeTimers();
+    const timeoutSpy = vi.spyOn(AbortSignal, "timeout");
+    const albumUpdate = (updateId: number, group: string) => ({
+      update_id: updateId,
+      message: sampleMessage({
+        message_id: updateId,
+        media_group_id: group,
+        photo: [
+          {
+            file_id: `photo-${updateId}`,
+            file_unique_id: `photo-unique-${updateId}`,
+            width: 800,
+            height: 600,
+          },
+        ],
+        text: undefined,
+      }),
+    });
+    mockFetch
+      .mockResolvedValueOnce(
+        telegramOk({
+          id: 999,
+          is_bot: true,
+          first_name: "Bot",
+          username: "mybot",
+        })
+      )
+      .mockResolvedValueOnce(telegramOk(true))
+      .mockResolvedValueOnce(telegramOk([albumUpdate(10, "first-album")]))
+      .mockImplementationOnce(
+        () =>
+          new Promise<Response>((resolve) => {
+            setTimeout(
+              () => resolve(telegramOk([albumUpdate(11, "second-album")])),
+              500
+            );
+          })
+      )
+      .mockImplementation((_input, init) => {
+        return new Promise<Response>((_resolve, reject) => {
+          init?.signal?.addEventListener(
+            "abort",
+            () => reject(createAbortError()),
+            { once: true }
+          );
+        });
+      });
+
+    const adapter = createTelegramAdapter({
+      botToken: "token",
+      mode: "webhook",
+      logger: mockLogger,
+      userName: "mybot",
+    });
+    const chat = createMockChat();
+    const processMessage = chat.processMessage as ReturnType<typeof vi.fn>;
+    processMessage.mockImplementationOnce(() => {
+      vi.setSystemTime(Date.now() + 1000);
+    });
+
+    await adapter.initialize(chat);
+    await adapter.startPolling({ limit: 1, retryDelayMs: 0, timeout: 1 });
+
+    try {
+      await vi.advanceTimersByTimeAsync(3000);
+
+      expect(processMessage).toHaveBeenCalledTimes(1);
+      const pollBodies = mockFetch.mock.calls
+        .filter(([input]) => String(input).includes("/getUpdates"))
+        .map(([, init]) => JSON.parse(String((init as RequestInit).body)));
+      expect(pollBodies.at(-1)?.timeout).toBe(0);
+      expect(timeoutSpy).toHaveBeenLastCalledWith(30_000);
+    } finally {
+      await adapter.stopPolling();
+      timeoutSpy.mockRestore();
+    }
+  });
+
+  it("retries a getUpdates request that stalls past its deadline", async () => {
+    const deadlines: AbortController[] = [];
+    const timeoutSpy = vi
+      .spyOn(AbortSignal, "timeout")
+      .mockImplementation(() => {
+        const controller = new AbortController();
+        deadlines.push(controller);
+        return controller.signal;
+      });
+    let polls = 0;
+    mockFetch
+      .mockResolvedValueOnce(
+        telegramOk({
+          id: 999,
+          is_bot: true,
+          first_name: "Bot",
+          username: "mybot",
+        })
+      )
+      .mockResolvedValueOnce(telegramOk(true))
+      .mockImplementation((_input, init) => {
+        polls += 1;
+        if (polls === 2) {
+          return stallMidBody(init);
+        }
+        if (polls === 3) {
+          return Promise.resolve(
+            telegramOk([
+              {
+                update_id: 10,
+                message: sampleMessage({ message_id: 99, text: "after stall" }),
+              },
+            ])
+          );
+        }
+        return stallBeforeHeaders(init);
+      });
+
+    const adapter = createTelegramAdapter({
+      botToken: "token",
+      mode: "webhook",
+      logger: mockLogger,
+      userName: "mybot",
+    });
+    const chat = createMockChat();
+    const processMessage = chat.processMessage as ReturnType<typeof vi.fn>;
+    vi.mocked(mockLogger.warn).mockClear();
+
+    await adapter.initialize(chat);
+    await adapter.startPolling({ limit: 1, timeout: 1, retryDelayMs: 0 });
+
+    try {
+      await waitForCondition(() => deadlines.length === 1);
+      expect(timeoutSpy).toHaveBeenCalledWith(31_000);
+      expect(processMessage).not.toHaveBeenCalled();
+
+      deadlines[0]?.abort(new DOMException("timed out", "TimeoutError"));
+      await waitForCondition(() => deadlines.length === 2);
+      deadlines[1]?.abort(new DOMException("timed out", "TimeoutError"));
+      await waitForCondition(() => processMessage.mock.calls.length > 0);
+
+      expect(polls).toBeGreaterThanOrEqual(3);
+      expect(adapter.isPolling).toBe(true);
+      for (const consecutiveFailures of [1, 2]) {
+        expect(mockLogger.warn).toHaveBeenCalledWith(
+          "Telegram polling request failed",
+          expect.objectContaining({
+            consecutiveFailures,
+            error: "NetworkError: Telegram getUpdates request timed out",
+          })
+        );
+      }
+    } finally {
+      await adapter.stopPolling();
+      timeoutSpy.mockRestore();
+    }
+    expect(adapter.isPolling).toBe(false);
+  });
+
+  it.each([
+    ["before headers", stallBeforeHeaders],
+    ["mid body", stallMidBody],
+  ])("stops a getUpdates stalled %s without treating it as a failure", async (_stage, stall) => {
+    mockFetch
+      .mockResolvedValueOnce(
+        telegramOk({
+          id: 999,
+          is_bot: true,
+          first_name: "Bot",
+          username: "mybot",
+        })
+      )
+      .mockResolvedValueOnce(telegramOk(true))
+      .mockImplementation((_input, init) => stall(init));
+
+    const adapter = createTelegramAdapter({
+      botToken: "token",
+      mode: "webhook",
+      logger: mockLogger,
+      userName: "mybot",
+    });
+    vi.mocked(mockLogger.warn).mockClear();
+
+    await adapter.initialize(createMockChat());
+    await adapter.startPolling({ limit: 1, timeout: 1, retryDelayMs: 0 });
+    await waitForCondition(() => mockFetch.mock.calls.length >= 3);
+    await adapter.stopPolling();
+
+    expect(adapter.isPolling).toBe(false);
+    expect(mockLogger.warn).not.toHaveBeenCalledWith(
+      "Telegram polling request failed",
+      expect.anything()
+    );
   });
 
   it("mode polling starts polling during initialize", async () => {
