@@ -90,6 +90,7 @@ export interface SlackRadioSelectElement {
 
 export interface SlackSectionElement {
   children: SlackCardChild[];
+  layout?: "stack" | "columns" | "carousel";
   type: "section";
 }
 

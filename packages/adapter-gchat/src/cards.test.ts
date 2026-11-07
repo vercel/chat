@@ -666,3 +666,196 @@ describe("cardToGoogleCard with CardLink", () => {
     });
   });
 });
+
+describe("portable section layouts", () => {
+  it("renders two native columns and preserves select and action callbacks", () => {
+    const card = Card({
+      children: [
+        Section(
+          [
+            Section([
+              CardText("First"),
+              Actions([
+                Select({
+                  id: "environment",
+                  label: "Environment",
+                  options: [
+                    SelectOption({ label: "Production", value: "production" }),
+                  ],
+                }),
+                Button({ id: "deploy", label: "Deploy", value: "web" }),
+              ]),
+            ]),
+            Section([
+              Image({ url: "https://example.com/image.png", alt: "Preview" }),
+              Actions([
+                LinkButton({ label: "Docs", url: "https://example.com/docs" }),
+              ]),
+            ]),
+          ],
+          { layout: "columns" }
+        ),
+      ],
+    });
+    const widgets = cardToGoogleCard(card, {
+      endpointUrl: "https://example.com/events",
+    }).card.sections[0].widgets;
+    expect(widgets).toHaveLength(1);
+    expect(widgets[0].columns?.columnItems).toMatchObject([
+      {
+        horizontalSizeStyle: "FILL_AVAILABLE_SPACE",
+        widgets: [
+          { textParagraph: { text: "First" } },
+          {
+            selectionInput: {
+              name: "environment",
+              onChangeAction: { function: "https://example.com/events" },
+            },
+          },
+          {
+            buttonList: {
+              buttons: [
+                {
+                  onClick: {
+                    action: {
+                      function: "https://example.com/events",
+                      parameters: [
+                        { key: "actionId", value: "deploy" },
+                        { key: "value", value: "web" },
+                      ],
+                    },
+                  },
+                },
+              ],
+            },
+          },
+        ],
+      },
+      {
+        widgets: [
+          { image: { altText: "Preview" } },
+          {
+            buttonList: {
+              buttons: [
+                { onClick: { openLink: { url: "https://example.com/docs" } } },
+              ],
+            },
+          },
+        ],
+      },
+    ]);
+  });
+
+  it("stacks all three columns rather than truncating to the platform limit", () => {
+    const sections = ["one", "two", "three"].map((id) =>
+      Section([CardText(id), Actions([Button({ id, label: id })])])
+    );
+    const widgets = cardToGoogleCard(
+      Card({ children: [Section(sections, { layout: "columns" })] })
+    ).card.sections[0].widgets;
+    expect(
+      widgets.map((widget) => widget.textParagraph?.text).filter(Boolean)
+    ).toEqual(["one", "two", "three"]);
+    expect(widgets.filter((widget) => widget.buttonList)).toHaveLength(3);
+    expect(widgets.some((widget) => widget.columns)).toBe(false);
+  });
+
+  it("renders a native carousel with text, images, and buttons", () => {
+    const card = Card({
+      children: [
+        Section(
+          [
+            Section([
+              CardText("First"),
+              Actions([Button({ id: "first", label: "Choose first" })]),
+            ]),
+            Section([
+              CardText("Second"),
+              Image({
+                url: "https://example.com/image.png",
+                alt: "Second item",
+              }),
+            ]),
+          ],
+          { layout: "carousel" }
+        ),
+      ],
+    });
+    const widgets = cardToGoogleCard(card).card.sections[0].widgets;
+    expect(widgets).toMatchObject([
+      {
+        carousel: {
+          carouselCards: [
+            {
+              widgets: [
+                { textParagraph: { text: "First" } },
+                {
+                  buttonList: {
+                    buttons: [{ onClick: { action: { function: "first" } } }],
+                  },
+                },
+              ],
+            },
+            {
+              widgets: [
+                { textParagraph: { text: "Second" } },
+                { image: { altText: "Second item" } },
+              ],
+            },
+          ],
+        },
+      },
+    ]);
+  });
+
+  it("stacks a carousel with selections that native carousel items cannot hold", () => {
+    const card = Card({
+      children: [
+        Section(
+          [
+            Section([
+              CardText("First"),
+              Actions([
+                Select({
+                  id: "choice",
+                  label: "Choose",
+                  options: [SelectOption({ label: "Yes", value: "yes" })],
+                }),
+              ]),
+            ]),
+            Section([CardText("Second")]),
+          ],
+          { layout: "carousel" }
+        ),
+      ],
+    });
+    const widgets = cardToGoogleCard(card).card.sections[0].widgets;
+    expect(widgets).toMatchObject([
+      { textParagraph: { text: "First" } },
+      { selectionInput: { name: "choice" } },
+      { textParagraph: { text: "Second" } },
+    ]);
+    expect(widgets.some((widget) => widget.carousel)).toBe(false);
+  });
+
+  it("does not nest unsupported widgets in native columns", () => {
+    const card = Card({
+      children: [
+        Section(
+          [
+            Section([CardText("Before"), Divider(), CardText("After")]),
+            Section([CardText("Second")]),
+          ],
+          { layout: "columns" }
+        ),
+      ],
+    });
+    const widgets = cardToGoogleCard(card).card.sections[0].widgets;
+    expect(widgets).toMatchObject([
+      { textParagraph: { text: "Before" } },
+      { divider: {} },
+      { textParagraph: { text: "After" } },
+      { textParagraph: { text: "Second" } },
+    ]);
+  });
+});

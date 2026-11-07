@@ -142,8 +142,16 @@ export interface ActionsElement {
   type: "actions";
 }
 
+/** Preferred arrangement of a section. Unsupported layouts render vertically. */
+export type SectionLayout = "stack" | "columns" | "carousel";
+
+export interface SectionOptions {
+  /** Each child Section forms a column or carousel item. */
+  layout?: SectionLayout;
+}
+
 /** Section container for grouping elements */
-export interface SectionElement {
+export interface SectionElement extends SectionOptions {
   /** Section children */
   children: CardChild[];
   type: "section";
@@ -411,10 +419,14 @@ export function Divider(): DividerElement {
  * ])
  * ```
  */
-export function Section(children: CardChild[]): SectionElement {
+export function Section(
+  children: CardChild[],
+  options: SectionOptions = {}
+): SectionElement {
   return {
     type: "section",
     children,
+    ...(options.layout ? { layout: options.layout } : {}),
   };
 }
 
@@ -838,7 +850,9 @@ export function fromReactElement(element: unknown): AnyCardElement | null {
       return Divider();
 
     case "Section":
-      return Section(convertedChildren.filter(isCardChild));
+      return Section(convertedChildren.filter(isCardChild), {
+        layout: props.layout as SectionLayout | undefined,
+      });
 
     case "Actions":
       return Actions(
