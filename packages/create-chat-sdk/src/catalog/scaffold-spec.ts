@@ -377,6 +377,9 @@ export const CLI_SCAFFOLD_SPEC = {
       ],
     },
   },
+  wayza: {
+    invocation: { kind: "zero-arg" },
+  },
   web: {
     extraDependencies: ["ai"],
     invocation: { kind: "web-server" },
