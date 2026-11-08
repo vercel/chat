@@ -78,6 +78,7 @@ Wayza checks the URL with a signed challenge, then signs every delivery with Sta
 For a script or a long-running process with no public URL, poll instead:
 
 ```typescript
+await bot.initialize();
 bot.getAdapter("wayza").startPolling(15_000);
 ```
 
