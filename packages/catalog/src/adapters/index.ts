@@ -47,6 +47,7 @@ import { photon } from "./vendor-official/photon";
 import { resend } from "./vendor-official/resend";
 import { sendblue } from "./vendor-official/sendblue";
 import { velt } from "./vendor-official/velt";
+import { wayza } from "./vendor-official/wayza";
 import { zernio } from "./vendor-official/zernio";
 
 /**
@@ -90,6 +91,7 @@ export const ADAPTERS = {
   linq,
   photon,
   dial,
+  wayza,
 } as const satisfies Record<string, CatalogAdapter>;
 
 /**
