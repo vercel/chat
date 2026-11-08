@@ -325,5 +325,5 @@ refactors and AGENTS.md edits don't.
 - User-facing docs: [`apps/docs/content/adapters/official/teams.mdx`](../../apps/docs/content/adapters/official/teams.mdx)
 - README: [`packages/adapter-teams/README.md`](README.md)
 - Shared error/utility helpers: [`packages/adapter-shared/src/index.ts`](../adapter-shared/src/index.ts)
-- Core Adapter contract: [`packages/chat/src/adapter.ts`](../chat/src/adapter.ts)
+- Core Adapter contract: [`packages/chat/src/types.ts`](../chat/src/types.ts)
 - Sample webhook payloads: [`packages/adapter-teams/sample-messages.md`](sample-messages.md)

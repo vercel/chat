@@ -228,7 +228,7 @@ and `state-ioredis` in the changeset.
 
 - User-facing docs: [`apps/docs/content/adapters/official/ioredis.mdx`](../../apps/docs/content/adapters/official/ioredis.mdx)
 - README: [`packages/state-ioredis/README.md`](README.md)
-- Core StateAdapter contract: [`packages/chat/src/state.ts`](../chat/src/state.ts)
+- Core StateAdapter contract: [`packages/chat/src/types.ts`](../chat/src/types.ts)
 - Sibling state adapters:
   - [`packages/state-memory`](../state-memory)
   - [`packages/state-redis`](../state-redis)

@@ -211,7 +211,7 @@ type changed). README and AGENTS.md edits don't.
 
 - User-facing docs: [`apps/docs/content/adapters/official/redis.mdx`](../../apps/docs/content/adapters/official/redis.mdx)
 - README: [`packages/state-redis/README.md`](README.md)
-- Core StateAdapter contract: [`packages/chat/src/state.ts`](../chat/src/state.ts)
+- Core StateAdapter contract: [`packages/chat/src/types.ts`](../chat/src/types.ts)
 - Sibling state adapters:
   - [`packages/state-memory`](../state-memory)
   - [`packages/state-ioredis`](../state-ioredis)

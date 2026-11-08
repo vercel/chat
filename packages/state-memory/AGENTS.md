@@ -187,7 +187,7 @@ type changed). README and AGENTS.md edits don't.
 
 - User-facing docs: [`apps/docs/content/adapters/official/memory.mdx`](../../apps/docs/content/adapters/official/memory.mdx)
 - README: [`packages/state-memory/README.md`](README.md)
-- Core StateAdapter contract: [`packages/chat/src/state.ts`](../chat/src/state.ts)
+- Core StateAdapter contract: [`packages/chat/src/types.ts`](../chat/src/types.ts)
 - Sibling state adapters:
   - [`packages/state-redis`](../state-redis)
   - [`packages/state-ioredis`](../state-ioredis)
