@@ -84,6 +84,8 @@ export async function POST(request: Request) {
      }'
    ```
 
+   Replace `<your profile id>` with your Adeli profile id (see [List profiles](https://www.tryadeli.com/docs/api/profiles/list-profiles)).
+
 5. Store the signing secret from the response as `ADELI_WEBHOOK_SECRET`. Adeli shows it only once. To rotate it, delete the webhook and create it again.
 6. Send a test event from the webhook's row in the dashboard. The adapter verifies and acknowledges test events (`"test": true`) without calling your handlers.
 
@@ -156,21 +158,21 @@ createAdeliAdapter({
 
 ## Webhooks
 
-Adeli signs every delivery with an `Adeli-Signature` header (HMAC-SHA256 with a timestamp). The adapter rejects unsigned, mis-signed, and stale deliveries (older than `webhookToleranceSeconds`) with `401`, answers `200` at once, and runs your handlers in `waitUntil`. Adeli retries failed deliveries for about nine hours with the same event id, and Chat SDK deduplicates them.
+Adeli signs every delivery with an `Adeli-Signature` header (HMAC-SHA256 with a timestamp). The adapter rejects unsigned, mis-signed, and stale deliveries (older than `webhookToleranceSeconds`) with `401`, answers `200` at once, and runs your handlers in `waitUntil`. Adeli retries failed deliveries for about nine hours with the same event id. Chat SDK drops redelivered messages and comments that arrive within its dedupe window (`dedupeTtlMs`, 10 minutes by default); button taps (`message.postback`) are not deduplicated.
 
-Every inbound DM and every new top-level comment reaches `onNewMention`. Replies under a comment reach `onSubscribedMessage` once the thread is subscribed. See the [Adeli webhooks docs](https://www.tryadeli.com/docs/api/webhooks) for the event payloads.
+Unless you register `onDirectMessage`, every inbound DM reaches `onNewMention`, as does every new top-level comment. Replies under a comment reach `onSubscribedMessage` once the thread is subscribed. See the [Adeli webhooks docs](https://www.tryadeli.com/docs/api/webhooks) for the event payloads.
 
 ## Buttons
 
 On Instagram DMs, a card's `<Button>` and `<LinkButton>` elements become native Instagram buttons, up to three per message. A tap arrives as `onAction` with the button's `id` and `value`:
 
 ```tsx
-import { Actions, Button, Card, LinkButton, Text } from "chat";
+import { Actions, Button, Card, CardText, LinkButton } from "chat";
 
 bot.onNewMention(async (thread) => {
   await thread.post(
     <Card title="Track your order?">
-      <Text>We can send you shipping updates here.</Text>
+      <CardText>We can send you shipping updates here.</CardText>
       <Actions>
         <Button id="track" value="order-42">Yes please</Button>
         <LinkButton url="https://shop.example.com/orders/42">View order</LinkButton>
@@ -214,12 +216,13 @@ A DM thread is one conversation between a connected account and one person. A co
 - Instagram, Facebook, and WhatsApp accept free-text messages only within 24 hours of the person's last message. Outside that window, a post throws `AdapterError` with code `window_closed`. To open a WhatsApp conversation, send an approved template with [`@adeli/sdk`](https://www.npmjs.com/package/@adeli/sdk); Chat SDK messages can't carry templates.
 - `editMessage`, `addReaction`, and `removeReaction` throw `NotImplementedError`. `startTyping` resolves without doing anything, so portable bots keep working.
 - `deleteMessage` works only on the account's own comments.
+- Instagram accounts connected through a Facebook Page before Unified Login, and TikTok accounts connected without comment access, send no events until reconnected in the Adeli dashboard.
 - A card with more than three buttons throws `ValidationError` on Instagram. A button's `id` and `value` must fit Instagram's 1,000-character postback payload.
 - Posting files or attachments throws `ValidationError`.
 - Streams are buffered and posted once, because none of Adeli's platforms can edit a sent message.
 - `fetchMessages` with `direction: "forward"` on a DM reads up to 1,000 messages and returns them in one page.
 - A workspace without billing that has used its free monthly sends gets `AdapterRateLimitError`, with `retryAfter` set to the reset time. Provider rate limits (`429`) map to the same error.
-- `401` maps to `AuthenticationError`, `403 permission_required` to `PermissionError`, `404` to `ResourceNotFoundError`, `400` and `422` to `ValidationError`, and `5xx` or network failures to `NetworkError`, all from `@chat-adapter/shared`.
+- `401` maps to `AuthenticationError`, `403` to `PermissionError`, `404` to `ResourceNotFoundError`, `400` and `422` to `ValidationError`, and `5xx` or network failures to `NetworkError`, all from `@chat-adapter/shared`.
 
 ## Feature support
 

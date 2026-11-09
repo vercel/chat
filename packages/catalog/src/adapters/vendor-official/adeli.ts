@@ -38,7 +38,7 @@ export const adeli = {
     cardFormat: { status: "partial", label: "Plain-text fallback" },
     buttons: { status: "partial", label: "Instagram DMs, max 3" },
     linkButtons: { status: "partial", label: "Instagram DMs" },
-    mentions: "yes",
+    mentions: { status: "partial", label: "Every DM and top-level comment" },
     directMessages: "yes",
     customApiEndpoint: { status: "yes", label: "baseURL" },
     fetchMessages: "yes",
@@ -49,7 +49,7 @@ export const adeli = {
   packageName: "@adeli/chat-sdk-adapter",
   peerDeps: [],
   readme:
-    "https://github.com/kingscrosslabs/adeli-chat-sdk-adapter/tree/v1.0.0",
+    "https://github.com/kingscrosslabs/adeli-chat-sdk-adapter/tree/v1.0.1",
   slug: "adeli",
   type: "platform",
 } as const satisfies CatalogAdapter;
