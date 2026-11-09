@@ -6,6 +6,7 @@ import { line } from "./community/line";
 import { mattermost } from "./community/mattermost";
 import { mysql } from "./community/mysql";
 import { qq } from "./community/qq";
+import { rocketchat } from "./community/rocketchat";
 import { signal } from "./community/signal";
 import { webex } from "./community/webex";
 import { wecom } from "./community/wecom";
@@ -109,4 +110,5 @@ export const COMMUNITY_ADAPTERS = {
   weixin,
   line,
   signal,
+  rocketchat,
 } as const satisfies Record<string, CommunityAdapter>;
