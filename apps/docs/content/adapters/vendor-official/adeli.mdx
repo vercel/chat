@@ -108,7 +108,7 @@ export async function POST(request: Request) {
     profileId: {
       type: "string",
       description:
-        "Profile id sent with API calls. Also scopes Chat SDK locks and dedupe. Only needed when the key can reach more than one profile. Falls back to `ADELI_PROFILE_ID`.",
+        "Profile id sent with API calls. Also scopes Chat SDK locks and dedupe. Only needed when the key can reach more than one profile. Falls back to `ADELI_PROFILE_ID`. Creating the webhook always takes a profile id, even when the adapter doesn't need one.",
     },
     baseURL: {
       type: "string",
@@ -142,7 +142,7 @@ export async function POST(request: Request) {
 | --- | --- | --- |
 | `ADELI_API_KEY` | Yes | Adeli API key (`rk_live_…`), from **API keys** in the Adeli dashboard |
 | `ADELI_WEBHOOK_SECRET` | Yes | Signing secret of the Adeli webhook that delivers to your bot (`whsec_…`) |
-| `ADELI_PROFILE_ID` | No | Adeli profile id. Only needed when the key can reach more than one profile |
+| `ADELI_PROFILE_ID` | No | Adeli profile id. Only needed when the key can reach more than one profile. Creating the webhook always takes one |
 | `ADELI_BASE_URL` | No | Adeli API origin. Defaults to `https://app.tryadeli.com` |
 
 ### Rotating credentials
