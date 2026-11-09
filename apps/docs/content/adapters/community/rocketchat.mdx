@@ -29,7 +29,7 @@ const adapter = createRocketChatAdapter({
   webhookToken: process.env.ROCKETCHAT_WEBHOOK_TOKEN,
 });
 
-const bot = new Chat({
+export const bot = new Chat({
   userName: "my-bot",
   state: createMemoryState(),
   adapters: {
