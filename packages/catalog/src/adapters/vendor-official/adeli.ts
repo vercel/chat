@@ -49,7 +49,7 @@ export const adeli = {
   packageName: "@adeli/chat-sdk-adapter",
   peerDeps: [],
   readme:
-    "https://github.com/kingscrosslabs/adeli-chat-sdk-adapter/tree/v1.0.1",
+    "https://github.com/kingscrosslabs/adeli-chat-sdk-adapter/tree/v1.0.2",
   slug: "adeli",
   type: "platform",
 } as const satisfies CatalogAdapter;
