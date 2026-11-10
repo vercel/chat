@@ -1334,6 +1334,59 @@ describe("GoogleChatAdapter", () => {
       await adapter.handleWebhook(request);
       expect(mockChat).not.toHaveDispatched("processAction");
     });
+
+    it("should use the same thread ID for a DM card click as for a DM message", async () => {
+      const { adapter, mockChat } = await createInitializedAdapter();
+      const spaceName = "spaces/DM_SPACE";
+      const threadName = "spaces/DM_SPACE/threads/thread1";
+
+      const messageEvent = makeMessageEvent({
+        spaceType: "DM",
+        spaceName,
+        threadName,
+      });
+      await adapter.handleWebhook(
+        new Request("https://example.com/webhook", {
+          method: "POST",
+          body: JSON.stringify(messageEvent),
+        })
+      );
+      const messageThreadId = (mockChat.processMessage as any).mock.calls[0][1];
+
+      const clickEvent: GoogleChatEvent = {
+        commonEventObject: {
+          parameters: { actionId: "approve" },
+        },
+        chat: {
+          buttonClickedPayload: {
+            space: { name: spaceName, type: "DM" },
+            message: {
+              name: "spaces/DM_SPACE/messages/msg1",
+              sender: { name: "users/1", displayName: "Bot", type: "BOT" },
+              text: "",
+              createTime: new Date().toISOString(),
+              thread: { name: threadName },
+            },
+            user: {
+              name: "users/2",
+              displayName: "Clicker",
+              type: "HUMAN",
+            },
+          },
+        },
+      };
+      await adapter.handleWebhook(
+        new Request("https://example.com/webhook", {
+          method: "POST",
+          body: JSON.stringify(clickEvent),
+        })
+      );
+
+      const clickThreadId = (mockChat.processAction as any).mock.calls[0][0]
+        .threadId;
+      expect(messageThreadId).toBe(`gchat:${spaceName}:dm`);
+      expect(clickThreadId).toBe(messageThreadId);
+    });
   });
 
   describe("handleMessageEvent (via handleWebhook)", () => {

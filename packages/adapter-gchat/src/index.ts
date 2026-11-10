@@ -1357,10 +1357,16 @@ export class GoogleChatAdapter implements Adapter<GoogleChatThreadId, unknown> {
       return;
     }
 
-    const threadName = message?.thread?.name || message?.name;
+    // Use the same space-only DM thread ID as handleMessageEvent, so a click
+    // in a DM maps to the thread its messages were dispatched on.
+    const isDM = space.type === "DM" || space.spaceType === "DIRECT_MESSAGE";
+    const threadName = isDM
+      ? undefined
+      : message?.thread?.name || message?.name;
     const threadId = this.encodeThreadId({
       spaceName: space.name,
       threadName,
+      isDM,
     });
 
     const actionEvent: Omit<ActionEvent, "thread" | "openModal"> & {
