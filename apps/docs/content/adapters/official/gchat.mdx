@@ -231,6 +231,12 @@ Domain-wide delegation is required for Workspace Events subscriptions and for in
    ```
 4. Set `GOOGLE_CHAT_IMPERSONATE_USER` to an admin email.
 
+## User email addresses
+
+When Google Chat includes the sender's email address in a webhook event, the adapter sets `message.author.email` on incoming messages and `event.user.email` on card button clicks. If the event has no email, the field is `undefined`.
+
+Messages that arrive through Pub/Sub and messages returned by `fetchMessages` come from the Chat API, whose user resource has no email address, so `author.email` is `undefined` for them.
+
 ## Limitations
 
 - Typing indicators are not supported by the Google Chat API.

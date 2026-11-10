@@ -100,6 +100,7 @@ function makeMessageEvent(
     messageName?: string;
     senderName?: string;
     senderDisplayName?: string;
+    senderEmail?: string;
     senderType?: string;
     threadName?: string;
     annotations?: GoogleChatMessage["annotations"];
@@ -119,6 +120,7 @@ function makeMessageEvent(
             name: overrides.senderName ?? "users/100",
             displayName: overrides.senderDisplayName ?? "Test User",
             type: overrides.senderType ?? "HUMAN",
+            email: overrides.senderEmail,
           },
           text: overrides.messageText ?? "Hello",
           createTime: new Date().toISOString(),
@@ -440,6 +442,24 @@ describe("GoogleChatAdapter", () => {
       expect(msg.author.fullName).toBe("Alice");
       expect(msg.author.userId).toBe("users/ALICE1");
       expect(msg.author.isBot).toBe(false);
+    });
+
+    it("should expose the sender email on the author", async () => {
+      const { adapter } = await createInitializedAdapter();
+      const event = makeMessageEvent({ senderEmail: "alice@example.com" });
+
+      const msg = adapter.parseMessage(event);
+
+      expect(msg.author.email).toBe("alice@example.com");
+    });
+
+    it("should leave the author email undefined when the sender has none", async () => {
+      const { adapter } = await createInitializedAdapter();
+      const event = makeMessageEvent({ senderEmail: "" });
+
+      const msg = adapter.parseMessage(event);
+
+      expect(msg.author.email).toBeUndefined();
     });
 
     it("should throw when event has no messagePayload", () => {
@@ -1315,6 +1335,43 @@ describe("GoogleChatAdapter", () => {
         }),
         undefined
       );
+    });
+
+    it("should expose the clicking user's email on the action event", async () => {
+      const { adapter, mockChat } = await createInitializedAdapter();
+      const makeClick = (email: string): GoogleChatEvent => ({
+        commonEventObject: { parameters: { actionId: "approve" } },
+        chat: {
+          buttonClickedPayload: {
+            space: { name: "spaces/ABC123", type: "ROOM" },
+            message: {
+              name: "spaces/ABC123/messages/msg1",
+              sender: { name: "users/1", displayName: "U", type: "HUMAN" },
+              text: "",
+              createTime: new Date().toISOString(),
+            },
+            user: {
+              name: "users/2",
+              displayName: "Clicker",
+              type: "HUMAN",
+              email,
+            },
+          },
+        },
+      });
+
+      for (const email of ["clicker@example.com", ""]) {
+        await adapter.handleWebhook(
+          new Request("https://example.com/webhook", {
+            method: "POST",
+            body: JSON.stringify(makeClick(email)),
+          })
+        );
+      }
+
+      const calls = (mockChat.processAction as any).mock.calls;
+      expect(calls[0][0].user.email).toBe("clicker@example.com");
+      expect(calls[1][0].user.email).toBeUndefined();
     });
 
     it("should ignore card click when space is missing", async () => {
