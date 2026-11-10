@@ -27,6 +27,8 @@ const adapter = createRocketChatAdapter({
   token: process.env.ROCKETCHAT_TOKEN,
   botUserId: process.env.ROCKETCHAT_USER_ID,
   webhookToken: process.env.ROCKETCHAT_WEBHOOK_TOKEN,
+  // Must match the bot user's Rocket.Chat username, or onNewMention never fires.
+  userName: process.env.ROCKETCHAT_BOT_USERNAME,
 });
 
 export const bot = new Chat({
@@ -58,10 +60,10 @@ export async function POST(request: Request): Promise<Response> {
 
 ## Platform setup
 
-1. **Create a bot user.** In the Rocket.Chat admin, go to **Users** and create a new user with the `bot` role. Generate a personal access token for it under **My Account > Personal Access Tokens**; this is `ROCKETCHAT_TOKEN`. Copy the user's ID (visible in the admin user list or via `users.info`); this is `ROCKETCHAT_USER_ID`.
+1. **Create a bot user.** In the Rocket.Chat admin, go to **Users** and create a new user with the `bot` role. The `bot` role lacks the `create-personal-access-tokens` permission by default, so grant it to the role (or temporarily add the `user` role), log in as the bot, and generate a personal access token under **Profile > Personal Access Tokens**; this is `ROCKETCHAT_TOKEN`. The dialog that shows the token also shows the bot's user ID; this is `ROCKETCHAT_USER_ID`.
 2. **Add the bot to rooms.** Add the bot user to any channel, private group, or DM where it should respond. The REST API calls the bot makes (posting, editing, reacting) require it to be a member of the room.
-3. **Create an Outgoing Webhook integration.** In the admin, go to **Integrations > New > Outgoing Webhook**. Set the trigger to messages sent, the target URL to your bot's `/api/webhooks/rocketchat` endpoint, and a random token of your choosing; this is `ROCKETCHAT_WEBHOOK_TOKEN`. Rocket.Chat posts every matching message to that URL with the token in the payload, and the adapter rejects requests whose token doesn't match.
-4. **Scope the webhook to rooms.** An Outgoing Webhook can be scoped to specific channels or fire on every room the bot is a member of, depending on how the integration is configured. Configure it to match where you want the bot to listen.
+3. **Create an Outgoing Webhook integration.** In the admin, go to **Integrations > New > Outgoing Webhook**. Set the trigger to messages sent, the target URL to your bot's `/api/webhooks/rocketchat` endpoint, a random token of your choosing (this is `ROCKETCHAT_WEBHOOK_TOKEN`), and **Post as** set to the bot user — this field must name an existing user or the integration won't save. Rocket.Chat posts every matching message to that URL with the token in the payload, and the adapter rejects requests whose token doesn't match.
+4. **Scope the webhook to rooms.** Set the integration's **Channel** field to where the bot should listen, separated by commas: `#channel` names, `all_public_channels`, `all_private_groups`, `all_direct_messages`, or `@botusername` for DMs with the bot. An empty **Channel** field fires only for public channels, so private groups and DMs never reach the bot.
 
 The adapter uses the REST API for every outbound call and an Outgoing Webhook for inbound messages. It does not open a realtime WebSocket/DDP connection, so no long-running connection needs to be kept alive beyond your HTTP server.
 
@@ -111,7 +113,7 @@ The adapter uses the REST API for every outbound call and an Outgoing Webhook fo
 | `ROCKETCHAT_TOKEN` | Yes, unless `token` is passed | Bot personal access token |
 | `ROCKETCHAT_USER_ID` | Yes, unless `botUserId` is passed | Bot user ID |
 | `ROCKETCHAT_WEBHOOK_TOKEN` | Yes, unless `webhookToken` is passed | Outgoing Webhook shared secret |
-| `ROCKETCHAT_BOT_USERNAME` | No | Overrides the bot username used for mention detection |
+| `ROCKETCHAT_BOT_USERNAME` | Yes, unless `userName` is passed or the bot's username is `rocketchat-bot` | Bot's Rocket.Chat username, used for mention detection (default `rocketchat-bot`) |
 
 ## Thread IDs
 
@@ -126,10 +128,11 @@ rocketchat:{roomId}:{tmid}
 
 - **No cards, buttons, or modals.** Interactive payloads are not implemented in this version. Posting a card falls back to its plain-text rendering.
 - **No slash commands.** The adapter only handles plain message events from the Outgoing Webhook integration.
-- **No streaming.** Messages are posted in full; there is no post-then-edit or token-by-token streaming support yet.
+- **No native streaming.** The adapter has no `stream()` method, so Chat SDK streams by posting a placeholder and editing it as chunks arrive (`chat.postMessage`, then repeated `chat.update`).
 - **No typing indicator.** Rocket.Chat's REST API has no endpoint to send a typing event, so `startTyping()` is a documented no-op.
 - **Markdown tables render as an ASCII code block.** Rocket.Chat's markdown dialect has no native table syntax, so `| a | b |` tables are converted into a fixed-width table inside a code fence.
 - **REST-only transport.** There's no realtime DDP/WebSocket subscription; inbound messages depend entirely on the Outgoing Webhook integration reaching your bot's HTTP endpoint.
+- **Limited direct messages.** The adapter doesn't implement `openDM()` or `isDM()`, so the bot can't start a DM, `onDirectMessage` handlers don't run, and a DM reaches `onNewMention` only when it @-mentions the bot.
 
 ## Feature support
 
@@ -139,4 +142,4 @@ rocketchat:{roomId}:{tmid}
 
 - [Adapter source](https://github.com/mandreev-dev/chat-adapter-rocketchat)
 - [`chat-adapter-rocketchat` on npm](https://www.npmjs.com/package/chat-adapter-rocketchat)
-- [Rocket.Chat Outgoing Webhooks](https://docs.rocket.chat/docs/outgoing-webhook-integrations)
+- [Rocket.Chat outgoing integrations](https://docs.rocket.chat/docs/integrations)
