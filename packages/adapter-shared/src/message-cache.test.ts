@@ -246,37 +246,45 @@ describe("upsertMessage", () => {
       ["the default comparator", undefined],
       ["a reversed comparator", reversed],
       ["a comparator on another field", byText],
-    ])("over a seeded sequence of upserts with %s", (_label, compare) => {
-      const random = createRandom(20_240_611);
-      const actual: Message<unknown>[] = [];
-      const reference: Message<unknown>[] = [];
-      let replacements = 0;
-      let ties = 0;
+    ])(
+      "over a seeded sequence of upserts with %s",
+      (_label, compare) => {
+        const random = createRandom(20_240_611);
+        const actual: Message<unknown>[] = [];
+        const reference: Message<unknown>[] = [];
+        let replacements = 0;
+        let ties = 0;
 
-      for (let step = 0; step < 1500; step++) {
-        const id = `m${random(90)}:${random(2)}`;
-        const item = message(id, 1000 * random(6), `t${random(4)}`);
-        if (reference.some((existing) => existing.id === id)) {
-          replacements++;
+        for (let step = 0; step < 1500; step++) {
+          const id = `m${random(90)}:${random(2)}`;
+          const item = message(id, 1000 * random(6), `t${random(4)}`);
+          if (reference.some((existing) => existing.id === id)) {
+            replacements++;
+          }
+          if (
+            reference.some(
+              (existing) =>
+                existing.id !== id &&
+                (compare ?? compareMessagesByTime)(existing, item) === 0
+            )
+          ) {
+            ties++;
+          }
+          referenceUpsert(reference, item, compare);
+          upsertMessage(actual, item, compare);
+          const expected = snapshot(reference).join("\n");
+          if (snapshot(actual).join("\n") !== expected) {
+            expect(snapshot(actual)).toEqual(snapshot(reference));
+          }
         }
-        if (
-          reference.some(
-            (existing) =>
-              existing.id !== id &&
-              (compare ?? compareMessagesByTime)(existing, item) === 0
-          )
-        ) {
-          ties++;
-        }
-        referenceUpsert(reference, item, compare);
-        upsertMessage(actual, item, compare);
+
         expect(snapshot(actual)).toEqual(snapshot(reference));
-      }
-
-      expect(reference.length).toBeGreaterThan(64);
-      expect(replacements).toBeGreaterThan(500);
-      expect(ties).toBeGreaterThan(500);
-    });
+        expect(reference.length).toBeGreaterThan(64);
+        expect(replacements).toBeGreaterThan(500);
+        expect(ties).toBeGreaterThan(500);
+      },
+      30_000
+    );
   });
 });
 

@@ -6,7 +6,7 @@ import { fileURLToPath } from "node:url";
 // `export type` are erased. `import { type A } from "x"` still loads "x" at
 // runtime, so it is matched like any other import.
 const FROM_SPECIFIER_REGEX =
-  /(?<![\w$.])(?:import|export)(\s+type\b(?!\s+from\b))?(?:\s|[\w$*,{}]|\/\/[^\n]*|\/\*[\s\S]*?\*\/)*?from\s*["'`]([^"'`]+)["'`]/g;
+  /(?<![\w$.])(?:import|export)(\s+type\b(?!\s+from\b))?(?:\s|[\w$*,{}]|\/\/[^\n]*\n|\/\*(?:[^*]|\*(?!\/))*\*\/)*?from\s*["'`]([^"'`]+)["'`]/g;
 const SIDE_EFFECT_SPECIFIER_REGEX = /(?<![\w$.])import\s*["'`]([^"'`]+)["'`]/g;
 const DYNAMIC_IMPORT_REGEX = /(?<![\w$.])import\s*\(\s*([^)]*?)\s*\)/g;
 const STRING_LITERAL_REGEX = /^["'`]([^"'`$]+)["'`]$/;
