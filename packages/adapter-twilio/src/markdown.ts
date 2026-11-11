@@ -1,3 +1,4 @@
+import { literalTextHandlers, unwrapBareLinks } from "@chat-adapter/shared";
 import {
   type AdapterPostableMessage,
   BaseFormatConverter,
@@ -16,7 +17,8 @@ export class TwilioFormatConverter extends BaseFormatConverter {
   }
 
   fromAst(ast: Root): string {
-    const transformed = walkAst(structuredClone(ast), (node: Content) => {
+    // unwrapBareLinks returns a copy, so walkAst leaves `ast` unchanged.
+    const transformed = walkAst(unwrapBareLinks(ast), (node: Content) => {
       if (isTableNode(node)) {
         return {
           type: "code" as const,
@@ -25,7 +27,9 @@ export class TwilioFormatConverter extends BaseFormatConverter {
       }
       return node;
     });
-    return stringifyMarkdown(transformed).trim();
+    return stringifyMarkdown(transformed, {
+      handlers: literalTextHandlers,
+    }).trim();
   }
 
   renderPostable(message: AdapterPostableMessage): string {

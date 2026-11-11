@@ -30,7 +30,7 @@ packages/adapter-messenger/
 │   ├── index.test.ts
 │   ├── cards.ts             # PostableMessage / Card → button/generic templates
 │   ├── cards.test.ts
-│   ├── markdown.ts          # MessengerFormatConverter (mdast ↔ plain text)
+│   ├── markdown.ts          # MessengerFormatConverter (mdast ↔ Markdown text)
 │   ├── markdown.test.ts
 │   └── types.ts             # Send API + webhook event typings
 ├── sample-messages.md       # captured Messenger webhook deliveries
@@ -128,18 +128,24 @@ per-conversation state to manage.
 
 ## Format conversion
 
-Messenger renders plain text. `MessengerFormatConverter` (in
+Messenger shows message text as plain text, so any Markdown syntax
+in it appears as typed. `MessengerFormatConverter` (in
 `markdown.ts`):
 
-- mdast → plain text — strips all formatting, preserves links by
-  flattening to `label (url)` notation, preserves bullet/ordered
-  list bullets via prefix characters (`• `, `1. `).
-- Plain text → mdast — wraps the body in a single `paragraph` with
-  links auto-detected via the URL regex.
-- Tables flatten to fixed-width text.
+- mdast → text: `fromAst` serializes the AST to Markdown with
+  `stringifyMarkdown`. Bold, lists, headings, code, and tables keep
+  their Markdown syntax, and a link with its own label stays
+  `[label](url)`. Two helpers from `@chat-adapter/shared` keep the
+  rest as written. `literalTextHandlers` writes text without
+  backslash escapes and hard breaks as plain newlines.
+  `unwrapBareLinks` sends a bare URL, `www.` address, or email
+  address as the address itself instead of `<url>` or
+  `[www.example.com](http://www.example.com)`.
+- Text → mdast: `toAst` parses the text as GFM Markdown with
+  `parseMarkdown`.
 
 The Send API has a 2000-character limit per message. The adapter
-splits longer text into multiple messages with sensible breakpoints.
+truncates longer text to 1997 characters and appends `...`.
 
 ## Cards (templates)
 
