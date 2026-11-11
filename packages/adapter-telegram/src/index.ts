@@ -393,6 +393,24 @@ export function applyTelegramEntities(
 }
 
 /**
+ * The forum topic a message belongs to, or `undefined` outside topics.
+ *
+ * Only a topic message (`is_topic_message`) gets its own thread. In a regular
+ * supergroup Telegram also sets `message_thread_id` on a reply, which the Bot
+ * API describes as the id of "a message thread or forum topic". Outside forums
+ * it identifies the reply thread by its root message, so for a reply to a
+ * reply it is not the direct parent. That is a reply chain inside the chat,
+ * not a topic, so the reply stays in the chat's thread.
+ */
+function getTopicThreadId(
+  message: Pick<TelegramMessage, "is_topic_message" | "message_thread_id">
+): number | undefined {
+  return message.is_topic_message === true
+    ? message.message_thread_id
+    : undefined;
+}
+
+/**
  * Describe the message kinds Telegram sends with no text and no file:
  * locations, venues, shared contacts, polls and dice.
  *
@@ -1017,10 +1035,7 @@ export class TelegramAdapter
       !update.message.media_group_id &&
       this.handleSlashCommandUpdate(
         update.message,
-        this.encodeThreadId({
-          chatId: String(update.message.chat.id),
-          messageThreadId: update.message.message_thread_id,
-        }),
+        this.threadIdForMessage(update.message),
         options
       );
 
@@ -1211,10 +1226,7 @@ export class TelegramAdapter
       return;
     }
 
-    const threadId = this.encodeThreadId({
-      chatId: String(telegramMessage.chat.id),
-      messageThreadId: telegramMessage.message_thread_id,
-    });
+    const threadId = this.threadIdForMessage(telegramMessage);
 
     if (telegramMessage.media_group_id) {
       const task = this.processIncomingMediaGroup(
@@ -1455,9 +1467,7 @@ export class TelegramAdapter
       return;
     }
 
-    const threadId = this.encodeThreadId({
-      chatId: String(callbackQuery.message.chat.id),
-      messageThreadId: callbackQuery.message.message_thread_id,
+    const threadId = this.threadIdForMessage(callbackQuery.message, {
       businessConnectionId: callbackQuery.message.business_connection_id,
     });
 
@@ -1505,9 +1515,10 @@ export class TelegramAdapter
       return tasks;
     }
 
+    // A reaction update does not say whether its message is in a topic, so it
+    // always resolves to the chat's thread.
     const threadId = this.encodeThreadId({
       chatId: String(reactionUpdate.chat.id),
-      messageThreadId: reactionUpdate.message_thread_id,
     });
 
     const messageId = this.encodeMessageId(
@@ -1807,12 +1818,7 @@ export class TelegramAdapter
     const parsedMessages = rawMessages.map((rawMessage) =>
       this.parseTelegramMessage(
         rawMessage,
-        this.encodeThreadId({
-          chatId: String(rawMessage.chat.id),
-          messageThreadId:
-            rawMessage.message_thread_id ?? parsedThread.messageThreadId,
-          businessConnectionId: parsedThread.businessConnectionId,
-        }),
+        this.threadIdForMessage(rawMessage, parsedThread),
         // The whole message's content only describes a single sent message.
         rich && rawMessages.length === 1
           ? {
@@ -2025,11 +2031,7 @@ export class TelegramAdapter
       };
     }
 
-    const resultingThreadId = this.encodeThreadId({
-      chatId: String(result.chat.id),
-      messageThreadId: result.message_thread_id ?? parsedThread.messageThreadId,
-      businessConnectionId: parsedThread.businessConnectionId,
-    });
+    const resultingThreadId = this.threadIdForMessage(result, parsedThread);
 
     const parsedMessage = this.parseTelegramMessage(
       result,
@@ -2521,12 +2523,7 @@ export class TelegramAdapter
             },
           }
         );
-        const resultingThreadId = this.encodeThreadId({
-          chatId: String(raw.chat.id),
-          messageThreadId:
-            raw.message_thread_id ?? parsedThread.messageThreadId,
-          businessConnectionId: parsedThread.businessConnectionId,
-        });
+        const resultingThreadId = this.threadIdForMessage(raw, parsedThread);
         const formatted = this.formatConverter.toAst(accumulated);
         const message = this.parseTelegramMessage(raw, resultingThreadId, {
           formatted,
@@ -2558,11 +2555,7 @@ export class TelegramAdapter
       undefined,
       threadId
     );
-    const resultingThreadId = this.encodeThreadId({
-      chatId: String(raw.chat.id),
-      messageThreadId: raw.message_thread_id ?? parsedThread.messageThreadId,
-      businessConnectionId: parsedThread.businessConnectionId,
-    });
+    const resultingThreadId = this.threadIdForMessage(raw, parsedThread);
     const message = this.parseTelegramMessage(raw, resultingThreadId);
     this.cacheMessage(message);
     return {
@@ -2802,11 +2795,27 @@ export class TelegramAdapter
     };
   }
 
-  parseMessage(raw: TelegramRawMessage): Message<TelegramRawMessage> {
-    const threadId = this.encodeThreadId({
-      chatId: String(raw.chat.id),
-      messageThreadId: raw.message_thread_id,
+  /**
+   * The thread a Telegram message belongs to. `target` is the thread a sent
+   * message was posted to: it supplies the business connection, and the topic
+   * when the Bot API response does not identify one.
+   */
+  private threadIdForMessage(
+    message: Pick<
+      TelegramMessage,
+      "chat" | "is_topic_message" | "message_thread_id"
+    >,
+    target?: Pick<TelegramThreadId, "businessConnectionId" | "messageThreadId">
+  ): string {
+    return this.encodeThreadId({
+      chatId: String(message.chat.id),
+      messageThreadId: getTopicThreadId(message) ?? target?.messageThreadId,
+      businessConnectionId: target?.businessConnectionId,
     });
+  }
+
+  parseMessage(raw: TelegramRawMessage): Message<TelegramRawMessage> {
+    const threadId = this.threadIdForMessage(raw);
 
     const message = this.parseTelegramMessage(raw, threadId);
     this.cacheMessage(message);
@@ -3812,8 +3821,8 @@ export class TelegramAdapter
     //   message_thread_id), authored by whoever created the topic — the bot,
     //   when it did. Only an explicit reply to a different message counts.
     //   This applies to topic messages only: in a regular supergroup a reply
-    //   also carries message_thread_id equal to the replied-to message's id
-    //   (a reply thread), and that reply does address the bot.
+    //   also carries message_thread_id, identifying the reply thread by its
+    //   root message, and that reply does address the bot.
     // - The Bot API echoes the bot's own outbound replies back in send
     //   responses; the bot replying to itself is not a user addressing it.
     if (

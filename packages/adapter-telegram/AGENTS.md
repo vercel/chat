@@ -95,9 +95,22 @@ adapter encodes both:
 
 ```
 telegram:{chatId}                       # plain chat / DM
-telegram:{chatId}:{messageThreadId}     # topic in a forum group
+telegram:{chatId}:{messageThreadId}     # topic (forum group or private chat)
 telegram:biz:{connectionId}:{chatId}    # Connected Business Bot chat
 ```
+
+Only a message with `is_topic_message: true` gets the topic form. In a
+regular supergroup Telegram also sets `message_thread_id` on a reply. It
+identifies the reply thread by the message that started it, so for a reply
+to a reply it is the thread's root, not the direct parent. That is a reply
+chain, not a topic, so `getTopicThreadId` drops it and the reply stays on
+`telegram:{chatId}`.
+
+Build every thread ID for a Telegram `Message` with `threadIdForMessage`,
+never from raw `message_thread_id`. For a sent message, pass the thread it
+was posted to: the result keeps that thread's topic when the Bot API response
+has no `is_topic_message`. Reaction updates carry no `is_topic_message`, so
+they always resolve to `telegram:{chatId}`.
 
 `isDM(threadId)` returns `true` when `chat.type === "private"`.
 

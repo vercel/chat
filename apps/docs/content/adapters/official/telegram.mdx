@@ -313,6 +313,22 @@ Incoming media groups are delivered as one message after the album settles, with
 
 Multiple `files` or compatible `attachments` are sent as Telegram media groups. `files` upload as documents; `attachments` preserve image, audio, video, or file media type.
 
+## Threads
+
+By default, each Telegram chat is one thread, `telegram:{chatId}`. A message that Telegram marks with `is_topic_message` belongs to a topic, and each topic is its own thread, `telegram:{chatId}:{messageThreadId}`. The Bot API sets that field for topics in a forum supergroup and in a private chat with the bot. Business conversations use `telegram:biz:{connectionId}:{chatId}`, as described in [Business mode](#business-mode).
+
+Replies in a regular supergroup stay in the chat's thread. Telegram also sets `message_thread_id` on those replies to identify the reply thread, but the adapter only treats a message as part of a topic when `is_topic_message` is `true`. A bot subscribed to the chat receives the replies in `onSubscribedMessage`.
+
+Because the reply is on the chat's thread, `thread.post()` from its handler sends to the chat without `message_thread_id`. Use `thread.reply()` to answer a specific message. Every reply chain in the chat also shares the chat's lock, so your [`concurrency`](/docs/concurrency) strategy applies across all of them. With the default `drop` strategy, a message that arrives while a handler is still running for another message in the same chat is discarded.
+
+Reaction updates don't say whether the message is in a topic, so reactions always arrive on `telegram:{chatId}`.
+
+<Callout type="warn">
+Earlier versions gave each reply thread in a regular supergroup its own `telegram:{chatId}:{n}` thread ID. Subscriptions, `thread.setState` values, and anything else your bot keyed on those IDs no longer match, because the replies now arrive on `telegram:{chatId}`. Calling `thread.subscribe()` from a reply now subscribes the bot to the whole chat.
+
+Stop posting to stored `telegram:{chatId}:{n}` IDs from a regular supergroup. The adapter still sends `message_thread_id` for them, and the message it returns keeps the stored ID, while replies to that message arrive on `telegram:{chatId}`.
+</Callout>
+
 ## Business mode
 
 Telegram [Connected Business Bots](https://core.telegram.org/api/bots/connected-business-bots) let a bot reply to customer messages on behalf of a business account. Enable it with `businessMode: true`:
