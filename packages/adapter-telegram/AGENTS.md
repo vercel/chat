@@ -250,5 +250,5 @@ fixtures and AGENTS.md edits don't.
 - User-facing docs: [`apps/docs/content/adapters/official/telegram.mdx`](../../apps/docs/content/adapters/official/telegram.mdx)
 - README: [`packages/adapter-telegram/README.md`](README.md)
 - Shared error/utility helpers: [`packages/adapter-shared/src/index.ts`](../adapter-shared/src/index.ts)
-- Core Adapter contract: [`packages/chat/src/adapter.ts`](../chat/src/adapter.ts)
+- Core Adapter contract: [`packages/chat/src/types.ts`](../chat/src/types.ts)
 - Sample webhook payloads: [`packages/adapter-telegram/sample-messages.md`](sample-messages.md)

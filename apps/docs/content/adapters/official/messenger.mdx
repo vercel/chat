@@ -115,13 +115,17 @@ Deploy the GET and POST route shown above to a public HTTPS URL first, then, in 
     },
     userName: {
       type: "string",
-      default: '"bot"',
-      description: "Bot username.",
+      description:
+        "Bot username. Defaults to the Page name, or to the `userName` passed to `Chat` when the Page lookup fails.",
     },
     apiVersion: {
       type: "string",
       default: '"v21.0"',
       description: "Graph API version.",
+    },
+    logger: {
+      type: "Logger",
+      description: 'Logger instance. Defaults to `ConsoleLogger("info")`.',
     },
   }}
 />
@@ -143,18 +147,18 @@ The route handles two kinds of request from Meta:
 
 ## Interactive messages
 
-The adapter converts card elements to Messenger templates:
+The adapter converts a card to one Messenger template when it can:
 
-- Generic Template: used when the card has a `title` or `imageUrl`. Up to 3 buttons.
-- Button Template: used when the card has text content and buttons but no title or image. Max 640 characters.
-- Text fallback: used when the card contains unsupported elements (tables, select menus) or exceeds these constraints.
+- Generic Template: the card has at least one button and a `title` or `imageUrl`.
+- Button Template: the card has at least one button and body text, but no title or image.
+- Text: the card has no buttons, or contains a table, select menu, or radio select.
 
-Constraints:
+The adapter trims content to Messenger's limits and doesn't fall back to text for them:
 
-- Max 3 buttons per template.
-- Button titles limited to 20 characters (truncated with ellipsis).
-- Subtitles limited to 80 characters.
-- Button Template text limited to 640 characters.
+- Only the first 3 buttons are sent. Extra buttons are dropped.
+- Button labels longer than 20 characters are truncated with an ellipsis.
+- Titles and subtitles longer than 80 characters are truncated.
+- Button Template text longer than 640 characters is truncated.
 
 ## Inbound attachments
 

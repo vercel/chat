@@ -240,5 +240,5 @@ fixtures and AGENTS.md edits don't.
 - User-facing docs: [`apps/docs/content/adapters/official/linear.mdx`](../../apps/docs/content/adapters/official/linear.mdx)
 - README: [`packages/adapter-linear/README.md`](README.md)
 - Shared error/utility helpers: [`packages/adapter-shared/src/index.ts`](../adapter-shared/src/index.ts)
-- Core Adapter contract: [`packages/chat/src/adapter.ts`](../chat/src/adapter.ts)
+- Core Adapter contract: [`packages/chat/src/types.ts`](../chat/src/types.ts)
 - Sample webhook payloads: [`packages/adapter-linear/sample-messages.md`](sample-messages.md)
