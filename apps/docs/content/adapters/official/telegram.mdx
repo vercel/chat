@@ -342,7 +342,8 @@ Business thread IDs start with `telegram:biz`, so state adapters that shard by t
 - Telegram does not expose full historical message APIs to bots. `fetchMessages` returns adapter-cached messages from the current process.
 - `listThreads` is not available for Telegram chats.
 - Telegram limits callback data to 64 bytes, so keep `Button` `id`/`value` payloads short.
-- Card elements other than buttons and link buttons, such as images, select menus, and radios, render as fallback text.
+- Telegram keeps only the first 8 buttons of an inline keyboard row and drops the rest, so an `Actions` block with more than 8 buttons wraps into evenly sized rows of at most 8. For example, 11 buttons render as a row of 6 and a row of 5.
+- Card images, select menus, and radios are not rendered. Tables, fields, and links render as text in the message body.
 - `Thread.reply()` threads with Bot API `reply_parameters` and sets `allow_sending_without_reply`, so a reply whose target was deleted, never existed, or lives in another forum topic is delivered unthreaded instead of failing. Only the chat half of a composite target ID is validated up front.
 
 ## Feature support

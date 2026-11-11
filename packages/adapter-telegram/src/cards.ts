@@ -11,6 +11,9 @@ import type {
 } from "./types";
 
 const TELEGRAM_CALLBACK_DATA_LIMIT_BYTES = 64;
+// Telegram keeps the first 8 buttons of an inline keyboard row and silently
+// drops the rest, so longer rows are wrapped.
+const TELEGRAM_MAX_BUTTONS_PER_ROW = 8;
 
 function convertLabel(label: string): string {
   return convertEmojiPlaceholders(label, "gchat");
@@ -41,16 +44,33 @@ function toInlineKeyboardRow(
   return row;
 }
 
+/**
+ * Split buttons into the fewest rows that fit Telegram's per-row limit,
+ * keeping row widths within one button of each other (11 → 6 + 5).
+ */
+function wrapInlineKeyboardRow(
+  buttons: TelegramInlineKeyboardButton[]
+): TelegramInlineKeyboardButton[][] {
+  const rows: TelegramInlineKeyboardButton[][] = [];
+  const rowCount = Math.ceil(buttons.length / TELEGRAM_MAX_BUTTONS_PER_ROW);
+  let start = 0;
+
+  for (let remaining = rowCount; remaining > 0; remaining--) {
+    const size = Math.ceil((buttons.length - start) / remaining);
+    rows.push(buttons.slice(start, start + size));
+    start += size;
+  }
+
+  return rows;
+}
+
 function collectInlineKeyboardRows(
   children: CardChild[],
   rows: TelegramInlineKeyboardButton[][]
 ): void {
   for (const child of children) {
     if (child.type === "actions") {
-      const row = toInlineKeyboardRow(child);
-      if (row.length > 0) {
-        rows.push(row);
-      }
+      rows.push(...wrapInlineKeyboardRow(toInlineKeyboardRow(child)));
       continue;
     }
 

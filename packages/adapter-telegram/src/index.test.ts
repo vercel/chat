@@ -4555,6 +4555,55 @@ describe("TelegramAdapter", () => {
     });
   });
 
+  it("posts a long actions block as wrapped inline keyboard rows", async () => {
+    mockFetch
+      .mockResolvedValueOnce(
+        telegramOk({
+          id: 999,
+          is_bot: true,
+          first_name: "Bot",
+          username: "mybot",
+        })
+      )
+      .mockResolvedValueOnce(telegramOk(sampleMessage()));
+
+    const adapter = createTelegramAdapter({
+      botToken: "token",
+      mode: "webhook",
+      logger: mockLogger,
+      userName: "mybot",
+    });
+
+    await adapter.initialize(createMockChat());
+
+    const ids = Array.from({ length: 11 }, (_, i) => `agent-${i + 1}`);
+    await adapter.postMessage("telegram:123", {
+      type: "card",
+      title: "Pick an agent",
+      children: [
+        {
+          type: "actions",
+          children: ids.map((id) => ({ type: "button", id, label: id })),
+        },
+      ],
+    });
+
+    const sendMessageBody = JSON.parse(
+      String((mockFetch.mock.calls[1]?.[1] as RequestInit).body)
+    ) as {
+      reply_markup?: {
+        inline_keyboard: Array<Array<{ text: string; callback_data?: string }>>;
+      };
+    };
+    const rows = sendMessageBody.reply_markup?.inline_keyboard;
+
+    expect(rows?.map((row) => row.map((button) => button.text))).toEqual([
+      ["agent-1", "agent-2", "agent-3", "agent-4", "agent-5", "agent-6"],
+      ["agent-7", "agent-8", "agent-9", "agent-10", "agent-11"],
+    ]);
+    expect(rows?.[1]?.[4]?.callback_data).toBe('chat:{"a":"agent-11"}');
+  });
+
   it("renders card title as MarkdownV2 bold", async () => {
     mockFetch
       .mockResolvedValueOnce(
