@@ -150,7 +150,7 @@ When you pass `waitUntil`, the adapter processes the event after it sends the re
 
 `postMessage`, `editMessage`, and `deleteMessage` use Zoom's chat message API.
 
-When the adapter has seen the thread's webhook in the current process, it includes the JID of the person who started the thread on the message call. A thread the process never received a webhook for is sent without that JID. Empty messages are skipped because Zoom rejects empty content.
+When the adapter has seen the thread's webhook in the current process, it includes the user identifier from that webhook on the message call: `userJid` for a `bot_notification` thread, or `operator_id` for a `team_chat.app_mention` thread. A thread the process never received a webhook for is sent without that identifier. `postMessage()` skips empty messages because Zoom rejects empty content.
 
 ### Edit and delete messages
 
