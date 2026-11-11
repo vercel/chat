@@ -8,7 +8,8 @@ export type WebTaskData = Omit<TaskUpdateChunk, "type">;
 
 /**
  * Payload of a `data-plan` part: a `plan_update` chunk without its `type`.
- * The part's `id` is the message id, so each update replaces the previous one.
+ * The part's `id` is the assistant message id the client holds, so each
+ * update in a response replaces the previous one.
  */
 export type WebPlanData = Omit<PlanUpdateChunk, "type">;
 

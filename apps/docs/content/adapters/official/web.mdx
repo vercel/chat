@@ -210,7 +210,11 @@ With `"ai-sdk"`, [structured streaming chunks](/docs/streaming#structured-stream
 
 `markdown_text` chunks stream as text, the same as plain strings.
 
-`useChat` replaces a data part when a later part has the same type and `id`, so each task stays a single part whose `status` moves from `pending` to `complete` or `error`. The parts are stored on the message, so they remain after the stream ends. A task or plan chunk also closes the current text part, and text yielded after it starts a new one. As a result, `message.parts` lists text, tasks, and the plan in the order your handler yielded them.
+`useChat` replaces a data part when a later part has the same type and `id`, so each task stays a single part whose `status` moves from `pending` to `complete` or `error`. A response has one plan part, because every `plan_update` in it shares the assistant message ID. The parts are stored on the client's message, so they remain in `messages` after the stream ends.
+
+The first chunk for a task, or the first plan chunk, adds a part and closes the current text part, and text yielded after it starts a new one. `message.parts` therefore lists text, tasks, and the plan in the order your handler first yielded them. A later update to the same task or plan replaces its part where it already sits and leaves the current text part open, so the text around it stays in one part.
+
+A stream that yields tasks or a plan but no text adds no text part.
 
 Pass `WebUIMessage` as `useChat`'s type argument to narrow `part.data` by part type:
 
@@ -248,7 +252,7 @@ The Vue and Svelte entries export `WebUIMessage` too, and their `useChat` helper
 
 ### Reasoning
 
-With `"ai-sdk"`, [`reasoning` chunks](/docs/streaming#reasoning) stream as AI SDK [reasoning parts](https://ai-sdk.dev/docs/ai-sdk-ui/chatbot#reasoning), so the browser can show the model's reasoning while other adapters drop it. Consecutive `reasoning` chunks fill one part of type `reasoning`. Text, a task, or a plan chunk closes it, and reasoning yielded after that starts a new part. A `reasoning` chunk likewise closes the current text part. `message.parts` therefore keeps reasoning, text, tasks, and the plan in the order your handler yielded them.
+With `"ai-sdk"`, [`reasoning` chunks](/docs/streaming#reasoning) stream as AI SDK [reasoning parts](https://ai-sdk.dev/docs/ai-sdk-ui/chatbot#reasoning), so the browser can show the model's reasoning while other adapters drop it. Consecutive `reasoning` chunks fill one part of type `reasoning`. Text, a new task, or the first plan chunk closes it, and reasoning yielded after that starts a new part. A `reasoning` chunk likewise closes the current text part. `message.parts` therefore keeps reasoning, text, tasks, and the plan in the order your handler first yielded them.
 
 Render reasoning parts next to the text parts:
 
@@ -365,7 +369,7 @@ export default function ChatPage() {
 
 `threadId` becomes the conversation ID in the Chat SDK thread ID. Each `thread.post` call in a handler arrives as its own assistant message. Handler errors end the run with a `RUN_ERROR` event.
 
-`reasoning` chunks stream as AG-UI `REASONING_*` events, which TanStack AI shows as thinking parts. `task_update` and `plan_update` chunks arrive as `CUSTOM` events named `task` and `plan`, whose `value` is the chunk without its `type` field. Handle them with TanStack AI's `onCustomEvent` callback. A task or plan chunk ends the current text message, so text yielded after it starts a new `TEXT_MESSAGE_START`.
+`reasoning` chunks stream as AG-UI `REASONING_*` events, which TanStack AI shows as thinking parts. `task_update` and `plan_update` chunks arrive as `CUSTOM` events named `task` and `plan`, whose `value` is the chunk without its `type` field. Handle them with TanStack AI's `onCustomEvent` callback. The first chunk for a task, or the first plan chunk, ends the current text message, so text yielded after it starts a new `TEXT_MESSAGE_START`. Later updates to the same task or plan leave the text message open.
 
 ## Message persistence
 

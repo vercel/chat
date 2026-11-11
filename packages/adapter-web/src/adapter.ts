@@ -37,7 +37,12 @@ import {
   type WebStreamEvent,
   webProtocols,
 } from "./protocol";
-import type { WebAdapterConfig, WebMessage, WebUser } from "./types";
+import type {
+  WebAdapterConfig,
+  WebMessage,
+  WebMessagePart,
+  WebUser,
+} from "./types";
 
 /** Decoded thread id components for the Web adapter. */
 export interface WebThreadIdData {
@@ -58,6 +63,7 @@ export class WebAdapter implements Adapter<WebThreadIdData, WebMessage> {
   readonly userName: string;
   readonly persistMessageHistory: boolean;
   readonly lockScope = "thread" as const;
+  readonly supportsReasoningChunks = true;
 
   protected chat: ChatInstance | null = null;
   protected readonly logger: Logger;
@@ -157,7 +163,11 @@ export class WebAdapter implements Adapter<WebThreadIdData, WebMessage> {
     const message = this.buildMessageFromUI(userMessage, threadId, user);
 
     const chat = this.chat;
-    const run = { conversationId, runId: parsed.runId ?? generateId() };
+    const run = {
+      conversationId,
+      messageId: generateId(),
+      runId: parsed.runId ?? generateId(),
+    };
     return createSseResponse(this.protocol, async (send) => {
       for (const payload of this.protocol.begin(run)) {
         send(payload);
@@ -174,6 +184,8 @@ export class WebAdapter implements Adapter<WebThreadIdData, WebMessage> {
             signal: request.signal,
             userId: user.id,
             conversationId,
+            messageId: run.messageId,
+            dataParts: new Set(),
           },
           // Web requests are never redelivered, so a repeated message id
           // is a deliberate regenerate or reload and must reach the handler.
@@ -300,12 +312,16 @@ export class WebAdapter implements Adapter<WebThreadIdData, WebMessage> {
   ): Promise<RawMessage<WebMessage>> {
     const ctx = requireWebRequestContext();
     const id = generateId();
-    let fullText = "";
+    // The parts this stream wrote, as a client assembles them from its events.
+    const parts: WebMessagePart[] = [];
     // At most one text or reasoning part is open at a time, so parts keep
     // the order the handler yielded them in.
-    let open: { id: string; kind: "text" | "reasoning" } | null = null;
-    let nextTextPart = 0;
-    let nextReasoningPart = 0;
+    let open: {
+      id: string;
+      kind: "text" | "reasoning";
+      part: WebMessagePart & { text: string };
+    } | null = null;
+    const started = { text: 0, reasoning: 0 };
 
     const closePart = () => {
       if (open) {
@@ -313,23 +329,30 @@ export class WebAdapter implements Adapter<WebThreadIdData, WebMessage> {
         open = null;
       }
     };
-    const openPart = (kind: "text" | "reasoning"): string => {
+    const openPart = (kind: "text" | "reasoning") => {
       if (open?.kind === kind) {
-        return open.id;
+        return open;
       }
       closePart();
-      let partId: string;
+      const index = started[kind]++;
+      let partId = `${id}-reasoning-${index}`;
       if (kind === "text") {
         // The first text part reuses the message id.
-        partId = nextTextPart === 0 ? id : `${id}-${nextTextPart}`;
-        nextTextPart++;
-      } else {
-        partId = `${id}-reasoning-${nextReasoningPart}`;
-        nextReasoningPart++;
+        partId = index === 0 ? id : `${id}-${index}`;
       }
+      const opened = { id: partId, kind, part: { type: kind, text: "" } };
+      parts.push(opened.part);
       ctx.write({ type: `${kind}-start`, id: partId });
-      open = { id: partId, kind };
-      return partId;
+      open = opened;
+      return opened;
+    };
+    const writeDelta = (kind: "text" | "reasoning", delta: string) => {
+      if (!delta) {
+        return;
+      }
+      const target = openPart(kind);
+      target.part.text += delta;
+      ctx.write({ type: `${kind}-delta`, id: target.id, delta });
     };
 
     try {
@@ -337,32 +360,42 @@ export class WebAdapter implements Adapter<WebThreadIdData, WebMessage> {
         if (ctx.signal.aborted) {
           break;
         }
-        if (typeof chunk === "string" || chunk.type === "markdown_text") {
-          const text = typeof chunk === "string" ? chunk : chunk.text;
-          if (text) {
-            fullText += text;
-            const partId = openPart("text");
-            ctx.write({ type: "text-delta", id: partId, delta: text });
-          }
+        if (typeof chunk === "string") {
+          writeDelta("text", chunk);
+          continue;
+        }
+        if (chunk.type === "markdown_text") {
+          writeDelta("text", chunk.text);
           continue;
         }
         if (chunk.type === "reasoning") {
-          if (chunk.text) {
-            const partId = openPart("reasoning");
-            ctx.write({
-              type: "reasoning-delta",
-              id: partId,
-              delta: chunk.text,
-            });
-          }
+          writeDelta("reasoning", chunk.text);
           continue;
         }
-        closePart();
-        ctx.write(streamChunkToDataEvent(chunk, id));
+        const event = streamChunkToDataEvent(chunk, ctx.messageId);
+        if (!event) {
+          continue;
+        }
+        // Clients replace a data part they already hold in place, so only a
+        // part that is new to the response ends the open text or reasoning.
+        const key = `${event.type}:${event.id}`;
+        if (!ctx.dataParts.has(key)) {
+          ctx.dataParts.add(key);
+          closePart();
+        }
+        ctx.write(event);
+        const existing = parts.findIndex(
+          (part) => part.type === event.type && part.id === event.id
+        );
+        if (existing === -1) {
+          parts.push({ ...event });
+        } else {
+          parts[existing] = { ...event };
+        }
       }
     } finally {
-      // A stream that yields no text still produces one (empty) text part.
-      if (nextTextPart === 0) {
+      // A stream that produced nothing still sends one (empty) text part.
+      if (parts.length === 0) {
         openPart("text");
       }
       closePart();
@@ -370,7 +403,7 @@ export class WebAdapter implements Adapter<WebThreadIdData, WebMessage> {
     return {
       id,
       threadId,
-      raw: assistantMessageFromText(id, fullText),
+      raw: { id, role: "assistant", parts },
     };
   }
 
@@ -498,31 +531,41 @@ function extractText(message: WebMessage): string {
   return texts.join("\n");
 }
 
+type WebDataEvent = Extract<
+  WebStreamEvent,
+  { type: "data-task" | "data-plan" }
+>;
+
 /**
- * Map a structured chunk to a data event. The `ai-sdk` protocol sends it as
- * the `data-*` part useChat stores on the message.
+ * Map a structured chunk to a data event, or `null` for a chunk the wire
+ * protocols can't carry. The `ai-sdk` protocol sends the event as the
+ * `data-*` part useChat stores on the message.
  */
 function streamChunkToDataEvent(
   chunk: Exclude<StreamChunk, MarkdownTextChunk | ReasoningChunk>,
   messageId: string
-): Extract<WebStreamEvent, { type: "data-task" | "data-plan" }> {
+): WebDataEvent | null {
   // Each case destructures on its own: TypeScript doesn't narrow a rest
   // element through a destructured discriminant.
   switch (chunk.type) {
     case "task_update": {
       const { type: _, ...data } = chunk;
       // Keyed by task id, so each update replaces that task's previous state.
-      return { type: "data-task", id: data.id, data };
+      // Clients reject a data part whose id isn't a string.
+      return typeof data.id === "string"
+        ? { type: "data-task", id: data.id, data }
+        : null;
     }
     case "plan_update": {
       const { type: _, ...data } = chunk;
-      // A streamed message has one plan, keyed by the message id.
+      // A response has one plan, keyed by the assistant message id.
       return { type: "data-plan", id: messageId, data };
     }
-    default: {
-      const _exhaustive: never = chunk;
-      return _exhaustive;
-    }
+    default:
+      // Chunk types added to core later reach here before this adapter
+      // maps them.
+      chunk satisfies never;
+      return null;
   }
 }
 

@@ -38,6 +38,7 @@ import type {
   StreamEvent,
   StreamOptions,
   Thread,
+  TypingOptions,
 } from "./types";
 import { ChatError, NotImplementedError, THREAD_STATE_TTL_MS } from "./types";
 
@@ -153,6 +154,16 @@ function getNeverAbortedSignal(): AbortSignal {
           } as unknown as AbortSignal);
   }
   return neverAbortedSignal;
+}
+
+async function* withoutReasoning(
+  source: AsyncIterable<string | StreamChunk>
+): AsyncIterable<string | StreamChunk> {
+  for await (const chunk of source) {
+    if (typeof chunk === "string" || chunk.type !== "reasoning") {
+      yield chunk;
+    }
+  }
 }
 
 async function* takeUntilAborted<T>(
@@ -788,8 +799,14 @@ export class ThreadImpl<TState = Record<string, unknown>>
     callerOptions?: StreamOptions
   ): Promise<SentMessage> {
     // Normalize: handles plain strings, AI SDK fullStream events, and StreamChunk objects
-    const textStream = takeUntilAborted(fromFullStream(rawStream), this.signal);
     const adapter = this.adapter;
+    const normalized = fromFullStream(rawStream);
+    const textStream = takeUntilAborted(
+      adapter.supportsReasoningChunks
+        ? normalized
+        : withoutReasoning(normalized),
+      this.signal
+    );
     const defaults = this._binding
       ?.resolveOwner(adapter)
       ?.getStreamingOptions();
@@ -939,13 +956,18 @@ export class ThreadImpl<TState = Record<string, unknown>>
   }
 
   async startTyping(status?: string): Promise<void> {
-    const initiatorUserId = this._currentMessage?.author.userId;
-    if (initiatorUserId) {
-      await this.adapter.startTyping(this.id, status, { initiatorUserId });
-      this._typingStarted = true;
-      return;
+    const options: TypingOptions = {};
+    if (this._currentMessage?.author.userId) {
+      options.initiatorUserId = this._currentMessage.author.userId;
     }
-    await this.adapter.startTyping(this.id, status);
+    if (this._currentMessage?.id) {
+      options.messageId = this._currentMessage.id;
+    }
+    if (options.initiatorUserId || options.messageId) {
+      await this.adapter.startTyping(this.id, status, options);
+    } else {
+      await this.adapter.startTyping(this.id, status);
+    }
     this._typingStarted = true;
   }
 

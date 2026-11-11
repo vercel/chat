@@ -1218,26 +1218,44 @@ describe("ThreadImpl", () => {
         yield " World";
       }
 
-      // Native streaming: the adapter receives the chunk, the text excludes it.
-      const seen: (string | StreamChunk)[] = [];
-      mockAdapter.stream = vi.fn(
-        async (
-          _threadId: string,
-          stream: AsyncIterable<string | StreamChunk>
-        ) => {
-          for await (const chunk of stream) {
-            seen.push(chunk);
+      const collectStream = (seen: (string | StreamChunk)[]) =>
+        vi.fn(
+          async (
+            _threadId: string,
+            stream: AsyncIterable<string | StreamChunk>
+          ) => {
+            for await (const chunk of stream) {
+              seen.push(chunk);
+            }
+            return { id: "msg-stream", threadId: "t1", raw: {} };
           }
-          return { id: "msg-stream", threadId: "t1", raw: {} };
-        }
+        );
+
+      // Native streaming without the opt-in: the adapter never sees reasoning.
+      const withoutOptIn: (string | StreamChunk)[] = [];
+      mockAdapter.stream = collectStream(withoutOptIn);
+      const filtered = await thread.post(
+        reasoningStream() as AsyncIterable<string>
       );
+      expect(withoutOptIn).toEqual(["Hello", " World"]);
+      expect(filtered.text).toBe("Hello World");
+
+      // With the opt-in the adapter receives every chunk in order, and the
+      // text still excludes reasoning.
+      const withOptIn: (string | StreamChunk)[] = [];
+      mockAdapter.stream = collectStream(withOptIn);
+      (
+        mockAdapter as { supportsReasoningChunks?: boolean }
+      ).supportsReasoningChunks = true;
       const streamed = await thread.post(
         reasoningStream() as AsyncIterable<string>
       );
-      expect(seen).toContainEqual({
-        type: "reasoning",
-        text: "Let me think. ",
-      });
+      expect(withOptIn).toEqual([
+        { type: "reasoning", text: "Let me think. " },
+        "Hello",
+        { type: "reasoning", text: "Almost there." },
+        " World",
+      ]);
       expect(streamed.text).toBe("Hello World");
 
       // Fallback post+edit: reasoning never reaches the posted message.
@@ -2570,11 +2588,34 @@ describe("ThreadImpl", () => {
       expect(adapter.startTyping).toHaveBeenCalledWith(
         "slack:C123:1234.5678",
         undefined,
-        { initiatorUserId: currentMessage.author.userId }
+        {
+          initiatorUserId: currentMessage.author.userId,
+          messageId: "msg-1",
+        }
       );
       expect(adapter.endTyping).toHaveBeenCalledWith(
         "slack:C123:1234.5678",
         "active"
+      );
+    });
+
+    it("passes the current message ID", async () => {
+      const adapter = createMockAdapter();
+      const currentMessage = createTestMessage("msg-2", "Hello");
+      const thread = new ThreadImpl({
+        id: "slack:C123:1234.5678",
+        adapter,
+        channelId: "C123",
+        stateAdapter: createMockState(),
+        currentMessage,
+      });
+
+      await thread.startTyping("thinking...");
+
+      expect(adapter.startTyping).toHaveBeenCalledWith(
+        "slack:C123:1234.5678",
+        "thinking...",
+        expect.objectContaining({ messageId: "msg-2" })
       );
     });
   });

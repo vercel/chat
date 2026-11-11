@@ -44,6 +44,8 @@ export interface WebProtocolError {
 /** Ids shared by every frame of one response. */
 export interface WebRunContext {
   conversationId: string;
+  /** Id of the assistant message the response builds on the client. */
+  messageId: string;
   runId: string;
 }
 
@@ -105,8 +107,8 @@ const aiSdkProtocol: WebProtocol = {
     };
   },
 
-  begin: () => [
-    { type: "start", messageId: generateId() },
+  begin: (run) => [
+    { type: "start", messageId: run.messageId },
     { type: "start-step" },
   ],
 

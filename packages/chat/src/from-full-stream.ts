@@ -58,7 +58,7 @@ export async function* fromFullStream(
 
     // AI SDK v4 full streams emit `{ type: "reasoning", textDelta }`, which
     // shares its type with a reasoning StreamChunk but has no `text`. Skip
-    // it like the other reasoning events below.
+    // it: reasoning is only streamed from explicit reasoning chunks.
     if (typed.type === "reasoning" && typeof typed.text !== "string") {
       continue;
     }

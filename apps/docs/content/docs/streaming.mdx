@@ -212,7 +212,7 @@ await thread.post(stream);
 
 ### Reasoning
 
-Yield `reasoning` chunks to show the model's reasoning in a web chat UI while keeping it out of chat platforms. Each chunk is a delta, so consecutive chunks form one reasoning block. The Web adapter streams them to `useChat` as reasoning parts. Every other adapter drops them, and reasoning never counts toward the posted message's text:
+Yield `reasoning` chunks to show the model's reasoning in a web chat UI while keeping it out of chat platforms. Each chunk is a delta, so consecutive chunks form one reasoning block. The Web adapter streams them to `useChat` as reasoning parts. For every other adapter, `thread.post()` removes them from the stream before the adapter sees it, and reasoning never counts toward the posted message's text:
 
 ```typescript title="lib/bot.ts" lineNumbers
 import type { StreamChunk } from "chat";
@@ -227,6 +227,29 @@ await thread.post(stream);
 ```
 
 On Slack, this posts only "Here's the summary...".
+
+Reasoning is streamed only from `reasoning` chunks you yield. When you pass an AI SDK `fullStream` or a TanStack AI stream to `thread.post()`, its reasoning events are skipped. To show them, map the events to `reasoning` chunks yourself:
+
+```typescript title="lib/bot.ts" lineNumbers
+import { streamText } from "ai";
+import type { StreamChunk } from "chat";
+
+const result = streamText({ model, prompt: message.text });
+
+const stream = (async function* () {
+  for await (const part of result.fullStream) {
+    if (part.type === "reasoning-delta") {
+      yield { type: "reasoning", text: part.text } satisfies StreamChunk;
+    } else {
+      yield part;
+    }
+  }
+})();
+
+await thread.post(stream);
+```
+
+A custom adapter receives `reasoning` chunks in its `stream()` method only if it sets `supportsReasoningChunks: true`.
 
 ### Streaming with options
 
