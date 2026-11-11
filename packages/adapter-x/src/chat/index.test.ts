@@ -1,5 +1,5 @@
 import { createHmac } from "node:crypto";
-import type { ChatInstance } from "chat";
+import { type ChatInstance, paragraph, parseMarkdown, root, text } from "chat";
 import { describe, expect, it, vi } from "vitest";
 
 const createChatMock = vi.hoisted(() => vi.fn());
@@ -277,6 +277,47 @@ describe("parseMessage", () => {
 
     const message = adapter.parseMessage(raw);
     expect(message.author.isMe).toBe(true);
+  });
+});
+
+describe("parseMessage inbound markdown bounds", () => {
+  function rawWithText(body: string): XchatRawMessage {
+    return {
+      event: {
+        id: "msg-md",
+        conversationId: TEST_CONVERSATION_ID,
+        senderId: TEST_OTHER_USER_ID,
+        encodedEvent: "base64data",
+      },
+      decrypted: {
+        type: "message",
+        id: "msg-md",
+        senderId: TEST_OTHER_USER_ID,
+        content: { text: body, contentType: "Text" },
+      },
+    };
+  }
+
+  it("parses markdown text into real structure", () => {
+    const message = createTestAdapter().parseMessage(
+      rawWithText("**bold** and `code`")
+    );
+
+    expect(message.text).toBe("**bold** and `code`");
+    expect(message.formatted).toEqual(parseMarkdown("**bold** and `code`"));
+  });
+
+  it.each([
+    ["an emphasis run", "*a".repeat(8192)],
+    ["6,000 nested blockquotes", ">".repeat(6000)],
+    ["a footnote opening 40 nested lists", `[^a]: ${"- ".repeat(40)}a`],
+    ["65 www. autolinks in one word", "www.example.com/".repeat(65)],
+  ])("keeps text with %s verbatim", (_, body) => {
+    const message = createTestAdapter().parseMessage(rawWithText(body));
+
+    expect(message.text).toBe(body);
+    expect(message.formatted).toEqual(root([paragraph([text(body)])]));
+    expect(() => JSON.stringify(message.toJSON())).not.toThrow();
   });
 });
 

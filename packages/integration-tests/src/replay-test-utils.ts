@@ -114,7 +114,7 @@ export function createGchatRequest(body: unknown): Request {
 /**
  * Create a Teams webhook request from a fixture payload.
  */
-export function createTeamsRequest(body: unknown): Request {
+function createTeamsRequest(body: unknown): Request {
   return new Request("https://example.com/api/messages", {
     method: "POST",
     headers: {
@@ -395,12 +395,30 @@ export function createTeamsTestContext(
     tracker,
     captured,
     sendWebhook: async (fixture: unknown) => {
-      await chat.webhooks.teams(createTeamsRequest(fixture), {
-        waitUntil: tracker.waitUntil,
-      });
-      await tracker.waitForAll();
+      await sendTeamsWebhook(chat, tracker, fixture);
     },
   };
+}
+
+/**
+ * Send a Teams fixture and drain its background tasks. Fails if the webhook
+ * isn't a 200 or registered no `waitUntil` task, since draining an empty
+ * tracker would pass without the handlers having run.
+ */
+export async function sendTeamsWebhook(
+  chat: Chat<{ teams: TeamsAdapter }>,
+  tracker: ReturnType<typeof createWaitUntilTracker>,
+  fixture: unknown
+): Promise<void> {
+  const before = tracker.taskCount();
+  const response = await chat.webhooks.teams(createTeamsRequest(fixture), {
+    waitUntil: tracker.waitUntil,
+  });
+  // biome-ignore lint/suspicious/noMisplacedAssertion: helper function used in tests
+  expect(response.status).toBe(200);
+  // biome-ignore lint/suspicious/noMisplacedAssertion: helper function used in tests
+  expect(tracker.taskCount()).toBeGreaterThan(before);
+  await tracker.waitForAll();
 }
 
 // ============================================================================

@@ -56,7 +56,7 @@ export const twilio = {
     mentions: "no",
     addReactions: "no",
     removeReactions: "no",
-    typingIndicator: "no",
+    typingIndicator: { status: "partial", label: "WhatsApp + RCS" },
     messageUpdatedEvents: "no",
     messageDeletedEvents: "no",
     directMessages: "yes",

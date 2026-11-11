@@ -66,10 +66,21 @@ export async function parseGmailMessage(
   }).catch(() => {
     throw new GmailContentError("format");
   });
+  let text: string;
+  try {
+    text =
+      email.text ??
+      convert(email.html ?? "", {
+        wordwrap: false,
+        limits: { maxDepth: 256 },
+      });
+  } catch {
+    throw new GmailContentError("format");
+  }
   return {
     message,
     email,
-    text: email.text ?? convert(email.html ?? "", { wordwrap: false }),
+    text,
     attachments: email.attachments.map((attachment) => ({
       filename: attachment.filename ?? "attachment",
       mimeType: attachment.mimeType,

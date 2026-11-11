@@ -1,3 +1,5 @@
+import { AsyncLocalStorage } from "node:async_hooks";
+
 import {
   bufferToDataUri,
   extractCard,
@@ -9,10 +11,12 @@ import {
 import type {
   Account,
   Activity,
+  AdaptiveCardActionMessageResponse,
   IAdaptiveCardActionInvokeActivity,
   IConversationUpdateActivity,
   IMessageActivity,
   IMessageReactionActivity,
+  IMessageUpdateActivity,
   InstallUpdateActivity,
   ITaskFetchInvokeActivity,
   ITaskSubmitInvokeActivity,
@@ -67,6 +71,7 @@ import {
   createTeamsAttachment,
   rehydrateTeamsAttachment,
   type TeamsActivityAttachment,
+  type TeamsAttachmentFetchers,
 } from "./attachments";
 import { BridgeHttpAdapter } from "./bridge-adapter";
 import {
@@ -112,6 +117,16 @@ interface ActionSubmitData {
   actionId?: string;
   value?: string;
 }
+
+/**
+ * Valid adaptiveCard/action invoke acknowledgement.
+ * An empty `value` makes Teams show "Unable to reach app" and retry the invoke.
+ */
+const CARD_ACTION_INVOKE_ACK: AdaptiveCardActionMessageResponse = {
+  statusCode: 200,
+  type: "application/vnd.microsoft.activity.message",
+  value: "OK",
+};
 
 const MESSAGEID_CAPTURE_PATTERN = /messageid=(\d+)/;
 const MESSAGEID_STRIP_PATTERN = /;messageid=\d+/;
@@ -182,6 +197,11 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
   protected readonly formatConverter = new TeamsFormatConverter();
   protected readonly config: TeamsAdapterConfig;
   private readonly activeStreams = new Map<string, IStreamer>();
+  /**
+   * Set while handling an activity that must not write into a DM's active
+   * streamer, which belongs to the message request still in flight.
+   */
+  private readonly nativeStreamBlocked = new AsyncLocalStorage<true>();
 
   constructor(config: TeamsAdapterConfig = {}) {
     this.config = { ...config };
@@ -208,6 +228,7 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
       skipAuth: Boolean(this.config.webhookVerifier),
     });
     const graphReader = new TeamsGraphReader({
+      attachmentFetchers: this.attachmentFetchers,
       botId: app.id ?? "",
       graph: app.graph,
       logger: this.logger,
@@ -229,6 +250,11 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
       await this.handleMessageActivity(ctx);
     });
 
+    this.app.on("messageUpdate", async (ctx) => {
+      this.cacheUserContext(ctx.activity);
+      await this.handleMessageUpdateActivity(ctx);
+    });
+
     this.app.on("messageReaction", async (ctx) => {
       this.cacheUserContext(ctx.activity);
       this.handleReactionFromContext(ctx);
@@ -237,11 +263,7 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
     this.app.on("card.action", async (ctx) => {
       this.cacheUserContext(ctx.activity);
       await this.handleAdaptiveCardAction(ctx);
-      return {
-        statusCode: 200,
-        type: "application/vnd.microsoft.activity.message",
-        value: "",
-      };
+      return CARD_ACTION_INVOKE_ACK;
     });
 
     this.app.on(
@@ -321,7 +343,7 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
       locale: activity.locale,
       raw: activity,
     };
-    const options = this.bridgeAdapter.getWebhookOptions(activity.id);
+    const options = this.bridgeAdapter.getWebhookOptions();
     if (isInstallAction(action)) {
       this.chat.processInstalled?.({ ...event, action }, options);
     } else {
@@ -364,7 +386,7 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
         userId,
         inviterId: activity.from?.id,
       },
-      this.bridgeAdapter.getWebhookOptions(activity.id)
+      this.bridgeAdapter.getWebhookOptions()
     );
   }
 
@@ -571,34 +593,7 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
     }
 
     const threadId = this.threadIdFromActivity(activity);
-
-    const message = this.parseTeamsMessage(activity, threadId);
-    let user: UserInfo | null = null;
-    if (activity.from?.aadObjectId) {
-      user = await this.getIncomingUser(
-        ctx,
-        message.author.userId,
-        activity.from.aadObjectId
-      );
-    } else if (!message.author.isBot) {
-      user = await this.getUser(message.author.userId);
-    }
-    if (user?.email) {
-      message.author.email = user.email;
-    }
-
-    // Detect @mention by checking if any mentioned entity matches our app ID
-    const entities = activity.entities || [];
-    const isMention = entities.some(
-      (e: { type?: string; mentioned?: { id?: string } }) =>
-        e.type === "mention" &&
-        e.mentioned?.id &&
-        (e.mentioned.id === this.app.id ||
-          e.mentioned.id.endsWith(`:${this.app.id}`))
-    );
-    if (isMention) {
-      message.isMention = true;
-    }
+    const message = await this.parseIncomingMessage(ctx, threadId);
 
     // For DMs, capture ctx.stream and await processing so the stream stays
     // alive for native streaming via emit(). Group chats use fire-and-forget.
@@ -610,7 +605,7 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
         resolveProcessing = resolve;
       });
 
-      const baseOptions = this.bridgeAdapter.getWebhookOptions(activity.id);
+      const baseOptions = this.bridgeAdapter.getWebhookOptions();
       this.chat.processMessage(this, threadId, message, {
         ...baseOptions,
         waitUntil: (task: Promise<unknown>) => {
@@ -632,9 +627,84 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
         this,
         threadId,
         message,
-        this.bridgeAdapter.getWebhookOptions(activity.id)
+        this.bridgeAdapter.getWebhookOptions()
       );
     }
+  }
+
+  /**
+   * Handle an edited message. Teams sends only the new version, so the
+   * update carries no `previousMessage`. Undeletes are ignored.
+   */
+  protected async handleMessageUpdateActivity(
+    ctx: IActivityContext<IMessageUpdateActivity>
+  ): Promise<void> {
+    if (!this.chat) {
+      this.logger.warn("Chat instance not initialized, ignoring event");
+      return;
+    }
+    const activity = ctx.activity;
+    if (activity.channelData?.eventType !== "editMessage") {
+      this.logger.debug("Ignoring messageUpdate", {
+        eventType: activity.channelData?.eventType,
+      });
+      return;
+    }
+
+    const threadId = this.threadIdFromActivity(activity);
+    const chat = this.chat;
+    this.nativeStreamBlocked.run(true, () =>
+      chat.processMessageUpdated(
+        {
+          adapter: this,
+          message: async () => {
+            const message = await this.parseIncomingMessage(ctx, threadId);
+            // The activity timestamp is the edit time; Teams doesn't send the original send time.
+            message.metadata.edited = true;
+            message.metadata.editedAt = message.metadata.dateSent;
+            return message;
+          },
+          threadId,
+        },
+        this.bridgeAdapter.getWebhookOptions()
+      )
+    );
+  }
+
+  /** Parse an inbound message or edit, with the sender's email and `isMention`. */
+  private async parseIncomingMessage(
+    ctx: IActivityContext<IMessageActivity | IMessageUpdateActivity>,
+    threadId: string
+  ): Promise<Message<unknown>> {
+    const activity = ctx.activity;
+    const message = this.parseTeamsMessage(activity, threadId);
+    let user: UserInfo | null = null;
+    if (activity.from?.aadObjectId) {
+      user = await this.getIncomingUser(
+        ctx,
+        message.author.userId,
+        activity.from.aadObjectId
+      );
+    } else if (!message.author.isBot) {
+      user = await this.getUser(message.author.userId);
+    }
+    if (user?.email) {
+      message.author.email = user.email;
+    }
+
+    // Detect @mention by checking if any mentioned entity matches our app ID
+    const entities = activity.entities || [];
+    const isMention = entities.some(
+      (e: { type?: string; mentioned?: { id?: string } }) =>
+        e.type === "mention" &&
+        !!e.mentioned?.id &&
+        this.isBotAccountId(e.mentioned.id)
+    );
+    // Set false too: Chat only guesses from `@userName` in the text when this
+    // is unset, and that guess matches mentions of other bots whose display
+    // name starts with ours ("@Bot Dev" for a bot named "Bot").
+    message.isMention = isMention;
+    return message;
   }
 
   /**
@@ -678,7 +748,7 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
 
     this.chat.processAction(
       actionEvent,
-      this.bridgeAdapter.getWebhookOptions(activity.id)
+      this.bridgeAdapter.getWebhookOptions()
     );
   }
 
@@ -732,7 +802,7 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
 
     this.chat.processAction(
       actionEvent,
-      this.bridgeAdapter.getWebhookOptions(activity.id)
+      this.bridgeAdapter.getWebhookOptions()
     );
   }
 
@@ -750,7 +820,7 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
       return;
     }
 
-    const webhookOptions = this.bridgeAdapter.getWebhookOptions(activity.id);
+    const webhookOptions = this.bridgeAdapter.getWebhookOptions();
     const entries = (Object.entries(payload) as [string, unknown][]).filter(
       ([key]) => !AUTO_SUBMIT_KEYS.has(key)
     );
@@ -828,7 +898,7 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
       threadId,
     });
 
-    const webhookOptions = this.bridgeAdapter.getWebhookOptions(activity.id);
+    const webhookOptions = this.bridgeAdapter.getWebhookOptions();
     let timer: ReturnType<typeof setTimeout> | undefined;
 
     const actionPromise = this.chat.processAction(actionEvent, {
@@ -916,7 +986,7 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
     const response = await this.chat.processModalSubmit(
       event,
       contextId,
-      this.bridgeAdapter.getWebhookOptions(activity.id)
+      this.bridgeAdapter.getWebhookOptions()
     );
     return modalResponseToTaskModuleResponse(response, this.logger, contextId);
   }
@@ -963,7 +1033,7 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
 
       this.chat.processReaction(
         { ...event, adapter: this },
-        this.bridgeAdapter.getWebhookOptions(activity.id)
+        this.bridgeAdapter.getWebhookOptions()
       );
     }
 
@@ -990,7 +1060,7 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
 
       this.chat.processReaction(
         { ...event, adapter: this },
-        this.bridgeAdapter.getWebhookOptions(activity.id)
+        this.bridgeAdapter.getWebhookOptions()
       );
     }
   }
@@ -1005,8 +1075,7 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
     return new Message({
       id: activity.id || "",
       threadId,
-      text: this.formatConverter.extractPlainText(normalizedText),
-      formatted: this.formatConverter.toAst(normalizedText),
+      ...this.formatConverter.parseIncoming(normalizedText),
       raw: activity,
       author: this.authorFromActivity(activity),
       metadata: {
@@ -1029,14 +1098,33 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
     att: TeamsActivityAttachment,
     serviceUrl?: string
   ): Attachment {
-    return createTeamsAttachment(att, serviceUrl, {
-      createAnonymousFetchData: (url) => this.createFetchDataFn(url),
-      fetchAuthenticated: (url) => this.fetchAuthenticatedAttachment(url),
-    });
+    return createTeamsAttachment(att, serviceUrl, this.attachmentFetchers);
   }
+
+  private readonly attachmentFetchers: TeamsAttachmentFetchers = {
+    createAnonymousFetchData: (url) => this.createFetchDataFn(url),
+    fetchAuthenticated: (url) => this.fetchAuthenticatedAttachment(url),
+    fetchGraphFile: (url) => this.fetchGraphFile(url),
+  };
 
   protected createFetchDataFn(url: string): () => Promise<Buffer> {
     return createAnonymousAttachmentFetchData(url);
+  }
+
+  /**
+   * Download a SharePoint or OneDrive file reference from a Graph message.
+   * Graph resolves the file to a pre-authenticated URL, which is then
+   * downloaded through `createFetchDataFn()` so the anonymous download
+   * limits and overrides still apply.
+   */
+  private async fetchGraphFile(url: string): Promise<Buffer> {
+    let downloadUrl: string;
+    try {
+      downloadUrl = await this.graphReader.resolveFileDownloadUrl(url);
+    } catch (error) {
+      handleTeamsError(error, "fetchGraphFile");
+    }
+    return this.createFetchDataFn(downloadUrl)();
   }
 
   private async fetchAuthenticatedAttachment(url: string): Promise<Buffer> {
@@ -1066,10 +1154,7 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
   }
 
   rehydrateAttachment(attachment: Attachment): Attachment {
-    return rehydrateTeamsAttachment(attachment, {
-      createAnonymousFetchData: (url) => this.createFetchDataFn(url),
-      fetchAuthenticated: (url) => this.fetchAuthenticatedAttachment(url),
-    });
+    return rehydrateTeamsAttachment(attachment, this.attachmentFetchers);
   }
 
   protected normalizeMentions(text: string): string {
@@ -1118,16 +1203,22 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
     }
 
     try {
-      const aadObjectId = await this.chat
-        .getState()
-        .get<string>(`teams:aadObjectId:${userId}`);
+      const state = this.chat.getState();
+      const [aadObjectId, tenantId] = await Promise.all([
+        state.get<string>(`teams:aadObjectId:${userId}`),
+        state.get<string>(`teams:tenantId:${userId}`),
+      ]);
 
       if (!aadObjectId) {
         this.logger.debug("No cached aadObjectId for user", { userId });
         return null;
       }
 
-      return await this.getUserByAadObjectId(userId, aadObjectId);
+      return await this.getUserByAadObjectId(
+        userId,
+        aadObjectId,
+        tenantId ?? undefined
+      );
     } catch (error) {
       this.logger.warn("Failed to read cached aadObjectId from state", {
         userId,
@@ -1138,7 +1229,7 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
   }
 
   private async getIncomingUser(
-    ctx: IActivityContext<IMessageActivity>,
+    ctx: IActivityContext<IMessageActivity | IMessageUpdateActivity>,
     userId: string,
     aadObjectId: string
   ): Promise<UserInfo | null> {
@@ -1179,7 +1270,8 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
 
   private async getUserByAadObjectId(
     userId: string,
-    aadObjectId: string
+    aadObjectId: string,
+    tenantId: string | undefined
   ): Promise<UserInfo | null> {
     const cacheKey = `teams:userInfo:${aadObjectId}`;
     const isBot = this.isBotUserId(userId);
@@ -1192,7 +1284,8 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
     }
 
     try {
-      const graphUser = await this.app.graph.call(users.get, {
+      // Users of other tenants only exist in their own tenant's directory
+      const graphUser = await this.app.graphFor(tenantId).call(users.get, {
         "user-id": aadObjectId,
       });
 
@@ -1751,7 +1844,9 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
     textStream: AsyncIterable<string | StreamChunk>,
     options?: StreamOptions
   ): Promise<RawMessage<unknown> | null> {
-    const activeStream = this.activeStreams.get(threadId);
+    const activeStream = this.nativeStreamBlocked.getStore()
+      ? undefined
+      : this.activeStreams.get(threadId);
 
     if (activeStream && !activeStream.canceled) {
       return this.streamViaEmit(

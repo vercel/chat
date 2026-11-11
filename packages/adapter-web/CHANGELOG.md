@@ -1,5 +1,46 @@
 # @chat-adapter/web
 
+## 4.44.0
+
+### Patch Changes
+
+- d3dc15a: `parseIncoming()` now skips markdown parsing for more kinds of input that are slow to parse, not just long text. Some messages under the 16,384-character limit took seconds to parse, threw a stack overflow, or produced trees too deep to serialize. Examples include unmatched `*`, `_`, or `~` in one paragraph, runs of `]` or `<`, `www.` repeated within one word, and lines that open hundreds of nested quotes or lists. Before parsing, `parseIncoming()` now also checks for more than 2,048 `*`, `_`, and `~` characters (`maxIncomingEmphasisMarkers`), more than 128 `]` characters (`maxIncomingClosingBrackets`), more than 512 `<` characters (`maxIncomingAngleBrackets`), more than 8 `www.` links in one word (`maxIncomingWwwAutolinks`), and lines nested more than 32 deep (`maxIncomingContainerMarkers`). These checks run in linear time and ignore characters inside fenced code blocks. After parsing, it checks for trees deeper than 128 levels (`maxIncomingAstDepth`), and it also falls back when `toAst()` throws a `RangeError`. When any limit is hit, the text is kept verbatim in a single text node. Converters can override `incomingFallbackText()` to clean up that text, and `exceedsIncomingBudget()` to check text they rewrite before parsing.
+  
+  The Discord gateway, Instagram, Linear, Messenger, Notion, Slack, Teams history, Telegram, Twilio, Web, WhatsApp, and XChat adapters now build incoming and fetched messages with `parseIncoming()` instead of parsing them without limits, and so does GitHub `listThreads` for pull request titles. These adapters didn't limit inbound length before, so messages over 16,384 characters now also lose markdown structure in `formatted`, while keeping their content in `text`. Deeply nested quotes no longer make these adapters drop the message, return a server error, or fail a whole page of history.
+  
+  Slack checks the limits once across a message's text, blocks, attachments, and table cells, checks the markdown it converts mrkdwn into, and on fallback decodes entities and renders mentions, channels, and links as parsed messages do. Discord, Google Chat, and WhatsApp check the markdown they convert platform text into. Teams checks the limits on decoded text, renders mentions and entities as plain text on fallback, and no longer backtracks for seconds on malformed links in incoming HTML.
+- Updated dependencies [b8b6f0f]
+- Updated dependencies [49e6833]
+- Updated dependencies [d3dc15a]
+- Updated dependencies [6c4457e]
+- Updated dependencies [17f6005]
+  - chat@4.44.0
+  - @chat-adapter/shared@4.44.0
+
+## 4.43.0
+
+### Minor Changes
+
+- 2e7e0ef: The Web adapter's server entry no longer depends on the AI SDK at runtime, and a new `protocol` option lets it speak AG-UI (`protocol: "ag-ui"`) for TanStack AI and other AG-UI clients. The default stays `"ai-sdk"`. `ai` is now an optional peer dependency, needed only for the `react`, `vue`, and `svelte` helpers.
+  
+  `message.raw` is now typed as the new `WebMessage` type instead of the AI SDK `UIMessage`. A `UIMessage` is still assignable to `WebMessage`, but part fields other than `type` are typed `unknown`. If your handler reads typed part fields with the `"ai-sdk"` protocol, cast with `message.raw as UIMessage`.
+  
+  Request handling is stricter and handles retries:
+  
+  - The last entry in `messages` must be a user message. Bodies ending in an assistant or tool message, such as client-side tool results, now get a 400 instead of being silently ignored.
+  - A conversation id (`id` with `"ai-sdk"`, `threadId` with `"ag-ui"`) that is present but not a string gets a 400 instead of a new conversation.
+  - Resending the same user message, as regenerate in `useChat` or reload in TanStack AI does, now runs the handler again instead of being dropped as a duplicate. History keeps the earlier reply and stores the repeated message a second time.
+  - A body shaped for the other protocol gets a 400 that names the `protocol` option.
+
+### Patch Changes
+
+- Updated dependencies [115cd39]
+- Updated dependencies [36325f3]
+- Updated dependencies [a32470e]
+- Updated dependencies [228b30d]
+  - chat@4.43.0
+  - @chat-adapter/shared@4.43.0
+
 ## 4.42.0
 
 ### Patch Changes

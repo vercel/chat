@@ -9,6 +9,7 @@ import {
   Divider,
   Field,
   Fields,
+  Section,
   Table,
   TextInput,
 } from "chat";
@@ -17,9 +18,53 @@ import {
   cardToFallbackText,
   createEmojiConverter,
   escapeTableCell,
+  findCardActions,
   mapButtonStyle,
   renderGfmTable,
+  truncateWithEllipsis,
 } from "./card-utils";
+
+describe("findCardActions", () => {
+  it("finds top-level actions", () => {
+    const actions = Actions([Button({ id: "ok", label: "OK" })]);
+    const card = Card({ children: [CardText("Hi"), actions] });
+    expect(findCardActions(card.children)).toBe(actions);
+  });
+
+  it("finds actions nested in a section", () => {
+    const actions = Actions([Button({ id: "ok", label: "OK" })]);
+    const card = Card({ children: [Section([CardText("Hi"), actions])] });
+    expect(findCardActions(card.children)).toBe(actions);
+  });
+
+  it("keeps searching after a section without actions", () => {
+    const actions = Actions([Button({ id: "ok", label: "OK" })]);
+    const card = Card({ children: [Section([CardText("Hi")]), actions] });
+    expect(findCardActions(card.children)).toBe(actions);
+  });
+
+  it("returns the first actions in depth-first order", () => {
+    const nested = Actions([Button({ id: "nested", label: "Nested" })]);
+    const later = Actions([Button({ id: "later", label: "Later" })]);
+    const card = Card({ children: [Section([CardText("Hi"), nested]), later] });
+    expect(findCardActions(card.children)).toBe(nested);
+  });
+
+  it("returns null without actions", () => {
+    const card = Card({ children: [Section([CardText("Hi")])] });
+    expect(findCardActions(card.children)).toBeNull();
+  });
+});
+
+describe("truncateWithEllipsis", () => {
+  it("keeps text within the limit", () => {
+    expect(truncateWithEllipsis("hello", 5)).toBe("hello");
+  });
+
+  it("cuts long text and ends with an ellipsis", () => {
+    expect(truncateWithEllipsis("hello world", 6)).toBe("hello\u2026");
+  });
+});
 
 describe("createEmojiConverter", () => {
   it("creates a Slack emoji converter", () => {

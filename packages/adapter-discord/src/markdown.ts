@@ -99,7 +99,25 @@ export class DiscordFormatConverter extends BaseFormatConverter {
    * Parse Discord markdown into an AST.
    */
   toAst(discordMarkdown: string): Root {
-    // Convert Discord-specific formats to standard markdown, then parse
+    return this.parseDiscordMarkdown(this.toStandardMarkdown(discordMarkdown));
+  }
+
+  /**
+   * Check the budget against the markdown that `toAst` parses, after Discord
+   * mentions, emoji, and spoilers are converted. The length limit still
+   * applies to the text as delivered.
+   */
+  protected override exceedsIncomingBudget(discordMarkdown: string): boolean {
+    return (
+      discordMarkdown.length > this.maxIncomingParseLength ||
+      super.exceedsIncomingBudget(this.toStandardMarkdown(discordMarkdown))
+    );
+  }
+
+  /**
+   * Convert Discord-specific formats to standard markdown.
+   */
+  private toStandardMarkdown(discordMarkdown: string): string {
     let markdown = discordMarkdown;
 
     // User mentions: <@userId> or <@!userId> -> @userId
@@ -118,7 +136,7 @@ export class DiscordFormatConverter extends BaseFormatConverter {
     // (no direct markdown equivalent, convert to placeholder)
     markdown = markdown.replace(/\|\|([^|]+)\|\|/g, "[spoiler: $1]");
 
-    return this.parseDiscordMarkdown(markdown);
+    return markdown;
   }
 
   /**
@@ -142,7 +160,13 @@ export class DiscordFormatConverter extends BaseFormatConverter {
           const discordLinkStyle = getDiscordLinkStyle(source);
 
           if (discordLinkStyle !== undefined) {
-            node.data = { ...node.data, discordLinkStyle };
+            // Packages such as mdast-util-to-hast add fields to mdast's Data,
+            // which makes an inline literal fail the excess property check.
+            const data: DiscordLinkData & typeof node.data = {
+              ...node.data,
+              discordLinkStyle,
+            };
+            node.data = data;
           }
         }
       }

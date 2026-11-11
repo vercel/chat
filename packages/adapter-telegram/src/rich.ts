@@ -15,12 +15,24 @@ const MARKDOWN_PUNCTUATION = /[!-/:-@[-`{-~]/g;
 const LINE_BREAKS = /[\r\n]/g;
 const BACKTICKS = /`+/g;
 
+/**
+ * Whether `markdown` fits in one rich message, which Telegram measures in
+ * code points.
+ */
+export function fitsRichMessage(markdown: string): boolean {
+  // A string has at least as many UTF-16 code units as code points.
+  if (markdown.length <= TELEGRAM_RICH_MESSAGE_LIMIT) {
+    return true;
+  }
+  return Array.from(markdown).length <= TELEGRAM_RICH_MESSAGE_LIMIT;
+}
+
 export function truncateRichMarkdown(markdown: string): string {
-  const characters = Array.from(markdown);
-  if (characters.length <= TELEGRAM_RICH_MESSAGE_LIMIT) {
+  if (fitsRichMessage(markdown)) {
     return markdown;
   }
 
+  const characters = Array.from(markdown);
   let end = TELEGRAM_RICH_MESSAGE_LIMIT - 3;
   while (end > 0) {
     const renderer = new StreamingMarkdownRenderer();

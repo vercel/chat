@@ -135,7 +135,7 @@ Deploy the GET and POST route shown above to a public HTTPS URL first, then:
 | --- | --- | --- |
 | `WHATSAPP_ACCESS_TOKEN` | Yes | Meta access token, ideally a System User Token in production |
 | `WHATSAPP_APP_SECRET` | Yes | App secret used to verify webhook signatures |
-| `WHATSAPP_PHONE_NUMBER_ID` | Yes | Phone number ID the bot sends from |
+| `WHATSAPP_PHONE_NUMBER_ID` | Yes | Default phone number ID. Thread replies use the number in the thread id |
 | `WHATSAPP_VERIFY_TOKEN` | Yes | Your chosen secret for the webhook verification handshake |
 | `WHATSAPP_BOT_USERNAME` | No | Bot username. Defaults to `whatsapp-bot` |
 | `WHATSAPP_API_URL` | No | Meta Graph API base URL override |
@@ -147,13 +147,23 @@ The route handles two kinds of request from Meta:
 - GET verification handshake: Meta sends a `hub.verify_token` challenge that must match `WHATSAPP_VERIFY_TOKEN`.
 - POST event delivery: incoming messages, reactions, and interactive responses, signed with `X-Hub-Signature-256` and verified against `WHATSAPP_APP_SECRET`.
 
+## Message formatting
+
+Pass `{ markdown: text }` to convert standard Markdown to WhatsApp formatting:
+`**bold**` becomes `*bold*`, `_italic_` stays `_italic_`, and `~~strike~~` becomes
+`~strike~`. Literal text such as `(~80 % easy)` is sent as written, and code
+content and intentional backslashes are preserved. WhatsApp has no escape syntax,
+so when escaped text like `\_word\_` or a line starting with `\>` would otherwise
+turn into formatting, the adapter keeps the backslash and it shows in the message.
+
 ## Interactive messages
 
 The adapter converts card elements to WhatsApp interactive messages:
 
-- Cards with 3 or fewer buttons render as WhatsApp reply buttons, with a maximum of 20 characters per title.
-- Cards with more than 3 buttons fall back to formatted text.
-- Body text is limited to 1024 characters.
+- A card with buttons renders as WhatsApp reply buttons. Titles longer than 20 characters are truncated.
+- Only the first 3 buttons are sent. Extra buttons are dropped.
+- Body text is truncated to 1024 characters.
+- A card without buttons is sent as formatted text, unless it qualifies as a CTA URL message.
 
 WhatsApp reply buttons cannot open URLs, so when a card with reply buttons also contains link buttons, each link button is appended to the interactive message body as a `Label: url` line.
 
@@ -229,7 +239,7 @@ WhatsApp allows one media item per message, which shapes how the adapter sends f
 - Multiple `files` or `attachments` in a single `post()` are sent as sequential messages, and the last message ID is returned.
 - Markdown, or card fallback text, is attached as a caption on the first media message when supported, up to 1024 characters. Text is sent as a separate message first when the caption is too long or when the first media is audio, because audio does not support captions.
 - Buffers are uploaded through the Cloud API `/media` endpoint. `attachments` with only a `url` use HTTPS link passthrough without an upload. URLs must use `https://`.
-- When a card renders as an interactive message (reply buttons or a list), media is sent first without a caption, and the interactive message that follows carries the title, body, and buttons. When the card falls back to plain text, the fallback text captions the first media, and the caption includes a `Label: url` line for each link button. A card with only a link button is not promoted to a CTA URL message when media is attached, so it takes this captioned path too.
+- When a card renders as reply buttons, media is sent first without a caption, and the interactive message that follows carries the title, body, and buttons. When the card falls back to plain text, the fallback text captions the first media, and the caption includes a `Label: url` line for each link button. A card with only a link button is not promoted to a CTA URL message when media is attached, so it takes this captioned path too.
 - To send a photo with buttons, pass the image through `files` or `attachments`. Card-embedded images (`imageUrl` or `<Image>` children) are not sent as native media.
 
 ## Inbound attachments
@@ -313,6 +323,8 @@ whatsapp:{phoneNumberId}:{userWaId}
 Example: `whatsapp:1234567890:15551234567`.
 
 `phoneNumberId` is the bot's phone number ID. The final segment is the adapter's canonical user identifier. It may contain a phone number, a BSUID such as `US.13491208655302741918`, or a previously observed identifier retained for thread continuity.
+
+Replies, reactions, read receipts, typing indicators, and media uploads for a thread go out from that `phoneNumberId`. `openDM` still uses the configured number, because that call has no inbound thread yet.
 
 ## Limitations
 

@@ -606,13 +606,24 @@ Fires when the bot is removed, including when an app upgrade removes it from the
 
 ```typescript
 bot.onUninstalled(async (event) => {
-  await removeInstallation(event);
+  if (event.adapter.name === "teams") {
+    await removeTeamsInstallation(event);
+  } else if (event.adapter.name === "slack") {
+    await removeSlackInstallation(event.conversationId);
+  }
 });
 ```
 
-`removeInstallation` is application-owned. For Teams team installs, associate
-records with `event.raw.channelData.team.id` as well as `conversationId`, which
-can differ between installation and removal. See the [Teams persistence example](/adapters/official/teams#installation-lifecycle).
+`removeTeamsInstallation` and `removeSlackInstallation` are application-owned.
+For Teams team installs, associate records with `event.raw.channelData.team.id`
+as well as `conversationId`, which can differ between installation and removal.
+See the [Teams persistence example](/adapters/official/teams#installation-lifecycle).
+
+The Slack adapter emits `onUninstalled`, with `action` set to `"remove"`, when a
+workspace or org uninstalls the app. `conversationId` is the Slack installation
+key: the `team_id`, or the `enterprise_id` for org-wide installs. `tenantId` is
+the Enterprise Grid `enterprise_id` when the event carries one. See
+[Slack uninstalls](/adapters/official/slack#uninstalls).
 
 ## Utility methods
 

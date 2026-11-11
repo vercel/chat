@@ -246,6 +246,14 @@ Incoming Teams mentions are supported. Outgoing `@name` text, including multi-wo
 
 Incoming thread IDs preserve the Teams conversation type when the legacy ID-prefix heuristic would route it incorrectly. When Teams omits `conversationType`, the adapter falls back to `conversation.isGroup` and the activity's team context. This keeps correctly classified IDs stable while selecting the buffered fallback for group chats whose IDs begin with `a:`. Thread IDs created by older adapter versions remain supported.
 
+## Message edits
+
+`onMessageUpdated` fires when Teams sends the bot an edited message. Teams sends only the new version, so `previousMessage` is `undefined`, and `isMention` comes from the edited message's mentions. `metadata.dateSent` and `metadata.editedAt` are both the edit time, because Teams doesn't send the original send time. Undeleted messages are ignored.
+
+The adapter assumes that a channel edit's `conversation.id` carries `;messageid=<root>`, the same as a new channel message, so the thread ID points at the reply chain. This hasn't been checked against a captured channel edit yet.
+
+In a DM, a stream that an `onMessageUpdated` handler posts goes out as its own message, the same as in group chats and channels. It doesn't use native DM streaming, because that stream belongs to the reply to the original message, which may still be in progress.
+
 ## Bot joins
 
 `onMemberJoinedChannel` fires when a `conversationUpdate` activity adds this bot to a channel or group chat. `adapter.botUserId` is the Teams bot ID (`28:<appId>`), so the same bot-join guard works across adapters:
@@ -304,7 +312,7 @@ console.log(user?.email);    // "alice@contoso.com"
 console.log(user?.fullName); // "Alice Smith"
 ```
 
-Incoming message authors also include `email` when the Teams conversation members API resolves the sender. This lookup uses the bot's access to the current conversation and does not require Microsoft Graph permissions. Lookup failures leave `message.author.email` undefined without preventing message delivery. This applies to live incoming messages only. Authors on edited-message events and messages returned by `fetchMessages` are not hydrated with an email. Resolved profiles are cached in the state adapter for 1 hour, so busy conversations don't trigger a lookup per message.
+Incoming message authors also include `email` when the Teams conversation members API resolves the sender. This lookup uses the bot's access to the current conversation and does not require Microsoft Graph permissions. Lookup failures leave `message.author.email` undefined without preventing message delivery. This applies to live incoming messages and their edits. Messages returned by `fetchMessages` are not hydrated with an email. Resolved profiles are cached in the state adapter for 1 hour, so busy conversations don't trigger a lookup per message.
 
 The adapter caches each user's Azure AD object ID from incoming activities for later `getUser` calls. `getUser` returns `null` if the user hasn't been seen or the Graph call fails.
 

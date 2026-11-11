@@ -95,18 +95,14 @@ export const OssStatsSection = async () => {
   ];
 
   return (
-    <dl className="grid grid-cols-12 gap-x-8 gap-y-10 py-10 lg:gap-x-12 lg:py-12">
+    <dl
+      aria-label="Chat SDK community"
+      className="mx-auto grid max-w-4xl grid-cols-2 gap-x-6 gap-y-10 py-12 text-center md:grid-cols-4 md:py-20"
+    >
       {stats.map((stat) => (
-        <div
-          className="col-span-6 sm:mx-auto min-[768px]:col-span-3"
-          key={stat.label}
-        >
-          <dt className="text-gray-1000 text-heading-40 sm:text-heading-64">
-            {stat.value}
-          </dt>
-          <dd className="whitespace-nowrap text-copy-16 text-gray-1000">
-            {stat.label}
-          </dd>
+        <div className="flex flex-col" key={stat.label}>
+          <dt className="order-2 mt-2 text-gray-900 text-sm">{stat.label}</dt>
+          <dd className="text-heading-40 lg:text-heading-48">{stat.value}</dd>
         </div>
       ))}
     </dl>

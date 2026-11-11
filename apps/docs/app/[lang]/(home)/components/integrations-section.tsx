@@ -1,6 +1,8 @@
 import type { ReactNode } from "react";
 import { Badge } from "@/components/ui/badge";
+import { cn } from "@/lib/utils";
 import { CardSnippet } from "./card-snippet";
+import { sectionHeading } from "./styles";
 
 interface Integration {
   description: string;
@@ -19,7 +21,7 @@ const integrations: Integration[] = [
   },
   {
     title: "Vercel AI Gateway",
-    description: "Access 100+ models with one API key and no markup.",
+    description: "Access 400+ models with one API key and no markup.",
     pkg: "npm i ai",
     href: "https://vercel.com/ai-gateway",
   },
@@ -44,10 +46,15 @@ const integrations: Integration[] = [
 ];
 
 export const IntegrationsSection = () => (
-  <div className="py-10 lg:py-12">
+  <section className="py-12 md:py-20">
     {/* Heading left, paragraph right and bottom-aligned, as on vercel.com/ai-sdk. */}
     <div className="grid grid-cols-12 items-end gap-x-8 gap-y-10 lg:gap-x-12">
-      <h2 className="col-span-12 text-balance text-gray-1000 text-heading-20 sm:text-heading-24 md:text-heading-32 lg:col-span-4 lg:text-heading-40">
+      <h2
+        className={cn(
+          sectionHeading,
+          "col-span-12 text-balance text-gray-1000 lg:col-span-4"
+        )}
+      >
         Scale with confidence
       </h2>
       <p className="col-span-12 text-pretty text-copy-16 text-gray-900 lg:col-span-5 lg:col-start-8 lg:text-copy-18">
@@ -78,5 +85,5 @@ export const IntegrationsSection = () => (
         </a>
       ))}
     </div>
-  </div>
+  </section>
 );

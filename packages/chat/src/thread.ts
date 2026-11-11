@@ -38,6 +38,7 @@ import type {
   StreamEvent,
   StreamOptions,
   Thread,
+  TypingOptions,
 } from "./types";
 import { ChatError, NotImplementedError, THREAD_STATE_TTL_MS } from "./types";
 
@@ -289,6 +290,14 @@ export class ThreadImpl<TState = Record<string, unknown>>
       this._stateAdapterInstance = state;
     }
     return state;
+  }
+
+  /**
+   * The state adapter this thread stores its callback buttons in.
+   * @internal Used by chat/workflow to read and delete callback receipts.
+   */
+  getStateAdapter(): StateAdapter {
+    return this._stateAdapter;
   }
 
   get recentMessages(): Message[] {
@@ -931,13 +940,18 @@ export class ThreadImpl<TState = Record<string, unknown>>
   }
 
   async startTyping(status?: string): Promise<void> {
-    const initiatorUserId = this._currentMessage?.author.userId;
-    if (initiatorUserId) {
-      await this.adapter.startTyping(this.id, status, { initiatorUserId });
-      this._typingStarted = true;
-      return;
+    const options: TypingOptions = {};
+    if (this._currentMessage?.author.userId) {
+      options.initiatorUserId = this._currentMessage.author.userId;
     }
-    await this.adapter.startTyping(this.id, status);
+    if (this._currentMessage?.id) {
+      options.messageId = this._currentMessage.id;
+    }
+    if (options.initiatorUserId || options.messageId) {
+      await this.adapter.startTyping(this.id, status, options);
+    } else {
+      await this.adapter.startTyping(this.id, status);
+    }
     this._typingStarted = true;
   }
 

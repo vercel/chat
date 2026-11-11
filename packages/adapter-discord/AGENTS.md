@@ -263,5 +263,5 @@ See all guides and templates at [chat-sdk.dev/resources](https://chat-sdk.dev/re
 - User-facing docs: [`apps/docs/content/adapters/official/discord.mdx`](../../apps/docs/content/adapters/official/discord.mdx)
 - README: [`packages/adapter-discord/README.md`](README.md)
 - Shared error/utility helpers: [`packages/adapter-shared/src/index.ts`](../adapter-shared/src/index.ts)
-- Core Adapter contract: [`packages/chat/src/adapter.ts`](../chat/src/adapter.ts)
+- Core Adapter contract: [`packages/chat/src/types.ts`](../chat/src/types.ts)
 - Sample webhook + gateway payloads: [`packages/adapter-discord/sample-messages.md`](sample-messages.md)

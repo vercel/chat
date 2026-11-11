@@ -104,6 +104,7 @@
   "kebabToPascalMap": {
     "gchat": "GoogleChat",
     "github": "GitHub",
+    "gitlab": "GitLab",
     "ioredis": "IoRedis",
     "pg": "Postgres",
     "whatsapp": "WhatsApp"

@@ -22,6 +22,7 @@ export interface TwilioAdapterConfig {
   contentApiUrl?: string;
   fetch?: TwilioFetch;
   logger?: Logger;
+  messagingApiUrl?: string;
   messagingServiceSid?: string;
   phoneNumber?: string;
   rcsSenderId?: string;

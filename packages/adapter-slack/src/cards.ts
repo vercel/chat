@@ -32,19 +32,13 @@ import {
   chartElementToFallbackText,
   tableElementToAscii,
 } from "chat";
+import type { SlackBlock } from "./event";
 import { escapeSlackText, markdownBoldToSlackMrkdwn } from "./format";
 
 /**
  * Convert emoji placeholders in text to Slack format.
  */
 const convertEmoji = createEmojiConverter("slack");
-
-// Slack Block Kit types (simplified)
-export interface SlackBlock {
-  block_id?: string;
-  type: string;
-  [key: string]: unknown;
-}
 
 interface SlackTextObject {
   emoji?: boolean;

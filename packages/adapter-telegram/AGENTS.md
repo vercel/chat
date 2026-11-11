@@ -33,6 +33,8 @@ packages/adapter-telegram/
 │   ├── cards.test.ts
 │   ├── markdown.ts          # TelegramFormatConverter (mdast ↔ MarkdownV2)
 │   ├── markdown.test.ts
+│   ├── split.ts             # Split long messages into parts that fit
+│   ├── split.test.ts
 │   └── types.ts             # Bot API typings
 ├── sample-messages.md       # captured Telegram updates
 ├── package.json
@@ -80,9 +82,10 @@ Main exports from `src/index.ts`:
   `fetchChannelInfo`, `postChannelMessage`, `openDM`, `setWebhook`,
   `deleteWebhook`, `getMe`.
 - Configuration: `TelegramAdapterConfig`, `TelegramThreadId`.
-- Helpers: `cardToTelegramMessage`, `cardToFallbackText`,
-  `TelegramFormatConverter`, `decodeThreadId`, `encodeThreadId`,
-  `isDM`.
+- Helpers: `TelegramFormatConverter`, `escapeMarkdownV2`,
+  `applyTelegramEntities`. `encodeThreadId`, `decodeThreadId`, and
+  `isDM` are methods on `TelegramAdapter`. The card helpers in
+  `cards.ts` are internal and not exported from the package.
 
 ## Thread ID format
 
@@ -169,18 +172,24 @@ worth knowing when debugging.
 ## Cards (text + inline keyboard)
 
 Telegram has no card primitive — instead, cards are rendered as a
-text body with an inline keyboard footer. `cardToTelegramMessage`
-emits:
+text body with an inline keyboard footer. The body comes from the
+shared `cardToFallbackText` and the keyboard from
+`cardToTelegramInlineKeyboard` in `cards.ts`. Together they emit:
 
 - Header / section text → MarkdownV2 paragraphs in the message body.
-- Image → `photo` attachment (uses `sendPhoto` instead of
-  `sendMessage`).
+- Image → not rendered. `cardToFallbackText` skips `Image` children
+  and the card's `imageUrl`, so send a picture as a message
+  attachment instead (that path uses `sendPhoto`).
 - Fields → bulleted MarkdownV2 lines.
 - Buttons → `reply_markup.inline_keyboard[][]` rows. Each button has
   either `callback_data` (callback id) or `url` (`<LinkButton>`).
+  An `Actions` block with more than 8 buttons wraps into evenly sized
+  rows of at most 8 (11 → 6 + 5): Telegram keeps only the first 8
+  buttons of a row and drops the rest.
 - LinkButton → `url` button.
-- Select → emitted as a row of buttons because Telegram has no native
-  select widget. Use a modal-style flow for many options.
+- Select / RadioSelect → not rendered. Telegram has no native select
+  widget, so `toInlineKeyboardRow` skips them and they add no buttons.
+  Offer the options as buttons instead.
 
 Tables flatten as in markdown.
 
@@ -261,5 +270,5 @@ fixtures and AGENTS.md edits don't.
 - User-facing docs: [`apps/docs/content/adapters/official/telegram.mdx`](../../apps/docs/content/adapters/official/telegram.mdx)
 - README: [`packages/adapter-telegram/README.md`](README.md)
 - Shared error/utility helpers: [`packages/adapter-shared/src/index.ts`](../adapter-shared/src/index.ts)
-- Core Adapter contract: [`packages/chat/src/adapter.ts`](../chat/src/adapter.ts)
+- Core Adapter contract: [`packages/chat/src/types.ts`](../chat/src/types.ts)
 - Sample webhook payloads: [`packages/adapter-telegram/sample-messages.md`](sample-messages.md)

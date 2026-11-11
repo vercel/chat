@@ -10,11 +10,17 @@
 
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
+import { Route as ChatRouteImport } from './routes/chat'
 import { Route as ApiWebhooksPlatformRouteImport } from './routes/api/webhooks/$platform'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
   path: '/',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ChatRoute = ChatRouteImport.update({
+  id: '/chat',
+  path: '/chat',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ApiWebhooksPlatformRoute = ApiWebhooksPlatformRouteImport.update({
@@ -25,27 +31,31 @@ const ApiWebhooksPlatformRoute = ApiWebhooksPlatformRouteImport.update({
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
+  '/chat': typeof ChatRoute
   '/api/webhooks/$platform': typeof ApiWebhooksPlatformRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
+  '/chat': typeof ChatRoute
   '/api/webhooks/$platform': typeof ApiWebhooksPlatformRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
+  '/chat': typeof ChatRoute
   '/api/webhooks/$platform': typeof ApiWebhooksPlatformRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/api/webhooks/$platform'
+  fullPaths: '/' | '/chat' | '/api/webhooks/$platform'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/api/webhooks/$platform'
-  id: '__root__' | '/' | '/api/webhooks/$platform'
+  to: '/' | '/chat' | '/api/webhooks/$platform'
+  id: '__root__' | '/' | '/chat' | '/api/webhooks/$platform'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
+  ChatRoute: typeof ChatRoute
   ApiWebhooksPlatformRoute: typeof ApiWebhooksPlatformRoute
 }
 
@@ -56,6 +66,13 @@ declare module '@tanstack/react-router' {
       path: '/'
       fullPath: '/'
       preLoaderRoute: typeof IndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/chat': {
+      id: '/chat'
+      path: '/chat'
+      fullPath: '/chat'
+      preLoaderRoute: typeof ChatRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/api/webhooks/$platform': {
@@ -70,6 +87,7 @@ declare module '@tanstack/react-router' {
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
+  ChatRoute: ChatRoute,
   ApiWebhooksPlatformRoute: ApiWebhooksPlatformRoute,
 }
 export const routeTree = rootRouteImport

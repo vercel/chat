@@ -69,6 +69,10 @@ export function isRcsCapableSender(sender: string): boolean {
   return sender.startsWith("MG") || isRcsAddress(sender);
 }
 
+export function isWhatsAppAddress(address: string): boolean {
+  return address.startsWith(WHATSAPP_PREFIX);
+}
+
 export function normalizeRcsSenderId(senderId: string): string {
   return senderId.startsWith(RCS_PREFIX)
     ? senderId

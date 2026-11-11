@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { runInNewContext } from "node:vm";
+import { createSlackAdapter } from "@chat-adapter/slack";
 import { createTeamsAdapter } from "@chat-adapter/teams";
 import type {
   InstalledEvent,
@@ -125,5 +126,30 @@ describe("Teams installation documentation", () => {
     });
     expect(store.size).toBe(0);
     expect(post).toHaveBeenCalledTimes(2);
+  });
+
+  it("ignores a Slack uninstall that would otherwise match a Teams record", async () => {
+    const { store, install, uninstall } = setup();
+    const personal = event({ conversationId: "personal", raw: {} });
+    await install(personal);
+    const slack = createSlackAdapter({
+      botToken: "xoxb-test-token",
+      botUserId: adapter.botUserId,
+      signingSecret: "secret",
+    });
+    // Same bot ID, tenant, and conversation, so only the adapter guard keeps
+    // the documented handler from deleting the Teams record.
+    expect(slack.botUserId).toBe(adapter.botUserId);
+
+    await uninstall({
+      adapter: slack,
+      action: "remove",
+      id: "Ev0UNINSTALL1",
+      tenantId: personal.tenantId,
+      conversationId: personal.conversationId,
+      raw: {},
+    });
+
+    expect([...store.values()]).toEqual(["destination"]);
   });
 });

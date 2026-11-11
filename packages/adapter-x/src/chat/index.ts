@@ -63,7 +63,6 @@ import {
   getEmoji,
   isCardElement,
   Message,
-  parseMarkdown,
 } from "chat";
 import { createCrcChallengeResponse } from "../crc";
 import { cardToXChat, type XchatUrlCardSpec } from "./cards";
@@ -1411,7 +1410,7 @@ export class XchatAdapter implements Adapter<XchatThreadId, XchatRawMessage> {
       id: messageId ?? event.id,
       threadId,
       text,
-      formatted: parseMarkdown(text),
+      formatted: this.formatConverter.parseIncoming(text).formatted,
       raw,
       author: {
         userId: senderId,

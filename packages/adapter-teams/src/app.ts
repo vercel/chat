@@ -8,6 +8,7 @@ import {
   toActivityParams,
 } from "@microsoft/teams.api";
 import { App } from "@microsoft/teams.apps";
+import { Client as GraphClient } from "@microsoft/teams.graph";
 import type { TeamsThreadId } from "./types";
 
 /** Bot Framework service URLs are compared and sent without a trailing slash. */
@@ -28,6 +29,8 @@ function normalizeServiceUrl(serviceUrl: string): string {
  * helpers instead of the app-wide default.
  */
 export class TeamsApp extends App {
+  private readonly tenantGraphClients = new Map<string, GraphClient>();
+
   /**
    * An explicit `apiUrl` (`TEAMS_API_URL`) pins every outbound call to that
    * endpoint, for example a gateway or emulator. Without one the SDK default
@@ -51,6 +54,27 @@ export class TeamsApp extends App {
       target,
       this.client.clone({ token: () => this.getBotToken() })
     );
+  }
+
+  /**
+   * Graph client whose app token is issued by the given tenant.
+   *
+   * `App.graph` requests its token for the app's own tenant, where users of
+   * other tenants do not exist, so a multi-tenant bot looks them up here.
+   */
+  graphFor(tenantId: string | undefined): GraphClient {
+    if (!tenantId || tenantId === this.options.tenantId) {
+      return this.graph;
+    }
+    let client = this.tenantGraphClients.get(tenantId);
+    if (!client) {
+      client = new GraphClient(
+        this.client.clone({ token: () => this.getAppGraphToken(tenantId) }),
+        { baseUrlRoot: this.graphBaseUrl }
+      );
+      this.tenantGraphClients.set(tenantId, client);
+    }
+    return client;
   }
 
   /** Send an activity to the conversation a Teams thread ID points at. */

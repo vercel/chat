@@ -304,6 +304,8 @@ Inbound `comment.created` events always include a `discussion_id`. The adapter r
 
 Comment edits and deletions require **Read comments** to retrieve the target before writing. The adapter throws a `ValidationError` if the comment is missing or belongs to another page, discussion, or block than the supplied thread ID. For block-parent comments, it retrieves the current block ancestry rather than relying on cached page ownership.
 
+Posts also throw a `ValidationError` when the thread ID points at another page, and the check runs before any file is uploaded or comment is sent. A whole-block thread ID must name a block on its page, which the adapter confirms from the current block ancestry. Child page and child database blocks are rejected. A discussion thread ID must name a discussion the adapter has recorded for that page. It records a discussion when a `comment.created` webhook arrives for it, when the bot starts it, or when it finds the discussion in the page's comment list, and keeps the record in the state adapter so every instance shares it. The comment list only covers unresolved, page-level discussions. A post to any other discussion with no record, such as an inline or block discussion whose thread ID was saved before this check existed, throws until a new comment in that discussion arrives through the webhook.
+
 <Callout type="warn">
 You can start page-level and whole-block discussions through the API. You cannot start selected-text-range (inline highlight) discussions through the public Comments API; those must already exist in Notion.
 </Callout>

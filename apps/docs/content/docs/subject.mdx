@@ -8,7 +8,7 @@ related:
   - /docs/history
 ---
 
-When your bot receives a comment on a Linear issue, GitHub PR, or Notion page, `message.subject` resolves the parent resource so your handler knows what the conversation is about.
+When your bot receives a comment on a Linear issue, GitHub PR, GitLab merge request, or Notion page, `message.subject` resolves the parent resource so your handler knows what the conversation is about.
 
 ## Usage
 
@@ -24,7 +24,7 @@ bot.onNewMention(async (thread, message) => {
 });
 ```
 
-On Linear, GitHub, and Notion, comment webhooks deliver the comment text but not the full parent resource, so `message.subject` fetches it from the platform API on first access and caches the result on the message instance. Chat platforms have no parent resource, so `message.subject` returns `null` there. It also returns `null` if the API call fails.
+On Linear, GitHub, GitLab, and Notion, comment webhooks deliver the comment text but not the full parent resource, so `message.subject` fetches it from the platform API on first access and caches the result on the message instance. Chat platforms have no parent resource, so `message.subject` returns `null` there. It also returns `null` if the API call fails.
 
 See [`MessageSubject`](/docs/api/message#messagesubject) for the full type shape.
 
@@ -34,6 +34,7 @@ See [`MessageSubject`](/docs/api/message#messagesubject) for the full type shape
 |----------|--------------------------|
 | Linear | Parent issue (from comment webhooks) |
 | GitHub | Parent issue or PR (from comment webhooks) |
+| GitLab | Parent merge request or issue (from comment webhooks) |
 | Notion | Parent page (from comment webhooks) |
 
 All other platforms return `null`.

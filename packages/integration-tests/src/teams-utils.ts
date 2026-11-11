@@ -3,8 +3,9 @@
  * Updated for TeamsSDK (@microsoft/teams.apps) migration.
  */
 
-import { encodeThreadId, type TeamsAdapter } from "@chat-adapter/teams";
-import { vi } from "vitest";
+import { EventEmitter } from "node:events";
+import { encodeThreadId, TeamsAdapter } from "@chat-adapter/teams";
+import { type Mock, vi } from "vitest";
 
 export const TEAMS_APP_ID = "test-app-id";
 export const TEAMS_APP_PASSWORD = "test-app-password";
@@ -99,9 +100,7 @@ export function createTeamsActivity(options: TeamsActivityOptions) {
 /**
  * Create a Teams webhook request with Bot Framework format
  */
-export function createTeamsWebhookRequest(
-  activity: ReturnType<typeof createTeamsActivity>
-): Request {
+export function createTeamsWebhookRequest(activity: unknown): Request {
   const body = JSON.stringify(activity);
 
   return new Request("https://example.com/api/messages", {
@@ -115,11 +114,93 @@ export function createTeamsWebhookRequest(
 }
 
 /**
+ * The fields of an inbound activity the harness routes on.
+ */
+export interface MockTeamsActivity {
+  id?: string;
+  type: string;
+  [key: string]: unknown;
+}
+
+/**
+ * Mock of the SDK's `IStreamer`, covering the members the adapter uses.
+ */
+export interface MockTeamsStreamer {
+  canceled: boolean;
+  clearText: Mock<() => void>;
+  close: Mock<() => Promise<undefined>>;
+  closed: boolean;
+  emit: Mock<(activity: unknown) => void>;
+  events: EventEmitter;
+  update: Mock<(text: string) => void>;
+}
+
+/**
+ * Mock `IActivityContext` the harness passes to the adapter for one request.
+ */
+export interface MockTeamsContext {
+  activity: MockTeamsActivity;
+  api: unknown;
+  next: Mock<() => void>;
+  send: Mock<(activity: unknown) => Promise<{ id: string; type: string }>>;
+  stream: MockTeamsStreamer;
+}
+
+let mockStreamCounter = 0;
+
+/**
+ * Create a mock streamer. Like the SDK, it reports each sent chunk through
+ * `events` after `emit()` returns, carrying the streamed message's id.
+ */
+function createMockTeamsStreamer(): MockTeamsStreamer {
+  mockStreamCounter++;
+  const messageId = `stream-message-${mockStreamCounter}`;
+  const events = new EventEmitter();
+  const streamer: MockTeamsStreamer = {
+    canceled: false,
+    closed: false,
+    events,
+    emit: vi.fn(() => {
+      streamer.closed = false;
+      queueMicrotask(() => {
+        events.emit("chunk", { id: messageId, type: "typing" });
+      });
+    }),
+    update: vi.fn(() => {
+      streamer.closed = false;
+    }),
+    clearText: vi.fn(),
+    close: vi.fn(async () => {
+      streamer.closed = true;
+      return undefined;
+    }),
+  };
+  return streamer;
+}
+
+function createMockTeamsContext(
+  activity: MockTeamsActivity,
+  mockApp: MockTeamsApp
+): MockTeamsContext {
+  return {
+    activity,
+    api: mockApp.api,
+    stream: createMockTeamsStreamer(),
+    send: vi.fn(async (act: unknown) => {
+      mockApp.sentActivities.push(act);
+      return { id: `ctx-response-${Date.now()}`, type: "message" };
+    }),
+    next: vi.fn(),
+  };
+}
+
+/**
  * Create mock TeamsSDK App for testing.
  * Mocks the API client layer (conversations, reactions) and tracks sent activities.
  */
 export function createMockTeamsApp() {
   const sentActivities: unknown[] = [];
+  const contexts = new Map<string, MockTeamsContext[]>();
   const updatedActivities: unknown[] = [];
   const deletedActivities: string[] = [];
   const createdConversations: Array<{
@@ -180,6 +261,8 @@ export function createMockTeamsApp() {
   };
 
   return {
+    /** Mock contexts passed to the adapter, by activity id, in dispatch order. */
+    contexts,
     sentActivities,
     updatedActivities,
     deletedActivities,
@@ -193,6 +276,7 @@ export function createMockTeamsApp() {
     /** Backwards-compat alias for api.conversations.create */
     createConversationAsync: mockConversationCreate,
     clearMocks: () => {
+      contexts.clear();
       sentActivities.length = 0;
       updatedActivities.length = 0;
       deletedActivities.length = 0;
@@ -206,7 +290,9 @@ export type MockTeamsApp = ReturnType<typeof createMockTeamsApp>;
 
 /**
  * Inject mock TeamsSDK App into Teams adapter.
- * Replaces the internal App instance and `bridgeAdapter` with mocks.
+ * Replaces the internal App instance with a mock and registers a route on the
+ * adapter's own bridge, so `handleWebhook` runs the shipped `dispatch` and
+ * per-request webhook options.
  */
 export function injectMockTeamsApp(
   adapter: TeamsAdapter,
@@ -214,13 +300,11 @@ export function injectMockTeamsApp(
 ): void {
   const adapterInternal = adapter as unknown as {
     appInstance: unknown;
-    bridgeAdapter: unknown;
+    config: { appId?: string };
   };
 
-  // Replace the app with a mock that has the right API surface
-  const config = (adapter as unknown as { config: { appId?: string } }).config;
   adapterInternal.appInstance = {
-    id: config.appId || TEAMS_APP_ID,
+    id: adapterInternal.config.appId || TEAMS_APP_ID,
     sendTo: mockApp.sendTo,
     api: mockApp.api,
     apiFor: mockApp.apiFor,
@@ -230,82 +314,81 @@ export function injectMockTeamsApp(
     use: vi.fn(),
   };
 
-  // Create a mock bridge adapter that dispatches activities through the handlers
-  const webhookOptionsMap = new Map<string, unknown>();
-  adapterInternal.bridgeAdapter = {
-    getWebhookOptions: (activityId: string | undefined) =>
-      activityId ? webhookOptionsMap.get(activityId) : undefined,
-    dispatch: vi.fn(
-      async (
-        request: Request,
-        options?: { waitUntil?: (promise: Promise<unknown>) => void }
-      ) => {
-        const body = await request.text();
-        const parsed = JSON.parse(body);
-        const activity = parsed as {
-          id?: string;
-          type: string;
-          text?: string;
-          from?: { id: string };
-          value?: unknown;
-        };
+  TeamsAdapterHarness.registerRoute(adapter, mockApp);
+}
 
-        if (activity.id && options) {
-          webhookOptionsMap.set(activity.id, options);
-        }
+function isInvokeResponse(value: unknown): value is MockTeamsRouteResponse {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    typeof (value as { status?: unknown }).status === "number"
+  );
+}
 
-        // For message activities, simulate the TeamsSDK pipeline
-        // by calling the adapter's internal methods
-        if (
-          activity.type === "message" ||
-          activity.type === "messageReaction" ||
-          activity.type === "invoke"
-        ) {
-          // The adapter's event handlers were registered on the real app,
-          // but we replaced the app. Instead, we trigger the handler logic
-          // by accessing the adapter's private methods directly.
-          const adapterAny = adapter as unknown as {
-            cacheUserContext: (activity: unknown) => void;
-            handleMessageActivity: (ctx: unknown) => Promise<void>;
-            handleReactionFromContext: (ctx: unknown) => void;
-            handleAdaptiveCardAction: (ctx: unknown) => Promise<void>;
-          };
+interface MockTeamsRouteResponse {
+  body?: unknown;
+  status: number;
+}
 
-          // Create a mock context matching IActivityContext shape
-          const mockCtx = {
-            activity,
-            api: mockApp.api,
-            stream: { emit: vi.fn(), close: vi.fn(async () => undefined) },
-            send: vi.fn(async (act: unknown) => {
-              mockApp.sentActivities.push(act);
-              return { id: `ctx-response-${Date.now()}`, type: "message" };
-            }),
-            next: vi.fn(),
-          };
-
-          // Mirror the inline caching that registerEventHandlers does
-          adapterAny.cacheUserContext(activity);
-
-          if (activity.type === "message") {
-            await adapterAny.handleMessageActivity(mockCtx);
-          } else if (activity.type === "messageReaction") {
-            adapterAny.handleReactionFromContext(mockCtx);
-          } else if (activity.type === "invoke") {
-            await adapterAny.handleAdaptiveCardAction(mockCtx);
-          }
-        }
-
+/**
+ * Never instantiated. Extending the adapter gives the harness typed access to
+ * its protected bridge and handlers, so signature drift fails typecheck.
+ */
+class TeamsAdapterHarness extends TeamsAdapter {
+  static registerRoute(adapter: TeamsAdapter, mockApp: MockTeamsApp): void {
+    const internals = adapter as TeamsAdapterHarness;
+    internals.bridgeAdapter.registerRoute(
+      "POST",
+      "/api/messages",
+      async ({ body }) => {
+        const activity = body as MockTeamsActivity;
+        const ctx = createMockTeamsContext(activity, mockApp);
         if (activity.id) {
-          webhookOptionsMap.delete(activity.id);
+          const recorded = mockApp.contexts.get(activity.id) ?? [];
+          recorded.push(ctx);
+          mockApp.contexts.set(activity.id, recorded);
         }
 
-        return new Response("{}", {
-          status: 200,
-          headers: { "Content-Type": "application/json" },
-        });
+        // Mirrors the SDK's App.process: run the handler, close the stream,
+        // then wrap non-invoke results in a 200.
+        const result = await TeamsAdapterHarness.route(internals, ctx);
+        await ctx.stream.close();
+        return isInvokeResponse(result)
+          ? result
+          : { status: 200, body: result };
       }
-    ),
-  };
+    );
+  }
+
+  /** Mirrors the routes `registerEventHandlers` adds to the SDK App. */
+  private static async route(
+    adapter: TeamsAdapterHarness,
+    ctx: MockTeamsContext
+  ): Promise<unknown> {
+    // The mock ctx implements only the IActivityContext members the adapter reads.
+    const sdkCtx = ctx as never;
+    const activity = ctx.activity as never;
+    switch (ctx.activity.type) {
+      case "message":
+        adapter.cacheUserContext(activity);
+        await adapter.handleMessageActivity(sdkCtx);
+        return;
+      case "messageUpdate":
+        adapter.cacheUserContext(activity);
+        await adapter.handleMessageUpdateActivity(sdkCtx);
+        return;
+      case "messageReaction":
+        adapter.cacheUserContext(activity);
+        adapter.handleReactionFromContext(sdkCtx);
+        return;
+      case "invoke":
+        adapter.cacheUserContext(activity);
+        await adapter.handleAdaptiveCardAction(sdkCtx);
+        return;
+      default:
+        return;
+    }
+  }
 }
 
 /**

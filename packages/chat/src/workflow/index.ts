@@ -29,9 +29,15 @@
  * }
  * ```
  */
-import { createWebhook, sleep } from "workflow";
+import { createWebhook, FatalError, sleep } from "workflow";
+import {
+  deleteCallbackReceipt,
+  isCallbackReceiptNonce,
+  processCardCallbackUrls,
+  readCallbackReceipt,
+} from "../callback-url";
 import type { CardElement } from "../cards";
-import type { Thread } from "../types";
+import type { StateAdapter, Thread } from "../types";
 import {
   APPROVE_ACTION_ID,
   type ApprovalCardOptions,
@@ -67,7 +73,7 @@ export interface RequestApprovalOptions extends ApprovalCardOptions {
   timeout?: ApprovalTimeout;
 }
 
-/** The user who clicked a button, from the action callback payload. */
+/** The user who clicked a button, as verified by Chat SDK. */
 export interface ApprovalUser {
   id: string;
   name?: string;
@@ -82,14 +88,40 @@ export interface ApprovalResult {
   user?: ApprovalUser;
 }
 
-/** Shape of the JSON body Chat SDK POSTs to a button's `callbackUrl`. */
-interface ActionCallbackPayload {
-  actionId?: string;
-  messageId?: string;
-  threadId?: string;
-  type?: string;
-  user?: { id?: string; name?: string };
-  value?: string;
+interface ApprovalDecision {
+  approved: boolean;
+  user: ApprovalUser;
+}
+
+const UNSUPPORTED_THREAD_MESSAGE =
+  "requestApproval() requires a thread created by Chat SDK so it can verify clicks against its state adapter";
+
+type ThreadWithState = Thread & { getStateAdapter(): StateAdapter };
+
+function hasStateAdapter(thread: Thread): thread is ThreadWithState {
+  return (
+    typeof (thread as { getStateAdapter?: unknown }).getStateAdapter ===
+    "function"
+  );
+}
+
+/**
+ * Best-effort cleanup of a receipt the workflow has acted on. Single use is
+ * enforced in the workflow, and receipts expire on their own, so a failed
+ * delete must not fail or retry the step it runs in.
+ */
+async function discardReceipt(
+  thread: Thread,
+  nonce: string | undefined
+): Promise<void> {
+  if (!(nonce && hasStateAdapter(thread))) {
+    return;
+  }
+  try {
+    await deleteCallbackReceipt(thread.getStateAdapter(), nonce);
+  } catch {
+    // Ignored, see above.
+  }
 }
 
 async function postApprovalCard(
@@ -104,15 +136,72 @@ async function postApprovalCard(
 async function finalizeApprovalCard(
   thread: Thread,
   messageId: string,
-  card: CardElement
+  card: CardElement,
+  receipt?: string
 ): Promise<void> {
   "use step";
   await thread.adapter.editMessage(thread.id, messageId, card);
+  await discardReceipt(thread, receipt);
 }
 
-async function postNotice(thread: Thread, markdown: string): Promise<void> {
+async function rejectUnauthorizedClick(
+  thread: Thread,
+  messageId: string,
+  pendingCard: CardElement,
+  notice: string,
+  receipt: string
+): Promise<void> {
   "use step";
-  await thread.post({ markdown });
+  // Callback tokens are single use, so this click spent its button. Re-arm
+  // the card so an approver can still decide, without letting a failed edit
+  // block the notice.
+  try {
+    if (hasStateAdapter(thread)) {
+      const card = await processCardCallbackUrls(
+        pendingCard,
+        thread.getStateAdapter(),
+        { id: thread.id, type: "thread" }
+      );
+      await thread.adapter.editMessage(thread.id, messageId, card);
+    }
+  } catch {
+    // Ignored, see above.
+  }
+  await thread.post({ markdown: notice });
+  await discardReceipt(thread, receipt);
+}
+
+/**
+ * Resolve a click from the receipt Chat stored when it POSTed to the webhook.
+ * Anyone holding the webhook URL can POST to it, so the body only supplies
+ * the receipt nonce; the button and user come from server-side state. Reads
+ * without consuming so a retry sees the same receipt.
+ */
+async function verifyDecision(
+  thread: Thread,
+  webhookUrl: string,
+  nonce: string
+): Promise<ApprovalDecision | null> {
+  "use step";
+  if (!hasStateAdapter(thread)) {
+    throw new FatalError(UNSUPPORTED_THREAD_MESSAGE);
+  }
+
+  const receipt = await readCallbackReceipt(thread.getStateAdapter(), nonce, {
+    url: webhookUrl,
+    threadId: thread.id,
+  });
+  if (
+    !receipt ||
+    (receipt.actionId !== APPROVE_ACTION_ID &&
+      receipt.actionId !== DENY_ACTION_ID)
+  ) {
+    return null;
+  }
+  return {
+    approved: receipt.actionId === APPROVE_ACTION_ID,
+    user: { id: receipt.user.id, name: receipt.user.name },
+  };
 }
 
 function describeUser(user: ApprovalUser): string {
@@ -126,22 +215,32 @@ const TIMED_OUT = Symbol("timed-out");
  * approves or denies, or the timeout elapses. Must run inside a
  * `"use workflow"` function.
  *
- * By default any authenticated user who clicks decides; pass `approvers` to
- * restrict who may approve (recommended for consequential actions).
+ * Each click is verified against a receipt that Chat SDK stores in the
+ * thread's state adapter before calling the workflow webhook, so the
+ * decision and the deciding user come from the platform's verified action
+ * event rather than the webhook request. Requests without a valid receipt,
+ * and repeats of a receipt already seen, are ignored. By default any user
+ * who clicks decides; pass `approvers` to restrict who may approve
+ * (recommended for consequential actions).
  */
 export async function requestApproval(
   thread: Thread,
   options: RequestApprovalOptions
 ): Promise<ApprovalResult> {
+  if (!hasStateAdapter(thread)) {
+    throw new Error(UNSUPPORTED_THREAD_MESSAGE);
+  }
+
   using webhook = createWebhook();
 
-  const messageId = await postApprovalCard(
-    thread,
-    buildApprovalCard(options, webhook.url)
-  );
+  const pendingCard = buildApprovalCard(options, webhook.url);
+  const messageId = await postApprovalCard(thread, pendingCard);
 
   const timeoutPromise = startTimeout(options.timeout);
   const clicks = webhook[Symbol.asyncIterator]();
+  // Receipts are bound to this webhook's URL, and workflow code replays
+  // deterministically, so this set alone makes each receipt single use.
+  const seenReceipts = new Set<string>();
 
   for (;;) {
     const next = await Promise.race([
@@ -161,20 +260,29 @@ export async function requestApproval(
       return { approved: false, timedOut: true };
     }
 
-    const payload = (await next.value
-      .json()
-      .catch(() => null)) as ActionCallbackPayload | null;
-    const decision = parseDecision(payload);
+    const payload = (await next.value.json().catch(() => null)) as {
+      receipt?: unknown;
+    } | null;
+    const nonce = payload?.receipt;
+    if (!isCallbackReceiptNonce(nonce) || seenReceipts.has(nonce)) {
+      continue;
+    }
+    seenReceipts.add(nonce);
+
+    const decision = await verifyDecision(thread, webhook.url, nonce);
     if (!decision) {
-      // Not a recognizable button click (bad payload or foreign POST), so
-      // keep waiting rather than resolving the approval on garbage input.
+      // No valid receipt (forged or foreign POST), so keep waiting rather
+      // than resolving the approval on unverified input.
       continue;
     }
 
     if (options.approvers && !options.approvers.includes(decision.user.id)) {
-      await postNotice(
+      await rejectUnauthorizedClick(
         thread,
-        `${describeUser(decision.user)} isn't authorized to decide "${options.title}".`
+        messageId,
+        pendingCard,
+        `${describeUser(decision.user)} isn't authorized to decide "${options.title}".`,
+        nonce
       );
       continue;
     }
@@ -185,7 +293,8 @@ export async function requestApproval(
       buildResolvedCard(
         options,
         `${decision.approved ? "Approved" : "Denied"} by ${describeUser(decision.user)}.`
-      )
+      ),
+      nonce
     );
     return {
       approved: decision.approved,
@@ -207,21 +316,4 @@ function startTimeout(
   const sleeping =
     typeof timeout === "number" ? sleep(timeout) : sleep(timeout);
   return sleeping.then(() => TIMED_OUT);
-}
-
-function parseDecision(
-  payload: ActionCallbackPayload | null
-): { approved: boolean; user: ApprovalUser } | undefined {
-  if (
-    payload?.type !== "action" ||
-    !payload.user?.id ||
-    (payload.actionId !== APPROVE_ACTION_ID &&
-      payload.actionId !== DENY_ACTION_ID)
-  ) {
-    return;
-  }
-  return {
-    approved: payload.actionId === APPROVE_ACTION_ID,
-    user: { id: payload.user.id, name: payload.user.name },
-  };
 }

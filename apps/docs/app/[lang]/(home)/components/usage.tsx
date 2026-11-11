@@ -46,7 +46,7 @@ export const Usage = async () => {
   const { tokens, rootStyle } = await codeToTokens(exampleCode, {
     lang: "tsx",
     themes: {
-      light: "github-light",
+      light: "github-light-default",
       dark: "github-dark",
     },
     defaultColor: false,
@@ -75,6 +75,8 @@ export const Usage = async () => {
             ...preStyle,
           } as CSSProperties
         }
+        // biome-ignore lint/a11y/noNoninteractiveTabindex: scrollable code must be reachable by keyboard
+        tabIndex={0}
       >
         <code className="grid min-w-max">
           {tokens.map((line, lineIndex) => (

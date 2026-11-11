@@ -1,4 +1,3 @@
-import { createHmac, timingSafeEqual } from "node:crypto";
 import {
   AdapterError,
   type AttachmentTransport,
@@ -8,9 +7,10 @@ import {
   extractFiles,
   extractPostableAttachments,
   NetworkError,
-  type PlatformName,
   toBuffer,
   ValidationError,
+  verifyMetaSignature,
+  verifyMetaWebhookChallenge,
 } from "@chat-adapter/shared";
 import type {
   Adapter,
@@ -65,9 +65,6 @@ import type {
 } from "./types";
 
 export { WhatsAppApiError } from "./errors";
-
-/** Platform label for shared buffer utilities (not yet in PlatformName union). */
-const WHATSAPP_BUFFER_PLATFORM = "whatsapp" as PlatformName;
 
 /** Default Graph API version */
 const DEFAULT_API_VERSION = "v25.0";
@@ -137,6 +134,7 @@ interface WhatsAppRecipient {
 }
 
 const BSUID_PATTERN = /^[A-Z]{2}\.(?:ENT\.)?[A-Za-z0-9]{1,128}$/;
+const PHONE_NUMBER_ID_PATTERN = /^\d+$/;
 
 const EXTENSION_MIME_TYPES: Record<string, string> = {
   ".gif": "image/gif",
@@ -486,19 +484,18 @@ export class WhatsAppAdapter
    * @see https://developers.facebook.com/docs/whatsapp/cloud-api/guides/set-up-webhooks
    */
   protected handleVerificationChallenge(request: Request): Response {
-    const url = new URL(request.url);
-    const mode = url.searchParams.get("hub.mode");
-    const token = url.searchParams.get("hub.verify_token");
-    const challenge = url.searchParams.get("hub.challenge");
-
-    if (mode === "subscribe" && token === this.verifyToken) {
+    const searchParams = new URL(request.url).searchParams;
+    const challenge = verifyMetaWebhookChallenge(
+      searchParams,
+      this.verifyToken
+    );
+    if (challenge !== null) {
       this.logger.info("WhatsApp webhook verification succeeded");
-      return new Response(challenge ?? "", { status: 200 });
+      return new Response(challenge, { status: 200 });
     }
 
     this.logger.warn("WhatsApp webhook verification failed", {
-      mode,
-      tokenMatch: token === this.verifyToken,
+      mode: searchParams.get("hub.mode"),
     });
     return new Response("Forbidden", { status: 403 });
   }
@@ -509,18 +506,10 @@ export class WhatsAppAdapter
    * @see https://developers.facebook.com/docs/graph-api/webhooks/getting-started#verification-requests
    */
   protected verifySignature(body: string, signature: string | null): boolean {
-    if (!signature) {
-      return false;
-    }
-
-    const expectedSignature = `sha256=${createHmac("sha256", this.appSecret).update(body).digest("hex")}`;
-
     try {
-      return timingSafeEqual(
-        Buffer.from(signature),
-        Buffer.from(expectedSignature)
-      );
+      return verifyMetaSignature(body, signature, this.appSecret);
     } catch {
+      this.logger.warn("Failed to verify WhatsApp webhook signature");
       return false;
     }
   }
@@ -919,11 +908,12 @@ export class WhatsAppAdapter
 
   protected async recipient(
     threadId: string,
-    userId: string
+    threadOrUserWaId: WhatsAppThreadId | string
   ): Promise<WhatsAppRecipient> {
+    const thread = this.outboundThread(threadId, threadOrUserWaId);
+    const { phoneNumberId, userWaId: userId } = thread;
     if (this.chat) {
       try {
-        const { phoneNumberId } = this.decodeThreadId(threadId);
         const route = await this.chat
           .getState()
           .get<WhatsAppRoute>(this.key("route", phoneNumberId, userId));
@@ -1011,7 +1001,8 @@ export class WhatsAppAdapter
 
     const author = this.author(user, contact);
 
-    const formatted: FormattedContent = this.formatConverter.toAst(text);
+    const formatted: FormattedContent =
+      this.formatConverter.parseIncoming(text).formatted;
 
     const raw: WhatsAppRawMessage = {
       message: inbound,
@@ -1232,10 +1223,10 @@ export class WhatsAppAdapter
     message: AdapterPostableMessage,
     replyId?: string
   ): Promise<RawMessage<WhatsAppRawMessage>> {
-    const { userWaId } = this.decodeThreadId(threadId);
+    const thread = this.decodeOutboundThreadId(threadId);
     // Resolve the route once per logical post; the send helpers reuse it
     // across chunked and multi-part sends.
-    const recipient = await this.recipient(threadId, userWaId);
+    const recipient = await this.recipient(threadId, thread);
     const files = extractFiles(message);
     const attachments = extractPostableAttachments(message);
     const mediaItems: Array<FileUpload | Attachment> = [
@@ -1246,7 +1237,7 @@ export class WhatsAppAdapter
     if (mediaItems.length > 0) {
       return this.postMessageWithMedia(
         threadId,
-        userWaId,
+        thread,
         message,
         mediaItems,
         replyId,
@@ -1269,7 +1260,7 @@ export class WhatsAppAdapter
 
         return this.sendInteractiveMessage(
           threadId,
-          userWaId,
+          thread,
           interactive,
           replyId,
           recipient
@@ -1278,7 +1269,7 @@ export class WhatsAppAdapter
 
       return this.sendTextMessage(
         threadId,
-        userWaId,
+        thread,
         convertEmojiPlaceholders(result.text, "whatsapp"),
         replyId,
         recipient
@@ -1291,7 +1282,7 @@ export class WhatsAppAdapter
       "whatsapp"
     );
 
-    return this.sendTextMessage(threadId, userWaId, body, replyId, recipient);
+    return this.sendTextMessage(threadId, thread, body, replyId, recipient);
   }
 
   async reply(
@@ -1307,12 +1298,13 @@ export class WhatsAppAdapter
    */
   protected async postMessageWithMedia(
     threadId: string,
-    userWaId: string,
+    threadOrUserWaId: WhatsAppThreadId | string,
     message: AdapterPostableMessage,
     mediaItems: Array<FileUpload | Attachment>,
     replyId?: string,
     recipient?: WhatsAppRecipient
   ): Promise<RawMessage<WhatsAppRawMessage>> {
+    const thread = this.outboundThread(threadId, threadOrUserWaId);
     let remainingId = replyId;
     const card = extractCard(message);
     // cta_url promotion is disabled alongside media: the text fallback
@@ -1344,7 +1336,7 @@ export class WhatsAppAdapter
     }
 
     const resolved = await Promise.all(
-      mediaItems.map((item) => this.resolveMedia(item))
+      mediaItems.map((item) => this.resolveMedia(item, thread.phoneNumberId))
     );
 
     const firstMedia = resolved[0];
@@ -1357,7 +1349,7 @@ export class WhatsAppAdapter
     if (useSeparateText) {
       await this.sendTextMessage(
         threadId,
-        userWaId,
+        thread,
         text,
         remainingId,
         recipient
@@ -1378,7 +1370,7 @@ export class WhatsAppAdapter
 
       result = await this.sendMediaMessage(
         threadId,
-        userWaId,
+        thread,
         media.type,
         media.payload,
         caption,
@@ -1400,7 +1392,7 @@ export class WhatsAppAdapter
 
         result = await this.sendInteractiveMessage(
           threadId,
-          userWaId,
+          thread,
           interactive,
           remainingId,
           recipient
@@ -1409,7 +1401,7 @@ export class WhatsAppAdapter
       } else if (text.length === 0) {
         result = await this.sendTextMessage(
           threadId,
-          userWaId,
+          thread,
           convertEmojiPlaceholders(cardResult.text, "whatsapp"),
           remainingId,
           recipient
@@ -1440,17 +1432,19 @@ export class WhatsAppAdapter
    */
   protected async sendSingleTextMessage(
     threadId: string,
-    to: string,
+    threadOrUserWaId: WhatsAppThreadId | string,
     text: string,
     replyId?: string,
     recipient?: WhatsAppRecipient
   ): Promise<RawMessage<WhatsAppRawMessage>> {
+    const thread = this.outboundThread(threadId, threadOrUserWaId);
+    const senderPhoneNumberId = thread.phoneNumberId;
     const response = await this.graphApiRequest<WhatsAppSendResponse>(
-      `/${this.phoneNumberId}/messages`,
+      `/${senderPhoneNumberId}/messages`,
       {
         messaging_product: "whatsapp",
         recipient_type: "individual",
-        ...(recipient ?? (await this.recipient(threadId, to))),
+        ...(recipient ?? (await this.recipient(threadId, thread))),
         ...(replyId ? { context: { message_id: replyId } } : {}),
         type: "text",
         text: { preview_url: false, body: text },
@@ -1470,12 +1464,12 @@ export class WhatsAppAdapter
       raw: {
         message: {
           id: messageId,
-          from: this.phoneNumberId,
+          from: senderPhoneNumberId,
           timestamp: String(Math.floor(Date.now() / 1000)),
           type: "text",
           text: { body: text },
         },
-        phoneNumberId: this.phoneNumberId,
+        phoneNumberId: senderPhoneNumberId,
       },
     };
   }
@@ -1486,20 +1480,21 @@ export class WhatsAppAdapter
    */
   protected async sendTextMessage(
     threadId: string,
-    to: string,
+    threadOrUserWaId: WhatsAppThreadId | string,
     text: string,
     replyId?: string,
     recipient?: WhatsAppRecipient
   ): Promise<RawMessage<WhatsAppRawMessage>> {
+    const thread = this.outboundThread(threadId, threadOrUserWaId);
     const chunks = this.splitMessage(text);
     // Resolve the route once so chunked sends share a single lookup.
-    const resolved = recipient ?? (await this.recipient(threadId, to));
+    const resolved = recipient ?? (await this.recipient(threadId, thread));
     let result: RawMessage<WhatsAppRawMessage> | undefined;
 
     for (const [index, chunk] of chunks.entries()) {
       result = await this.sendSingleTextMessage(
         threadId,
-        to,
+        thread,
         chunk,
         index === 0 ? replyId : undefined,
         resolved
@@ -1514,17 +1509,19 @@ export class WhatsAppAdapter
    */
   protected async sendInteractiveMessage(
     threadId: string,
-    to: string,
+    threadOrUserWaId: WhatsAppThreadId | string,
     interactive: WhatsAppInteractiveMessage,
     replyId?: string,
     recipient?: WhatsAppRecipient
   ): Promise<RawMessage<WhatsAppRawMessage>> {
+    const thread = this.outboundThread(threadId, threadOrUserWaId);
+    const senderPhoneNumberId = thread.phoneNumberId;
     const response = await this.graphApiRequest<WhatsAppSendResponse>(
-      `/${this.phoneNumberId}/messages`,
+      `/${senderPhoneNumberId}/messages`,
       {
         messaging_product: "whatsapp",
         recipient_type: "individual",
-        ...(recipient ?? (await this.recipient(threadId, to))),
+        ...(recipient ?? (await this.recipient(threadId, thread))),
         ...(replyId ? { context: { message_id: replyId } } : {}),
         type: "interactive",
         interactive,
@@ -1544,11 +1541,11 @@ export class WhatsAppAdapter
       raw: {
         message: {
           id: messageId,
-          from: this.phoneNumberId,
+          from: senderPhoneNumberId,
           timestamp: String(Math.floor(Date.now() / 1000)),
           type: "interactive",
         },
-        phoneNumberId: this.phoneNumberId,
+        phoneNumberId: senderPhoneNumberId,
       },
     };
   }
@@ -1582,7 +1579,8 @@ export class WhatsAppAdapter
     threadId: string,
     template: WhatsAppTemplateMessage
   ): Promise<RawMessage<WhatsAppRawMessage>> {
-    const { userWaId } = this.decodeThreadId(threadId);
+    const thread = this.decodeOutboundThreadId(threadId);
+    const senderPhoneNumberId = thread.phoneNumberId;
 
     // Convert emoji placeholders in text parameters only; payloads, URLs, and
     // media references must stay literal (see convertTemplateComponentEmoji).
@@ -1591,11 +1589,11 @@ export class WhatsAppAdapter
       : undefined;
 
     const response = await this.graphApiRequest<WhatsAppSendResponse>(
-      `/${this.phoneNumberId}/messages`,
+      `/${senderPhoneNumberId}/messages`,
       {
         messaging_product: "whatsapp",
         recipient_type: "individual",
-        ...(await this.recipient(threadId, userWaId)),
+        ...(await this.recipient(threadId, thread)),
         type: "template",
         template: {
           name: template.name,
@@ -1618,11 +1616,11 @@ export class WhatsAppAdapter
       raw: {
         message: {
           id: messageId,
-          from: this.phoneNumberId,
+          from: senderPhoneNumberId,
           timestamp: String(Math.floor(Date.now() / 1000)),
           type: "template",
         },
-        phoneNumberId: this.phoneNumberId,
+        phoneNumberId: senderPhoneNumberId,
       },
     };
   }
@@ -1679,13 +1677,13 @@ export class WhatsAppAdapter
     messageId: string,
     emoji: EmojiValue | string
   ): Promise<void> {
-    const { userWaId } = this.decodeThreadId(threadId);
+    const thread = this.decodeOutboundThreadId(threadId);
     const emojiStr = this.resolveEmoji(emoji);
 
-    await this.graphApiRequest(`/${this.phoneNumberId}/messages`, {
+    await this.graphApiRequest(`/${thread.phoneNumberId}/messages`, {
       messaging_product: "whatsapp",
       recipient_type: "individual",
-      ...(await this.recipient(threadId, userWaId)),
+      ...(await this.recipient(threadId, thread)),
       type: "reaction",
       reaction: {
         message_id: messageId,
@@ -1704,13 +1702,13 @@ export class WhatsAppAdapter
     messageId: string,
     _emoji: EmojiValue | string
   ): Promise<void> {
-    const { userWaId } = this.decodeThreadId(threadId);
+    const thread = this.decodeOutboundThreadId(threadId);
 
     // WhatsApp removes reactions by sending an empty emoji
-    await this.graphApiRequest(`/${this.phoneNumberId}/messages`, {
+    await this.graphApiRequest(`/${thread.phoneNumberId}/messages`, {
       messaging_product: "whatsapp",
       recipient_type: "individual",
-      ...(await this.recipient(threadId, userWaId)),
+      ...(await this.recipient(threadId, thread)),
       type: "reaction",
       reaction: {
         message_id: messageId,
@@ -1728,6 +1726,7 @@ export class WhatsAppAdapter
    * @see https://developers.facebook.com/documentation/business-messaging/whatsapp/typing-indicators
    */
   async startTyping(threadId: string, status?: string): Promise<void> {
+    const { phoneNumberId } = this.decodeOutboundThreadId(threadId);
     const messageId = await this.resolveTypingTargetMessageId(threadId);
     this.logger.debug("WhatsApp typing indicator requested", {
       messageId,
@@ -1752,7 +1751,7 @@ export class WhatsAppAdapter
 
     const response =
       await this.graphApiRequest<WhatsAppTypingIndicatorResponse>(
-        `/${this.phoneNumberId}/messages`,
+        `/${phoneNumberId}/messages`,
         {
           messaging_product: "whatsapp",
           status: "read",
@@ -1850,6 +1849,39 @@ export class WhatsAppAdapter
   }
 
   /**
+   * Decode a thread ID for an outbound send. The phone number ID becomes
+   * part of the Graph API path, so it must be numeric.
+   */
+  protected decodeOutboundThreadId(threadId: string): WhatsAppThreadId {
+    const thread = this.decodeThreadId(threadId);
+    if (!PHONE_NUMBER_ID_PATTERN.test(thread.phoneNumberId)) {
+      throw new ValidationError(
+        "whatsapp",
+        `Invalid WhatsApp phone number ID in thread ID: ${threadId}`
+      );
+    }
+    return thread;
+  }
+
+  /**
+   * Accept the decoded thread, or the recipient string that protected
+   * helpers took before they received the decoded thread. Either way the
+   * sender comes from the validated thread ID.
+   */
+  protected outboundThread(
+    threadId: string,
+    threadOrUserWaId: WhatsAppThreadId | string
+  ): WhatsAppThreadId {
+    if (typeof threadOrUserWaId !== "string") {
+      return threadOrUserWaId;
+    }
+    return {
+      ...this.decodeOutboundThreadId(threadId),
+      userWaId: threadOrUserWaId,
+    };
+  }
+
+  /**
    * Derive channel ID from a WhatsApp thread ID.
    * On WhatsApp every conversation is a 1:1 DM, so channel === thread.
    */
@@ -1884,7 +1916,8 @@ export class WhatsAppAdapter
    */
   parseMessage(raw: WhatsAppRawMessage): Message<WhatsAppRawMessage> {
     const text = this.extractTextContent(raw.message) || "";
-    const formatted: FormattedContent = this.formatConverter.toAst(text);
+    const formatted: FormattedContent =
+      this.formatConverter.parseIncoming(text).formatted;
     const attachments = this.buildAttachments(raw.message);
     // A stored canonical userId wins; otherwise derive the identity with
     // the same precedence the webhook path uses.
@@ -1933,9 +1966,14 @@ export class WhatsAppAdapter
     messageId?: string,
     _message?: Message<WhatsAppRawMessage>
   ): Promise<void> {
+    // A read receipt with no message id has no inbound thread, so it uses the configured number.
+    const receiptPhoneNumberId =
+      messageId === undefined
+        ? this.phoneNumberId
+        : this.decodeOutboundThreadId(threadIdOrMessageId).phoneNumberId;
     const response =
       await this.graphApiRequest<WhatsAppTypingIndicatorResponse>(
-        `/${this.phoneNumberId}/messages`,
+        `/${receiptPhoneNumberId}/messages`,
         {
           messaging_product: "whatsapp",
           status: "read",
@@ -1976,11 +2014,14 @@ export class WhatsAppAdapter
    *
    * @see https://developers.facebook.com/docs/whatsapp/cloud-api/reference/media#upload-media
    */
-  protected async uploadMedia(file: {
-    data: Buffer;
-    filename: string;
-    mimeType: string;
-  }): Promise<string> {
+  protected async uploadMedia(
+    file: {
+      data: Buffer;
+      filename: string;
+      mimeType: string;
+    },
+    phoneNumberId: string = this.phoneNumberId
+  ): Promise<string> {
     const formData = new FormData();
     formData.append("messaging_product", "whatsapp");
     formData.append(
@@ -1990,7 +2031,7 @@ export class WhatsAppAdapter
     );
 
     const response = await this.graphApiUpload<WhatsAppMediaUploadResponse>(
-      `/${this.phoneNumberId}/media`,
+      `/${phoneNumberId}/media`,
       formData
     );
 
@@ -2006,7 +2047,7 @@ export class WhatsAppAdapter
    */
   protected async sendMediaMessage(
     threadId: string,
-    to: string,
+    threadOrUserWaId: WhatsAppThreadId | string,
     type: WhatsAppMediaType,
     payload: { id?: string; link?: string },
     caption?: string,
@@ -2014,6 +2055,7 @@ export class WhatsAppAdapter
     replyId?: string,
     recipient?: WhatsAppRecipient
   ): Promise<RawMessage<WhatsAppRawMessage>> {
+    const thread = this.outboundThread(threadId, threadOrUserWaId);
     const mediaObject: Record<string, string> = {};
 
     if (payload.id) {
@@ -2032,12 +2074,13 @@ export class WhatsAppAdapter
       mediaObject.filename = filename;
     }
 
+    const senderPhoneNumberId = thread.phoneNumberId;
     const response = await this.graphApiRequest<WhatsAppSendResponse>(
-      `/${this.phoneNumberId}/messages`,
+      `/${senderPhoneNumberId}/messages`,
       {
         messaging_product: "whatsapp",
         recipient_type: "individual",
-        ...(recipient ?? (await this.recipient(threadId, to))),
+        ...(recipient ?? (await this.recipient(threadId, thread))),
         ...(replyId ? { context: { message_id: replyId } } : {}),
         type,
         [type]: mediaObject,
@@ -2058,11 +2101,11 @@ export class WhatsAppAdapter
       raw: {
         message: {
           id: messageId,
-          from: this.phoneNumberId,
+          from: senderPhoneNumberId,
           timestamp: String(Math.floor(Date.now() / 1000)),
           type,
         },
-        phoneNumberId: this.phoneNumberId,
+        phoneNumberId: senderPhoneNumberId,
       },
     };
   }
@@ -2071,13 +2114,14 @@ export class WhatsAppAdapter
    * Normalize a FileUpload or Attachment into a WhatsApp media payload.
    */
   protected async resolveMedia(
-    item: FileUpload | Attachment
+    item: FileUpload | Attachment,
+    phoneNumberId: string = this.phoneNumberId
   ): Promise<ResolvedWhatsAppMedia> {
     if ("filename" in item) {
       const mimeType = inferMimeType(item.filename, item.mimeType);
       const type = getWhatsAppMediaType(mimeType);
       const buffer = await toBuffer(item.data, {
-        platform: WHATSAPP_BUFFER_PLATFORM,
+        platform: "whatsapp",
       });
 
       if (!buffer) {
@@ -2086,11 +2130,14 @@ export class WhatsAppAdapter
 
       validateFileSize(type, buffer.length);
 
-      const mediaId = await this.uploadMedia({
-        data: buffer,
-        filename: item.filename,
-        mimeType,
-      });
+      const mediaId = await this.uploadMedia(
+        {
+          data: buffer,
+          filename: item.filename,
+          mimeType,
+        },
+        phoneNumberId
+      );
 
       return {
         captionEligible: type !== "audio",
@@ -2110,7 +2157,7 @@ export class WhatsAppAdapter
 
     if (data) {
       const buffer = await toBuffer(data, {
-        platform: WHATSAPP_BUFFER_PLATFORM,
+        platform: "whatsapp",
       });
 
       if (!buffer) {
@@ -2119,11 +2166,14 @@ export class WhatsAppAdapter
 
       validateFileSize(type, buffer.length);
 
-      const mediaId = await this.uploadMedia({
-        data: buffer,
-        filename,
-        mimeType,
-      });
+      const mediaId = await this.uploadMedia(
+        {
+          data: buffer,
+          filename,
+          mimeType,
+        },
+        phoneNumberId
+      );
 
       return {
         captionEligible: type !== "audio",

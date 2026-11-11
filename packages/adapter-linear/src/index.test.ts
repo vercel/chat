@@ -13,7 +13,7 @@ import {
   type LinearClient,
   RatelimitedLinearError,
 } from "@linear/sdk";
-import { Chat } from "chat";
+import { Chat, type Message, parseMarkdown } from "chat";
 import { createChatTools } from "chat/ai";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type {
@@ -5247,5 +5247,58 @@ describe("fetchSubject", () => {
 
     const result = await adapter.fetchSubject(raw as unknown);
     expect(result).toBeNull();
+  });
+});
+
+describe("inbound markdown parsing", () => {
+  const pathologicalBodies = [
+    ["unmatched emphasis markers", "*a".repeat(8192)],
+    ["deeply nested blockquotes", ">".repeat(6000)],
+    ["a footnote opening 40 nested lists", `[^a]: ${"- ".repeat(40)}a`],
+    ["65 www. autolinks in one word", "www.example.com/".repeat(65)],
+  ] as const;
+
+  async function dispatchComment(body: string) {
+    const logger = createMockLogger();
+    const adapter = createWebhookAdapter(logger);
+    const mockChat = createMockChatInstance({
+      state: createMockState(),
+      logger,
+    });
+    (adapter as unknown as { chat: typeof mockChat }).chat = mockChat;
+
+    const payloadBody = JSON.stringify(createCommentPayload({ body }));
+    const response = await adapter.handleWebhook(
+      buildWebhookRequest(payloadBody, signPayload(payloadBody))
+    );
+
+    const message = vi.mocked(mockChat.processMessage).mock.calls[0]?.[2] as
+      | Message
+      | undefined;
+    return { status: response.status, message };
+  }
+
+  it("parses comment markdown into a structured AST", async () => {
+    const body = "**Ship it** after [review](https://linear.app/review)";
+    const { status, message } = await dispatchComment(body);
+
+    expect(status).toBe(200);
+    expect(message?.formatted).toEqual(parseMarkdown(body));
+  });
+
+  it.each(
+    pathologicalBodies
+  )("keeps a comment with %s as one text node", async (_name, body) => {
+    const { status, message } = await dispatchComment(body);
+
+    expect(status).toBe(200);
+    expect(message?.text).toBe(body);
+    expect(message?.formatted).toStrictEqual({
+      type: "root",
+      children: [
+        { type: "paragraph", children: [{ type: "text", value: body }] },
+      ],
+    });
+    expect(() => JSON.stringify(message?.formatted)).not.toThrow();
   });
 });

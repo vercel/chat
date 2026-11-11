@@ -2530,11 +2530,34 @@ describe("ThreadImpl", () => {
       expect(adapter.startTyping).toHaveBeenCalledWith(
         "slack:C123:1234.5678",
         undefined,
-        { initiatorUserId: currentMessage.author.userId }
+        {
+          initiatorUserId: currentMessage.author.userId,
+          messageId: "msg-1",
+        }
       );
       expect(adapter.endTyping).toHaveBeenCalledWith(
         "slack:C123:1234.5678",
         "active"
+      );
+    });
+
+    it("passes the current message ID", async () => {
+      const adapter = createMockAdapter();
+      const currentMessage = createTestMessage("msg-2", "Hello");
+      const thread = new ThreadImpl({
+        id: "slack:C123:1234.5678",
+        adapter,
+        channelId: "C123",
+        stateAdapter: createMockState(),
+        currentMessage,
+      });
+
+      await thread.startTyping("thinking...");
+
+      expect(adapter.startTyping).toHaveBeenCalledWith(
+        "slack:C123:1234.5678",
+        "thinking...",
+        expect.objectContaining({ messageId: "msg-2" })
       );
     });
   });

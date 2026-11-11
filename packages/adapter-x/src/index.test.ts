@@ -5,7 +5,7 @@ import {
   ValidationError,
 } from "@chat-adapter/shared";
 import type { ChatInstance, Logger, Message } from "chat";
-import { emoji } from "chat";
+import { emoji, link, paragraph, root, text } from "chat";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createXAdapter, XAdapter, type XRawMessage } from "./index";
 
@@ -534,6 +534,50 @@ describe("XAdapter", () => {
       );
       expect(response.status).toBe(200);
       expect(chat.processMessage).not.toHaveBeenCalled();
+    });
+  });
+
+  describe("inbound text parsing", () => {
+    const LINK = "https://example.com/a";
+    const sources = {
+      dm: async (body: string) => {
+        const { adapter, chat } = await createInitializedAdapter();
+        await adapter.handleWebhook(webhookRequest(dmEnvelope({ text: body })));
+        return lastProcessedMessage(chat);
+      },
+      mention: async (body: string) => {
+        const { adapter, chat } = await createInitializedAdapter();
+        await adapter.handleWebhook(
+          webhookRequest(mentionEnvelope({ text: body }))
+        );
+        return lastProcessedMessage(chat);
+      },
+    };
+
+    it.each(
+      Object.entries(sources)
+    )("splits %s text into paragraphs with link nodes", async (_, load) => {
+      const body = `hello there\n\nsee ${LINK}`;
+      const message = await load(body);
+
+      expect(message.text).toBe(body);
+      expect(message.formatted).toEqual(
+        root([
+          paragraph([text("hello there")]),
+          paragraph([text("see "), link(LINK, [text(LINK)])]),
+        ])
+      );
+    });
+
+    it.each(
+      Object.keys(sources) as (keyof typeof sources)[]
+    )("keeps link nodes in long underscore-heavy %s text", async (source) => {
+      const prefix = `${"_".repeat(20_000)} `;
+      const message = await sources[source](`${prefix}${LINK}`);
+
+      expect(message.formatted).toEqual(
+        root([paragraph([text(prefix), link(LINK, [text(LINK)])])])
+      );
     });
   });
 

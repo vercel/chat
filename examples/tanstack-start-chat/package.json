@@ -13,7 +13,9 @@
     "@chat-adapter/slack": "workspace:*",
     "@chat-adapter/state-memory": "workspace:*",
     "@chat-adapter/state-redis": "workspace:*",
+    "@chat-adapter/web": "workspace:*",
     "@tanstack/ai": "0.61.0",
+    "@tanstack/ai-react": "0.29.1",
     "@tanstack/ai-vercel-gateway": "^0.2.20",
     "@tanstack/react-router": "^1.170.41",
     "@tanstack/react-start": "^1.168.60",
@@ -22,14 +24,17 @@
     "nitro": "3.0.260903-beta",
     "react": "^19.3.0",
     "react-dom": "^19.3.0",
+    "streamdown": "^2.3.0",
     "zod": "^4.6.5"
   },
   "devDependencies": {
+    "@tailwindcss/vite": "^4.3.3",
     "@types/node": "^25.9.2",
     "@types/react": "^19.2.7",
     "@types/react-dom": "^19.2.3",
     "@vitejs/plugin-react": "^6.1.1",
+    "tailwindcss": "^4.1.18",
     "typescript": "^5.9.3",
-    "vite": "^8.3.1"
+    "vite": "^8.3.3"
   }
 }

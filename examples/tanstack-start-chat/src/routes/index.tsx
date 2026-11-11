@@ -13,6 +13,10 @@ function HomePage() {
         Point your Slack app's event and interactivity URLs at{" "}
         <code>/api/webhooks/slack</code>, then mention the bot in a channel.
       </p>
+      <p>
+        To chat in the browser instead, open <a href="/chat">/chat</a>. It uses
+        TanStack AI's <code>useChat</code> with the Chat SDK web adapter.
+      </p>
     </main>
   );
 }

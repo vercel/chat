@@ -1268,8 +1268,7 @@ export class GoogleChatAdapter implements Adapter<GoogleChatThreadId, unknown> {
     const parsedMessage = new Message({
       id: message.name,
       threadId,
-      text: this.formatConverter.extractPlainText(text),
-      formatted: this.formatConverter.toAst(text),
+      ...this.formatConverter.parseIncoming(text),
       raw: notification,
       author: {
         userId,
@@ -1476,8 +1475,7 @@ export class GoogleChatAdapter implements Adapter<GoogleChatThreadId, unknown> {
     return new Message({
       id: message.name,
       threadId,
-      text: this.formatConverter.extractPlainText(text),
-      formatted: this.formatConverter.toAst(text),
+      ...this.formatConverter.parseIncoming(text),
       raw: event,
       author: {
         userId,
@@ -2177,8 +2175,7 @@ export class GoogleChatAdapter implements Adapter<GoogleChatThreadId, unknown> {
     return new Message({
       id: msg.name || "",
       threadId: msgThreadId,
-      text: this.formatConverter.extractPlainText(msg.text || ""),
-      formatted: this.formatConverter.toAst(msg.text || ""),
+      ...this.formatConverter.parseIncoming(msg.text || ""),
       raw: msg,
       author: {
         userId,

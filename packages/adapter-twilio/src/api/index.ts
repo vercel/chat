@@ -104,8 +104,16 @@ export interface ListTwilioMessagesOptions extends TwilioApiOptions {
   to?: string;
 }
 
+export type SendTwilioTypingIndicatorOptions = TwilioApiOptions & {
+  messagingApiUrl?: string;
+} & (
+    | { channel: "WHATSAPP"; messageId: string }
+    | { channel: "RCS"; event?: "START"; from: string; to: string }
+  );
+
 export interface CallTwilioApiOptions extends TwilioApiOptions {
   body?: TwilioFormFields | URLSearchParams;
+  json?: unknown;
   method?: "DELETE" | "GET" | "POST";
   path: string;
   search?: TwilioFormFields | URLSearchParams;
@@ -116,14 +124,27 @@ export class TwilioApiError extends Error {
   status: number;
 
   constructor(message: string, options: { body: unknown; status: number }) {
-    super(message);
+    super(appendTwilioErrorDetail(message, options.body));
     this.name = "TwilioApiError";
     this.body = options.body;
     this.status = options.status;
   }
 }
 
+function appendTwilioErrorDetail(message: string, body: unknown): string {
+  if (!body || typeof body !== "object") {
+    return message;
+  }
+  const record = body as { code?: unknown; message?: unknown };
+  const details = [
+    record.code == null ? undefined : String(record.code),
+    typeof record.message === "string" ? record.message : undefined,
+  ].filter(Boolean);
+  return details.length > 0 ? `${message}: ${details.join(" ")}` : message;
+}
+
 const DEFAULT_API_URL = "https://api.twilio.com";
+const DEFAULT_MESSAGING_API_URL = "https://messaging.twilio.com";
 
 export async function resolveTwilioCredential(
   value: TwilioCredential | undefined,
@@ -162,15 +183,22 @@ export async function callTwilioApi(
   for (const [key, value] of formParams(requestOptions.search) ?? []) {
     url.searchParams.append(key, value);
   }
-  const body = formParams(requestOptions.body);
+  const body =
+    requestOptions.json === undefined
+      ? formParams(requestOptions.body)
+      : JSON.stringify(requestOptions.json);
+  let contentType: string | undefined;
+  if (requestOptions.json !== undefined) {
+    contentType = "application/json";
+  } else if (body) {
+    contentType = "application/x-www-form-urlencoded;charset=UTF-8";
+  }
   const request = requestOptions.fetch ?? fetch;
   const response = await request(url, {
     body,
     headers: {
       authorization: twilioAuthorization(accountSid, authToken),
-      ...(body
-        ? { "content-type": "application/x-www-form-urlencoded;charset=UTF-8" }
-        : {}),
+      ...(contentType ? { "content-type": contentType } : {}),
     },
     method: requestOptions.method ?? "POST",
   });
@@ -318,6 +346,40 @@ export async function fetchTwilioMedia(
     });
   }
   return response.arrayBuffer();
+}
+
+export async function sendTwilioTypingIndicator(
+  options: SendTwilioTypingIndicatorOptions
+): Promise<{ success?: boolean }> {
+  const json =
+    options.channel === "WHATSAPP"
+      ? { channel: options.channel, messageId: options.messageId }
+      : {
+          channel: options.channel,
+          event: options.event ?? "START",
+          from: options.from,
+          to: options.to,
+        };
+  const response = await callTwilioApi("/v3/Indicators/Typing.json", {
+    ...options,
+    apiUrl:
+      options.messagingApiUrl ??
+      options.apiUrl ??
+      options.apiBaseUrl ??
+      DEFAULT_MESSAGING_API_URL,
+    json,
+  });
+  const result = response.body ?? {};
+  if (
+    typeof result !== "object" ||
+    (result as { success?: unknown }).success === false
+  ) {
+    throw new TwilioApiError("Twilio typing indicator failed", {
+      body: result,
+      status: response.status,
+    });
+  }
+  return result as { success?: boolean };
 }
 
 export async function listTwilioMessages(

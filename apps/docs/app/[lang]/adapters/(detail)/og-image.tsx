@@ -15,6 +15,7 @@ const ADAPTER_LOGOS: Record<
   }
 > = {
   github: { component: logos.github, width: LOGO_SIZE, height: LOGO_SIZE },
+  gitlab: { component: logos.gitlab, width: LOGO_SIZE, height: LOGO_SIZE },
   slack: { component: logos.slack, width: LOGO_SIZE, height: LOGO_SIZE },
   teams: {
     component: logos.teams,

@@ -28,6 +28,7 @@ export const CopyButton = ({ code }: { code: string }) => {
 
   return (
     <Button
+      aria-label={isCopied ? "Copied" : "Copy code"}
       className="shrink-0"
       onClick={copyToClipboard}
       size="icon"

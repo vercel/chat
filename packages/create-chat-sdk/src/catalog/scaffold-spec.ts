@@ -137,6 +137,9 @@ const placeholder = (code: string, comment = ""): ScaffoldPropertyValue => ({
  * Exhaustive CLI scaffold policy keyed by the canonical adapter catalog slug.
  */
 export const CLI_SCAFFOLD_SPEC = {
+  adeli: {
+    invocation: { kind: "zero-arg" },
+  },
   agentphone: {
     invocation: { kind: "empty-object" },
   },
@@ -188,6 +191,9 @@ export const CLI_SCAFFOLD_SPEC = {
       ],
       helper: "connectGitHubAdapter",
     },
+    invocation: { kind: "zero-arg" },
+  },
+  gitlab: {
     invocation: { kind: "zero-arg" },
   },
   ioredis: {

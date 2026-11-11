@@ -1,6 +1,6 @@
 ---
 title: TanStack AI
-description: Feed thread history into TanStack AI's chat() and give it Chat SDK tools, with no runtime dependency on @tanstack/ai.
+description: Feed thread history into TanStack AI's chat(), give it Chat SDK tools, and serve a TanStack AI browser chat from the same bot.
 type: guide
 prerequisites:
   - /docs/usage
@@ -10,9 +10,15 @@ related:
   - /docs/ai/to-ai-messages
   - /docs/streaming
   - /docs/history
+  - /adapters/official/web
 ---
 
-The `chat/ai/tanstack` subpath is the [TanStack AI](https://tanstack.com/ai) counterpart to the [AI SDK helpers](/docs/ai) in `chat/ai`. It converts Chat SDK [`Message[]`](/docs/api/message) into the `ModelMessage[]` shape that `chat()` from `@tanstack/ai` expects, and it exposes the same Chat SDK tools, presets, approval flags, and scope guard as `createChatTools`, shaped for `chat({ tools })`. The subpath declares its own message and tool types, so it has no runtime dependency on `@tanstack/ai`.
+The `chat/ai/tanstack` subpath is the [TanStack AI](https://tanstack.com/ai) counterpart to the [AI SDK helpers](/docs/ai) in `chat/ai`. It gives you two functions:
+
+- `toTanStackMessages` converts Chat SDK [`Message[]`](/docs/api/message) into the `ModelMessage[]` shape that `chat()` from `@tanstack/ai` expects.
+- `createTanStackTools` returns the same tools, presets, approval flags, and scope guard as `createChatTools`, shaped for `chat({ tools })`.
+
+The subpath declares its own message and tool types, so it has no runtime dependency on `@tanstack/ai`. To give the same bot a browser chat UI built with TanStack AI's `useChat`, use the [Web adapter](/adapters/official/web) with the AG-UI protocol, covered in [Serving a browser chat](#serving-a-browser-chat).
 
 ```ts
 import { createTanStackTools, toTanStackMessages } from "chat/ai/tanstack";
@@ -20,48 +26,60 @@ import { createTanStackTools, toTanStackMessages } from "chat/ai/tanstack";
 
 ## Install
 
-Add `@tanstack/ai` and a model adapter. The examples below use `@tanstack/ai-vercel-gateway`, which routes requests through [Vercel AI Gateway](https://vercel.com/docs/ai-gateway) so you can switch models by changing the model id. See [TanStack AI with AI Gateway](https://vercel.com/docs/ai-gateway/ecosystem/framework-integrations/tanstack-ai) for the full setup.
+Add `@tanstack/ai` and a model adapter. The examples on this page use `@tanstack/ai-vercel-gateway`, which routes requests through [Vercel AI Gateway](https://vercel.com/docs/ai-gateway) so you can switch models by changing the model id. See [TanStack AI with AI Gateway](https://vercel.com/docs/ai-gateway/ecosystem/framework-integrations/tanstack-ai) for the full setup.
 
 <PackageInstall package="@tanstack/ai @tanstack/ai-vercel-gateway zod" />
 
-Create an [AI Gateway API key](https://vercel.com/docs/ai-gateway/authentication-and-byok/api-keys) and expose it as `AI_GATEWAY_API_KEY`. The adapter reads it automatically, and falls back to `VERCEL_OIDC_TOKEN` when deployed on Vercel.
+Create an [AI Gateway API key](https://vercel.com/docs/ai-gateway/authentication-and-byok/api-keys) and expose it as `AI_GATEWAY_API_KEY`. The gateway adapter reads it automatically and falls back to `VERCEL_OIDC_TOKEN` when deployed on Vercel.
 
-`createTanStackTools` needs zod 4.2 or newer. TanStack AI converts tool input schemas to JSON Schema through the Standard JSON Schema interface, which zod added in 4.2; on an older version `createTanStackTools` throws with a message that says so. `toTanStackMessages` has no zod requirement.
+`createTanStackTools` needs zod 4.2 or newer, because TanStack AI converts tool input schemas to JSON Schema through the Standard JSON Schema interface that zod added in 4.2. On an older version, `createTanStackTools` throws an error that says so. `toTanStackMessages` has no zod requirement.
 
-For a runnable version, see the [TanStack Start example](https://github.com/vercel/chat/tree/main/examples/tanstack-start-chat), a Slack bot that uses `toTanStackMessages`, a TanStack AI server tool, and the AI Gateway adapter.
+The [TanStack Start example](https://github.com/vercel/chat/tree/main/examples/tanstack-start-chat) puts everything on this page together: a Slack bot and a browser chat that share one set of handlers, with history converted by `toTanStackMessages`, a TanStack AI server tool, and the AI Gateway adapter.
 
 ## Converting history
 
-Fetch recent messages the same way you would for [`toAiMessages`](/docs/ai/to-ai-messages), convert them, and hand the array to `chat()`. The stream `chat()` returns can be posted straight back to the thread, as described in [Streaming](/docs/streaming#tanstack-ai-integration).
+Read recent messages from the thread, convert them, and hand the array to `chat()`. The stream that `chat()` returns can be posted straight back to the thread, as described in [Streaming](/docs/streaming#tanstack-ai-integration).
 
 ```typescript title="lib/bot.ts" lineNumbers
 import { chat } from "@tanstack/ai";
 import { vercelGatewayText } from "@tanstack/ai-vercel-gateway";
+import type { Message, Thread } from "chat";
 import { toTanStackMessages } from "chat/ai/tanstack";
 
-bot.onNewMention(async (thread) => {
-  const result = await thread.adapter.fetchMessages(thread.id, { limit: 20 });
-  const messages = await toTanStackMessages(result.messages);
+// thread.messages yields newest first, so collect and reverse.
+async function recentMessages(thread: Thread, limit = 20) {
+  const history: Message[] = [];
+  for await (const message of thread.messages) {
+    history.unshift(message);
+    if (history.length === limit) {
+      break;
+    }
+  }
+  return history;
+}
 
+bot.onNewMention(async (thread) => {
   const stream = chat({
     adapter: vercelGatewayText("anthropic/claude-opus-5"),
     systemPrompts: ["You are a helpful assistant in a team chat workspace."],
-    messages,
+    messages: await toTanStackMessages(await recentMessages(thread)),
   });
   await thread.post(stream);
 });
 ```
 
+`thread.messages` reads from the platform when it has a history API, such as Slack or Discord. When the adapter returns nothing, it falls back to Chat SDK's [history cache](/docs/history), where adapters without a history API keep prior turns. Calling `thread.adapter.fetchMessages` directly skips that fallback, so with the Web adapter it always returns an empty list.
+
 ### What gets converted
 
-- Roles: messages authored by the bot (`author.isMe === true`) become `assistant`, everything else becomes `user`. Messages are sorted oldest first by `metadata.dateSent`.
+- Roles: messages authored by the bot (`author.isMe === true`) become `assistant`, and everything else becomes `user`. Messages are sorted oldest first by `metadata.dateSent`.
 - Text: `message.text` becomes string `content`. With `includeNames: true`, user messages are prefixed with `[username]: `.
 - Images: image attachments with a working `fetchData()` become `{ type: "image", source: { type: "data", value, mimeType } }` parts, where `value` is base64 with no `data:` prefix. A user message with images gets array `content`, with a leading `{ type: "text", content }` part when there is text.
 - Text files: TanStack AI has no file content part, so text-like attachments (`text/*`, JSON, XML, YAML, TOML, JavaScript, TypeScript) are inlined into the message text as `[File: <name> (<mime>)]` followed by the file contents.
 - Links: link metadata is appended to the text inside the same untrusted-content fence that `toAiMessages` uses, with third-party titles and descriptions normalized and length-limited.
-- Video and audio: skipped, with `onUnsupportedAttachment` called for each. Other file types (PDF, for example) are skipped silently.
-- Empty messages: a message with no text and nothing the converter can include is dropped.
-- System prompt: `ModelMessage` has no system role. Pass system text through `chat({ systemPrompts: [...] })` instead.
+- Video and audio: skipped, and `onUnsupportedAttachment` is called for each one. Other file types, such as PDF, are skipped silently.
+- Empty messages: a message with no text and nothing else the converter can include is dropped.
+- System prompt: `ModelMessage` has no system role, so pass system text through `chat({ systemPrompts: [...] })`.
 
 ### Options
 
@@ -75,12 +93,12 @@ function toTanStackMessages(
 | Option | Type | Description |
 |---|---|---|
 | `includeNames` | `boolean` | Prefix user messages with `[username]: ` so the model can tell speakers apart. Defaults to `false`. |
-| `transformMessage` | `(message: TanStackMessage, source: Message) => TanStackMessage \| null \| Promise<TanStackMessage \| null>` | Runs after default processing for each message. Return the message (modified or as-is) to keep it, or `null` to drop it. |
+| `transformMessage` | `(message: TanStackMessage, source: Message) => TanStackMessage \| null \| Promise<TanStackMessage \| null>` | Runs after default processing for each message. Return the message, modified or as-is, to keep it, or `null` to drop it. |
 | `onUnsupportedAttachment` | `(attachment: Attachment, message: Message) => void` | Called for video and audio attachments. Defaults to `console.warn`. |
 
 ## Giving the agent tools
 
-`createTanStackTools` returns an array of plain tool objects (`name`, `description`, `inputSchema`, `needsApproval`, `execute`) that `chat({ tools })` accepts as-is. TanStack runs the tool loop itself, so server tools execute during the same `chat()` call and their results feed back into the model before the stream finishes.
+`createTanStackTools` returns an array of plain tool objects (`name`, `description`, `inputSchema`, `needsApproval`, `execute`) that `chat({ tools })` accepts as-is. TanStack AI runs the tool loop itself, so server tools execute during the same `chat()` call and their results feed back into the model before the stream finishes.
 
 ```typescript title="lib/bot.ts" lineNumbers
 import { chat } from "@tanstack/ai";
@@ -88,12 +106,10 @@ import { vercelGatewayText } from "@tanstack/ai-vercel-gateway";
 import { createTanStackTools, toTanStackMessages } from "chat/ai/tanstack";
 
 bot.onNewMention(async (thread) => {
-  const result = await thread.adapter.fetchMessages(thread.id, { limit: 20 });
-
   const stream = chat({
     adapter: vercelGatewayText("anthropic/claude-opus-5"),
     systemPrompts: ["You operate inside a chat workspace via Chat SDK tools."],
-    messages: await toTanStackMessages(result.messages),
+    messages: await toTanStackMessages(await recentMessages(thread)),
     tools: createTanStackTools({
       chat: bot,
       preset: "messenger",
@@ -103,6 +119,8 @@ bot.onNewMention(async (thread) => {
   await thread.post(stream);
 });
 ```
+
+`recentMessages` is the helper from [Converting history](#converting-history).
 
 ### Options
 
@@ -120,11 +138,11 @@ type TanStackChatToolsOptions = {
 | Option | Description |
 |---|---|
 | `chat` | The `Chat` instance the tools dispatch operations against. Required. |
-| `preset` | Preset (or array of presets) restricting which tools are returned. Omit to get every tool. |
-| `requireApproval` | `true` (default), `false`, or per-tool overrides. Applies to every write tool and `getUser`. See [Approval](#approval) before leaving this on. |
+| `preset` | Preset, or array of presets, restricting which tools are returned. Omit it to get every tool. |
+| `requireApproval` | `true` (default), `false`, or per-tool overrides. Applies to every write tool and `getUser`. Read [Approval](#approval) before leaving this on. |
 | `scope` | Conversation the tools are confined to. Defaults to the conversation being handled. When no scope resolves, calls are rejected inside a handler and run with a warning outside one. Pass a `Thread`, `Channel`, raw id, or `false` for workspace-wide access. |
-| `strictScope` | `false` (default). Set `true` to tighten a thread `scope` to that thread alone. |
-| `overrides` | Per-tool customization keyed by tool name. Only `description`, `needsApproval` (boolean), `metadata`, and `lazy` can be set; `name`, `inputSchema`, `outputSchema`, and `execute` are ignored so tool semantics stay stable. |
+| `strictScope` | `false` (default). Set it to `true` to tighten a thread `scope` to that thread alone. |
+| `overrides` | Per-tool customization keyed by tool name. Only `description`, `needsApproval` (boolean), `metadata`, and `lazy` can be set. `name`, `inputSchema`, `outputSchema`, and `execute` are ignored so tool semantics stay stable. |
 
 ### Presets
 
@@ -132,36 +150,112 @@ The `reader`, `messenger`, and `moderator` presets select the same tools as they
 
 ### Approval
 
-Write tools and `getUser` default to `needsApproval: true`, matching `createChatTools`. In TanStack AI that flag means something specific: when the model calls an approval-gated tool, `chat()` stops the run with a `tool-approval` interrupt instead of executing it. Resuming is your job. You call `chat()` again with the message history plus a `resume` array carrying the decision and the `parentRunId` of the paused run, as described in [TanStack's tool approval docs](https://tanstack.com/ai/latest/docs/interrupts/tool-approval).
+Write tools and `getUser` default to `needsApproval: true`, matching `createChatTools`. In TanStack AI, that flag stops the run: when the model calls an approval-gated tool, `chat()` ends with a `tool-approval` interrupt instead of executing it. To continue, you call `chat()` again with the message history plus a `resume` array that carries the decision and the `parentRunId` of the paused run, as described in [TanStack's tool approval docs](https://tanstack.com/ai/latest/docs/interrupts/tool-approval).
 
 <Callout type="warn">
-  A bot that posts the stream straight to a thread has no UI to collect that
+  When you post the stream straight to a thread, nothing collects that
   decision, so an approval-gated tool call ends the run without the tool
-  running. Unless you implement the resume flow, pass
-  `requireApproval: false` and gate risky tools yourself, for example with a
-  smaller preset, a tighter `scope`, or an approval step before `chat()` is
-  called.
+  running. This applies to the Web adapter too, because it doesn't forward
+  tool events to the browser. Unless you implement the resume flow yourself,
+  pass `requireApproval: false` and limit risky tools another way, such as a
+  smaller preset, a tighter `scope`, or an approval step before you call
+  `chat()`.
 </Callout>
 
 ### Scope
 
-`scope` and `strictScope` behave the same as they do for `createChatTools`: tools called inside a handler with a conversation are confined to it, and calls that resolve outside it are rejected before the platform is called. Calls with no scope are rejected inside a handler that has no conversation, and run workspace-wide with a warning outside any handler. Pass an explicit `scope` for background jobs and handlers without a conversation, or `scope: false` when workspace-wide access is intended. `getUser` and `sendDirectMessage` are exempt because they target user ids rather than conversations. Read [Limiting what the agent can reach](/docs/ai/ai-sdk-tools#limiting-what-the-agent-can-reach) for the full model, including what `scope` does not check.
+`scope` and `strictScope` behave the same as they do for `createChatTools`. Tools called inside a handler with a conversation are confined to it, and calls that resolve outside it are rejected before the platform is called. Calls with no scope are rejected inside a handler that has no conversation, and run workspace-wide with a warning outside any handler. Pass an explicit `scope` for background jobs and handlers without a conversation, or `scope: false` when you intend workspace-wide access. `getUser` and `sendDirectMessage` are exempt because they target user ids rather than conversations. Read [Limiting what the agent can reach](/docs/ai/ai-sdk-tools#limiting-what-the-agent-can-reach) for the full model, including what `scope` does not check.
+
+## Serving a browser chat
+
+The [Web adapter](/adapters/official/web) can speak [AG-UI](https://docs.ag-ui.com/concepts/events), the event protocol TanStack AI's `fetchServerSentEvents` connection consumes. With it, TanStack AI's `useChat` in the browser talks to the same Chat SDK handlers as Slack or Discord, and the `chat()` stream you post from a handler is what the browser renders.
+
+### Configure the server
+
+Create the Web adapter with `protocol: "ag-ui"` and register it next to your other adapters. `getUser` resolves the signed-in user from the request; return `null` to respond with HTTP 401.
+
+```typescript title="lib/bot.ts" lineNumbers
+import { createWebAdapter } from "@chat-adapter/web";
+import { Chat } from "chat";
+
+export const bot = new Chat({
+  userName: "mybot",
+  adapters: {
+    web: createWebAdapter({
+      userName: "mybot",
+      protocol: "ag-ui",
+      getUser: async (request) => {
+        const session = await getSession(request);
+        return session ? { id: session.userId, name: session.name } : null;
+      },
+    }),
+  },
+  state,
+});
+```
+
+Web messages are routed as direct messages, so handle them in `onDirectMessage`. The handler can be the same function your other platforms use:
+
+```typescript title="lib/bot.ts" lineNumbers
+async function respond(thread: Thread) {
+  const stream = chat({
+    adapter: vercelGatewayText("anthropic/claude-opus-5"),
+    systemPrompts: ["You are a helpful assistant."],
+    messages: await toTanStackMessages(await recentMessages(thread)),
+  });
+  await thread.post(stream);
+}
+
+bot.onNewMention(respond);
+bot.onDirectMessage(respond);
+```
+
+Mount `bot.webhooks.web` on a POST route. The [Web adapter page](/adapters/official/web#quick-start) shows the route for each framework.
+
+### Connect the client
+
+Point `useChat` from `@tanstack/ai-react`, or another TanStack AI framework package, at that route with `fetchServerSentEvents`:
+
+```tsx title="app/chat/page.tsx" lineNumbers
+"use client";
+import { fetchServerSentEvents, useChat } from "@tanstack/ai-react";
+
+export default function ChatPage() {
+  const { messages, sendMessage, status, stop } = useChat({
+    connection: fetchServerSentEvents("/api/chat"),
+    threadId: "support-1",
+  });
+  // Text parts carry their text in `part.content`.
+}
+```
+
+`threadId` becomes the conversation id in the Chat SDK thread id, `web:{userId}:{threadId}`. Reuse it to continue a conversation, or generate a new one to start fresh.
+
+### How the browser chat behaves
+
+- History: the adapter reads only the latest user message from the request, because the browser controls the rest of the `messages` array. Prior turns come from the state adapter, which the Web adapter writes to by default, so read them through `thread.messages` as shown in [Converting history](#converting-history).
+- Replies: each `thread.post` call arrives in the browser as its own assistant message. Text from every model turn in the `chat()` tool loop streams into that message, and tool call events are not forwarded.
+- Tools: server tools, including `createTanStackTools`, run on the server inside `chat()`. TanStack AI client tools aren't supported, because the adapter never sends tool calls to the browser and rejects a request whose last message isn't from the user.
+- Reload: `reload()` resends the last user message, and the handler runs again. History keeps the earlier reply alongside the new one.
+- Stop: calling `stop()` ends the response, and the adapter stops reading the stream you posted.
+- Errors: if the handler throws, the run ends with a `RUN_ERROR` event carrying the error message, which `useChat` exposes as `error`.
 
 ## Differences from the AI SDK helpers
 
 | | `chat/ai` | `chat/ai/tanstack` |
 |---|---|---|
 | Tools return type | Object keyed by tool name, spread into `tools` | Array of tool objects, passed as `tools` |
-| Tool overrides | The `ToolOverrides` keys: `description`, `title`, `needsApproval`, `metadata`, `providerOptions`, `strict`, `inputExamples`, `toModelOutput`, and the `onInput*` hooks | `description`, `needsApproval`, `metadata`, `lazy` only |
+| Tool overrides | The `ToolOverrides` keys: `description`, `title`, `needsApproval`, `metadata`, `providerOptions`, `strict`, `inputExamples`, `toModelOutput`, and the `onInput*` hooks | `description`, `needsApproval`, `metadata`, and `lazy` only |
 | Text file attachments | `file` parts with base64 data | Inlined into the message text as `[File: name (mime)]` blocks |
 | Image attachments | `file` parts with `data` and `mediaType` | `image` parts with `source: { type: "data", value, mimeType }` |
-| System prompt | A `system` message or the call's `system` option | `chat({ systemPrompts })` only; there is no system role |
+| System prompt | A `system` message or the call's `system` option | `chat({ systemPrompts })` only, because there is no system role |
 | zod requirement | Any version the AI SDK accepts | 4.2 or newer for `createTanStackTools` |
-| Approval flow | The AI SDK surfaces an approval request your app confirms | `chat()` pauses with an interrupt you resume via `resume` and `parentRunId` |
+| Approval flow | The AI SDK surfaces an approval request your app confirms | `chat()` pauses with an interrupt you resume with `resume` and `parentRunId` |
+| Web adapter protocol | `"ai-sdk"` (default), for AI SDK `useChat` | `"ag-ui"`, for TanStack AI `useChat` |
 
 ## Types
 
-Everything below is exported from `chat/ai/tanstack`. The subpath also re-exports the tool option types `ChatToolName`, `ChatToolPreset`, `ChatWriteToolName`, `ChatApprovalToolName`, `ApprovalConfig`, `ReadScope`, and `ChatBinding` from `chat/ai` unchanged; see the [Types](/docs/ai/types) page.
+Everything below is exported from `chat/ai/tanstack`. The subpath also re-exports the tool option types `ChatToolName`, `ChatToolPreset`, `ChatWriteToolName`, `ChatApprovalToolName`, `ApprovalConfig`, `ReadScope`, and `ChatBinding` from `chat/ai` unchanged. See the [Types](/docs/ai/types) page.
 
 ```typescript
 type TanStackMessage = TanStackUserMessage | TanStackAssistantMessage;

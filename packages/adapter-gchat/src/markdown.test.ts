@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { GoogleChatFormatConverter } from "./markdown";
 
 describe("GoogleChatFormatConverter", () => {
@@ -250,5 +250,38 @@ describe("GoogleChatFormatConverter", () => {
       expect(result).toContain("Name");
       expect(result).toContain("Alice");
     });
+  });
+});
+
+describe("parseIncoming budget", () => {
+  const converter = new GoogleChatFormatConverter();
+  const unparsed = (value: string) => ({
+    text: value,
+    formatted: {
+      type: "root",
+      children: [{ type: "paragraph", children: [{ type: "text", value }] }],
+    },
+  });
+
+  it("counts the markers that single-asterisk bold converts to", () => {
+    const input = "*a* ".repeat(1000).trim();
+    const toAst = vi.spyOn(converter, "toAst");
+    try {
+      expect(converter.parseIncoming(input)).toEqual(unparsed(input));
+      expect(toAst).not.toHaveBeenCalled();
+    } finally {
+      toAst.mockRestore();
+    }
+  });
+
+  it("parses single-asterisk bold within the budget", () => {
+    const input = "*a* ".repeat(400).trim();
+    const { formatted } = converter.parseIncoming(input);
+    expect(formatted).toEqual(converter.toAst(input));
+    const [paragraph] = formatted.children;
+    expect(
+      paragraph?.type === "paragraph" &&
+        paragraph.children.filter((node) => node.type === "strong")
+    ).toHaveLength(400);
   });
 });

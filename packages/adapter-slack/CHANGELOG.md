@@ -1,5 +1,60 @@
 # @chat-adapter/slack
 
+## 4.44.0
+
+### Minor Changes
+
+- 80fa77b: Dispatch Slack `app_uninstalled` events to `onUninstalled` handlers. Subscribe your Slack app to the `app_uninstalled` bot event to receive them. `event.conversationId` is the installation key, the `team_id` or the `enterprise_id` for org-wide installs, so a handler can pass it to `deleteInstallation`, and `event.tenantId` is the Enterprise Grid `enterprise_id` when the event carries one. Because Slack revokes the app's tokens before it sends the event, the adapter dispatches it without resolving a bot token, including when an `installationProvider` no longer returns the installation. `tokens_revoked` events don't call `onUninstalled`, because Slack also sends them for revocations that leave the app installed. They now skip the installation lookup too, so multi-workspace apps no longer log missing-installation warnings for them. An `onUninstalled` handler written for Teams also receives Slack uninstalls once your Slack app subscribes to `app_uninstalled`, so check `event.adapter.name` in handlers that assume Teams payloads. Apps already subscribed to the event start receiving it when they upgrade.
+- 17f6005: Add `isBotMention(event, botUserId)`, which reports whether a Slack `message` or `app_mention` event invokes the bot the same way the adapter sets `message.isMention`. Slack sends `app_mention` for the bot's token inside code, so the event type alone does not show that a user addressed the bot. Apps that route or acknowledge Slack events before a Chat SDK bot handles them can use it to make the same decision. It is exported from `@chat-adapter/slack/webhook`, which imports no runtime packages, and from `@chat-adapter/slack`, and follows the `isBotMention` contract documented for adapters. `botUserId` must be a Slack user ID; an empty or malformed value throws a `TypeError`.
+- bb9c3dd: `withBotToken` accepts an optional `botUserId`, so a multi-workspace adapter can recognize the bot's own messages outside webhook handling. A multi-workspace adapter has no fixed bot user ID, and `withBotToken` previously stored only the token and `installationId`. Inside the callback, `adapter.botUserId` was `undefined`, and messages the bot had posted, such as those returned by `fetchMessages`, had `author.isMe` set to `false`. Pass the installation's `botUserId` from `getInstallation`:
+  
+  ```ts
+  const install = await slackAdapter.getInstallation(teamId);
+  if (!install) throw new Error("Workspace not installed");
+  
+  await slackAdapter.withBotToken(install.botToken, fn, {
+    installationId: teamId,
+    botUserId: install.botUserId,
+  });
+  ```
+
+### Patch Changes
+
+- d3dc15a: `parseIncoming()` now skips markdown parsing for more kinds of input that are slow to parse, not just long text. Some messages under the 16,384-character limit took seconds to parse, threw a stack overflow, or produced trees too deep to serialize. Examples include unmatched `*`, `_`, or `~` in one paragraph, runs of `]` or `<`, `www.` repeated within one word, and lines that open hundreds of nested quotes or lists. Before parsing, `parseIncoming()` now also checks for more than 2,048 `*`, `_`, and `~` characters (`maxIncomingEmphasisMarkers`), more than 128 `]` characters (`maxIncomingClosingBrackets`), more than 512 `<` characters (`maxIncomingAngleBrackets`), more than 8 `www.` links in one word (`maxIncomingWwwAutolinks`), and lines nested more than 32 deep (`maxIncomingContainerMarkers`). These checks run in linear time and ignore characters inside fenced code blocks. After parsing, it checks for trees deeper than 128 levels (`maxIncomingAstDepth`), and it also falls back when `toAst()` throws a `RangeError`. When any limit is hit, the text is kept verbatim in a single text node. Converters can override `incomingFallbackText()` to clean up that text, and `exceedsIncomingBudget()` to check text they rewrite before parsing.
+  
+  The Discord gateway, Instagram, Linear, Messenger, Notion, Slack, Teams history, Telegram, Twilio, Web, WhatsApp, and XChat adapters now build incoming and fetched messages with `parseIncoming()` instead of parsing them without limits, and so does GitHub `listThreads` for pull request titles. These adapters didn't limit inbound length before, so messages over 16,384 characters now also lose markdown structure in `formatted`, while keeping their content in `text`. Deeply nested quotes no longer make these adapters drop the message, return a server error, or fail a whole page of history.
+  
+  Slack checks the limits once across a message's text, blocks, attachments, and table cells, checks the markdown it converts mrkdwn into, and on fallback decodes entities and renders mentions, channels, and links as parsed messages do. Discord, Google Chat, and WhatsApp check the markdown they convert platform text into. Teams checks the limits on decoded text, renders mentions and entities as plain text on fallback, and no longer backtracks for seconds on malformed links in incoming HTML.
+- 1ba1cc4: Parse bulleted and numbered lists from Slack's message composer into mdast `list` nodes, including nested items. Slack flattens these lists in `event.text` to lines starting with `•` or `◦`, so when a message's `rich_text` blocks contain a list, the adapter now builds the message body from the blocks. `message.text` for such a list reads `one\ntwo` instead of `• one\n• two`. Literal list text such as `---` and `[x]` stays literal, and paragraphs in subsequent rich text blocks stay outside the list.
+  
+  Messages without a list, with blocks other than `rich_text` and tables, or with unsupported rich text elements still use `event.text`. This preserves references such as `message_mention` that the block renderer cannot reconstruct.
+  
+  Link labels that contain `>` in rich text blocks, including table cells, now stay inside the link instead of ending it early.
+- Updated dependencies [b8b6f0f]
+- Updated dependencies [49e6833]
+- Updated dependencies [d3dc15a]
+- Updated dependencies [6c4457e]
+- Updated dependencies [17f6005]
+  - chat@4.44.0
+  - @chat-adapter/shared@4.44.0
+
+## 4.43.0
+
+### Patch Changes
+
+- 7881071: Stop treating a bot reference as a mention when the rendered message shows it only as text. Slack sends an `app_mention` event for the bot's `<@U…>` token anywhere in a message's `text` field, including inside inline code or a code block, even when the message shows no mention. The adapter now reports `isMention: false` for these messages, so they no longer reach `onNewMention`.
+  
+  When an `app_mention` doesn't reference the bot's known user ID, the adapter treats it as a mention only if the rendered message shows a mention of some user outside code. This covers the `W…` IDs that Enterprise Grid workspaces can use for the bot. The same rule now applies when the bot user ID hasn't been resolved yet, where the adapter previously treated every `app_mention` as a mention.
+  
+  For messages whose blocks are Block Kit rather than `rich_text`, such as a header or section posted by an integration, the adapter now reads a bot token in `text` outside code as a mention when the blocks don't show the bot. This applies to both `app_mention` and `message` events, so the two events for the same message are classified the same way.
+- 48bb905: Read the body of a Block Kit message from its blocks. When a message carries blocks, Slack renders them and uses `text` only as the notification fallback, so `message.text` and `message.formatted` could miss content an app or workflow placed in the blocks, including the request in a mention that reached `onNewMention`. When every block is a `section`, `header`, `context`, `image`, `divider`, `actions`, or table block, the text in those blocks now forms the body in block order, with tables in place and links from `mrkdwn` text in `message.links`. Messages with any other block type, including the `rich_text` blocks a Slack client sends, keep using `text`, so content the adapter can't render still reaches the message.
+- Updated dependencies [115cd39]
+- Updated dependencies [36325f3]
+- Updated dependencies [a32470e]
+- Updated dependencies [228b30d]
+  - chat@4.43.0
+  - @chat-adapter/shared@4.43.0
+
 ## 4.42.0
 
 ### Minor Changes
