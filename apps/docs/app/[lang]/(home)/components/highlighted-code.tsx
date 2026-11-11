@@ -1,7 +1,11 @@
-import type { CSSProperties } from "react";
+import { CodeBlock } from "@vercel/geistdocs/components/code-block";
 import type { ThemedToken } from "shiki";
 import { cn } from "@/lib/utils";
 
+/**
+ * Geistdocs `CodeBlock` with pre-highlighted tokens, stripped of its own
+ * margin, border, and radius so it can sit flush inside a window frame.
+ */
 export const HighlightedCode = ({
   tokens,
   className,
@@ -9,29 +13,26 @@ export const HighlightedCode = ({
   tokens: ThemedToken[][];
   className?: string;
 }) => (
-  <pre
+  <div
     className={cn(
-      "bg-transparent py-5 font-mono text-[13px] leading-5 [font-feature-settings:'ss09']",
+      "overflow-auto text-left [&>div>div]:rounded-none [&>div>div]:border-0 [&>div]:my-0 [&>div]:rounded-none [&_.line]:px-4 [&_pre]:m-0 [&_pre]:rounded-none! [&_pre]:border-0",
       className
     )}
+    // biome-ignore lint/a11y/noNoninteractiveTabindex: scrollable code must be reachable by keyboard
+    tabIndex={0}
   >
-    <code className="grid min-w-max">
-      {tokens.map((line, lineIndex) => (
+    <CodeBlock>
+      {tokens.map((line, index) => (
         // biome-ignore lint/suspicious/noArrayIndexKey: static token array from shiki
-        <span className="line px-5" key={lineIndex}>
-          {line.length > 0
-            ? line.map((token, tokenIndex) => (
-                <span
-                  // biome-ignore lint/suspicious/noArrayIndexKey: static token array from shiki
-                  key={tokenIndex}
-                  style={{ color: token.color } as CSSProperties}
-                >
-                  {token.content}
-                </span>
-              ))
-            : "\n"}
+        <span className="line" key={index}>
+          {line.map((token) => (
+            <span key={token.offset} style={{ color: token.color }}>
+              {token.content}
+            </span>
+          ))}
+          {"\n"}
         </span>
       ))}
-    </code>
-  </pre>
+    </CodeBlock>
+  </div>
 );

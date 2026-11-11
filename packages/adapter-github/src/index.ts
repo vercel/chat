@@ -865,8 +865,7 @@ export class GitHubAdapter
     return new Message({
       id: comment.id.toString(),
       threadId,
-      text: this.formatConverter.extractPlainText(comment.body),
-      formatted: this.formatConverter.toAst(comment.body),
+      ...this.formatConverter.parseIncoming(comment.body),
       raw: {
         type: "issue_comment",
         comment,
@@ -906,8 +905,7 @@ export class GitHubAdapter
     return new Message({
       id: comment.id.toString(),
       threadId,
-      text: this.formatConverter.extractPlainText(comment.body),
-      formatted: this.formatConverter.toAst(comment.body),
+      ...this.formatConverter.parseIncoming(comment.body),
       raw: {
         type: "review_comment",
         comment,
@@ -1565,7 +1563,7 @@ export class GitHubAdapter
           id: pr.number.toString(),
           threadId,
           text: pr.title,
-          formatted: this.formatConverter.toAst(pr.title),
+          formatted: this.formatConverter.parseIncoming(pr.title).formatted,
           raw: {
             type: "issue_comment",
             comment: {

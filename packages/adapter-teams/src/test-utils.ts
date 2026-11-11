@@ -18,7 +18,7 @@ export const token = {
 
 /** TeamsAdapter with hooks to drive the Microsoft SDK router without a network. */
 export class TestTeamsAdapter extends TeamsAdapter {
-  /** Return fixed WebhookOptions from the bridge instead of the real map. */
+  /** Return fixed WebhookOptions instead of the ones scoped to the current request. */
   stubWebhookOptions(options?: WebhookOptions) {
     return vi
       .spyOn(this.bridgeAdapter, "getWebhookOptions")

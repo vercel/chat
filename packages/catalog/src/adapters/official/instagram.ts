@@ -52,7 +52,7 @@ export const instagram = {
     directMessages: "yes",
     ephemeralMessages: "no",
     customApiEndpoint: "yes",
-    fetchMessages: { status: "partial", label: "Cached sent only" },
+    fetchMessages: { status: "partial", label: "In-memory cache" },
     fetchSingleMessage: { status: "partial", label: "Cached" },
     fetchThreadInfo: "yes",
     fetchChannelMessages: { status: "partial", label: "Cached" },

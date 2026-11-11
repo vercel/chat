@@ -81,7 +81,7 @@ describe("encodeTwilioCallbackData / decodeTwilioCallbackData", () => {
 });
 
 describe("cardToTwilioRcs", () => {
-  it("builds quick-reply content for cards with buttons", () => {
+  it("builds card content for titled cards with buttons", () => {
     const card = {
       children: [
         {
@@ -279,6 +279,168 @@ describe("cardToTwilioRcs", () => {
           },
         },
       },
+    });
+  });
+
+  it("finds actions nested inside sections", () => {
+    const card = {
+      children: [
+        {
+          children: [
+            { content: "Deploy to prod?", type: "text" as const },
+            {
+              children: [
+                {
+                  children: [
+                    {
+                      id: "approve",
+                      label: "Approve",
+                      type: "button" as const,
+                      value: "prod",
+                    },
+                  ],
+                  type: "actions" as const,
+                },
+              ],
+              type: "section" as const,
+            },
+          ],
+          type: "section" as const,
+        },
+      ],
+      type: "card" as const,
+    };
+
+    expect(cardToTwilioRcs(card)).toMatchObject({
+      type: "content",
+      contentBody: {
+        types: {
+          "twilio/quick-reply": {
+            actions: [
+              {
+                id: 'chat:{"a":"approve","v":"prod"}',
+                title: "Approve",
+                type: "quick_reply",
+              },
+            ],
+          },
+        },
+      },
+    });
+  });
+
+  it("encodes button values into twilio/card action ids", () => {
+    const card = {
+      children: [
+        {
+          children: [
+            {
+              id: "approve",
+              label: "Approve",
+              type: "button" as const,
+              value: "prod",
+            },
+          ],
+          type: "actions" as const,
+        },
+      ],
+      title: "Deploy",
+      type: "card" as const,
+    };
+
+    expect(cardToTwilioRcs(card)).toMatchObject({
+      contentBody: {
+        types: {
+          "twilio/card": {
+            actions: [{ id: 'chat:{"a":"approve","v":"prod"}' }],
+          },
+        },
+      },
+    });
+  });
+
+  describe("title limits", () => {
+    const fits = "b".repeat(25);
+    const tooLong = "b".repeat(26);
+    const cut = `${"b".repeat(24)}\u2026`;
+    const replyButtons = [fits, tooLong].map((label, i) => ({
+      id: `btn${i}`,
+      label,
+      type: "button" as const,
+    }));
+    const linkButtons = [fits, tooLong].map((label, i) => ({
+      label,
+      type: "link-button" as const,
+      url: `https://example.com/${i}`,
+    }));
+
+    it("keeps 25-character quick-reply titles and cuts longer ones", () => {
+      const result = cardToTwilioRcs({
+        children: [{ children: replyButtons, type: "actions" as const }],
+        type: "card" as const,
+      });
+
+      expect(result).toMatchObject({
+        contentBody: {
+          types: {
+            "twilio/quick-reply": {
+              actions: [{ title: fits }, { title: cut }],
+            },
+          },
+        },
+      });
+    });
+
+    it("keeps 25-character call-to-action titles and cuts longer ones", () => {
+      const result = cardToTwilioRcs({
+        children: [{ children: linkButtons, type: "actions" as const }],
+        type: "card" as const,
+      });
+
+      expect(result).toMatchObject({
+        contentBody: {
+          types: {
+            "twilio/call-to-action": {
+              actions: [{ title: fits }, { title: cut }],
+            },
+          },
+        },
+      });
+    });
+
+    it.each([
+      { length: 200, expected: "t".repeat(200) },
+      { length: 201, expected: `${"t".repeat(199)}\u2026` },
+    ])("renders a $length-character card title and its button titles within limits", ({
+      length,
+      expected,
+    }) => {
+      const result = cardToTwilioRcs({
+        children: [
+          {
+            children: [...replyButtons, ...linkButtons],
+            type: "actions" as const,
+          },
+        ],
+        title: "t".repeat(length),
+        type: "card" as const,
+      });
+
+      expect(result).toMatchObject({
+        contentBody: {
+          types: {
+            "twilio/card": {
+              actions: [
+                { title: fits, type: "quick_reply" },
+                { title: cut, type: "quick_reply" },
+                { title: fits, type: "URL" },
+                { title: cut, type: "URL" },
+              ],
+              title: expected,
+            },
+          },
+        },
+      });
     });
   });
 });

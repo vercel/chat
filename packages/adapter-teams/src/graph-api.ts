@@ -427,9 +427,9 @@ export class TeamsGraphReader {
               id: msg.id as string,
               threadId,
               text: this.extractTextFromGraphMessage(msg),
-              formatted: this.deps.formatConverter.toAst(
+              formatted: this.deps.formatConverter.parseIncoming(
                 this.extractTextFromGraphMessage(msg)
-              ),
+              ).formatted,
               raw: msg,
               author: {
                 userId:
@@ -490,9 +490,9 @@ export class TeamsGraphReader {
               id: msg.id as string,
               threadId,
               text: this.extractTextFromGraphMessage(msg),
-              formatted: this.deps.formatConverter.toAst(
+              formatted: this.deps.formatConverter.parseIncoming(
                 this.extractTextFromGraphMessage(msg)
-              ),
+              ).formatted,
               raw: msg,
               author: {
                 userId:
@@ -900,9 +900,9 @@ export class TeamsGraphReader {
           id: msg.id as string,
           threadId,
           text: this.extractTextFromGraphMessage(msg),
-          formatted: this.deps.formatConverter.toAst(
+          formatted: this.deps.formatConverter.parseIncoming(
             this.extractTextFromGraphMessage(msg)
-          ),
+          ).formatted,
           raw: msg,
           author: {
             userId:

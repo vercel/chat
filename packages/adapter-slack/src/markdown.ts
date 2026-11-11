@@ -33,9 +33,92 @@ import {
   stringifyMarkdown,
   tableToAscii,
 } from "chat";
-import { slackMrkdwnToMarkdown } from "./format";
+import { slackMrkdwnToMarkdown, unescapeSlackText } from "./format";
 
 export type SlackTextPayload = { text: string } | { markdown_text: string };
+
+const SLACK_ID_PATTERN = /^[A-Z0-9_]+$/;
+const SPECIAL_MENTION_TOKEN_PATTERN = /^!(here|channel|everyone)(?:\|[^<>]*)?$/;
+const USER_GROUP_TOKEN_PATTERN = /^!subteam\^([A-Z0-9_]+)(?:\|@?(.+))?$/;
+const LINK_TARGET_PATTERN = /^(?:https?:\/\/|mailto:|tel:)/;
+const WEB_URL_PATTERN = /^https?:\/\/[^|]+$/;
+const LINK_SCHEME_PATTERN = /^(?:mailto|tel):/;
+
+/**
+ * Index just past the `>` that closes the `<` at `index`, or -1 when another
+ * `<` or a line break comes first.
+ */
+function angleTokenEnd(mrkdwn: string, index: number): number {
+  for (let cursor = index + 1; cursor < mrkdwn.length; cursor++) {
+    const char = mrkdwn[cursor];
+    if (char === ">") {
+      return cursor + 1;
+    }
+    if (char === "<" || char === "\n" || char === "\r") {
+      return -1;
+    }
+  }
+  return -1;
+}
+
+/**
+ * The plain text `toAst` renders for the content of one `<…>` control token,
+ * or `undefined` for a token it keeps verbatim.
+ */
+function controlTokenText(token: string): string | undefined {
+  const pipe = token.indexOf("|");
+  const target = pipe === -1 ? token : token.slice(0, pipe);
+  const label = pipe === -1 ? undefined : token.slice(pipe + 1);
+  if (label === "") {
+    return;
+  }
+
+  const special = SPECIAL_MENTION_TOKEN_PATTERN.exec(token);
+  if (special) {
+    return `@${special[1]}`;
+  }
+  const group = USER_GROUP_TOKEN_PATTERN.exec(token);
+  if (group) {
+    return `@${group[2] ?? group[1]}`;
+  }
+  if (target.startsWith("@") && SLACK_ID_PATTERN.test(target.slice(1))) {
+    return label === undefined ? target : `@${label}`;
+  }
+  if (target.startsWith("#") && SLACK_ID_PATTERN.test(target.slice(1))) {
+    return label === undefined ? target : `#${label} (${target.slice(1)})`;
+  }
+  if (!LINK_TARGET_PATTERN.test(target)) {
+    return label !== undefined && WEB_URL_PATTERN.test(label)
+      ? target
+      : undefined;
+  }
+  return label ?? target.replace(LINK_SCHEME_PATTERN, "");
+}
+
+/**
+ * Render mrkdwn as plain text without parsing it as markdown: control tokens
+ * become the text `toAst` renders for them and entities are decoded, while
+ * formatting characters stay as typed. Runs in linear time.
+ */
+function slackMrkdwnToPlainText(mrkdwn: string): string {
+  let result = "";
+  let start = 0;
+  let cursor = mrkdwn.indexOf("<");
+  while (cursor !== -1) {
+    const end = angleTokenEnd(mrkdwn, cursor);
+    if (end === -1) {
+      cursor = mrkdwn.indexOf("<", cursor + 1);
+      continue;
+    }
+    const text = controlTokenText(mrkdwn.slice(cursor + 1, end - 1));
+    if (text !== undefined) {
+      result += mrkdwn.slice(start, cursor) + text;
+      start = end;
+    }
+    cursor = mrkdwn.indexOf("<", end);
+  }
+  return unescapeSlackText(result + mrkdwn.slice(start));
+}
 
 export class SlackFormatConverter extends BaseFormatConverter {
   /**
@@ -51,6 +134,42 @@ export class SlackFormatConverter extends BaseFormatConverter {
    */
   toAst(mrkdwn: string): Root {
     return parseMarkdown(slackMrkdwnToMarkdown(mrkdwn));
+  }
+
+  /**
+   * Return a parser for the mrkdwn parts of one message, such as its text,
+   * layout block text, attachment text, and table cells. The parse budget
+   * applies to all parts together: when they exceed it, no part is parsed and
+   * each becomes a single text node. Otherwise each part goes through
+   * `parseIncoming`.
+   *
+   * @internal Used by SlackAdapter to parse inbound messages.
+   */
+  incomingPartsParser(parts: readonly string[]): (part: string) => Root {
+    if (this.exceedsIncomingBudget(parts.join("\n\n"))) {
+      return (part) =>
+        part.trim()
+          ? this.unparsedIncoming(part).formatted
+          : { type: "root", children: [] };
+    }
+    return (part) => this.parseIncoming(part).formatted;
+  }
+
+  /**
+   * Check the budget against the markdown that `toAst` parses, with entities
+   * decoded and Slack code fences, emphasis, and tokens converted, so the
+   * checks see the same blockquotes and fences as the parser. The length
+   * limit still applies to the text as delivered.
+   */
+  protected override exceedsIncomingBudget(mrkdwn: string): boolean {
+    return (
+      mrkdwn.length > this.maxIncomingParseLength ||
+      super.exceedsIncomingBudget(slackMrkdwnToMarkdown(mrkdwn))
+    );
+  }
+
+  protected override incomingFallbackText(mrkdwn: string): string {
+    return slackMrkdwnToPlainText(mrkdwn);
   }
 
   /**

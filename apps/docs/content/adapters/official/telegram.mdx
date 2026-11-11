@@ -171,11 +171,23 @@ Create a bot via [BotFather](https://t.me/BotFather) and provide its token direc
       description:
         "Use Telegram's native draft previews for streamed posts in private chats. Defaults to post-and-edit in every chat type. Config only, no env var.",
     },
+    persistThreadHistory: {
+      type: "boolean",
+      default: "true",
+      description:
+        "Save incoming messages and the bot's own posts in the Chat state adapter so `thread.messages` and `channel.messages` return earlier turns. Telegram has no Bot API for reading chat history, so with `false` nothing is saved in either direction and handlers see only messages cached in the current process. Turn it off when your app keeps its own transcript. Config only, no env var.",
+    },
     streamingEditIntervalMs: {
       type: "number",
       default: "1100 private, 3100 other",
       description:
         "Minimum interval between edits on the post-and-edit streaming path. Acts as a floor, so a lower Chat-level `streamingUpdateIntervalMs` is raised to this value. Config only, no env var.",
+    },
+    longMessages: {
+      type: '"truncate" | "split"',
+      default: '"truncate"',
+      description:
+        "How text posts longer than Telegram's message limit are sent. `truncate` cuts them with an ellipsis; `split` sends the full text as consecutive messages. See [Long messages](#long-messages). Config only, no env var.",
     },
     apiUrl: {
       type: "string",
@@ -271,6 +283,22 @@ MarkdownV2 fallback messages and captions that fit the length limit ship exactly
 
 Pass `{ raw: "..." }` only if you need to ship a fully pre-escaped MarkdownV2 string.
 
+## Long messages
+
+Telegram limits a message to 4,096 characters, or 32,768 for rich messages. By default, the adapter truncates longer text posts and ends them with an ellipsis. MarkdownV2 escaping counts toward the limit, so heavily punctuated markdown is cut earlier than its source length suggests.
+
+To send the full text instead, set `longMessages: "split"`:
+
+```typescript
+const telegram = createTelegramAdapter({ longMessages: "split" });
+```
+
+Posts that fit the limit are still sent as one message. Longer posts are sent as consecutive messages in order, each within the limit. The adapter splits between paragraphs and other blocks where possible, then at line breaks or spaces, and reopens formatting such as bold text and code blocks in the next message. Ordered lists keep their numbering, and a split table repeats its header row in each message when the header fits beside a body row.
+
+To stay within Telegram's per-chat limits, the adapter waits about 1 second between messages in private chats and about 3 seconds in groups and channels. A 40-message post to a group takes about two minutes, so make sure your function's maximum duration allows for it. If Telegram still rate limits a message after the first one is delivered, the adapter waits for the `retry_after` period and sends it again, up to three attempts. It gives up when Telegram asks for a wait longer than 30 seconds, when the third attempt is also rate limited, or when the waits for one post would add up to more than 60 seconds. `post()` then throws an `AdapterRateLimitError`, and the messages already sent stay in the chat. A rate limit on the first message throws right away, before anything is sent, as it does for a post that fits in one message.
+
+With `split`, only the first message replies to the original message, and `post()` returns the last message, so edits, reactions, and deletes apply to that message only. Splitting applies to text posts. Cards, media captions, edits, and the message edited during post-and-edit streaming still truncate.
+
 ## Slash commands
 
 Use `bot.onSlashCommand` to handle Telegram bot commands such as `/status` and `/status@mybot`. Commands addressed to another bot are ignored as slash commands and continue through the normal message path.
@@ -284,6 +312,22 @@ Incoming attachments preserve Telegram's downloadable `file_id` and stable `file
 Incoming media groups are delivered as one message after the album settles, with attachments ordered by Telegram message ID and the shared caption preserved.
 
 Multiple `files` or compatible `attachments` are sent as Telegram media groups. `files` upload as documents; `attachments` preserve image, audio, video, or file media type.
+
+## Threads
+
+By default, each Telegram chat is one thread, `telegram:{chatId}`. A message that Telegram marks with `is_topic_message` belongs to a topic, and each topic is its own thread, `telegram:{chatId}:{messageThreadId}`. The Bot API sets that field for topics in a forum supergroup and in a private chat with the bot. Business conversations use `telegram:biz:{connectionId}:{chatId}`, as described in [Business mode](#business-mode).
+
+Replies in a regular supergroup stay in the chat's thread. Telegram also sets `message_thread_id` on those replies to identify the reply thread, but the adapter only treats a message as part of a topic when `is_topic_message` is `true`. A bot subscribed to the chat receives the replies in `onSubscribedMessage`.
+
+Because the reply is on the chat's thread, `thread.post()` from its handler sends to the chat without `message_thread_id`. Use `thread.reply()` to answer a specific message. Every reply chain in the chat also shares the chat's lock, so your [`concurrency`](/docs/concurrency) strategy applies across all of them. With the default `drop` strategy, a message that arrives while a handler is still running for another message in the same chat is discarded.
+
+Reaction updates don't say whether the message is in a topic, so reactions always arrive on `telegram:{chatId}`.
+
+<Callout type="warn">
+Earlier versions gave each reply thread in a regular supergroup its own `telegram:{chatId}:{n}` thread ID. Subscriptions, `thread.setState` values, and anything else your bot keyed on those IDs no longer match, because the replies now arrive on `telegram:{chatId}`. Calling `thread.subscribe()` from a reply now subscribes the bot to the whole chat.
+
+Stop posting to stored `telegram:{chatId}:{n}` IDs from a regular supergroup. The adapter still sends `message_thread_id` for them, and the message it returns keeps the stored ID, while replies to that message arrive on `telegram:{chatId}`.
+</Callout>
 
 ## Business mode
 
@@ -314,7 +358,8 @@ Business thread IDs start with `telegram:biz`, so state adapters that shard by t
 - Telegram does not expose full historical message APIs to bots. `fetchMessages` returns adapter-cached messages from the current process.
 - `listThreads` is not available for Telegram chats.
 - Telegram limits callback data to 64 bytes, so keep `Button` `id`/`value` payloads short.
-- Card elements other than buttons and link buttons, such as images, select menus, and radios, render as fallback text.
+- Telegram keeps only the first 8 buttons of an inline keyboard row and drops the rest, so an `Actions` block with more than 8 buttons wraps into evenly sized rows of at most 8. For example, 11 buttons render as a row of 6 and a row of 5.
+- Card images, select menus, and radios are not rendered. Tables, fields, and links render as text in the message body.
 - `Thread.reply()` threads with Bot API `reply_parameters` and sets `allow_sending_without_reply`, so a reply whose target was deleted, never existed, or lives in another forum topic is delivered unthreaded instead of failing. Only the chat half of a composite target ID is validated up front.
 
 ## Feature support

@@ -44,7 +44,25 @@ export class GoogleChatFormatConverter extends BaseFormatConverter {
    * Parse Google Chat message into an AST.
    */
   toAst(gchatText: string): Root {
-    // Convert Google Chat format to standard markdown, then parse
+    return parseMarkdown(this.toStandardMarkdown(gchatText));
+  }
+
+  /**
+   * Check the budget against the markdown that `toAst` parses, after Google
+   * Chat bold and strikethrough are converted. The length limit still applies
+   * to the text as delivered.
+   */
+  protected override exceedsIncomingBudget(gchatText: string): boolean {
+    return (
+      gchatText.length > this.maxIncomingParseLength ||
+      super.exceedsIncomingBudget(this.toStandardMarkdown(gchatText))
+    );
+  }
+
+  /**
+   * Convert Google Chat format to standard markdown.
+   */
+  private toStandardMarkdown(gchatText: string): string {
     let markdown = gchatText;
 
     // Bold: *text* -> **text**
@@ -55,7 +73,7 @@ export class GoogleChatFormatConverter extends BaseFormatConverter {
 
     // Italic and code are the same format as markdown
 
-    return parseMarkdown(markdown);
+    return markdown;
   }
 
   private nodeToGChat(node: Content): string {

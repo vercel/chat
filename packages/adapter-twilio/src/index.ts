@@ -573,7 +573,7 @@ export class TwilioAdapter
     return new Message({
       attachments,
       author: this.author(raw.from, false),
-      formatted: this.formatConverter.toAst(raw.body),
+      formatted: this.formatConverter.parseIncoming(raw.body).formatted,
       id: raw.messageSid ?? `twilio:${Date.now()}`,
       metadata: {
         dateSent: new Date(),
@@ -609,7 +609,7 @@ export class TwilioAdapter
     return new Message({
       attachments: [],
       author: this.author(isMe ? thread.sender : from, isMe),
-      formatted: this.formatConverter.toAst(text),
+      formatted: this.formatConverter.parseIncoming(text).formatted,
       id: raw.sid,
       metadata: {
         dateSent: dateFromTwilio(raw.date_sent ?? raw.date_created),

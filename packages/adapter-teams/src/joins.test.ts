@@ -39,13 +39,12 @@ describe("Teams bot joins", () => {
   let adapter: TestTeamsAdapter;
   let chat: ReturnType<typeof createMockChatInstance>;
   let options: WebhookOptions;
-  let lookup: ReturnType<TestTeamsAdapter["stubWebhookOptions"]>;
 
   beforeEach(async () => {
     adapter = new TestTeamsAdapter({ appId, appPassword: "test", logger });
     chat = createMockChatInstance();
     options = { waitUntil: vi.fn() };
-    lookup = adapter.stubWebhookOptions(options);
+    adapter.stubWebhookOptions(options);
     await adapter.initialize(chat);
   });
 
@@ -82,7 +81,6 @@ describe("Teams bot joins", () => {
       },
       options
     );
-    expect(lookup).toHaveBeenCalledWith("join-activity");
   });
 
   it("caches Graph channel context from the team-install payload", async () => {

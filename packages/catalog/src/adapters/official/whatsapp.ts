@@ -44,7 +44,7 @@ export const whatsapp = {
     directMessages: "yes",
     ephemeralMessages: "no",
     customApiEndpoint: "yes",
-    fetchMessages: { status: "partial", label: "Cached sent only" },
+    fetchMessages: { status: "partial", label: "Persisted history" },
     fetchSingleMessage: "no",
     fetchThreadInfo: "yes",
     fetchChannelMessages: "no",

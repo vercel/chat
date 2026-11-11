@@ -34,6 +34,8 @@ import type { AdapterPostableMessage } from "./types";
 // Alias for use within this file
 type PostableMessageInput = AdapterPostableMessage;
 
+const LINE_BREAK_REGEX = /\r\n|\r|\n/;
+
 // Re-export types for adapters
 export type {
   Blockquote,
@@ -283,6 +285,192 @@ export function getNodeValue(node: Content): string {
     return node.value;
   }
   return "";
+}
+
+/**
+ * Default maximum length of inbound message text that
+ * `BaseFormatConverter.parseIncoming` parses as markdown.
+ */
+export const DEFAULT_MAX_INCOMING_PARSE_LENGTH = 16_384;
+
+/**
+ * Default maximum number of `*`, `_`, and `~` characters in inbound text that
+ * `BaseFormatConverter.parseIncoming` parses as markdown. Resolving unmatched
+ * emphasis delimiters within one paragraph takes quadratic time.
+ */
+const DEFAULT_MAX_INCOMING_EMPHASIS_MARKERS = 2048;
+
+/**
+ * Default maximum number of `]` characters in inbound text that
+ * `BaseFormatConverter.parseIncoming` parses as markdown. Resolving each link
+ * label end scans back over the inline content before it.
+ */
+const DEFAULT_MAX_INCOMING_CLOSING_BRACKETS = 128;
+
+/**
+ * Default maximum number of `<` characters in inbound text that
+ * `BaseFormatConverter.parseIncoming` parses as markdown. Each unclosed inline
+ * HTML construct scans ahead over the rest of the paragraph.
+ */
+const DEFAULT_MAX_INCOMING_ANGLE_BRACKETS = 512;
+
+/**
+ * Default maximum number of `www.` autolink literals in one run of
+ * non-whitespace characters of inbound text that
+ * `BaseFormatConverter.parseIncoming` parses as markdown. Each one scans ahead
+ * over the rest of its run.
+ */
+const DEFAULT_MAX_INCOMING_WWW_AUTOLINKS = 8;
+
+/**
+ * Default maximum container nesting on one line of inbound text that
+ * `BaseFormatConverter.parseIncoming` parses as markdown, counting blockquote,
+ * list, and footnote definition markers plus half the columns of leading
+ * indentation. Parsing a line costs time quadratic in the containers it opens.
+ */
+const DEFAULT_MAX_INCOMING_CONTAINER_MARKERS = 32;
+
+const LINE_ENDING_PATTERN = /\r\n|\r|\n/;
+const FENCE_SKIP_DISABLED_PATTERN = /^ {0,3}<|^ {1,3}(?:`{3,}|~{3,})/m;
+const FENCE_OPEN_PATTERN = /^(`{3,}|~{3,})/;
+const FENCE_CLOSE_PATTERN = /^ {0,3}(`{3,}|~{3,})[ \t]*$/;
+const WWW_AUTOLINK_PATTERN = /www\./gi;
+const WHITESPACE_PATTERN = /\s+/;
+
+/**
+ * Default maximum nesting depth of an AST built by
+ * `BaseFormatConverter.parseIncoming`. Recursive serializers such as
+ * `JSON.stringify` overflow the stack on trees a few thousand levels deep.
+ */
+const DEFAULT_MAX_INCOMING_AST_DEPTH = 128;
+
+function countChars(value: string, chars: string): number {
+  let count = 0;
+  for (const char of value) {
+    if (chars.includes(char)) {
+      count++;
+    }
+  }
+  return count;
+}
+
+function isBlank(char: string | undefined): boolean {
+  return char === undefined || char === " " || char === "\t";
+}
+
+function leadingColumns(line: string): number {
+  let columns = 0;
+  for (const char of line) {
+    if (char === " ") {
+      columns++;
+    } else if (char === "\t") {
+      columns += 4 - (columns % 4);
+    } else {
+      break;
+    }
+  }
+  return columns;
+}
+
+/**
+ * Count the blockquote, list, and footnote definition markers that open
+ * containers at the start of a line, such as the three in `> - 1. item`.
+ */
+function countContainerMarkers(line: string): number {
+  let count = 0;
+  let i = 0;
+  while (i < line.length) {
+    while (line[i] === " " || line[i] === "\t") {
+      i++;
+    }
+    const char = line[i];
+    if (char === ">") {
+      i++;
+    } else if (
+      (char === "-" || char === "+" || char === "*") &&
+      isBlank(line[i + 1])
+    ) {
+      i += 2;
+    } else if (char === "[" && line[i + 1] === "^") {
+      const labelEnd = line.indexOf("]", i + 2);
+      if (labelEnd === -1 || line[labelEnd + 1] !== ":") {
+        return count;
+      }
+      i = labelEnd + 2;
+    } else {
+      let digits = 0;
+      while (
+        digits < 10 &&
+        line[i + digits] >= "0" &&
+        line[i + digits] <= "9"
+      ) {
+        digits++;
+      }
+      const delimiter = line[i + digits];
+      if (
+        digits === 0 ||
+        digits > 9 ||
+        !(delimiter === "." || delimiter === ")") ||
+        !isBlank(line[i + digits + 1])
+      ) {
+        return count;
+      }
+      i += digits + 2;
+    }
+    count++;
+  }
+  return count;
+}
+
+/**
+ * The marker that closes a fenced code block opened by `line`, if `line`
+ * opens one at the top level. Only fences at column zero count, since an
+ * indented fence may belong to a container that ends before its closing fence.
+ * Callers don't skip fences at all when any opener or closer is indented,
+ * since a column-zero line could then close a fence instead of opening one.
+ */
+function fenceOpener(line: string): string | undefined {
+  const marker = FENCE_OPEN_PATTERN.exec(line)?.[1];
+  if (marker?.startsWith("`") && line.slice(marker.length).includes("`")) {
+    return;
+  }
+  return marker;
+}
+
+function exceedsWwwAutolinksPerWord(line: string, max: number): boolean {
+  for (const word of line.split(WHITESPACE_PATTERN)) {
+    if ((word.match(WWW_AUTOLINK_PATTERN)?.length ?? 0) > max) {
+      return true;
+    }
+  }
+  return false;
+}
+
+function closesFence(line: string, opener: string): boolean {
+  const marker = FENCE_CLOSE_PATTERN.exec(line)?.[1];
+  return (
+    marker !== undefined &&
+    marker[0] === opener[0] &&
+    marker.length >= opener.length
+  );
+}
+
+function exceedsDepth(ast: Root, max: number): boolean {
+  const stack: [Root | Content, number][] = [[ast, 0]];
+  let entry = stack.pop();
+  while (entry) {
+    const [node, depth] = entry;
+    if (depth > max) {
+      return true;
+    }
+    if ("children" in node) {
+      for (const child of node.children) {
+        stack.push([child as Content, depth + 1]);
+      }
+    }
+    entry = stack.pop();
+  }
+  return false;
 }
 
 /**
@@ -537,38 +725,94 @@ export abstract class BaseFormatConverter implements FormatConverter {
   abstract fromAst(ast: Root): string;
   abstract toAst(platformText: string): Root;
 
+  /**
+   * Whether `renderList` indents every line of a multi-line block in a list
+   * item, such as a code block or block quote, to the item's content column.
+   * Enable it for CommonMark targets, where an unindented line leaves the
+   * item. Nested lists are always indented.
+   */
+  protected indentListContinuationLines = false;
+
   protected renderList(
     node: List,
     depth: number,
     nodeConverter: (node: Content) => string,
     unorderedBullet = "-"
   ): string {
-    const indent = "  ".repeat(depth);
+    return this.renderListLines(
+      node,
+      "  ".repeat(depth),
+      nodeConverter,
+      unorderedBullet
+    ).join("\n");
+  }
+
+  private renderListLines(
+    node: List,
+    indent: string,
+    nodeConverter: (node: Content) => string,
+    unorderedBullet: string
+  ): string[] {
     const start = node.start ?? 1;
     const lines: string[] = [];
     for (const [i, item] of getNodeChildren(node).entries()) {
       const prefix = node.ordered ? `${start + i}.` : unorderedBullet;
-      let isFirstContent = true;
+      const marker = `${indent}${prefix} `;
+      // Content after the marker starts at this column, so "1. " needs
+      // three spaces for a nested list to stay inside the item.
+      const contentIndent = " ".repeat(marker.length);
+      let previous: Content | undefined;
       for (const child of getNodeChildren(item)) {
         if (isListNode(child)) {
-          lines.push(
-            this.renderList(child, depth + 1, nodeConverter, unorderedBullet)
+          const nested = this.renderListLines(
+            child,
+            contentIndent,
+            nodeConverter,
+            unorderedBullet
           );
+          if (nested.length === 0) {
+            continue;
+          }
+          if (previous) {
+            // A nested list can follow its parent's text directly, except
+            // after HTML, or when it is ordered and doesn't start at 1,
+            // because then it can't interrupt a paragraph.
+            const canInterrupt =
+              previous.type !== "html" &&
+              (!child.ordered || (child.start ?? 1) === 1);
+            if (!canInterrupt) {
+              lines.push("");
+            }
+            lines.push(...nested);
+          } else {
+            lines.push(`${marker}${nested[0].slice(contentIndent.length)}`);
+            lines.push(...nested.slice(1));
+          }
+          previous = child;
           continue;
         }
         const text = nodeConverter(child);
         if (!text.trim()) {
           continue;
         }
-        if (isFirstContent) {
-          lines.push(`${indent}${prefix} ${text}`);
-          isFirstContent = false;
+        const [firstLine, ...rest] = text.split(LINE_BREAK_REGEX);
+        if (previous) {
+          // Two blocks need a blank line between them or they merge.
+          lines.push("", `${contentIndent}${firstLine}`);
         } else {
-          lines.push(`${indent}  ${text}`);
+          lines.push(`${marker}${firstLine}`);
         }
+        for (const line of rest) {
+          lines.push(
+            this.indentListContinuationLines && line
+              ? `${contentIndent}${line}`
+              : line
+          );
+        }
+        previous = child;
       }
     }
-    return lines.join("\n");
+    return lines;
   }
 
   /**
@@ -609,6 +853,155 @@ export abstract class BaseFormatConverter implements FormatConverter {
 
   extractPlainText(platformText: string): string {
     return toPlainText(this.toAst(platformText));
+  }
+
+  /**
+   * Maximum length, in UTF-16 code units, of inbound text that
+   * `parseIncoming` will parse as markdown. The markdown parser has
+   * superlinear worst cases, so longer text is kept verbatim in a single
+   * text node.
+   * Subclasses can override this to match their platform's limits.
+   */
+  protected maxIncomingParseLength = DEFAULT_MAX_INCOMING_PARSE_LENGTH;
+
+  /**
+   * Maximum number of `*`, `_`, and `~` characters in inbound text that
+   * `parseIncoming` will parse as markdown. Text with more is kept verbatim
+   * in a single text node.
+   */
+  protected maxIncomingEmphasisMarkers = DEFAULT_MAX_INCOMING_EMPHASIS_MARKERS;
+
+  /**
+   * Maximum number of `]` characters in inbound text that `parseIncoming`
+   * will parse as markdown. Text with more is kept verbatim in a single text
+   * node.
+   */
+  protected maxIncomingClosingBrackets = DEFAULT_MAX_INCOMING_CLOSING_BRACKETS;
+
+  /**
+   * Maximum number of `<` characters in inbound text that `parseIncoming`
+   * will parse as markdown. Text with more is kept verbatim in a single text
+   * node.
+   */
+  protected maxIncomingAngleBrackets = DEFAULT_MAX_INCOMING_ANGLE_BRACKETS;
+
+  /**
+   * Maximum number of `www.` autolink literals in one run of non-whitespace
+   * characters of inbound text that `parseIncoming` will parse as markdown.
+   * Text with more is kept verbatim in a single text node.
+   */
+  protected maxIncomingWwwAutolinks = DEFAULT_MAX_INCOMING_WWW_AUTOLINKS;
+
+  /**
+   * Maximum container nesting on one line of inbound text that
+   * `parseIncoming` will parse as markdown, counting blockquote, list, and
+   * footnote definition markers plus half the columns of leading indentation.
+   * Text with a line nested deeper is kept verbatim in a single text node.
+   */
+  protected maxIncomingContainerMarkers =
+    DEFAULT_MAX_INCOMING_CONTAINER_MARKERS;
+
+  /**
+   * Maximum nesting depth of the AST `parseIncoming` returns. Text that
+   * parses deeper is kept verbatim in a single text node.
+   */
+  protected maxIncomingAstDepth = DEFAULT_MAX_INCOMING_AST_DEPTH;
+
+  /**
+   * Parse inbound platform text into the plain text and AST for a `Message`.
+   * Parses once. Text that exceeds the limits checked by
+   * `exceedsIncomingBudget`, that overflows the stack while parsing, or that
+   * parses deeper than `maxIncomingAstDepth` is kept verbatim in a single text
+   * node.
+   */
+  parseIncoming(platformText: string): { formatted: Root; text: string } {
+    if (this.exceedsIncomingBudget(platformText)) {
+      return this.unparsedIncoming(platformText);
+    }
+    let formatted: Root;
+    try {
+      formatted = this.toAst(platformText);
+    } catch (error) {
+      if (error instanceof RangeError) {
+        return this.unparsedIncoming(platformText);
+      }
+      throw error;
+    }
+    if (exceedsDepth(formatted, this.maxIncomingAstDepth)) {
+      return this.unparsedIncoming(platformText);
+    }
+    return { text: toPlainText(formatted), formatted };
+  }
+
+  /**
+   * Whether inbound text exceeds `maxIncomingParseLength` or, outside fenced
+   * code blocks, `maxIncomingEmphasisMarkers`, `maxIncomingClosingBrackets`,
+   * `maxIncomingAngleBrackets`, `maxIncomingWwwAutolinks` in any one word, or
+   * `maxIncomingContainerMarkers`. Checked before parsing, in linear time.
+   */
+  protected exceedsIncomingBudget(platformText: string): boolean {
+    if (platformText.length > this.maxIncomingParseLength) {
+      return true;
+    }
+    const skipFences = !FENCE_SKIP_DISABLED_PATTERN.test(platformText);
+    let emphasisMarkers = 0;
+    let closingBrackets = 0;
+    let angleBrackets = 0;
+    let fence: string | undefined;
+    for (const line of platformText.split(LINE_ENDING_PATTERN)) {
+      if (fence) {
+        if (closesFence(line, fence)) {
+          fence = undefined;
+        }
+        continue;
+      }
+      if (skipFences) {
+        fence = fenceOpener(line);
+        if (fence) {
+          continue;
+        }
+      }
+      const nesting = line.trim()
+        ? countContainerMarkers(line) + Math.floor(leadingColumns(line) / 2)
+        : 0;
+      emphasisMarkers += countChars(line, "*_~");
+      closingBrackets += countChars(line, "]");
+      angleBrackets += countChars(line, "<");
+      if (
+        nesting > this.maxIncomingContainerMarkers ||
+        emphasisMarkers > this.maxIncomingEmphasisMarkers ||
+        closingBrackets > this.maxIncomingClosingBrackets ||
+        angleBrackets > this.maxIncomingAngleBrackets ||
+        exceedsWwwAutolinksPerWord(line, this.maxIncomingWwwAutolinks)
+      ) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  /**
+   * Text to keep when `parseIncoming` skips markdown parsing. Converters whose
+   * platform text carries markup that shouldn't reach users, such as entities
+   * or mention tokens, can override this. It must run in linear time.
+   */
+  protected incomingFallbackText(platformText: string): string {
+    return platformText;
+  }
+
+  /**
+   * Build the unformatted result `parseIncoming` returns when it skips
+   * markdown parsing.
+   */
+  protected unparsedIncoming(platformText: string): {
+    formatted: Root;
+    text: string;
+  } {
+    const fallback = this.incomingFallbackText(platformText);
+    return {
+      text: fallback,
+      formatted: root([paragraph([text(fallback)])]),
+    };
   }
 
   // Convenience methods for markdown string I/O

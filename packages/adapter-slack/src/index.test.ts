@@ -28,9 +28,11 @@ import {
   Card,
   CardText,
   Chat,
+  DEFAULT_MAX_INCOMING_PARSE_LENGTH,
   Field,
   Fields,
   Image,
+  stringifyMarkdown,
 } from "chat";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cardToBlockKit, cardToFallbackText } from "./cards";
@@ -38,6 +40,7 @@ import type {
   SlackAdapterConfig,
   SlackEvent,
   SlackInstallation,
+  SlackMessageBlock,
   SlackThreadId,
 } from "./index";
 import {
@@ -45,6 +48,7 @@ import {
   createSlackAdapter,
   SlackAdapter,
 } from "./index";
+import { SlackFormatConverter } from "./markdown";
 import { incomingMessage } from "./test-fixtures";
 
 const FILE_ID_PATTERN = /^file-/;
@@ -2679,6 +2683,440 @@ describe("parseMessage", () => {
     expect(message.text).toBe("On call\t@UBOT123");
     expect(message.text).not.toContain("<@");
   });
+
+  it("keeps a > in a table cell's link label inside the link", () => {
+    const message = adapter.parseMessage({
+      type: "message",
+      user: "U123",
+      channel: "C456",
+      text: "",
+      ts: "1786120899.208429",
+      blocks: [
+        {
+          type: "table",
+          rows: [
+            [
+              {
+                type: "rich_text",
+                elements: [
+                  {
+                    type: "rich_text_section",
+                    elements: [
+                      {
+                        type: "link",
+                        url: "https://example.com",
+                        text: "p95 > 2s",
+                      },
+                    ],
+                  },
+                ],
+              },
+            ],
+          ],
+        },
+      ],
+    });
+
+    expect(message.formatted.children[0]).toMatchObject({
+      type: "table",
+      children: [
+        {},
+        {
+          children: [
+            {
+              children: [
+                {
+                  type: "link",
+                  url: "https://example.com",
+                  children: [{ type: "text", value: "p95 > 2s" }],
+                },
+              ],
+            },
+          ],
+        },
+      ],
+    });
+  });
+
+  describe("composer lists", () => {
+    const section = (...elements: SlackMessageBlock[]): SlackMessageBlock => ({
+      type: "rich_text_section",
+      elements,
+    });
+    const text = (
+      value: string,
+      style?: SlackMessageBlock["style"]
+    ): SlackMessageBlock => ({
+      type: "text",
+      text: value,
+      ...(style ? { style } : {}),
+    });
+    // Slack sends a list's `style` as a string.
+    const list = (
+      elements: SlackMessageBlock[],
+      style = "bullet",
+      indent = 0
+    ): SlackMessageBlock =>
+      ({
+        type: "rich_text_list",
+        style,
+        indent,
+        elements,
+      }) as unknown as SlackMessageBlock;
+
+    // The payload from https://github.com/vercel/chat/issues/956: Slack
+    // flattens the list in `text` and keeps its structure in the blocks.
+    const issueEvent: SlackEvent = {
+      type: "message",
+      channel: "D0123456789",
+      channel_type: "im",
+      user: "U0123456789",
+      username: "jane",
+      ts: "1726600000.000100",
+      text: "Steps:\n• one\n• two\n    ◦ nested\n<!here> and <!subteam^S0123456789|@devs>",
+      blocks: [
+        {
+          type: "rich_text",
+          elements: [
+            section(text("Steps:")),
+            list([section(text("one")), section(text("two"))]),
+            list([section(text("nested"))], "bullet", 1),
+            section({ type: "broadcast", range: "here" }, text(" and "), {
+              type: "usergroup",
+              usergroup_id: "S0123456789",
+            }),
+          ],
+        },
+      ],
+    };
+
+    const asyncParse = (target: SlackAdapter, event: SlackEvent) =>
+      (
+        target as unknown as {
+          parseSlackMessage(
+            value: SlackEvent,
+            threadId: string
+          ): Promise<Message<unknown>>;
+        }
+      ).parseSlackMessage(event, `slack:${event.channel}:${event.ts}`);
+
+    describe.each([
+      "sync",
+      "async",
+    ] as const)("%s regression coverage", (mode) => {
+      const parse = async (event: SlackEvent) =>
+        mode === "sync"
+          ? adapter.parseMessage(event)
+          : await asyncParse(adapter, event);
+
+      it.each([
+        "---",
+        "[x] finished",
+        "[ ] pending",
+        "# Heading",
+        "> literal",
+        "- flag",
+        "+ added",
+        "* starred",
+        "1. numbered",
+        "line\n---",
+        "line\n# Heading",
+      ])("preserves literal list item %j without inventing markup", async (value) => {
+        const message = await parse({
+          ...issueEvent,
+          text: "fallback must not be used",
+          blocks: [
+            {
+              type: "rich_text",
+              elements: [
+                list([
+                  section(text(value)),
+                  section(text("ship", { bold: true })),
+                ]),
+                list([section(text("nested"))], "bullet", 1),
+              ],
+            },
+          ],
+        });
+
+        expect(message.text).toBe(`${value}\nship\nnested`);
+        expect(message.formatted).toMatchObject({
+          type: "root",
+          children: [
+            {
+              type: "list",
+              ordered: false,
+              children: [
+                {
+                  type: "listItem",
+                  checked: null,
+                  children: [
+                    {
+                      type: "paragraph",
+                      children: [{ type: "text", value }],
+                    },
+                  ],
+                },
+                {
+                  type: "listItem",
+                  checked: null,
+                  children: [
+                    {
+                      type: "paragraph",
+                      children: [
+                        {
+                          type: "strong",
+                          children: [{ type: "text", value: "ship" }],
+                        },
+                      ],
+                    },
+                    {
+                      type: "list",
+                      ordered: false,
+                      children: [
+                        {
+                          type: "listItem",
+                          children: [
+                            {
+                              type: "paragraph",
+                              children: [{ type: "text", value: "nested" }],
+                            },
+                          ],
+                        },
+                      ],
+                    },
+                  ],
+                },
+              ],
+            },
+          ],
+        });
+      });
+
+      it.each([
+        "before",
+        "inside",
+        "after",
+        "quote",
+        "preformatted",
+        "future element",
+      ] as const)("preserves the fallback for unsupported content at %s", async (placement) => {
+        const reference = section(text("See "), {
+          type: "message_mention",
+          channel_id: "C123ABC456",
+          message_ts: "1720710212.123456",
+        });
+        const items = list([section(text("follow up"))]);
+        const elements = {
+          before: [reference, items],
+          inside: [list([reference, section(text("follow up"))])],
+          after: [items, reference],
+          quote: [
+            items,
+            { type: "rich_text_quote", elements: reference.elements },
+          ],
+          preformatted: [
+            items,
+            { type: "rich_text_preformatted", elements: reference.elements },
+          ],
+          "future element": [
+            items,
+            { type: "rich_text_future", elements: [reference] },
+          ],
+        }[placement];
+        const url =
+          "https://example.slack.com/archives/C123ABC456/p1720710212123456";
+        const message = await parse({
+          ...issueEvent,
+          text: `See <${url}|referenced message>\n• follow up`,
+          blocks: [{ type: "rich_text", elements }],
+        });
+
+        expect(message.text).toBe("See referenced message\n• follow up");
+        expect(message.formatted).toMatchObject({
+          type: "root",
+          children: [
+            {
+              type: "paragraph",
+              children: [
+                { type: "text", value: "See " },
+                {
+                  type: "link",
+                  url,
+                  children: [{ type: "text", value: "referenced message" }],
+                },
+                { type: "text", value: "\n• follow up" },
+              ],
+            },
+          ],
+        });
+      });
+
+      it("keeps a subsequent rich text block outside the preceding list", async () => {
+        const message = await parse({
+          ...issueEvent,
+          text: "fallback must not be used",
+          blocks: [
+            { type: "rich_text", elements: [list([section(text("one"))])] },
+            { type: "rich_text", elements: [section(text("after"))] },
+          ],
+        });
+
+        expect(message.text).toBe("one\n\nafter");
+        expect(message.formatted).toMatchObject({
+          type: "root",
+          children: [
+            {
+              type: "list",
+              ordered: false,
+              children: [
+                {
+                  type: "listItem",
+                  children: [
+                    {
+                      type: "paragraph",
+                      children: [{ type: "text", value: "one" }],
+                    },
+                  ],
+                },
+              ],
+            },
+            {
+              type: "paragraph",
+              children: [{ type: "text", value: "after" }],
+            },
+          ],
+        });
+      });
+    });
+
+    it("parses the issue's list into nested list nodes in both parsing paths", async () => {
+      for (const message of [
+        adapter.parseMessage(issueEvent),
+        await asyncParse(adapter, issueEvent),
+      ]) {
+        expect(message.formatted.children.map((node) => node.type)).toEqual([
+          "paragraph",
+          "list",
+          "paragraph",
+        ]);
+        expect(message.formatted.children[1]).toMatchObject({
+          type: "list",
+          ordered: false,
+          children: [
+            { type: "listItem" },
+            {
+              type: "listItem",
+              children: [
+                { type: "paragraph" },
+                { type: "list", children: [{ type: "listItem" }] },
+              ],
+            },
+          ],
+        });
+        expect(stringifyMarkdown(message.formatted)).toBe(
+          "Steps:\n\n* one\n* two\n  * nested\n\n@here and @devs\n"
+        );
+        expect(message.text).toBe(
+          "Steps:\n\none\ntwo\nnested\n\n@here and @devs"
+        );
+        expect(message.isMention).toBe(false);
+      }
+    });
+
+    it("resolves user mentions inside list items and still detects the bot mention", async () => {
+      const localAdapter = createSlackAdapter({
+        botToken: "xoxb-test-token",
+        signingSecret: "test-secret",
+        logger: mockLogger,
+        botUserId: "U_BOT",
+      });
+      await localAdapter.initialize(
+        createMockChatInstance({ state: createMockState() })
+      );
+      const usersInfo = vi.fn(({ user }: { user: string }) =>
+        Promise.resolve({
+          user: {
+            name: user.toLowerCase(),
+            profile: { display_name: user === "U777" ? "jane" : "bot" },
+          },
+        })
+      );
+      (
+        localAdapter as unknown as { _client: { users: { info: unknown } } }
+      )._client.users.info = usersInfo;
+
+      const message = await asyncParse(localAdapter, {
+        type: "message",
+        user: "U123",
+        username: "alice",
+        channel: "C456",
+        ts: "1786120899.208429",
+        text: "<@U_BOT> please:\n• ask <@U777>\n• *ship* it",
+        blocks: [
+          {
+            type: "rich_text",
+            elements: [
+              section({ type: "user", user_id: "U_BOT" }, text(" please:")),
+              list([
+                section(text("ask "), { type: "user", user_id: "U777" }),
+                section(text("ship", { bold: true }), text(" it")),
+              ]),
+            ],
+          },
+        ],
+      });
+
+      expect(message.isMention).toBe(true);
+      expect(stringifyMarkdown(message.formatted)).toBe(
+        "@bot please:\n\n* ask @jane\n* **ship** it\n"
+      );
+    });
+
+    it("keeps a table next to a list", () => {
+      const message = adapter.parseMessage({
+        type: "message",
+        user: "U123",
+        channel: "C456",
+        text: "• item",
+        ts: "1786120899.208429",
+        blocks: [
+          { type: "rich_text", elements: [list([section(text("item"))])] },
+          { type: "table", rows: [[{ type: "raw_text", text: "cell" }]] },
+        ],
+      });
+
+      expect(message.formatted.children.map((node) => node.type)).toEqual([
+        "list",
+        "table",
+      ]);
+    });
+
+    it("keeps event.text when blocks have no list or carry other block types", () => {
+      const cases: SlackMessageBlock[][] = [
+        [{ type: "rich_text", elements: [section(text("other words"))] }],
+        [
+          { type: "section", fields: [{ type: "mrkdwn", text: "app text" }] },
+          { type: "rich_text", elements: [list([section(text("item"))])] },
+        ],
+        [
+          { type: "rich_text", elements: [list([section(text("item"))])] },
+          { type: "call", call_id: "R123" },
+        ],
+      ];
+      for (const blocks of cases) {
+        const message = adapter.parseMessage({
+          type: "message",
+          user: "U123",
+          channel: "C456",
+          text: "fallback text",
+          ts: "1234567890.123456",
+          blocks,
+        });
+        expect(message.text).toBe("fallback text");
+      }
+    });
+  });
 });
 
 // ============================================================================
@@ -4302,6 +4740,147 @@ describe("withBotToken", () => {
 
     expect(tokens).toContain("A");
     expect(tokens).toContain("B");
+  });
+
+  it("recognizes the bot's own messages when botUserId is passed", async () => {
+    const adapter = createSlackAdapter({
+      signingSecret: secret,
+      logger: mockLogger,
+    });
+    await adapter.initialize(
+      createMockChatInstance({ state: createMockState() })
+    );
+    const event = {
+      type: "message",
+      user: "U_INSTALL_BOT",
+      channel: "C456",
+      text: "Posted by the bot",
+      ts: "1234567890.123456",
+    };
+
+    const withoutBotUserId = adapter.withBotToken("xoxb-token", () => ({
+      botUserId: adapter.botUserId,
+      isMe: adapter.parseMessage(event).author.isMe,
+    }));
+    const withBotUserId = adapter.withBotToken(
+      "xoxb-token",
+      () => ({
+        botUserId: adapter.botUserId,
+        isMe: adapter.parseMessage(event).author.isMe,
+      }),
+      { installationId: "T123", botUserId: "U_INSTALL_BOT" }
+    );
+
+    expect(withoutBotUserId).toStrictEqual({
+      botUserId: undefined,
+      isMe: false,
+    });
+    expect(withBotUserId).toStrictEqual({
+      botUserId: "U_INSTALL_BOT",
+      isMe: true,
+    });
+  });
+
+  it("does not inherit botUserId from an outer withBotToken context", async () => {
+    const adapter = createSlackAdapter({
+      signingSecret: secret,
+      logger: mockLogger,
+    });
+    await adapter.initialize(
+      createMockChatInstance({ state: createMockState() })
+    );
+
+    const result = adapter.withBotToken(
+      "xoxb-outer",
+      () => ({
+        outer: adapter.botUserId,
+        inner: adapter.withBotToken("xoxb-inner", () => adapter.botUserId, {
+          installationId: "T_INNER",
+        }),
+      }),
+      { installationId: "T_OUTER", botUserId: "U_OUTER_BOT" }
+    );
+
+    expect(result).toStrictEqual({ outer: "U_OUTER_BOT", inner: undefined });
+  });
+
+  it("prefers a botUserId passed to withBotToken over the configured one", async () => {
+    const adapter = createSlackAdapter({
+      botToken: "xoxb-test-token",
+      signingSecret: secret,
+      logger: mockLogger,
+      botUserId: "U_CONFIG",
+    });
+
+    const botUserId = adapter.withBotToken(
+      "xoxb-install",
+      () => adapter.botUserId,
+      {
+        botUserId: "U_CTX",
+      }
+    );
+
+    expect(botUserId).toBe("U_CTX");
+  });
+
+  it("recognizes the bot's own messages from fetchMessages in an async callback", async () => {
+    const adapter = createSlackAdapter({
+      signingSecret: secret,
+      logger: mockLogger,
+    });
+    mockClientMethod(
+      adapter,
+      "conversations.replies",
+      vi.fn().mockResolvedValue({
+        ok: true,
+        messages: [
+          {
+            type: "message",
+            user: "U_INSTALL_BOT",
+            bot_id: "B_INSTALL",
+            text: "Posted by the bot",
+            ts: "1000.000001",
+            channel: "C123",
+          },
+          {
+            type: "message",
+            user: "U_HUMAN",
+            text: "hey <@U_INSTALL_BOT>",
+            ts: "1000.000002",
+            channel: "C123",
+          },
+        ],
+        has_more: false,
+      })
+    );
+    mockClientMethod(
+      adapter,
+      "users.info",
+      vi.fn().mockResolvedValue({ ok: true, user: { name: "user" } })
+    );
+    await adapter.initialize(
+      createMockChatInstance({ state: createMockState() })
+    );
+
+    const result = await adapter.withBotToken(
+      "xoxb-install",
+      async () => {
+        await new Promise((resolve) => setTimeout(resolve, 1));
+        const { messages } = await adapter.fetchMessages(
+          "slack:C123:1000.000000"
+        );
+        return messages.map((message) => ({
+          isMe: message.author.isMe,
+          isMention: message.isMention,
+        }));
+      },
+      { installationId: "T123", botUserId: "U_INSTALL_BOT" }
+    );
+
+    expect(result).toStrictEqual([
+      { isMe: true, isMention: false },
+      { isMe: false, isMention: true },
+    ]);
   });
 });
 
@@ -15658,6 +16237,520 @@ describe("event routing via authorizations[]", () => {
       installationId: "E_ORG_1",
       isEnterpriseInstall: true,
       token: "xoxb-org",
+    });
+  });
+});
+
+// ============================================================================
+// Inbound markdown budget Tests
+// ============================================================================
+
+describe("inbound markdown budget", { timeout: 20_000 }, () => {
+  const secret = "test-signing-secret";
+  const EMPHASIS = "*a".repeat(8192);
+  const NESTED = ">".repeat(6000);
+  const ESCAPED_NESTED = "&gt;".repeat(4000);
+  const channel = "C456";
+  const ts = "1234567890.424242";
+  const converter = new SlackFormatConverter();
+
+  function unparsed(value: string) {
+    return { type: "paragraph", children: [{ type: "text", value }] };
+  }
+
+  /** The content the adapter builds when it parses each mrkdwn part. */
+  function parsed(...parts: string[]) {
+    return {
+      type: "root",
+      children: parts.flatMap((part) => converter.toAst(part).children),
+    };
+  }
+
+  function unparsedTable(rows: string[][]) {
+    return {
+      type: "table",
+      children: rows.map((row) => ({
+        type: "tableRow",
+        children: row.map((value) => ({
+          type: "tableCell",
+          children: [{ type: "text", value }],
+        })),
+      })),
+    };
+  }
+
+  async function createAdapter() {
+    const state = createMockState();
+    // A cached (empty) unfurl result skips the wait for Slack's unfurls.
+    await state.set(`slack:unfurls:${channel}:${ts}`, {});
+    const chatInstance = createMockChatInstance({ state });
+    chatInstance.processMessage = vi.fn();
+    const adapter = createSlackAdapter({
+      botToken: "xoxb-test-token",
+      signingSecret: secret,
+      logger: mockLogger,
+      botUserId: "U_BOT",
+    });
+    mockClientMethod(
+      adapter,
+      "users.info",
+      vi.fn().mockResolvedValue({
+        ok: true,
+        user: { name: "alice", profile: { display_name: "alice" } },
+      })
+    );
+    mockClientMethod(
+      adapter,
+      "conversations.info",
+      vi.fn().mockResolvedValue({ ok: true, channel: { name: "general" } })
+    );
+    await adapter.initialize(chatInstance);
+    return { adapter, chatInstance };
+  }
+
+  /**
+   * Parse `event` through a signed webhook and through `parseMessage`, which
+   * build content on the async and sync paths respectively.
+   */
+  async function parseBoth(
+    event: Record<string, unknown>
+  ): Promise<Message<unknown>[]> {
+    const { adapter, chatInstance } = await createAdapter();
+    const message = { type: "message", user: "U123", channel, ts, ...event };
+    const response = await adapter.handleWebhook(
+      createWebhookRequest(
+        JSON.stringify({
+          type: "event_callback",
+          team_id: "T123",
+          event: message,
+        }),
+        secret
+      )
+    );
+    const processMessage = chatInstance.processMessage as ReturnType<
+      typeof vi.fn
+    >;
+    if (response.status !== 200 || processMessage.mock.calls.length !== 1) {
+      throw new Error("Expected the webhook to dispatch one message");
+    }
+    const factory = processMessage.mock.calls[0][2] as () => Promise<
+      Message<unknown>
+    >;
+    return [await factory(), adapter.parseMessage(message as SlackEvent)];
+  }
+
+  describe("message text", () => {
+    it("parses Slack mrkdwn into formatting nodes", async () => {
+      const input = "*bold* _it_ <https://example.com|label>";
+      for (const message of await parseBoth({ text: input })) {
+        expect(message.text).toBe("bold it label");
+        expect(message.formatted).toEqual(parsed(input));
+      }
+    });
+
+    it.each([
+      ["too many emphasis markers", EMPHASIS, EMPHASIS],
+      ["deep nesting", NESTED, NESTED],
+      ["entity-escaped deep nesting", ESCAPED_NESTED, ">".repeat(4000)],
+      [
+        "a footnote opening 40 nested lists",
+        `[^a]: ${"- ".repeat(40)}a`,
+        `[^a]: ${"- ".repeat(40)}a`,
+      ],
+      [
+        "65 www. autolinks in one word",
+        "www.example.com/".repeat(65),
+        "www.example.com/".repeat(65),
+      ],
+    ])("keeps text with %s unparsed", async (_case, input, value) => {
+      for (const message of await parseBoth({ text: input })) {
+        expect(message.formatted).toEqual({
+          type: "root",
+          children: [unparsed(value)],
+        });
+        expect(message.text).toBe(value);
+        expect(() => JSON.stringify(message.formatted)).not.toThrow();
+      }
+    });
+
+    it("keeps oversized history messages unparsed", async () => {
+      const { adapter } = await createAdapter();
+      mockClientMethod(
+        adapter,
+        "conversations.replies",
+        vi.fn().mockResolvedValue({
+          ok: true,
+          messages: [
+            { type: "message", user: "U123", text: EMPHASIS, ts },
+            { type: "message", user: "U123", text: "*bold*", ts: "1.2" },
+          ],
+        })
+      );
+
+      const { messages } = await adapter.fetchMessages(
+        `slack:${channel}:${ts}`,
+        { direction: "forward" }
+      );
+
+      expect(messages[0]?.formatted).toEqual({
+        type: "root",
+        children: [unparsed(EMPHASIS)],
+      });
+      expect(messages[0]?.text).toBe(EMPHASIS);
+      expect(messages[1]?.formatted).toEqual(parsed("*bold*"));
+    });
+  });
+
+  describe("layout block text", () => {
+    function sectionEvent(mrkdwn: string) {
+      return {
+        text: "fallback",
+        blocks: [{ type: "section", text: { type: "mrkdwn", text: mrkdwn } }],
+      };
+    }
+
+    it("parses section mrkdwn into formatting nodes", async () => {
+      const mrkdwn = "*Deploy* <https://example.com|done>";
+      for (const message of await parseBoth(sectionEvent(mrkdwn))) {
+        expect(message.text).toBe("Deploy done");
+        expect(message.formatted).toEqual(parsed(mrkdwn));
+      }
+    });
+
+    it.each([
+      ["too many emphasis markers", EMPHASIS],
+      ["deep nesting", NESTED],
+    ])("keeps section text with %s unparsed", async (_case, value) => {
+      for (const message of await parseBoth(sectionEvent(value))) {
+        expect(message.formatted).toEqual({
+          type: "root",
+          children: [unparsed(value)],
+        });
+        expect(message.text).toBe(value);
+        expect(() => JSON.stringify(message.formatted)).not.toThrow();
+      }
+    });
+  });
+
+  describe("attachment text", () => {
+    function attachmentEvent(mrkdwn: string) {
+      return {
+        text: "See attachment",
+        attachments: [{ text: mrkdwn, mrkdwn_in: ["text"] }],
+      };
+    }
+
+    it("parses mrkdwn attachment text into formatting nodes", async () => {
+      for (const message of await parseBoth(
+        attachmentEvent("_Alert_ ~resolved~")
+      )) {
+        expect(message.text).toBe("See attachment\n\nAlert resolved");
+        expect(message.formatted).toEqual(
+          parsed("See attachment", "_Alert_ ~resolved~")
+        );
+      }
+    });
+
+    it.each([
+      ["too many emphasis markers", EMPHASIS],
+      ["deep nesting", NESTED],
+    ])("keeps attachment text with %s unparsed", async (_case, value) => {
+      for (const message of await parseBoth(attachmentEvent(value))) {
+        expect(message.formatted).toEqual({
+          type: "root",
+          children: [unparsed("See attachment"), unparsed(value)],
+        });
+        expect(message.text).toBe(`See attachment\n\n${value}`);
+        expect(() => JSON.stringify(message.formatted)).not.toThrow();
+      }
+    });
+  });
+
+  describe("table cells", () => {
+    function tableEvent(cell: Record<string, unknown>) {
+      return {
+        text: "",
+        blocks: [
+          {
+            type: "data_table",
+            rows: [[{ type: "raw_text", text: "Header" }], [cell]],
+          },
+        ],
+      };
+    }
+
+    function bodyCell(message: Message<unknown>) {
+      const [table, ...rest] = message.formatted.children;
+      if (table?.type !== "table" || rest.length > 0) {
+        throw new Error("Expected a message containing only a table");
+      }
+      return table.children[1]?.children[0];
+    }
+
+    it("parses rich text cells into formatting nodes", async () => {
+      for (const message of await parseBoth(
+        tableEvent({
+          type: "rich_text",
+          elements: [
+            {
+              type: "rich_text_section",
+              elements: [
+                { type: "text", text: "*Strong* " },
+                { type: "link", text: "docs", url: "https://example.com" },
+              ],
+            },
+          ],
+        })
+      )) {
+        const [cellParagraph] = converter.toAst(
+          "*Strong* <https://example.com|docs>"
+        ).children;
+        expect(cellParagraph?.type).toBe("paragraph");
+        expect(bodyCell(message)).toEqual({
+          type: "tableCell",
+          children:
+            cellParagraph && "children" in cellParagraph
+              ? cellParagraph.children
+              : [],
+        });
+      }
+    });
+
+    it.each([
+      ["too many emphasis markers", EMPHASIS, EMPHASIS],
+      ["entity-escaped deep nesting", ">".repeat(4000), ">".repeat(4000)],
+    ])("keeps a cell with %s unparsed", async (_case, cell, value) => {
+      for (const message of await parseBoth(
+        tableEvent({ type: "raw_text", text: cell })
+      )) {
+        expect(bodyCell(message)).toEqual({
+          type: "tableCell",
+          children: [{ type: "text", value }],
+        });
+        expect(() => JSON.stringify(message.formatted)).not.toThrow();
+      }
+    });
+  });
+
+  describe("per-message budget", () => {
+    const SECTION = "*a".repeat(1000);
+
+    function sectionsEvent(sections: string[]) {
+      return {
+        text: "fallback",
+        blocks: sections.map((mrkdwn) => ({
+          type: "section",
+          text: { type: "mrkdwn", text: mrkdwn },
+        })),
+      };
+    }
+
+    it("keeps every part unparsed when the parts together exceed the budget", async () => {
+      const sections = Array.from({ length: 50 }, () => SECTION);
+      for (const message of await parseBoth(sectionsEvent(sections))) {
+        expect(message.formatted).toEqual({
+          type: "root",
+          children: sections.map(unparsed),
+        });
+        expect(message.text).toBe(sections.join("\n\n"));
+        expect(() => JSON.stringify(message.formatted)).not.toThrow();
+      }
+    });
+
+    it("counts text, table cells, and attachments toward one budget", async () => {
+      // Each part is within the budget alone, and only all four exceed it.
+      const part = "*a".repeat(600);
+      const table = (cell: string) => ({
+        type: "data_table",
+        rows: [
+          [{ type: "raw_text", text: "Header" }],
+          [{ type: "raw_text", text: cell }],
+        ],
+      });
+      for (const message of await parseBoth({
+        text: part,
+        blocks: [table(part)],
+        attachments: [
+          { text: part, mrkdwn_in: ["text"] },
+          { blocks: [table(part)] },
+        ],
+      })) {
+        expect(message.formatted).toEqual({
+          type: "root",
+          children: [
+            unparsedTable([["Header"], [part]]),
+            unparsed(part),
+            unparsed(part),
+            unparsedTable([["Header"], [part]]),
+          ],
+        });
+      }
+    });
+
+    it("parses each part when the parts together are within the budget", async () => {
+      const section = "*bold* _it_ ".repeat(10).trim();
+      const sections = Array.from({ length: 10 }, () => section);
+      for (const message of await parseBoth(sectionsEvent(sections))) {
+        expect(message.formatted).toEqual(parsed(...sections));
+      }
+    });
+
+    it("applies the budget to history messages", async () => {
+      const { adapter } = await createAdapter();
+      const sections = Array.from({ length: 50 }, () => SECTION);
+      mockClientMethod(
+        adapter,
+        "conversations.replies",
+        vi.fn().mockResolvedValue({
+          ok: true,
+          messages: [
+            { type: "message", user: "U123", ts, ...sectionsEvent(sections) },
+          ],
+        })
+      );
+
+      const { messages } = await adapter.fetchMessages(
+        `slack:${channel}:${ts}`,
+        { direction: "forward" }
+      );
+
+      expect(messages[0]?.formatted).toEqual({
+        type: "root",
+        children: sections.map(unparsed),
+      });
+    });
+  });
+
+  describe("unparsed text", () => {
+    const FILLER = " and more words".repeat(1100);
+
+    it("renders control tokens and entities as plain text", async () => {
+      const input =
+        "Tom &amp; Jerry <@U123|alice> joined <#C789|general>, see " +
+        `<https://example.com|the docs> &lt;now&gt; *as typed*${FILLER}`;
+      const expected =
+        "Tom & Jerry @alice joined #general (C789), see the docs <now> " +
+        `*as typed*${FILLER}`;
+      expect(input.length).toBeGreaterThan(DEFAULT_MAX_INCOMING_PARSE_LENGTH);
+
+      for (const message of await parseBoth({ text: input })) {
+        expect(message.formatted).toEqual({
+          type: "root",
+          children: [unparsed(expected)],
+        });
+        expect(message.text).toBe(expected);
+      }
+    });
+
+    it("renders control tokens in unparsed history messages", async () => {
+      const { adapter } = await createAdapter();
+      mockClientMethod(
+        adapter,
+        "conversations.replies",
+        vi.fn().mockResolvedValue({
+          ok: true,
+          messages: [
+            {
+              type: "message",
+              user: "U123",
+              ts,
+              text: `<!subteam^S123|@devs> <mailto:a@example.com|mail> <https://example.com>${FILLER}`,
+            },
+          ],
+        })
+      );
+
+      const { messages } = await adapter.fetchMessages(
+        `slack:${channel}:${ts}`,
+        { direction: "forward" }
+      );
+
+      const expected = `@devs mail https://example.com${FILLER}`;
+      expect(messages[0]?.formatted).toEqual({
+        type: "root",
+        children: [unparsed(expected)],
+      });
+      expect(messages[0]?.text).toBe(expected);
+    });
+
+    it("keeps over-length text as typed apart from control tokens", async () => {
+      const input =
+        "Plain *bold* words and <https://example.com|a link>.\n".repeat(330);
+      const expected = "Plain *bold* words and a link.\n".repeat(330);
+      expect(input.length).toBeGreaterThan(DEFAULT_MAX_INCOMING_PARSE_LENGTH);
+
+      for (const message of await parseBoth({ text: input })) {
+        expect(message.formatted).toEqual({
+          type: "root",
+          children: [unparsed(expected)],
+        });
+        expect(message.text).toBe(expected);
+      }
+    });
+  });
+
+  describe("entity-escaped containers", () => {
+    it.each([
+      ["a run of escaped blockquote markers", ESCAPED_NESTED, ">".repeat(4000)],
+      [
+        "one line opening too many escaped blockquotes",
+        "&gt; ".repeat(129),
+        "> ".repeat(129),
+      ],
+    ])("keeps %s unparsed without parsing", async (_case, input, value) => {
+      const toAst = vi.spyOn(SlackFormatConverter.prototype, "toAst");
+      try {
+        for (const message of await parseBoth({ text: input })) {
+          expect(message.formatted).toEqual({
+            type: "root",
+            children: [unparsed(value)],
+          });
+          expect(message.text).toBe(value);
+          expect(() => JSON.stringify(message.formatted)).not.toThrow();
+        }
+        expect(toAst).not.toHaveBeenCalled();
+      } finally {
+        toAst.mockRestore();
+      }
+    });
+
+    it("parses an escaped blockquote within the limit", async () => {
+      for (const message of await parseBoth({ text: "&gt; quote" })) {
+        expect(message.text).toBe("quote");
+        expect(message.formatted).toEqual(parsed("&gt; quote"));
+        expect(message.formatted.children[0]?.type).toBe("blockquote");
+      }
+    });
+  });
+
+  describe("Slack code fences", () => {
+    const markers = "_a".repeat(2100);
+
+    it("counts text after a fence closed inline", async () => {
+      const input = `\`\`\`\ncode\`\`\`\n${markers}`;
+      const toAst = vi.spyOn(SlackFormatConverter.prototype, "toAst");
+      try {
+        for (const message of await parseBoth({ text: input })) {
+          expect(message.formatted).toEqual({
+            type: "root",
+            children: [unparsed(input)],
+          });
+          expect(message.text).toBe(input);
+        }
+        expect(toAst).not.toHaveBeenCalled();
+      } finally {
+        toAst.mockRestore();
+      }
+    });
+
+    it("skips text inside a fence closed inline", async () => {
+      const input = `\`\`\`\n${markers}\`\`\``;
+      for (const message of await parseBoth({ text: input })) {
+        expect(message.formatted).toEqual(parsed(input));
+        expect(message.formatted.children).toEqual([
+          expect.objectContaining({ type: "code", value: markers }),
+        ]);
+      }
     });
   });
 });

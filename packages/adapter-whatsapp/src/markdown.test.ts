@@ -346,3 +346,35 @@ There's no universal _better_ choice.
     });
   });
 });
+
+describe("parseIncoming budget", () => {
+  const converter = new WhatsAppFormatConverter();
+  const markers = "_a".repeat(2100);
+  const unparsed = (value: string) => ({
+    text: value,
+    formatted: {
+      type: "root",
+      children: [{ type: "paragraph", children: [{ type: "text", value }] }],
+    },
+  });
+
+  it("counts text after a fence closed inline", () => {
+    const input = `\`\`\`\ncode\`\`\`\n${markers}`;
+    const toAst = vi.spyOn(converter, "toAst");
+    try {
+      expect(converter.parseIncoming(input)).toEqual(unparsed(input));
+      expect(toAst).not.toHaveBeenCalled();
+    } finally {
+      toAst.mockRestore();
+    }
+  });
+
+  it("skips text inside a fence closed inline", () => {
+    const input = `\`\`\`\n${markers}\`\`\``;
+    const { formatted } = converter.parseIncoming(input);
+    expect(formatted).toEqual(converter.toAst(input));
+    expect(formatted.children).toEqual([
+      expect.objectContaining({ type: "code", value: markers }),
+    ]);
+  });
+});

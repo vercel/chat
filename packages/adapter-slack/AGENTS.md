@@ -178,7 +178,11 @@ manager. Cache inside the resolver if the lookup is expensive.
 `AsyncLocalStorage` is used to scope a bot token for a callback so
 out-of-webhook code (cron jobs, queues) can post to a specific
 workspace without mutating adapter state. Always wrap such code in
-`adapter.withBotToken(install.botToken, async () => { … })`.
+`adapter.withBotToken(install.botToken, async () => { … }, { installationId, botUserId: install.botUserId })`.
+In multi-workspace mode, omitting `installationId` leaves per-user caches
+unscoped, and omitting `botUserId` leaves `adapter.botUserId` undefined and
+parses the bot's own messages with `author.isMe: false`. Neither option is
+inherited from an outer `withBotToken` call.
 
 ### External installation provider
 
@@ -313,6 +317,11 @@ falling back to `appToken`).
   them with a "View more" actions row.
 - **Reaction events** include both `reaction_added` and `reaction_removed`
   — keep `addReaction` / `removeReaction` symmetric.
+- **Uninstalls arrive after token revocation.** `app_uninstalled` is
+  dispatched to `onUninstalled` without resolving an installation token, so
+  a missing installation can't drop it. `tokens_revoked` also skips token
+  resolution, but it is not an uninstall signal: Slack sends it when a
+  user token or the bot token is revoked while the app stays installed.
 - **Token encryption-at-rest** is opt-in. `encryptionKey` must be a
   base64-encoded 32-byte key; rotate it by reading old installations,
   re-encrypting, and writing back.
@@ -371,5 +380,5 @@ See all guides and templates at [chat-sdk.dev/resources](https://chat-sdk.dev/re
 - User-facing docs: [`apps/docs/content/adapters/official/slack.mdx`](../../apps/docs/content/adapters/official/slack.mdx)
 - README: [`packages/adapter-slack/README.md`](README.md)
 - Shared error/utility helpers: [`packages/adapter-shared/src/index.ts`](../adapter-shared/src/index.ts)
-- Core Adapter contract: [`packages/chat/src/adapter.ts`](../chat/src/adapter.ts)
+- Core Adapter contract: [`packages/chat/src/types.ts`](../chat/src/types.ts)
 - Sample webhook payloads: [`packages/adapter-slack/sample-messages.md`](sample-messages.md)

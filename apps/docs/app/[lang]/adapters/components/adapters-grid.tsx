@@ -5,7 +5,7 @@ import { useState } from "react";
 import { AdapterCard } from "./adapter-card";
 import { AdaptersSearch } from "./adapters-search";
 import { BuildYourOwnCard } from "./build-your-own-card";
-import { type FilterTab, FilterTabs } from "./filter-tabs";
+import { FILTER_RESULTS_ID, type FilterTab, FilterTabs } from "./filter-tabs";
 
 interface Adapter {
   description: string;
@@ -79,169 +79,171 @@ export const AdaptersGrid = ({ adapters }: AdaptersGridProps) => {
         </div>
       </div>
 
-      {filtered.length === 0 ? (
-        <p className="py-12 text-center text-muted-foreground">
-          {query ? (
-            <>No adapters found matching &ldquo;{query}&rdquo;</>
-          ) : (
-            "No adapters found for this filter"
-          )}
-        </p>
-      ) : null}
+      <div className="grid gap-10" id={FILTER_RESULTS_ID}>
+        {filtered.length === 0 ? (
+          <p className="py-12 text-center text-muted-foreground">
+            {query ? (
+              <>No adapters found matching &ldquo;{query}&rdquo;</>
+            ) : (
+              "No adapters found for this filter"
+            )}
+          </p>
+        ) : null}
 
-      {/* Platform Adapters Section */}
-      {showPlatformSection && activeTab !== "state" ? (
-        <div className="grid gap-10">
-          {officialPlatform.length > 0 ? (
-            <section className="grid gap-5">
-              <div className="grid gap-1">
-                <h2 className="text-heading-16">Official</h2>
-                <p className="text-[13px] text-muted-foreground">
-                  Published under <code>@chat-adapter/*</code> and maintained by
-                  Vercel.
-                </p>
-              </div>
-              <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-                {officialPlatform.map((adapter) => (
-                  <AdapterCard
-                    href={getAdapterHref(adapter)}
-                    key={adapter.slug}
-                    {...adapter}
+        {/* Platform Adapters Section */}
+        {showPlatformSection && activeTab !== "state" ? (
+          <div className="grid gap-10">
+            {officialPlatform.length > 0 ? (
+              <section className="grid gap-5">
+                <div className="grid gap-1">
+                  <h2 className="text-heading-16">Official</h2>
+                  <p className="text-[13px] text-muted-foreground">
+                    Published under <code>@chat-adapter/*</code> and maintained
+                    by Vercel.
+                  </p>
+                </div>
+                <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+                  {officialPlatform.map((adapter) => (
+                    <AdapterCard
+                      href={getAdapterHref(adapter)}
+                      key={adapter.slug}
+                      {...adapter}
+                    />
+                  ))}
+                </div>
+              </section>
+            ) : null}
+
+            {vendorOfficialPlatform.length > 0 ? (
+              <section className="grid gap-5">
+                <div className="grid gap-1">
+                  <h2 className="text-heading-16">Vendor Official</h2>
+                  <p className="text-[13px] text-muted-foreground">
+                    Built and maintained by the platform vendor.
+                  </p>
+                </div>
+                <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+                  {vendorOfficialPlatform.map((adapter) => (
+                    <AdapterCard
+                      badge="vendor-official"
+                      href={getAdapterHref(adapter)}
+                      key={adapter.slug}
+                      {...adapter}
+                    />
+                  ))}
+                  <BuildYourOwnCard
+                    href="/docs/contributing/vendor-official"
+                    label="List a vendor-official adapter"
                   />
-                ))}
-              </div>
-            </section>
-          ) : null}
+                </div>
+              </section>
+            ) : null}
 
-          {vendorOfficialPlatform.length > 0 ? (
-            <section className="grid gap-5">
-              <div className="grid gap-1">
-                <h2 className="text-heading-16">Vendor Official</h2>
-                <p className="text-[13px] text-muted-foreground">
-                  Built and maintained by the platform vendor.
-                </p>
-              </div>
-              <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-                {vendorOfficialPlatform.map((adapter) => (
-                  <AdapterCard
-                    badge="vendor-official"
-                    href={getAdapterHref(adapter)}
-                    key={adapter.slug}
-                    {...adapter}
-                  />
-                ))}
-                <BuildYourOwnCard
-                  href="/docs/contributing/vendor-official"
-                  label="List a vendor-official adapter"
-                />
-              </div>
-            </section>
-          ) : null}
-
-          {communityPlatform.length > 0 ? (
-            <section className="grid gap-5">
-              <div className="grid gap-1">
-                <h2 className="text-heading-16">Community</h2>
-                <p className="text-[13px] text-muted-foreground">
-                  Built by third-party developers.
-                </p>
-              </div>
-              <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-                {communityPlatform.map((adapter) => (
-                  <AdapterCard
-                    href={getAdapterHref(adapter)}
-                    key={adapter.slug}
-                    {...adapter}
-                  />
-                ))}
-                <BuildYourOwnCard />
-              </div>
-            </section>
-          ) : null}
-        </div>
-      ) : null}
-
-      {/* State Adapters Section */}
-      {showStateSection && activeTab !== "platform" ? (
-        <div
-          className={`grid gap-10 ${showPlatformSection && activeTab === "all" ? "mt-16 border-t pt-16" : ""}`}
-        >
-          <div className="grid gap-1">
-            <h2 className="text-heading-20">State Adapters</h2>
-            <p className="text-[13px] text-muted-foreground">
-              Pluggable state adapters for thread subscriptions, distributed
-              locking, and caching.
-            </p>
+            {communityPlatform.length > 0 ? (
+              <section className="grid gap-5">
+                <div className="grid gap-1">
+                  <h2 className="text-heading-16">Community</h2>
+                  <p className="text-[13px] text-muted-foreground">
+                    Built by third-party developers.
+                  </p>
+                </div>
+                <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+                  {communityPlatform.map((adapter) => (
+                    <AdapterCard
+                      href={getAdapterHref(adapter)}
+                      key={adapter.slug}
+                      {...adapter}
+                    />
+                  ))}
+                  <BuildYourOwnCard />
+                </div>
+              </section>
+            ) : null}
           </div>
+        ) : null}
 
-          {officialState.length > 0 ? (
-            <section className="grid gap-5">
-              <div className="grid gap-1">
-                <h3 className="text-heading-16">Official</h3>
-                <p className="text-[13px] text-muted-foreground">
-                  Published under <code>@chat-adapter/*</code> and maintained by
-                  Vercel.
-                </p>
-              </div>
-              <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-                {officialState.map((adapter) => (
-                  <AdapterCard
-                    href={getAdapterHref(adapter)}
-                    key={adapter.slug}
-                    {...adapter}
-                  />
-                ))}
-              </div>
-            </section>
-          ) : null}
+        {/* State Adapters Section */}
+        {showStateSection && activeTab !== "platform" ? (
+          <div
+            className={`grid gap-10 ${showPlatformSection && activeTab === "all" ? "mt-16 border-t pt-16" : ""}`}
+          >
+            <div className="grid gap-1">
+              <h2 className="text-heading-20">State Adapters</h2>
+              <p className="text-[13px] text-muted-foreground">
+                Pluggable state adapters for thread subscriptions, distributed
+                locking, and caching.
+              </p>
+            </div>
 
-          {vendorOfficialState.length > 0 ? (
-            <section className="grid gap-5">
-              <div className="grid gap-1">
-                <h3 className="text-heading-16">Vendor Official</h3>
-                <p className="text-[13px] text-muted-foreground">
-                  Built and maintained by the platform vendor.
-                </p>
-              </div>
-              <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-                {vendorOfficialState.map((adapter) => (
-                  <AdapterCard
-                    badge="vendor-official"
-                    href={getAdapterHref(adapter)}
-                    key={adapter.slug}
-                    {...adapter}
-                  />
-                ))}
-                <BuildYourOwnCard
-                  href="/docs/contributing/vendor-official"
-                  label="List a vendor-official adapter"
-                />
-              </div>
-            </section>
-          ) : null}
+            {officialState.length > 0 ? (
+              <section className="grid gap-5">
+                <div className="grid gap-1">
+                  <h3 className="text-heading-16">Official</h3>
+                  <p className="text-[13px] text-muted-foreground">
+                    Published under <code>@chat-adapter/*</code> and maintained
+                    by Vercel.
+                  </p>
+                </div>
+                <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+                  {officialState.map((adapter) => (
+                    <AdapterCard
+                      href={getAdapterHref(adapter)}
+                      key={adapter.slug}
+                      {...adapter}
+                    />
+                  ))}
+                </div>
+              </section>
+            ) : null}
 
-          {communityState.length > 0 ? (
-            <section className="grid gap-5">
-              <div className="grid gap-1">
-                <h3 className="text-heading-16">Community</h3>
-                <p className="text-[13px] text-muted-foreground">
-                  Built by third-party developers.
-                </p>
-              </div>
-              <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-                {communityState.map((adapter) => (
-                  <AdapterCard
-                    href={getAdapterHref(adapter)}
-                    key={adapter.slug}
-                    {...adapter}
+            {vendorOfficialState.length > 0 ? (
+              <section className="grid gap-5">
+                <div className="grid gap-1">
+                  <h3 className="text-heading-16">Vendor Official</h3>
+                  <p className="text-[13px] text-muted-foreground">
+                    Built and maintained by the platform vendor.
+                  </p>
+                </div>
+                <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+                  {vendorOfficialState.map((adapter) => (
+                    <AdapterCard
+                      badge="vendor-official"
+                      href={getAdapterHref(adapter)}
+                      key={adapter.slug}
+                      {...adapter}
+                    />
+                  ))}
+                  <BuildYourOwnCard
+                    href="/docs/contributing/vendor-official"
+                    label="List a vendor-official adapter"
                   />
-                ))}
-                <BuildYourOwnCard />
-              </div>
-            </section>
-          ) : null}
-        </div>
-      ) : null}
+                </div>
+              </section>
+            ) : null}
+
+            {communityState.length > 0 ? (
+              <section className="grid gap-5">
+                <div className="grid gap-1">
+                  <h3 className="text-heading-16">Community</h3>
+                  <p className="text-[13px] text-muted-foreground">
+                    Built by third-party developers.
+                  </p>
+                </div>
+                <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+                  {communityState.map((adapter) => (
+                    <AdapterCard
+                      href={getAdapterHref(adapter)}
+                      key={adapter.slug}
+                      {...adapter}
+                    />
+                  ))}
+                  <BuildYourOwnCard />
+                </div>
+              </section>
+            ) : null}
+          </div>
+        ) : null}
+      </div>
     </>
   );
 };

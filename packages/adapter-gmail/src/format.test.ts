@@ -1,9 +1,12 @@
-import { describe, expect, it } from "vitest";
+import { convert } from "html-to-text";
+import { describe, expect, it, vi } from "vitest";
 import {
   composeGmailMessage,
   extractGmailContinuation,
   parseGmailMessage,
 } from "./format";
+
+vi.mock("html-to-text", { spy: true });
 
 const raw = (content: string) => ({
   id: "abc123",
@@ -138,6 +141,56 @@ describe("Gmail email primitives", () => {
       )
     );
     expect(message.text).toBe("Hello world");
+  });
+
+  it.each([
+    false,
+    true,
+  ])("bounds deeply nested HTML conversion (document: %s)", async (document) => {
+    const content = `<p>before</p>${"<span>".repeat(20_000)}nested${"</span>".repeat(20_000)}<p>after</p>`;
+    const html = document ? `<html><body>${content}</body></html>` : content;
+    const message = await parseGmailMessage(
+      raw(`Content-Type: text/html; charset=utf-8\r\n\r\n${html}`)
+    );
+    expect(message.text).toContain("before");
+    expect(message.text).toContain("...");
+    expect(message.text).toContain("after");
+    expect(message.text).not.toContain("nested");
+    expect(message.email.html?.trimEnd()).toBe(html);
+  });
+
+  it("preserves HTML text below the depth limit", async () => {
+    const message = await parseGmailMessage(
+      raw(
+        `Content-Type: text/html\r\n\r\n${"<span>".repeat(64)}nested${"</span>".repeat(64)}`
+      )
+    );
+    expect(message.text).toBe("nested");
+  });
+
+  it.each([
+    new RangeError("stack exhausted"),
+    new Error("conversion failed"),
+  ])("classifies HTML conversion failures as invalid content (%s)", async (error) => {
+    vi.mocked(convert).mockImplementationOnce(() => {
+      throw error;
+    });
+    await expect(
+      parseGmailMessage(raw("Content-Type: text/html\r\n\r\n<p>hello</p>"))
+    ).rejects.toMatchObject({ name: "GmailContentError", reason: "format" });
+  });
+
+  it("prefers plain text over deeply nested alternative HTML", async () => {
+    const message = await parseGmailMessage({
+      ...raw(""),
+      raw: composeGmailMessage({
+        from: "sender@example.com",
+        to: [{ address: "agent@example.com" }],
+        text: "preferred",
+        html: `${"<span>".repeat(20_000)}nested${"</span>".repeat(20_000)}`,
+      }),
+    });
+    expect(message.text.trim()).toBe("preferred");
   });
 
   it("does not treat a forwarded message attachment as the outer sender", async () => {

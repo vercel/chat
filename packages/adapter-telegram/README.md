@@ -51,7 +51,7 @@ bot.onNewMention(async (thread, message) => {
 
 ## Configuration
 
-Most options are auto-detected from environment variables when not provided. `nativeStreaming` and `streamingEditIntervalMs` are config only and have no environment variables.
+Most options are auto-detected from environment variables when not provided. `nativeStreaming`, `persistThreadHistory`, `streamingEditIntervalMs`, and `longMessages` are config only and have no environment variables.
 
 | Option | Required | Description |
 |--------|----------|-------------|
@@ -65,7 +65,9 @@ Most options are auto-detected from environment variables when not provided. `na
 | `userName` | No | Bot username used for mention detection. Auto-detected from `TELEGRAM_BOT_USERNAME` or `getMe` |
 | `mentionOnReply` | No | Treat a reply to one of the bot's own messages as a mention, so it routes to `onNewMention`. Defaults to `false`. Auto-detected from `TELEGRAM_MENTION_ON_REPLY=true`. Implicit forum-topic replies and the bot's own messages never count |
 | `nativeStreaming` | No | Stream with Telegram's native draft previews in private chats. Defaults to `false`, which uses post-and-edit in every chat type |
+| `persistThreadHistory` | No | Save incoming messages and the bot's own posts in the Chat state adapter so `thread.messages` and `channel.messages` return earlier turns. Defaults to `true`. Telegram has no Bot API for reading chat history, so with `false` handlers see only messages cached in the current process. Turn it off when your app keeps its own transcript |
 | `streamingEditIntervalMs` | No | Minimum interval between edits on the post-and-edit streaming path. Defaults to `1100` in private chats and `3100` in other chats, and acts as a floor for the Chat-level `streamingUpdateIntervalMs` |
+| `longMessages` | No | How text posts longer than Telegram's message limit are sent: `truncate` (default) cuts them with an ellipsis, `split` sends the full text as consecutive messages. See [Long messages](#long-messages) |
 | `apiUrl` | No | Telegram API base URL. Auto-detected from `TELEGRAM_API_BASE_URL`. Use `apiUrl` for cross-adapter consistency; the legacy `apiBaseUrl` alias is still accepted |
 | `logger` | No | Logger instance (defaults to `ConsoleLogger("info")`) |
 
@@ -313,6 +315,20 @@ Plain strings, raw messages, cards, and media captions retain their existing lig
 
 Behavior change in 4.27.0: previous versions used Telegram's legacy `Markdown` parse mode, which used different syntax (`*bold*` instead of `**bold**`) and silently rejected any text containing unescaped `.`, `!`, `(`, `)`, `-`, `_`. If you were emitting raw legacy-Markdown strings or hand-escaping characters yourself, drop the manual escaping. The renderer does it for you. Pass `{ raw: "..." }` only if you need to ship a fully pre-escaped MarkdownV2 string.
 
+## Long messages
+
+Telegram limits a message to 4,096 characters, or 32,768 for rich messages. By default, the adapter truncates longer text posts and ends them with an ellipsis. MarkdownV2 escaping counts toward the limit, so heavily punctuated markdown is cut earlier than its source length suggests.
+
+Set `longMessages: "split"` to send the full text as consecutive messages, each within the limit:
+
+```typescript
+const telegram = createTelegramAdapter({ longMessages: "split" });
+```
+
+The adapter splits between blocks where possible, then at line breaks or spaces, and reopens formatting in the next message. Split tables repeat their header row when it fits beside a body row. Only the first message replies to the original message, and `post()` returns the last message. Cards, media captions, edits, and the message edited during post-and-edit streaming still truncate.
+
+The adapter waits about 1 second between messages in private chats and about 3 seconds in groups and channels, so a 40-message group post takes about two minutes. Once the first message is delivered, a rate-limited message is sent again after Telegram's `retry_after` period, up to three attempts. If a wait would be longer than 30 seconds, all three attempts are rate limited, or the waits for one post would add up to more than 60 seconds, `post()` throws an `AdapterRateLimitError` and the messages already sent stay in the chat. A rate limit on the first message throws right away, before anything is sent.
+
 ## Notes
 
 - Accepted webhook updates with an integer `update_id` are deduplicated for 24 hours through the configured state adapter. Use shared durable state across serverless instances. If state is unavailable, the adapter returns 503 so Telegram retries without dispatching.
@@ -323,11 +339,11 @@ Behavior change in 4.27.0: previous versions used Telegram's legacy `Markdown` p
 - `mode: "polling"` deletes webhook by default before calling `getUpdates`.
 - `mode: "auto"` checks `getWebhookInfo`: if a webhook URL exists it uses webhook mode; if it is empty it falls back to polling on non-serverless runtimes without deleting webhook.
 - If `getWebhookInfo` fails in `mode: "auto"`, the adapter stays in webhook mode (safe fallback).
-- `Button` and `LinkButton` in card `Actions` render as inline keyboard buttons.
+- `Button` and `LinkButton` in card `Actions` render as inline keyboard buttons. An `Actions` block with more than 8 buttons wraps into evenly sized rows of at most 8, because Telegram keeps only the first 8 buttons of a row and drops the rest.
 - Telegram callback data is limited to 64 bytes. Keep button `id`/`value` payloads short.
 - Incoming attachments preserve Telegram's downloadable `file_id` and stable `file_unique_id` as `fetchMetadata.fileId` and `fetchMetadata.fileUniqueId`. Photo attachments use the `image/jpeg` MIME type.
 - `files` upload as Telegram documents. Multiple `files` are sent as Telegram media groups. `attachments` preserve image, audio, video, or file media type and also use media groups when multiple compatible attachments are posted. Use `data` or `fetchData` for private/authenticated files; URL-only attachments must be public URLs Telegram can fetch directly.
-- Other rich card elements (images/select menus/radios) render as fallback text only.
+- Card images, select menus, and radios are not rendered. Tables, fields, and links render as text in the message body.
 
 ## AI Coding Agents
 

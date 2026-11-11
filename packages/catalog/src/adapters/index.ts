@@ -6,6 +6,8 @@ import { line } from "./community/line";
 import { mattermost } from "./community/mattermost";
 import { mysql } from "./community/mysql";
 import { qq } from "./community/qq";
+import { rocketchat } from "./community/rocketchat";
+import { signal } from "./community/signal";
 import { webex } from "./community/webex";
 import { wecom } from "./community/wecom";
 import { weixin } from "./community/weixin";
@@ -34,6 +36,7 @@ import { web } from "./official/web";
 import { whatsapp } from "./official/whatsapp";
 import { x } from "./official/x";
 import { xchat } from "./official/xchat";
+import { adeli } from "./vendor-official/adeli";
 import { agentphone } from "./vendor-official/agentphone";
 import { cloudflareAgents } from "./vendor-official/cloudflare-agents";
 import { dial } from "./vendor-official/dial";
@@ -90,6 +93,7 @@ export const ADAPTERS = {
   linq,
   photon,
   dial,
+  adeli,
 } as const satisfies Record<string, CatalogAdapter>;
 
 /**
@@ -108,5 +112,7 @@ export const COMMUNITY_ADAPTERS = {
   mattermost,
   weixin,
   line,
+  signal,
+  rocketchat,
   zoom,
 } as const satisfies Record<string, CommunityAdapter>;

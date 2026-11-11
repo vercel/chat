@@ -1,15 +1,43 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { inspect } from "node:util";
+import { beforeEach, describe, expect, it, type Mock, vi } from "vitest";
 
 const ANY_REGEX = /.*/;
 const HELP_REGEX = /help/i;
 const HELLO_REGEX = /hello/i;
 const GLOBAL_HELP_REGEX = /help/g;
 const FROZEN_HELP_REGEX = Object.freeze(/help/i);
+const UUID_REGEX =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+const CALLBACK_SECRET = "s3cr3t-webhook-token";
+const RECEIPT_KEY_PREFIX = "chat:callback-receipt:";
+
+// Every argument the shared logger received, with Errors expanded, so a
+// secret anywhere in a message, context object, or error shows up.
+function loggedText(): string {
+  return inspect(
+    [mockLogger.debug, mockLogger.info, mockLogger.warn, mockLogger.error].map(
+      (fn) => (fn as Mock).mock.calls
+    ),
+    { depth: 10 }
+  );
+}
+
+function clearLogger(): void {
+  for (const fn of [
+    mockLogger.debug,
+    mockLogger.info,
+    mockLogger.warn,
+    mockLogger.error,
+  ]) {
+    (fn as Mock).mockClear();
+  }
+}
 
 async function* chunks(): AsyncGenerator<string> {
   yield "Hello";
 }
 
+import { readCallbackReceipt } from "./callback-url";
 import { Chat } from "./chat";
 import { activeConversation } from "./context";
 import { getEmoji } from "./emoji";
@@ -2155,8 +2183,14 @@ describe("Chat", () => {
       });
     });
 
-    it("should decode callbackUrl token and POST to it", async () => {
-      const mockFetch = vi.fn().mockResolvedValue(new Response("ok"));
+    it("should decode callbackUrl token and POST to it with a stored receipt", async () => {
+      const cache = (mockState as MockStateAdapter).cache;
+      let receiptAtPost: unknown;
+      const mockFetch = vi.fn(async (_url: string, init: RequestInit) => {
+        const { receipt } = JSON.parse(init.body as string);
+        receiptAtPost = cache.get(`${RECEIPT_KEY_PREFIX}${receipt}`);
+        return new Response("ok");
+      });
       vi.stubGlobal("fetch", mockFetch);
 
       try {
@@ -2204,12 +2238,190 @@ describe("Chat", () => {
         );
 
         const body = JSON.parse(mockFetch.mock.calls[0][1].body as string);
-        expect(body).toMatchObject({
+        expect(body).toEqual({
           type: "action",
           actionId: "approve",
           value: "order-789",
+          user: { id: "U123", name: "user" },
           threadId: "slack:C123:1234.5678",
+          messageId: "msg-1",
+          receipt: expect.stringMatching(UUID_REGEX),
         });
+
+        const expectedReceipt = {
+          url: "https://example.com/webhook/hook1",
+          actionId: "approve",
+          user: { id: "U123", name: "user" },
+          threadId: "slack:C123:1234.5678",
+          messageId: "msg-1",
+        };
+        expect(receiptAtPost).toEqual(expectedReceipt);
+        await expect(
+          readCallbackReceipt(mockState, body.receipt, {
+            url: "https://example.com/webhook/hook1",
+            threadId: "slack:C123:1234.5678",
+          })
+        ).resolves.toEqual(expectedReceipt);
+      } finally {
+        vi.unstubAllGlobals();
+      }
+    });
+
+    it("should skip the POST and restore the callback token when storing the receipt fails, then accept a retry", async () => {
+      const mockFetch = vi.fn().mockResolvedValue(new Response("ok"));
+      vi.stubGlobal("fetch", mockFetch);
+      const set = mockState.set as Mock;
+      const storeSet = set.getMockImplementation();
+      const writeError = new Error("state down");
+      // Only the first receipt write fails, so the retry can succeed.
+      set.mockImplementation((key: string, ...rest: unknown[]) => {
+        if (key.startsWith(RECEIPT_KEY_PREFIX)) {
+          set.mockImplementation(storeSet);
+          return Promise.reject(writeError);
+        }
+        return storeSet?.(key, ...rest);
+      });
+      const handler = vi.fn().mockResolvedValue(undefined);
+      chat.onAction("approve", handler);
+      clearLogger();
+
+      try {
+        const callbackUrl = `https://example.com/webhook/${CALLBACK_SECRET}`;
+        const stored = {
+          actionId: "approve",
+          url: callbackUrl,
+          scope: { id: "slack:C123:1234.5678", type: "thread" },
+        };
+        const cache = (mockState as MockStateAdapter).cache;
+        cache.set("chat:callback:tokfail", stored);
+        const click = () =>
+          chat.processAction(
+            {
+              actionId: "approve",
+              value: "__cb:tokfail",
+              user: {
+                userId: "U123",
+                userName: "user",
+                fullName: "Test User",
+                isBot: false,
+                isMe: false,
+              },
+              messageId: "msg-1",
+              threadId: "slack:C123:1234.5678",
+              adapter: mockAdapter,
+              raw: {},
+            },
+            undefined
+          );
+
+        await click();
+
+        expect(mockFetch).not.toHaveBeenCalled();
+        expect(handler).toHaveBeenCalledOnce();
+        expect(set).toHaveBeenCalledWith(
+          "chat:callback:tokfail",
+          stored,
+          7 * 24 * 60 * 60 * 1000
+        );
+        expect(cache.get("chat:callback:tokfail")).toEqual(stored);
+        expect(mockLogger.error).toHaveBeenCalledWith(
+          "Button callbackUrl receipt write failed",
+          {
+            callbackOrigin: "https://example.com",
+            actionId: "approve",
+            error: writeError,
+          }
+        );
+        expect(loggedText()).not.toContain(CALLBACK_SECRET);
+
+        await click();
+
+        expect(handler).toHaveBeenCalledTimes(2);
+        expect(mockFetch).toHaveBeenCalledOnce();
+        expect(mockFetch.mock.calls[0][0]).toBe(callbackUrl);
+        const body = JSON.parse(mockFetch.mock.calls[0][1].body as string);
+        await expect(
+          readCallbackReceipt(mockState, body.receipt, {
+            url: callbackUrl,
+            threadId: "slack:C123:1234.5678",
+          })
+        ).resolves.toEqual({
+          url: callbackUrl,
+          actionId: "approve",
+          user: { id: "U123", name: "user" },
+          threadId: "slack:C123:1234.5678",
+          messageId: "msg-1",
+        });
+        expect(cache.has("chat:callback:tokfail")).toBe(false);
+      } finally {
+        vi.unstubAllGlobals();
+      }
+    });
+
+    it("should log both failures without the URL's secret path when the token restore also fails", async () => {
+      const mockFetch = vi.fn().mockResolvedValue(new Response("ok"));
+      vi.stubGlobal("fetch", mockFetch);
+      const set = mockState.set as Mock;
+      const storeSet = set.getMockImplementation();
+      const writeError = new Error("receipt write failed");
+      const restoreError = new Error("restore failed");
+      set.mockImplementation((key: string, ...rest: unknown[]) => {
+        if (key.startsWith(RECEIPT_KEY_PREFIX)) {
+          return Promise.reject(writeError);
+        }
+        if (key.startsWith("chat:callback:")) {
+          return Promise.reject(restoreError);
+        }
+        return storeSet?.(key, ...rest);
+      });
+      clearLogger();
+
+      try {
+        (mockState as MockStateAdapter).cache.set("chat:callback:toklost", {
+          actionId: "approve",
+          url: `https://example.com/webhook/${CALLBACK_SECRET}`,
+          scope: { id: "slack:C123:1234.5678", type: "thread" },
+        });
+
+        await expect(
+          chat.processAction(
+            {
+              actionId: "approve",
+              value: "__cb:toklost",
+              user: {
+                userId: "U123",
+                userName: "user",
+                fullName: "Test User",
+                isBot: false,
+                isMe: false,
+              },
+              messageId: "msg-1",
+              threadId: "slack:C123:1234.5678",
+              adapter: mockAdapter,
+              raw: {},
+            },
+            undefined
+          )
+        ).resolves.toBeUndefined();
+
+        expect(mockFetch).not.toHaveBeenCalled();
+        expect(mockLogger.error).toHaveBeenCalledWith(
+          "Button callbackUrl receipt write failed",
+          {
+            callbackOrigin: "https://example.com",
+            actionId: "approve",
+            error: writeError,
+          }
+        );
+        expect(mockLogger.error).toHaveBeenCalledWith(
+          "Button callback token restore failed",
+          {
+            callbackOrigin: "https://example.com",
+            actionId: "approve",
+            error: restoreError,
+          }
+        );
+        expect(loggedText()).not.toContain(CALLBACK_SECRET);
       } finally {
         vi.unstubAllGlobals();
       }
@@ -2405,9 +2617,12 @@ describe("Chat", () => {
 
         await chat.processAction(event, undefined);
 
-        expect(catchAllHandler).toHaveBeenCalled();
-        expect(specificHandler).toHaveBeenCalled();
-        expect(mockFetch).toHaveBeenCalled();
+        expect(catchAllHandler).toHaveBeenCalledOnce();
+        expect(specificHandler).toHaveBeenCalledOnce();
+        expect(mockFetch).toHaveBeenCalledWith(
+          "https://example.com/webhook/hook3",
+          expect.objectContaining({ method: "POST" })
+        );
       } finally {
         vi.unstubAllGlobals();
       }
@@ -4098,20 +4313,19 @@ describe("Chat", () => {
       }
     });
 
-    it("should log error when modal callbackUrl POST returns non-2xx", async () => {
+    it("should log modal callbackUrl POST failures without the URL's secret path", async () => {
       const mockFetch = vi
         .fn()
         .mockResolvedValue(new Response("nope", { status: 500 }));
       vi.stubGlobal("fetch", mockFetch);
 
       try {
-        const errorSpy = mockLogger.error as ReturnType<typeof vi.fn>;
-        errorSpy.mockClear();
+        clearLogger();
         const tasks: Promise<unknown>[] = [];
 
         (mockState as MockStateAdapter).cache.set(
           "modal-context:slack:ctx-fail",
-          { callbackUrl: "https://example.com/webhook/fail" }
+          { callbackUrl: `https://example.com/webhook/${CALLBACK_SECRET}` }
         );
 
         chat.onModalSubmit("feedback_modal", async () => ({ action: "clear" }));
@@ -4140,11 +4354,12 @@ describe("Chat", () => {
         );
         await Promise.all(tasks);
 
-        expect(
-          errorSpy.mock.calls.some(
-            ([msg]) => msg === "Modal callbackUrl POST failed"
-          )
-        ).toBe(true);
+        expect(mockFetch).toHaveBeenCalledOnce();
+        expect(mockLogger.error).toHaveBeenCalledWith(
+          "Modal callbackUrl POST failed",
+          { callbackOrigin: "https://example.com", error: expect.any(Error) }
+        );
+        expect(loggedText()).not.toContain(CALLBACK_SECRET);
       } finally {
         vi.unstubAllGlobals();
       }
@@ -4152,21 +4367,20 @@ describe("Chat", () => {
   });
 
   describe("action callbackUrl error logging", () => {
-    it("should log error when action callbackUrl POST returns non-2xx", async () => {
+    it("should log action callbackUrl POST failures without the URL's secret path", async () => {
       const mockFetch = vi
         .fn()
         .mockResolvedValue(new Response("nope", { status: 500 }));
       vi.stubGlobal("fetch", mockFetch);
 
       try {
-        const errorSpy = mockLogger.error as ReturnType<typeof vi.fn>;
-        errorSpy.mockClear();
+        clearLogger();
 
         chat.onAction("approve", vi.fn().mockResolvedValue(undefined));
 
         (mockState as MockStateAdapter).cache.set("chat:callback:bad-token", {
           actionId: "approve",
-          url: "https://example.com/webhook/will-fail",
+          url: `https://example.com/webhook/${CALLBACK_SECRET}`,
           scope: { id: "slack:C123:1234.5678", type: "thread" },
         });
 
@@ -4189,11 +4403,16 @@ describe("Chat", () => {
           undefined
         );
 
-        expect(
-          errorSpy.mock.calls.some(
-            ([msg]) => msg === "Button callbackUrl POST failed"
-          )
-        ).toBe(true);
+        expect(mockFetch).toHaveBeenCalledOnce();
+        expect(mockLogger.error).toHaveBeenCalledWith(
+          "Button callbackUrl POST failed",
+          {
+            callbackOrigin: "https://example.com",
+            actionId: "approve",
+            error: expect.any(Error),
+          }
+        );
+        expect(loggedText()).not.toContain(CALLBACK_SECRET);
       } finally {
         vi.unstubAllGlobals();
       }

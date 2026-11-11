@@ -2481,7 +2481,8 @@ export class LinearAdapter
    */
   parseMessage(raw: LinearRawMessage): Message<LinearRawMessage> {
     const text = raw.comment.body;
-    const formatted: FormattedContent = this.formatConverter.toAst(text);
+    const formatted: FormattedContent =
+      this.formatConverter.parseIncoming(text).formatted;
 
     return new Message<LinearRawMessage>({
       id: raw.comment.id,

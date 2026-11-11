@@ -68,6 +68,16 @@ discussion starts use `notion:{pageId}:block:{blockId}` (`NotionThreadId.blockId
 When both `discussionId` and `blockId` are present, encode prefers discussionId.
 Selected-text discussions cannot be started via API.
 
+`postMessage` rejects a discussion or block that isn't on the thread's page,
+because tool scope compares only `notion:{pageId}`. Blocks are checked via
+`resolveBlockTargetPageId` (current ancestry; `child_page` and
+`child_database` blocks are rejected). Discussions resolve through
+`discussionPageCache` and state key `notion:discussion-page:{discussionId}`,
+then a page comment listing (a miss skips relisting for a minute; other listed
+discussions are cached in memory only). Only record bindings Notion reported (webhook,
+posted comment parent, listing match), never from a caller-supplied thread ID
+or `raw`.
+
 ## Non-goals (v0.1)
 
 Reactions, modals, DMs, typing indicators, multi-workspace OAuth,

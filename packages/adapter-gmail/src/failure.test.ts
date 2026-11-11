@@ -1,10 +1,13 @@
 import { createMemoryState } from "@chat-adapter/state-memory";
 import { Chat, ConsoleLogger, type Message, type Thread } from "chat";
+import { convert } from "html-to-text";
 import { describe, expect, it, vi } from "vitest";
 import { gmailChannel } from "./ids";
 import { createGmailAdapter } from "./index";
 import { GmailSynchronizer } from "./sync";
 import type { GmailRawMessage } from "./types";
+
+vi.mock("html-to-text", { spy: true });
 
 const mailbox = "agent@example.com";
 const label = "Label_123";
@@ -67,6 +70,100 @@ function transport(raw: string, expired = false) {
 }
 
 describe("Gmail per-message failures", () => {
+  it.each([
+    { rescan: false, failure: false },
+    { rescan: true, failure: false },
+    { rescan: false, failure: true },
+    { rescan: true, failure: true },
+  ])("continues delivering after HTML conversion and acknowledges retries (rescan: $rescan, failure: $failure)", async ({
+    rescan,
+    failure,
+  }) => {
+    const html = `<html><body>${"<span>".repeat(20_000)}nested${"</span>".repeat(20_000)}</body></html>`;
+    const fetch = transport(
+      Buffer.from(
+        `From: sender@example.com\r\nMessage-ID: <original@example.com>\r\nContent-Type: text/html\r\n\r\n${html}`
+      ).toString("base64url"),
+      rescan
+    );
+    const state = createMemoryState();
+    const logger = new ConsoleLogger("silent");
+    const report = vi.spyOn(logger, "error");
+    const subscription = "projects/project/subscriptions/mail";
+    const gmail = createGmailAdapter({
+      mailbox,
+      labelId: label,
+      accessToken: "test",
+      subscription,
+      webhookVerifier: () => true,
+      fetch,
+      logger,
+    });
+    const bot = new Chat({
+      userName: "agent",
+      adapters: { gmail },
+      state,
+      logger,
+    });
+    const delivered: string[] = [];
+    bot.onNewMention((_thread, message) => {
+      delivered.push(message.raw.message.id);
+      return Promise.resolve();
+    });
+    const push = () =>
+      gmail.handleWebhook(
+        new Request("https://example.com/gmail", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            subscription,
+            message: {
+              messageId: "notification",
+              data: Buffer.from(
+                JSON.stringify({ emailAddress: mailbox, historyId: "200" })
+              ).toString("base64"),
+            },
+          }),
+        })
+      );
+    await bot.initialize();
+    try {
+      await state.set(`${key}:cursor`, "100");
+      if (failure) {
+        vi.mocked(convert).mockImplementationOnce(() => {
+          throw new RangeError("private conversion details");
+        });
+      }
+      expect((await push()).status).toBe(204);
+      expect(delivered).toEqual(failure ? ["healthy"] : ["large", "healthy"]);
+      expect(await state.get(`${key}:cursor`)).toBe("200");
+      expect(await state.get(`${key}:delivered:healthy`)).toBe(true);
+      expect(await state.get(`${key}:failed:large`)).toBe(
+        failure ? "format" : null
+      );
+      expect(await state.get(`${key}:delivered:large`)).toBe(
+        failure ? null : true
+      );
+      if (failure) {
+        expect(report).toHaveBeenCalledWith(
+          "Gmail message failed; automatic replay disabled",
+          { messageId: "large", threadId: "first", reason: "format" }
+        );
+      }
+      fetch.mockClear();
+      expect((await push()).status).toBe(204);
+      expect(delivered).toEqual(failure ? ["healthy"] : ["large", "healthy"]);
+      expect(await state.get(`${key}:cursor`)).toBe("200");
+      expect(
+        fetch.mock.calls.some(([input]) =>
+          String(input).includes("/messages/large")
+        )
+      ).toBe(false);
+    } finally {
+      await state.disconnect();
+    }
+  });
+
   it("cancels an oversized response stream and continues without parsing it", async () => {
     const cancel = vi.fn();
     const base = transport("");
