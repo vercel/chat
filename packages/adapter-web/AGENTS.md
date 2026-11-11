@@ -297,5 +297,5 @@ version with the server entry.
 - User-facing docs: [`apps/docs/content/adapters/official/web.mdx`](../../apps/docs/content/adapters/official/web.mdx)
 - README: [`packages/adapter-web/README.md`](README.md)
 - Shared error/utility helpers: [`packages/adapter-shared/src/index.ts`](../adapter-shared/src/index.ts)
-- Core Adapter contract: [`packages/chat/src/adapter.ts`](../chat/src/adapter.ts)
+- Core Adapter contract: [`packages/chat/src/types.ts`](../chat/src/types.ts)
 - Example app: [`examples/nextjs-chat`](../../examples/nextjs-chat)

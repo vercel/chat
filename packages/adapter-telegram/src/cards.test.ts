@@ -85,6 +85,7 @@ describe("callback payload encoding", () => {
     const encoded = encodeTelegramCallbackData("approve", "request-123");
     const decoded = decodeTelegramCallbackData(encoded);
 
+    expect(encoded).toBe('chat:{"a":"approve","v":"request-123"}');
     expect(decoded).toEqual({
       actionId: "approve",
       value: "request-123",
@@ -118,6 +119,39 @@ describe("callback payload encoding", () => {
   it("throws when callback payload exceeds Telegram limit", () => {
     const veryLong = "x".repeat(200);
     expect(() => encodeTelegramCallbackData(veryLong)).toThrow(ValidationError);
+  });
+
+  it("accepts a callback payload of exactly 64 bytes", () => {
+    const actionId = "x".repeat(51);
+    const encoded = encodeTelegramCallbackData(actionId);
+
+    expect(encoded).toBe(`chat:{"a":"${actionId}"}`);
+    expect(Buffer.byteLength(encoded, "utf8")).toBe(64);
+  });
+
+  it("rejects a callback payload of 65 bytes as a telegram validation error", () => {
+    let error: unknown;
+    try {
+      encodeTelegramCallbackData("x".repeat(52));
+    } catch (caught) {
+      error = caught;
+    }
+
+    expect(error).toBeInstanceOf(ValidationError);
+    expect(error).toMatchObject({
+      adapter: "telegram",
+      message: "Callback payload too large for Telegram (max 64 bytes).",
+    });
+  });
+
+  it("measures the limit in UTF-8 bytes, not characters", () => {
+    const fits = "\u00e9".repeat(25);
+    const tooLong = "\u00e9".repeat(26);
+
+    expect(Buffer.byteLength(encodeTelegramCallbackData(fits), "utf8")).toBe(
+      63
+    );
+    expect(() => encodeTelegramCallbackData(tooLong)).toThrow(ValidationError);
   });
 });
 

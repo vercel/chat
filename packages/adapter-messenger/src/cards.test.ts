@@ -552,7 +552,7 @@ describe("Messenger cards", () => {
         }
       });
 
-      it("truncates long button titles to 20 chars", () => {
+      it("truncates button titles longer than 20 chars", () => {
         const card: CardElement = {
           type: "card",
           title: "Long titles",
@@ -560,25 +560,33 @@ describe("Messenger cards", () => {
             {
               type: "actions",
               children: [
+                { type: "button", id: "fits", label: "a".repeat(20) },
+                { type: "button", id: "long", label: "b".repeat(21) },
                 {
-                  type: "button",
-                  id: "btn_long",
-                  label: "This is a very long button title",
+                  type: "link-button",
+                  url: "https://example.com",
+                  label: "c".repeat(21),
                 },
               ],
             },
           ],
         };
         const result = cardToMessenger(card);
-        expect(result.type).toBe("template");
-        if (
-          result.type === "template" &&
-          result.payload.template_type === "generic"
-        ) {
-          const buttonTitle = result.payload.elements[0].buttons?.[0].title;
-          expect(buttonTitle?.length).toBeLessThanOrEqual(20);
-          expect(buttonTitle).toContain("…");
-        }
+        expect(result).toMatchObject({
+          type: "template",
+          payload: {
+            template_type: "generic",
+            elements: [
+              {
+                buttons: [
+                  { title: "a".repeat(20) },
+                  { title: `${"b".repeat(19)}…` },
+                  { title: `${"c".repeat(19)}…` },
+                ],
+              },
+            ],
+          },
+        });
       });
 
       it("falls back to text for cards without buttons", () => {
@@ -675,29 +683,48 @@ describe("Messenger cards", () => {
         expect(result.type).toBe("text");
       });
 
-      it("truncates long subtitles to 80 chars", () => {
-        const longSubtitle =
-          "This is an extremely long subtitle that definitely exceeds the 80 character limit imposed by Messenger";
-        const card: CardElement = {
+      it.each([
+        [80, "x".repeat(80)],
+        [81, `${"x".repeat(79)}…`],
+      ])("fits a %i-char generic template title and subtitle into 80 chars", (length, expected) => {
+        const result = cardToMessenger({
           type: "card",
-          title: "Test",
-          subtitle: longSubtitle,
+          title: "x".repeat(length),
+          subtitle: "x".repeat(length),
           children: [
             {
               type: "actions",
               children: [{ type: "button", id: "btn", label: "Click" }],
             },
           ],
-        };
-        const result = cardToMessenger(card);
-        if (
-          result.type === "template" &&
-          result.payload.template_type === "generic"
-        ) {
-          const subtitle = result.payload.elements[0].subtitle;
-          expect(subtitle?.length).toBeLessThanOrEqual(80);
-          expect(subtitle).toContain("…");
-        }
+        });
+        expect(result).toMatchObject({
+          type: "template",
+          payload: {
+            template_type: "generic",
+            elements: [{ title: expected, subtitle: expected }],
+          },
+        });
+      });
+
+      it.each([
+        [640, "x".repeat(640)],
+        [641, `${"x".repeat(639)}…`],
+      ])("fits %i chars of button template text into 640 chars", (length, expected) => {
+        const result = cardToMessenger({
+          type: "card",
+          children: [
+            { type: "text", content: "x".repeat(length) },
+            {
+              type: "actions",
+              children: [{ type: "button", id: "btn", label: "Click" }],
+            },
+          ],
+        });
+        expect(result).toMatchObject({
+          type: "template",
+          payload: { template_type: "button", text: expected },
+        });
       });
 
       it("handles nested actions in sections", () => {

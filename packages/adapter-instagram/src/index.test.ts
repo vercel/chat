@@ -2,6 +2,7 @@ import { createHmac } from "node:crypto";
 import {
   AdapterRateLimitError,
   AuthenticationError,
+  NetworkError,
   ValidationError,
 } from "@chat-adapter/shared";
 import {
@@ -184,6 +185,66 @@ describe("InstagramAdapter", () => {
       await expect(response.text()).resolves.toBe("challenge");
     });
 
+    it.each([
+      ["a wrong verify token", "hub.mode=subscribe&hub.verify_token=wrong"],
+      [
+        "a mode other than subscribe",
+        `hub.mode=other&hub.verify_token=${VERIFY_TOKEN}`,
+      ],
+    ])("rejects a verification challenge with %s", async (_name, query) => {
+      const response = await createAdapter().handleWebhook(
+        new Request(
+          `https://example.com/webhook?${query}&hub.challenge=challenge`,
+          { method: "GET" }
+        )
+      );
+      expect(response.status).toBe(403);
+      await expect(response.text()).resolves.toBe("Forbidden");
+    });
+
+    it("rejects a well-formed signature that does not match the body", async () => {
+      const adapter = createAdapter();
+      const chat = await initialize(adapter);
+      const body = JSON.stringify(webhook([event()]));
+      const sign = (secret: string, content: string) =>
+        `sha256=${createHmac("sha256", secret).update(content).digest("hex")}`;
+
+      for (const signature of [
+        sign("another-app-secret", body),
+        sign(APP_SECRET, `${body} `),
+      ]) {
+        const response = await adapter.handleWebhook(
+          new Request("https://example.com/api/webhooks/instagram", {
+            method: "POST",
+            headers: { "x-hub-signature-256": signature },
+            body,
+          })
+        );
+        expect(response.status).toBe(403);
+      }
+      expect(chat.processMessage).not.toHaveBeenCalled();
+    });
+
+    it("rejects with a warning when the signature cannot be computed", async () => {
+      const adapter = new InstagramAdapter({
+        accessToken: ACCESS_TOKEN,
+        accountId: ACCOUNT_ID,
+        appSecret: undefined as unknown as string,
+        verifyToken: VERIFY_TOKEN,
+        logger: mockLogger,
+      });
+      vi.mocked(mockLogger.warn).mockClear();
+
+      const response = await adapter.handleWebhook(
+        signedRequest(webhook([event()]))
+      );
+
+      expect(response.status).toBe(403);
+      expect(mockLogger.warn).toHaveBeenCalledWith(
+        "Failed to verify Instagram webhook signature"
+      );
+    });
+
     it("rejects bad signatures and non-Instagram objects", async () => {
       const adapter = createAdapter();
       const unsigned = new Request("https://example.com/webhook", {
@@ -312,6 +373,113 @@ describe("InstagramAdapter", () => {
         expect.objectContaining({ added: false }),
         undefined
       );
+    });
+  });
+
+  describe("message history", () => {
+    function parseAt(
+      adapter: InstagramAdapter,
+      mid: string,
+      text: string,
+      timestamp = 1_735_689_600_000
+    ): void {
+      adapter.parseMessage(event({ timestamp, message: { mid, text } }));
+    }
+
+    async function historyTexts(adapter: InstagramAdapter): Promise<string[]> {
+      const result = await adapter.fetchMessages(THREAD_ID);
+      return result.messages.map((message) => message.text);
+    }
+
+    it("orders cached messages by time, then by message ID sequence", async () => {
+      const adapter = createAdapter();
+      parseAt(adapter, "mid.later", "third", 1_735_689_601_000);
+      parseAt(adapter, "mid.same:2", "second");
+      parseAt(adapter, "mid.same:1", "first");
+
+      await expect(historyTexts(adapter)).resolves.toEqual([
+        "first",
+        "second",
+        "third",
+      ]);
+    });
+
+    it("orders messages with a subclass messageSequence override", async () => {
+      class UnsequencedAdapter extends InstagramAdapter {
+        protected override messageSequence(): number {
+          return 0;
+        }
+      }
+      const adapter = new UnsequencedAdapter({
+        accessToken: ACCESS_TOKEN,
+        accountId: ACCOUNT_ID,
+        appSecret: APP_SECRET,
+        verifyToken: VERIFY_TOKEN,
+        logger: mockLogger,
+      });
+      parseAt(adapter, "mid.same:2", "arrived first");
+      parseAt(adapter, "mid.same:1", "arrived second");
+
+      await expect(historyTexts(adapter)).resolves.toEqual([
+        "arrived first",
+        "arrived second",
+      ]);
+    });
+
+    it("replaces a cached message that is parsed again", async () => {
+      const adapter = createAdapter();
+      parseAt(adapter, "mid.dup", "original");
+      parseAt(adapter, "mid.dup", "updated");
+
+      await expect(historyTexts(adapter)).resolves.toEqual(["updated"]);
+      await expect(
+        adapter.fetchMessage(THREAD_ID, "mid.dup")
+      ).resolves.toMatchObject({ text: "updated" });
+    });
+
+    it("pages through cached messages with a message ID cursor", async () => {
+      const adapter = createAdapter();
+      for (let index = 1; index <= 5; index++) {
+        parseAt(
+          adapter,
+          `mid.${index}`,
+          `message ${index}`,
+          1_735_689_600_000 + index * 1000
+        );
+      }
+
+      const latest = await adapter.fetchMessages(THREAD_ID, { limit: 2 });
+      expect(latest.messages.map((message) => message.id)).toEqual([
+        "mid.4",
+        "mid.5",
+      ]);
+      expect(latest.nextCursor).toBe("mid.4");
+
+      const older = await adapter.fetchMessages(THREAD_ID, {
+        cursor: latest.nextCursor,
+        limit: 2,
+      });
+      expect(older.messages.map((message) => message.id)).toEqual([
+        "mid.2",
+        "mid.3",
+      ]);
+
+      const forward = await adapter.fetchMessages(THREAD_ID, {
+        cursor: "mid.3",
+        direction: "forward",
+        limit: 10,
+      });
+      expect(forward.messages.map((message) => message.id)).toEqual([
+        "mid.4",
+        "mid.5",
+      ]);
+      expect(forward.nextCursor).toBeUndefined();
+    });
+
+    it("returns an empty page for a thread with no cached messages", async () => {
+      await expect(
+        createAdapter().fetchMessages("instagram:IG_ACCOUNT_123:UNKNOWN")
+      ).resolves.toEqual({ messages: [] });
     });
   });
 
@@ -465,15 +633,95 @@ describe("InstagramAdapter", () => {
           "retry-after": "60",
         })
       );
+      const error = await adapter
+        .postMessage(THREAD_ID, "hello")
+        .catch((caught: unknown) => caught);
+      expect(error).toBeInstanceOf(AdapterRateLimitError);
+      expect((error as AdapterRateLimitError).retryAfter).toBe(60);
+    });
+
+    it("maps a 429 with an HTML body to a rate-limit error with Retry-After", async () => {
+      const adapter = createAdapter();
+      mockFetch.mockResolvedValueOnce(
+        new Response("<html><body>Too Many Requests</body></html>", {
+          headers: { "content-type": "text/html", "retry-after": "30" },
+          status: 429,
+        })
+      );
       await expect(
         adapter.postMessage(THREAD_ID, "hello")
       ).rejects.toMatchObject({
         name: "AdapterRateLimitError",
-        retryAfter: 60,
+        retryAfter: 30,
       });
+    });
+
+    it("maps a 429 with an empty body and no Retry-After to a rate-limit error", async () => {
+      const adapter = createAdapter();
+      mockFetch.mockResolvedValueOnce(new Response(null, { status: 429 }));
+      const error = await adapter
+        .postMessage(THREAD_ID, "hello")
+        .catch((caught: unknown) => caught);
+      expect(error).toBeInstanceOf(AdapterRateLimitError);
+      expect((error as AdapterRateLimitError).retryAfter).toBeUndefined();
+    });
+
+    it("maps a 500 with an HTML body to a NetworkError carrying the status", async () => {
+      const adapter = createAdapter();
+      mockFetch.mockResolvedValueOnce(
+        new Response("<html><body>Internal Server Error</body></html>", {
+          headers: { "content-type": "text/html" },
+          status: 500,
+        })
+      );
+      const error = await adapter
+        .postMessage(THREAD_ID, "hello")
+        .catch((caught: unknown) => caught);
+      expect(error).toBeInstanceOf(NetworkError);
+      expect((error as NetworkError).adapter).toBe("instagram");
+      expect((error as NetworkError).message).toBe(
+        `Instagram API ${ACCOUNT_ID}/messages failed (status 500, code 500)`
+      );
+    });
+
+    it("reports a successful response that is not JSON as a parse failure", async () => {
+      const adapter = createAdapter();
+      mockFetch.mockResolvedValueOnce(
+        new Response("not json", { status: 200 })
+      );
+      const error = await adapter
+        .postMessage(THREAD_ID, "hello")
+        .catch((caught: unknown) => caught);
+      expect(error).toBeInstanceOf(NetworkError);
+      expect((error as NetworkError).message).toBe(
+        `Failed to parse Instagram API response for ${ACCOUNT_ID}/messages`
+      );
+    });
+
+    it("maps a non-JSON rate-limit response from a media upload", async () => {
+      const adapter = createAdapter();
+      mockFetch.mockResolvedValueOnce(
+        new Response("<html><body>Too Many Requests</body></html>", {
+          headers: { "content-type": "text/html", "retry-after": "30" },
+          status: 429,
+        })
+      );
       await expect(
-        Promise.reject(new AdapterRateLimitError("instagram"))
-      ).rejects.toBeInstanceOf(AdapterRateLimitError);
+        adapter.postMessage(THREAD_ID, {
+          raw: "",
+          files: [
+            {
+              filename: "invoice.pdf",
+              mimeType: "application/pdf",
+              data: Buffer.from("pdf"),
+            },
+          ],
+        })
+      ).rejects.toMatchObject({
+        name: "AdapterRateLimitError",
+        retryAfter: 30,
+      });
+      expect(mockFetch).toHaveBeenCalledTimes(1);
     });
 
     it("maps expired messaging windows to a clear typed error", async () => {

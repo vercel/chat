@@ -145,9 +145,9 @@ export async function POST(request: Request) {
 |---------|-----------|
 | Interactive buttons | Yes (up to 3) |
 | Link buttons | Partial (single link button becomes a native CTA URL message) |
-| Button title limit | 20 characters |
-| List messages | Yes |
-| Text fallback | Yes (for >3 buttons) |
+| Button title limit | 20 characters (longer titles are truncated) |
+| List messages | No (list replies are received) |
+| Text fallback | Yes (for cards without reply buttons or a single link button) |
 
 ### Conversations
 
@@ -205,16 +205,17 @@ You can also pass an inbound `Message` or its ID. WhatsApp marks that message an
 
 | Feature | Supported |
 |---------|-----------|
-| Fetch messages | No (Cloud API limitation) |
+| Fetch messages | Persisted history only (the Cloud API has no history endpoint, so Chat SDK keeps thread history in the state adapter) |
 | Fetch thread info | Yes |
 
 ## Interactive messages
 
 Card elements are automatically converted to WhatsApp interactive messages:
 
-- **3 or fewer buttons** — rendered as WhatsApp reply buttons (max 20 chars per title)
-- **More than 3 buttons** — falls back to formatted text
-- **Max body text** — 1024 characters
+- **Reply buttons**: a card with buttons renders as WhatsApp reply buttons. Titles longer than 20 characters are truncated.
+- **More than 3 buttons**: only the first 3 are sent. Extra buttons are dropped.
+- **Body text**: truncated to 1024 characters.
+- **No buttons**: the card is sent as formatted text, unless it qualifies as a CTA URL message.
 
 When a card with reply buttons also contains link buttons, each link button is appended to the interactive message body as a `Label: url` line, since WhatsApp reply buttons cannot open URLs.
 
@@ -309,7 +310,7 @@ The final segment is the adapter's canonical user identifier. It may contain a p
 ### Messages not arriving
 
 - Check that you subscribed to the `messages` webhook field in Meta app settings
-- Verify `WHATSAPP_APP_SECRET` is correct — signature verification silently rejects invalid payloads
+- Verify `WHATSAPP_APP_SECRET` is correct. A payload with an invalid signature gets a 401 response and isn't processed
 - Ensure your phone number is registered and verified in the WhatsApp Business dashboard
 
 ### "Invalid signature" errors

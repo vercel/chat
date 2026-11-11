@@ -736,6 +736,70 @@ import {
 } from "@chat-adapter/shared";
 ```
 
+### Card helpers
+
+```typescript
+import {
+  findCardActions,      // Find the first actions element, including inside sections
+  truncateWithEllipsis, // Cut text to a platform length limit, ending with "…"
+} from "@chat-adapter/shared";
+```
+
+### Callback data
+
+If your platform sends a button's payload back as an opaque string, use the shared codec to carry the action ID and value in it:
+
+```typescript
+import {
+  encodeCallbackData, // Encode an action ID and optional value as "chat:{json}"
+  decodeCallbackData, // Decode it back to { actionId, value }
+  isChatCallbackData, // Check for the "chat:" prefix
+} from "@chat-adapter/shared";
+
+const payload = encodeCallbackData(button.id, button.value);
+const { actionId, value } = decodeCallbackData(payload, "matrix_callback");
+```
+
+`decodeCallbackData` returns the fallback action ID when the payload is missing. A payload without the `chat:` prefix, or with malformed JSON after it, comes back unchanged as both the action ID and the value, so payloads your adapter didn't encode still reach a handler.
+
+The same three functions are available from `@chat-adapter/shared/callback-data`. That entry point has no dependencies, so a webhook parser can import it without loading the `chat` package.
+
+### Message history
+
+Some platforms have no API for listing past messages. For those, keep the messages your adapter sees in memory and serve `fetchMessages` from that list:
+
+```typescript
+import {
+  upsertMessage,         // Insert or replace a message by ID, keeping the list sorted
+  paginateMessages,      // Page a sorted list with message-ID cursors
+  compareMessagesByTime, // Default order: send time, then messageSequence
+  messageSequence,       // Trailing ":{n}" in a message ID, or 0
+} from "@chat-adapter/shared";
+
+const messages = this.messageCache.get(threadId) ?? [];
+upsertMessage(messages, message);
+this.messageCache.set(threadId, messages);
+
+return paginateMessages(messages, options);
+```
+
+`upsertMessage` expects a list that is already sorted by the comparator you pass. A list that starts empty and only changes through `upsertMessage` with the same comparator meets that requirement. See `@chat-adapter/messenger` and `@chat-adapter/instagram` for reference implementations.
+
+### Rate limits
+
+```typescript
+import { AdapterRateLimitError, parseRetryAfter } from "@chat-adapter/shared";
+
+if (response.status === 429) {
+  throw new AdapterRateLimitError(
+    "matrix",
+    parseRetryAfter(response.headers.get("retry-after"))
+  );
+}
+```
+
+`parseRetryAfter` reads a `Retry-After` header given as a number of seconds or as an HTTP date. It returns the seconds to wait, or `undefined` when the header is missing or doesn't describe a time in the future.
+
 ### Token encryption
 
 If your adapter persists OAuth tokens to a `StateAdapter`, encrypt them at rest with the shared AES-256-GCM helpers instead of rolling your own:

@@ -707,13 +707,25 @@ describe("handleWebhook - verification challenge", () => {
   });
 
   it("should reject wrong mode", async () => {
-    const adapter = createTestAdapter();
+    const logger = createMockLogger();
+    const adapter = new WhatsAppAdapter({
+      accessToken: "test-token",
+      appSecret: "test-secret",
+      phoneNumberId: "123456789",
+      verifyToken: "test-verify-token",
+      userName: "test-bot",
+      logger,
+    });
     const url =
       "https://example.com/webhook?hub.mode=unsubscribe&hub.verify_token=test-verify-token&hub.challenge=1234567890";
     const request = new Request(url, { method: "GET" });
 
     const response = await adapter.handleWebhook(request);
     expect(response.status).toBe(403);
+    expect(logger.warn).toHaveBeenCalledWith(
+      "WhatsApp webhook verification failed",
+      { mode: "unsubscribe" }
+    );
   });
 });
 
@@ -935,13 +947,22 @@ describe("handleWebhook - POST signature verification", () => {
     expect(response.status).toBe(200);
   });
 
-  it("invalid signature returns 401", async () => {
+  it.each([
+    [
+      "signed with another secret",
+      (body: string) => makeSignature(body, "wrong-secret"),
+    ],
+    ["signed for another body", (body: string) => makeSignature(`${body} `)],
+    ["malformed", () => "sha256=badsignature"],
+  ])("signature %s returns 401", async (_name, sign) => {
     const adapter = createTestAdapter();
+    const chat = createMockChatInstance();
+    await adapter.initialize(chat);
     const body = JSON.stringify(makeWebhookPayload());
     const request = new Request("https://example.com/webhook", {
       method: "POST",
       headers: {
-        "x-hub-signature-256": "sha256=badsignature",
+        "x-hub-signature-256": sign(body),
         "content-type": "application/json",
       },
       body,
@@ -949,6 +970,29 @@ describe("handleWebhook - POST signature verification", () => {
 
     const response = await adapter.handleWebhook(request);
     expect(response.status).toBe(401);
+    expect(chat.processMessage).not.toHaveBeenCalled();
+  });
+
+  it("returns 401 with a warning when the signature cannot be computed", async () => {
+    const logger = createMockLogger();
+    const adapter = new WhatsAppAdapter({
+      accessToken: "test-token",
+      appSecret: undefined as unknown as string,
+      phoneNumberId: "123456789",
+      verifyToken: "test-verify-token",
+      userName: "test-bot",
+      logger,
+    });
+    const chat = createMockChatInstance();
+    await adapter.initialize(chat);
+
+    const response = await adapter.handleWebhook(webhook(makeWebhookPayload()));
+
+    expect(response.status).toBe(401);
+    expect(logger.warn).toHaveBeenCalledWith(
+      "Failed to verify WhatsApp webhook signature"
+    );
+    expect(chat.processMessage).not.toHaveBeenCalled();
   });
 
   it("missing signature returns 401", async () => {
@@ -1555,6 +1599,126 @@ describe("handleWebhook - business-scoped user IDs", () => {
       expect(parsed.author.userName).toBe("15551234567");
       expect(parsed.author.fullName).toBe("15551234567");
     }
+  });
+
+  it("decodes chat callback data in interactive button replies", async () => {
+    const adapter = createTestAdapter();
+    const chat = createMockChatInstance();
+    await adapter.initialize(chat);
+
+    const response = await adapter.handleWebhook(
+      webhook(
+        notification(
+          [
+            inbound({
+              from: "15551234567",
+              type: "interactive",
+              text: undefined,
+              interactive: {
+                type: "button_reply",
+                button_reply: {
+                  id: 'chat:{"a":"approve","v":"order-1"}',
+                  title: "Approve",
+                },
+              },
+            }),
+          ],
+          [{ profile: { name: "Ada" }, wa_id: "15551234567" }]
+        )
+      )
+    );
+
+    expect(response.status).toBe(200);
+    expect(chat.processAction).toHaveBeenCalledWith(
+      expect.objectContaining({
+        actionId: "approve",
+        value: "order-1",
+        threadId: "whatsapp:123456789:15551234567",
+      }),
+      undefined
+    );
+    expect(chat.processMessage).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    [
+      "an encoded value",
+      'chat:{"a":"pick","v":"plan-pro"}',
+      { actionId: "pick", value: "plan-pro" },
+    ],
+    [
+      "the row title when the payload has no value",
+      'chat:{"a":"pick"}',
+      { actionId: "pick", value: "Pro plan" },
+    ],
+    [
+      "an ID that is not chat callback data",
+      "legacy-row",
+      { actionId: "legacy-row", value: "legacy-row" },
+    ],
+  ])("routes an interactive list reply with %s", async (_label, id, expected) => {
+    const adapter = createTestAdapter();
+    const chat = createMockChatInstance();
+    await adapter.initialize(chat);
+
+    const response = await adapter.handleWebhook(
+      webhook(
+        notification(
+          [
+            inbound({
+              from: "15551234567",
+              type: "interactive",
+              text: undefined,
+              interactive: {
+                type: "list_reply",
+                list_reply: { id, title: "Pro plan" },
+              },
+            }),
+          ],
+          [{ profile: { name: "Ada" }, wa_id: "15551234567" }]
+        )
+      )
+    );
+
+    expect(response.status).toBe(200);
+    expect(chat.processAction).toHaveBeenCalledTimes(1);
+    expect(chat.processAction).toHaveBeenCalledWith(
+      expect.objectContaining({
+        ...expected,
+        threadId: "whatsapp:123456789:15551234567",
+      }),
+      undefined
+    );
+    expect(chat.processMessage).not.toHaveBeenCalled();
+  });
+
+  it("ignores an interactive reply of a type it does not handle", async () => {
+    const adapter = createTestAdapter();
+    const chat = createMockChatInstance();
+    await adapter.initialize(chat);
+
+    const response = await adapter.handleWebhook(
+      webhook(
+        notification(
+          [
+            inbound({
+              from: "15551234567",
+              type: "interactive",
+              text: undefined,
+              interactive: {
+                type: "list_reply",
+                button_reply: { id: "approve", title: "Approve" },
+              },
+            }),
+          ],
+          [{ profile: { name: "Ada" }, wa_id: "15551234567" }]
+        )
+      )
+    );
+
+    expect(response.status).toBe(200);
+    expect(chat.processAction).not.toHaveBeenCalled();
+    expect(chat.processMessage).not.toHaveBeenCalled();
   });
 
   it("ignores messages without a phone number or BSUID", async () => {

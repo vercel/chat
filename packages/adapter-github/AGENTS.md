@@ -253,5 +253,5 @@ See all guides and templates at [chat-sdk.dev/resources](https://chat-sdk.dev/re
 - User-facing docs: [`apps/docs/content/adapters/official/github.mdx`](../../apps/docs/content/adapters/official/github.mdx)
 - README: [`packages/adapter-github/README.md`](README.md)
 - Shared error/utility helpers: [`packages/adapter-shared/src/index.ts`](../adapter-shared/src/index.ts)
-- Core Adapter contract: [`packages/chat/src/adapter.ts`](../chat/src/adapter.ts)
+- Core Adapter contract: [`packages/chat/src/types.ts`](../chat/src/types.ts)
 - Sample webhook payloads: [`packages/adapter-github/sample-messages.md`](sample-messages.md)
