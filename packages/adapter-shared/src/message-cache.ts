@@ -35,8 +35,38 @@ export function compareMessagesByTime<TRaw>(
 }
 
 /**
- * Insert or replace `message` in `messages` by ID, then sort with `compare`.
- * Mutates and returns `messages`.
+ * Index of the first of `messages` that sorts after `message`, or after or
+ * equal to it when `inclusive` is set. `messages` must be sorted by `compare`.
+ */
+function sortedIndex<TRaw>(
+  messages: Message<TRaw>[],
+  message: Message<TRaw>,
+  compare: (a: Message<TRaw>, b: Message<TRaw>) => number,
+  inclusive: boolean
+): number {
+  let low = 0;
+  let high = messages.length;
+  while (low < high) {
+    const middle = Math.floor((low + high) / 2);
+    const order = compare(messages[middle], message);
+    if (order > 0 || (inclusive && order === 0)) {
+      high = middle;
+    } else {
+      low = middle + 1;
+    }
+  }
+  return low;
+}
+
+/**
+ * Insert or replace `message` in `messages` by ID, keeping the array sorted by
+ * `compare`. Mutates and returns `messages`.
+ *
+ * `messages` must already be sorted by `compare`, which holds for an array
+ * that starts empty and only changes through this function with the same
+ * comparator. The result matches replacing or appending the message and then
+ * running a stable sort: a new message lands after the messages it ties with,
+ * and a replaced message keeps its place among them.
  */
 export function upsertMessage<TRaw>(
   messages: Message<TRaw>[],
@@ -47,12 +77,24 @@ export function upsertMessage<TRaw>(
   ) => number = compareMessagesByTime
 ): Message<TRaw>[] {
   const index = messages.findIndex((item) => item.id === message.id);
-  if (index >= 0) {
-    messages[index] = message;
-  } else {
-    messages.push(message);
+  if (index < 0) {
+    messages.splice(sortedIndex(messages, message, compare, false), 0, message);
+    return messages;
   }
-  messages.sort(compare);
+
+  const fitsAfterPrevious =
+    index === 0 || compare(messages[index - 1], message) <= 0;
+  const fitsBeforeNext =
+    index === messages.length - 1 || compare(message, messages[index + 1]) <= 0;
+  if (fitsAfterPrevious && fitsBeforeNext) {
+    messages[index] = message;
+    return messages;
+  }
+
+  messages.splice(index, 1);
+  const first = sortedIndex(messages, message, compare, true);
+  const last = sortedIndex(messages, message, compare, false);
+  messages.splice(Math.min(Math.max(index, first), last), 0, message);
   return messages;
 }
 
@@ -71,15 +113,12 @@ export function paginateMessages<TRaw>(
     return { messages: [] };
   }
 
-  const indexes = new Map(
-    messages.map((message, index) => [message.id, index])
-  );
+  const cursorIndex = options.cursor
+    ? messages.findIndex((message) => message.id === options.cursor)
+    : -1;
 
   if (direction === "backward") {
-    const end =
-      options.cursor && indexes.has(options.cursor)
-        ? (indexes.get(options.cursor) ?? messages.length)
-        : messages.length;
+    const end = cursorIndex >= 0 ? cursorIndex : messages.length;
     const start = Math.max(0, end - limit);
     const page = messages.slice(start, end);
     return {
@@ -88,10 +127,7 @@ export function paginateMessages<TRaw>(
     };
   }
 
-  const start =
-    options.cursor && indexes.has(options.cursor)
-      ? (indexes.get(options.cursor) ?? -1) + 1
-      : 0;
+  const start = cursorIndex + 1;
   const end = Math.min(messages.length, start + limit);
   const page = messages.slice(start, end);
   return {

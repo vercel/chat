@@ -5,7 +5,9 @@
  * - Generic Template: title, subtitle, image, up to 3 buttons
  * - Button Template: text with up to 3 buttons (no image)
  *
- * Cards that exceed constraints fall back to formatted text messages.
+ * Content past Messenger's limits is trimmed: only the first 3 buttons are
+ * kept, and titles, subtitles, and text are truncated. Cards with a table,
+ * select, or radio select, and cards without buttons, become formatted text.
  *
  * @see https://developers.facebook.com/docs/messenger-platform/send-messages/template/generic/
  * @see https://developers.facebook.com/docs/messenger-platform/send-messages/buttons/
@@ -14,8 +16,8 @@
 import {
   decodeCallbackData,
   encodeCallbackData,
-  findCardActions as findActions,
-  truncateWithEllipsis as truncate,
+  findCardActions,
+  truncateWithEllipsis,
 } from "@chat-adapter/shared";
 import type {
   ActionsElement,
@@ -76,8 +78,8 @@ export function decodeMessengerCallbackData(data?: string): {
 /**
  * Convert a CardElement to a Messenger message payload.
  *
- * If the card has action buttons that fit Messenger's constraints
- * (max 3 buttons, titles max 20 chars), produces a template message.
+ * A card with at least one usable button produces a generic template when it
+ * has a title or image, or a button template when it has body text.
  * Otherwise, produces a text fallback.
  */
 export function cardToMessenger(card: CardElement): MessengerCardResult {
@@ -86,7 +88,7 @@ export function cardToMessenger(card: CardElement): MessengerCardResult {
     return { type: "text", text: cardToMessengerText(card) };
   }
 
-  const actions = findActions(card.children);
+  const actions = findCardActions(card.children);
   const buttons = actions ? extractButtons(actions) : null;
 
   // If we have valid buttons within constraints
@@ -178,9 +180,9 @@ function buildGenericTemplate(
     template_type: "generic",
     elements: [
       {
-        title: truncate(title, MAX_TITLE_LENGTH),
+        title: truncateWithEllipsis(title, MAX_TITLE_LENGTH),
         ...(subtitle
-          ? { subtitle: truncate(subtitle, MAX_SUBTITLE_LENGTH) }
+          ? { subtitle: truncateWithEllipsis(subtitle, MAX_SUBTITLE_LENGTH) }
           : {}),
         ...(card.imageUrl ? { image_url: card.imageUrl } : {}),
         buttons,
@@ -198,7 +200,7 @@ function buildButtonTemplate(
 ): MessengerTemplatePayload {
   return {
     template_type: "button",
-    text: truncate(text, MAX_BUTTON_TEMPLATE_TEXT_LENGTH),
+    text: truncateWithEllipsis(text, MAX_BUTTON_TEMPLATE_TEXT_LENGTH),
     buttons,
   };
 }
@@ -254,7 +256,7 @@ function extractButtons(actions: ActionsElement): MessengerButton[] | null {
 function convertButton(button: ButtonElement): MessengerButton {
   return {
     type: "postback",
-    title: truncate(button.label, MAX_BUTTON_TITLE_LENGTH),
+    title: truncateWithEllipsis(button.label, MAX_BUTTON_TITLE_LENGTH),
     payload: encodeMessengerCallbackData(button.id, button.value),
   };
 }
@@ -265,7 +267,7 @@ function convertButton(button: ButtonElement): MessengerButton {
 function convertLinkButton(button: LinkButtonElement): MessengerButton {
   return {
     type: "web_url",
-    title: truncate(button.label, MAX_BUTTON_TITLE_LENGTH),
+    title: truncateWithEllipsis(button.label, MAX_BUTTON_TITLE_LENGTH),
     url: button.url,
   };
 }

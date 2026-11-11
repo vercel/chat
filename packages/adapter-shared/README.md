@@ -51,7 +51,7 @@ These are also exported from `@chat-adapter/shared/callback-data`, which has no 
 
 For platforms whose API cannot list past messages, such as Messenger and Instagram:
 
-- `upsertMessage(messages, message, compare?)` - insert or replace a message by ID and keep the list sorted
+- `upsertMessage(messages, message, compare?)` - insert or replace a message by ID in a list that is already sorted, keeping it sorted
 - `paginateMessages(messages, options)` - page a sorted list with message-ID cursors
 - `compareMessagesByTime(a, b, sequence?)` and `messageSequence(id)` - the default sort order: send time, then the trailing `:{n}` in the message ID
 
@@ -59,10 +59,13 @@ For platforms whose API cannot list past messages, such as Messenger and Instagr
 
 Used by `@chat-adapter/messenger`, `@chat-adapter/instagram`, and `@chat-adapter/whatsapp`:
 
-- `verifyMetaWebhookChallenge(request, verifyToken)` - check a webhook subscription request and return the challenge, or `null`
+- `verifyMetaWebhookChallenge(params, verifyToken)` - check the query parameters of a webhook subscription request and return the challenge, or `null`
 - `verifyMetaSignature(body, signature, appSecret)` - verify the `X-Hub-Signature-256` header in constant time
 - `throwMetaGraphApiError(options)` - map a failed Graph API response onto the shared error classes
-- `parseRetryAfter(header)` - parse a `Retry-After` header in seconds
+
+### HTTP headers
+
+- `parseRetryAfter(header)` - read a `Retry-After` header, given as seconds or as an HTTP date, and return the seconds to wait or `undefined`
 
 ### Token encryption
 

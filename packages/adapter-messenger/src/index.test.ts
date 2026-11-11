@@ -383,6 +383,67 @@ describe("MessengerAdapter", () => {
         const response = await adapter.handleWebhook(request);
         expect(response.status).toBe(403);
       });
+
+      it("rejects a well-formed signature that does not match the body", async () => {
+        const adapter = createAdapter();
+        const chat = createMockChat();
+        mockFetch.mockResolvedValueOnce(
+          graphApiOk({ id: "PAGE_456", name: "Test Page" })
+        );
+        await adapter.initialize(chat);
+
+        const body = JSON.stringify(
+          createWebhookPayload([sampleMessagingEvent()])
+        );
+        const wrongSecret = createHmac("sha256", "another-app-secret")
+          .update(body, "utf8")
+          .digest("hex");
+        const signatures = [`sha256=${wrongSecret}`, signPayload(`${body} `)];
+
+        for (const signature of signatures) {
+          const response = await adapter.handleWebhook(
+            new Request("https://example.com/webhook", {
+              method: "POST",
+              headers: {
+                "content-type": "application/json",
+                "x-hub-signature-256": signature,
+              },
+              body,
+            })
+          );
+          expect(response.status).toBe(403);
+        }
+        expect(chat.processMessage).not.toHaveBeenCalled();
+      });
+
+      it("rejects with a warning when the signature cannot be computed", async () => {
+        const adapter = new MessengerAdapter({
+          appSecret: undefined as unknown as string,
+          pageAccessToken: "test-page-token",
+          verifyToken: "test-verify-token",
+          logger: mockLogger,
+        });
+        vi.mocked(mockLogger.warn).mockClear();
+
+        const body = JSON.stringify(
+          createWebhookPayload([sampleMessagingEvent()])
+        );
+        const response = await adapter.handleWebhook(
+          new Request("https://example.com/webhook", {
+            method: "POST",
+            headers: {
+              "content-type": "application/json",
+              "x-hub-signature-256": signPayload(body),
+            },
+            body,
+          })
+        );
+
+        expect(response.status).toBe(403);
+        expect(mockLogger.warn).toHaveBeenCalledWith(
+          "Failed to verify Messenger webhook signature"
+        );
+      });
     });
 
     describe("payload validation", () => {
@@ -739,6 +800,42 @@ describe("MessengerAdapter", () => {
         expect(actionArg.messageId).toBe("mid.postback1");
         expect(actionArg.actionId).toBe("MENU_1");
         expect(actionArg.value).toBe("MENU_1");
+      });
+
+      it("decodes chat callback data in postback payloads", async () => {
+        const adapter = createAdapter();
+        const chat = createMockChat();
+        mockFetch.mockResolvedValueOnce(
+          graphApiOk({ id: "PAGE_456", name: "Test Page" })
+        );
+        await adapter.initialize(chat);
+
+        const body = JSON.stringify(
+          createWebhookPayload([
+            sampleMessagingEvent({
+              message: undefined,
+              postback: {
+                title: "Approve",
+                payload: 'chat:{"a":"approve","v":"order-1"}',
+              },
+            }),
+          ])
+        );
+        await adapter.handleWebhook(
+          new Request("https://example.com/webhook", {
+            method: "POST",
+            headers: {
+              "content-type": "application/json",
+              "x-hub-signature-256": signPayload(body),
+            },
+            body,
+          })
+        );
+
+        expect(chat.processAction).toHaveBeenCalledWith(
+          expect.objectContaining({ actionId: "approve", value: "order-1" }),
+          undefined
+        );
       });
 
       it("falls back to postback:{timestamp} when mid is absent", async () => {
@@ -1365,7 +1462,7 @@ describe("MessengerAdapter", () => {
       expect(parsed.text).toBe("Get Started");
     });
 
-    it("updates cached message when same ID is parsed again", () => {
+    it("updates cached message when same ID is parsed again", async () => {
       const adapter = createAdapter();
       const event1 = sampleMessagingEvent({
         message: { mid: "mid.dup", text: "first" },
@@ -1375,8 +1472,44 @@ describe("MessengerAdapter", () => {
       });
 
       adapter.parseMessage(event1);
-      const updated = adapter.parseMessage(event2);
-      expect(updated.text).toBe("updated");
+      adapter.parseMessage(event2);
+
+      const result = await adapter.fetchMessages("messenger:USER_123");
+      expect(result.messages.map((message) => message.text)).toEqual([
+        "updated",
+      ]);
+    });
+
+    it("orders messages with a subclass messageSequence override", async () => {
+      class UnsequencedAdapter extends MessengerAdapter {
+        protected override messageSequence(): number {
+          return 0;
+        }
+      }
+      const adapter = new UnsequencedAdapter({
+        appSecret: "test-app-secret",
+        pageAccessToken: "test-page-token",
+        verifyToken: "test-verify-token",
+        logger: mockLogger,
+      });
+
+      for (const [mid, text] of [
+        ["mid.abc:2", "arrived first"],
+        ["mid.abc:1", "arrived second"],
+      ]) {
+        adapter.parseMessage({
+          sender: { id: "USER_123" },
+          recipient: { id: "PAGE_456" },
+          timestamp: 1735689600000,
+          message: { mid, text },
+        });
+      }
+
+      const result = await adapter.fetchMessages("messenger:USER_123");
+      expect(result.messages.map((message) => message.text)).toEqual([
+        "arrived first",
+        "arrived second",
+      ]);
     });
 
     it("sorts messages by timestamp then by sequence number", () => {
@@ -1891,7 +2024,7 @@ describe("MessengerAdapter", () => {
   });
 
   describe("Graph API error handling", () => {
-    async function initAndMockError(responseBody: unknown, status: number) {
+    async function initAndMockResponse(response: Response) {
       const adapter = createAdapter();
       const chat = createMockChat();
       mockFetch.mockResolvedValueOnce(
@@ -1899,11 +2032,15 @@ describe("MessengerAdapter", () => {
       );
       await adapter.initialize(chat);
 
-      mockFetch.mockResolvedValueOnce(
-        new Response(JSON.stringify(responseBody), { status })
-      );
+      mockFetch.mockResolvedValueOnce(response);
 
       return adapter;
+    }
+
+    function initAndMockError(responseBody: unknown, status: number) {
+      return initAndMockResponse(
+        new Response(JSON.stringify(responseBody), { status })
+      );
     }
 
     it("throws AdapterRateLimitError on 429", async () => {
@@ -2059,8 +2196,55 @@ describe("MessengerAdapter", () => {
         })
       );
 
-      await expect(adapter.startTyping("messenger:USER_123")).rejects.toThrow(
-        NetworkError
+      const error = await adapter
+        .startTyping("messenger:USER_123")
+        .catch((caught: unknown) => caught);
+      expect(error).toBeInstanceOf(NetworkError);
+      expect((error as NetworkError).message).toBe(
+        "Failed to parse Messenger API response for me/messages"
+      );
+    });
+
+    it("maps a 429 with an HTML body to a rate-limit error with Retry-After", async () => {
+      const adapter = await initAndMockResponse(
+        new Response("<html><body>Too Many Requests</body></html>", {
+          headers: { "content-type": "text/html", "retry-after": "30" },
+          status: 429,
+        })
+      );
+      await expect(
+        adapter.startTyping("messenger:USER_123")
+      ).rejects.toMatchObject({
+        name: "AdapterRateLimitError",
+        retryAfter: 30,
+      });
+    });
+
+    it("maps a 429 with an empty body and no Retry-After to a rate-limit error", async () => {
+      const adapter = await initAndMockResponse(
+        new Response(null, { status: 429 })
+      );
+      const error = await adapter
+        .startTyping("messenger:USER_123")
+        .catch((caught: unknown) => caught);
+      expect(error).toBeInstanceOf(AdapterRateLimitError);
+      expect((error as AdapterRateLimitError).retryAfter).toBeUndefined();
+    });
+
+    it("maps a 500 with an HTML body to a NetworkError carrying the status", async () => {
+      const adapter = await initAndMockResponse(
+        new Response("<html><body>Internal Server Error</body></html>", {
+          headers: { "content-type": "text/html" },
+          status: 500,
+        })
+      );
+      const error = await adapter
+        .startTyping("messenger:USER_123")
+        .catch((caught: unknown) => caught);
+      expect(error).toBeInstanceOf(NetworkError);
+      expect((error as NetworkError).adapter).toBe("messenger");
+      expect((error as NetworkError).message).toBe(
+        "Messenger API me/messages failed (status 500, code 500)"
       );
     });
 

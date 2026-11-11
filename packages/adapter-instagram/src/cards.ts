@@ -1,8 +1,8 @@
 import {
   decodeCallbackData,
   encodeCallbackData,
-  findCardActions as findActions,
-  truncateWithEllipsis as truncate,
+  findCardActions,
+  truncateWithEllipsis,
 } from "@chat-adapter/shared";
 import type {
   ActionsElement,
@@ -50,7 +50,7 @@ export function decodeInstagramCallbackData(data?: string): {
 
 export function cardToInstagram(card: CardElement): InstagramCardResult {
   const text = cardToInstagramText(card);
-  const actions = findActions(card.children);
+  const actions = findCardActions(card.children);
 
   if (actions) {
     const quickReplies = extractQuickReplies(actions);
@@ -76,9 +76,14 @@ export function cardToInstagram(card: CardElement): InstagramCardResult {
             template_type: "generic",
             elements: [
               {
-                title: truncate(title, MAX_TITLE_LENGTH),
+                title: truncateWithEllipsis(title, MAX_TITLE_LENGTH),
                 ...(card.subtitle
-                  ? { subtitle: truncate(card.subtitle, MAX_SUBTITLE_LENGTH) }
+                  ? {
+                      subtitle: truncateWithEllipsis(
+                        card.subtitle,
+                        MAX_SUBTITLE_LENGTH
+                      ),
+                    }
                   : {}),
                 ...(card.imageUrl ? { image_url: card.imageUrl } : {}),
                 buttons,
@@ -93,7 +98,7 @@ export function cardToInstagram(card: CardElement): InstagramCardResult {
           type: "template",
           payload: {
             template_type: "button",
-            text: truncate(text, MAX_BUTTON_TEMPLATE_TEXT_LENGTH),
+            text: truncateWithEllipsis(text, MAX_BUTTON_TEMPLATE_TEXT_LENGTH),
             buttons,
           },
         };
@@ -133,7 +138,7 @@ function extractQuickReplies(actions: ActionsElement): InstagramQuickReply[] {
     }
     replies.push({
       content_type: "text",
-      title: truncate(action.label, MAX_QUICK_REPLY_TITLE_LENGTH),
+      title: truncateWithEllipsis(action.label, MAX_QUICK_REPLY_TITLE_LENGTH),
       payload: encodeInstagramCallbackData(action.id, action.value),
     });
   }
@@ -155,7 +160,7 @@ function extractTemplateButtons(actions: ActionsElement): InstagramButton[] {
 function buttonToPostback(button: ButtonElement): InstagramButton {
   return {
     type: "postback",
-    title: truncate(button.label, MAX_BUTTON_TITLE_LENGTH),
+    title: truncateWithEllipsis(button.label, MAX_BUTTON_TITLE_LENGTH),
     payload: encodeInstagramCallbackData(button.id, button.value),
   };
 }
@@ -163,7 +168,7 @@ function buttonToPostback(button: ButtonElement): InstagramButton {
 function linkButtonToWebUrl(button: LinkButtonElement): InstagramButton {
   return {
     type: "web_url",
-    title: truncate(button.label, MAX_BUTTON_TITLE_LENGTH),
+    title: truncateWithEllipsis(button.label, MAX_BUTTON_TITLE_LENGTH),
     url: button.url,
   };
 }

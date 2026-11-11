@@ -218,7 +218,10 @@ export class InstagramAdapter
   }
 
   protected handleVerification(request: Request): Response {
-    const challenge = verifyMetaWebhookChallenge(request, this.verifyToken);
+    const challenge = verifyMetaWebhookChallenge(
+      new URL(request.url).searchParams,
+      this.verifyToken
+    );
     if (challenge !== null) {
       this.logger.info("Instagram webhook verified");
       return new Response(challenge, { status: 200 });
@@ -228,11 +231,16 @@ export class InstagramAdapter
   }
 
   protected verifySignature(request: Request, body: string): boolean {
-    return verifyMetaSignature(
-      body,
-      request.headers.get("x-hub-signature-256"),
-      this.appSecret
-    );
+    try {
+      return verifyMetaSignature(
+        body,
+        request.headers.get("x-hub-signature-256"),
+        this.appSecret
+      );
+    } catch {
+      this.logger.warn("Failed to verify Instagram webhook signature");
+      return false;
+    }
   }
 
   protected handleIncomingMessage(
@@ -941,18 +949,23 @@ export class InstagramAdapter
     endpoint: string,
     response: Response
   ): Promise<TResult> {
-    let data: Record<string, unknown>;
-    try {
-      data = (await response.json()) as Record<string, unknown>;
-    } catch {
+    const data = (await response.json().catch(() => undefined)) as
+      | Record<string, unknown>
+      | undefined;
+    if (!response.ok) {
+      const retryAfter = parseRetryAfter(response.headers.get("retry-after"));
+      this.throwGraphApiError(
+        endpoint,
+        response.status,
+        data ?? {},
+        retryAfter
+      );
+    }
+    if (data === undefined) {
       throw new NetworkError(
         "instagram",
         `Failed to parse Instagram API response for ${endpoint}`
       );
-    }
-    if (!response.ok) {
-      const retryAfter = parseRetryAfter(response.headers.get("retry-after"));
-      this.throwGraphApiError(endpoint, response.status, data, retryAfter);
     }
     return data as TResult;
   }

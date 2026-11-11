@@ -13,29 +13,27 @@ import {
   ValidationError,
 } from "./errors";
 
-const META_SIGNATURE_PATTERN = /^sha256=([0-9a-fA-F]+)$/;
+const META_SIGNATURE_PATTERN = /^sha256=([0-9a-fA-F]{64})$/;
 
 /**
  * Check a Meta webhook subscription request (`GET` with `hub.mode`,
  * `hub.verify_token`, and `hub.challenge` query parameters).
  *
- * Accepts the request or its already-parsed URL, so callers that also read
- * the query parameters only parse the URL once.
+ * `params` are the query parameters of the request URL.
  *
  * @returns The challenge to echo back (an empty string when Meta omitted it),
  * or `null` when the mode or verify token does not match.
  */
 export function verifyMetaWebhookChallenge(
-  request: Request | URL,
+  params: URLSearchParams,
   verifyToken: string
 ): string | null {
-  const url = request instanceof URL ? request : new URL(request.url);
-  const mode = url.searchParams.get("hub.mode");
-  const token = url.searchParams.get("hub.verify_token");
+  const mode = params.get("hub.mode");
+  const token = params.get("hub.verify_token");
   if (mode !== "subscribe" || token !== verifyToken) {
     return null;
   }
-  return url.searchParams.get("hub.challenge") ?? "";
+  return params.get("hub.challenge") ?? "";
 }
 
 /**
@@ -59,20 +57,6 @@ export function verifyMetaSignature(
   return (
     received.length === expected.length && timingSafeEqual(received, expected)
   );
-}
-
-/**
- * Parse a `Retry-After` header given in seconds.
- *
- * @returns The positive number of seconds, or `undefined` when the header is
- * missing or not a positive integer.
- */
-export function parseRetryAfter(value: string | null): number | undefined {
-  if (!value) {
-    return undefined;
-  }
-  const seconds = Number.parseInt(value, 10);
-  return Number.isFinite(seconds) && seconds > 0 ? seconds : undefined;
 }
 
 /** The `error` object in a Graph API error response body. */

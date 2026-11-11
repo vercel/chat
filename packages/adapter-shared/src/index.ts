@@ -93,8 +93,10 @@ export {
 export {
   type MetaGraphApiErrorOptions,
   type MetaGraphError,
-  parseRetryAfter,
   throwMetaGraphApiError,
   verifyMetaSignature,
   verifyMetaWebhookChallenge,
 } from "./meta";
+
+// Retry-After header parsing (delay in seconds or an HTTP date)
+export { parseRetryAfter } from "./retry-after";

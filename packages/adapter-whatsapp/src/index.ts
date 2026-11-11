@@ -484,15 +484,18 @@ export class WhatsAppAdapter
    * @see https://developers.facebook.com/docs/whatsapp/cloud-api/guides/set-up-webhooks
    */
   protected handleVerificationChallenge(request: Request): Response {
-    const url = new URL(request.url);
-    const challenge = verifyMetaWebhookChallenge(url, this.verifyToken);
+    const searchParams = new URL(request.url).searchParams;
+    const challenge = verifyMetaWebhookChallenge(
+      searchParams,
+      this.verifyToken
+    );
     if (challenge !== null) {
       this.logger.info("WhatsApp webhook verification succeeded");
       return new Response(challenge, { status: 200 });
     }
 
     this.logger.warn("WhatsApp webhook verification failed", {
-      mode: url.searchParams.get("hub.mode"),
+      mode: searchParams.get("hub.mode"),
     });
     return new Response("Forbidden", { status: 403 });
   }
@@ -503,7 +506,12 @@ export class WhatsAppAdapter
    * @see https://developers.facebook.com/docs/graph-api/webhooks/getting-started#verification-requests
    */
   protected verifySignature(body: string, signature: string | null): boolean {
-    return verifyMetaSignature(body, signature, this.appSecret);
+    try {
+      return verifyMetaSignature(body, signature, this.appSecret);
+    } catch {
+      this.logger.warn("Failed to verify WhatsApp webhook signature");
+      return false;
+    }
   }
 
   /**

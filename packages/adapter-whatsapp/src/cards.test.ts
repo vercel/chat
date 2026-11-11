@@ -314,8 +314,11 @@ describe("cardToWhatsApp", () => {
     }
   });
 
-  it("should truncate long CTA URL button labels to 20 chars", () => {
-    const card: CardElement = {
+  it.each([
+    [20, "x".repeat(20)],
+    [21, `${"x".repeat(19)}…`],
+  ])("should fit a %i-char CTA URL button label into 20 chars", (length, expected) => {
+    const result = cardToWhatsApp({
       type: "card",
       children: [
         {
@@ -324,22 +327,19 @@ describe("cardToWhatsApp", () => {
             {
               type: "link-button",
               url: "https://example.com",
-              label: "This is a very long CTA button label",
+              label: "x".repeat(length),
             },
           ],
         },
       ],
-    };
-    const result = cardToWhatsApp(card);
-    expect(result.type).toBe("interactive");
-    if (result.type === "interactive") {
-      expect(result.interactive.type).toBe("cta_url");
-      if (result.interactive.type === "cta_url") {
-        expect(
-          result.interactive.action.parameters.display_text.length
-        ).toBeLessThanOrEqual(20);
-      }
-    }
+    });
+    expect(result).toMatchObject({
+      type: "interactive",
+      interactive: {
+        type: "cta_url",
+        action: { parameters: { display_text: expected } },
+      },
+    });
   });
 
   it("should fall back to text for multiple link buttons", () => {
@@ -644,33 +644,95 @@ describe("cardToWhatsApp", () => {
     expect(result.type).toBe("text");
   });
 
-  it("should truncate long button titles to 20 chars", () => {
-    const card: CardElement = {
+  it("should truncate reply button titles longer than 20 chars", () => {
+    const result = cardToWhatsApp({
       type: "card",
       children: [
         { type: "text", content: "Choose" },
         {
           type: "actions",
           children: [
+            { type: "button", id: "fits", label: "a".repeat(20) },
+            { type: "button", id: "long", label: "b".repeat(21) },
+          ],
+        },
+      ],
+    });
+    expect(result).toMatchObject({
+      type: "interactive",
+      interactive: {
+        type: "button",
+        action: {
+          buttons: [
+            { reply: { title: "a".repeat(20) } },
+            { reply: { title: `${"b".repeat(19)}…` } },
+          ],
+        },
+      },
+    });
+  });
+
+  it.each([
+    ["at the limits", 60, "h".repeat(60), 1024, "b".repeat(1024)],
+    [
+      "one char over the limits",
+      61,
+      `${"h".repeat(59)}…`,
+      1025,
+      `${"b".repeat(1023)}…`,
+    ],
+  ])("should fit the header into 60 chars and the body into 1024 chars %s", (_name, headerLength, header, bodyLength, body) => {
+    const result = cardToWhatsApp({
+      type: "card",
+      title: "h".repeat(headerLength),
+      children: [
+        { type: "text", content: "b".repeat(bodyLength) },
+        {
+          type: "actions",
+          children: [{ type: "button", id: "ok", label: "OK" }],
+        },
+      ],
+    });
+    expect(result).toMatchObject({
+      type: "interactive",
+      interactive: {
+        type: "button",
+        header: { type: "text", text: header },
+        body: { text: body },
+      },
+    });
+  });
+
+  it("should find reply buttons nested inside a section", () => {
+    const result = cardToWhatsApp({
+      type: "card",
+      children: [
+        {
+          type: "section",
+          children: [
+            { type: "text", content: "Choose" },
             {
-              type: "button",
-              id: "btn_long",
-              label: "This is a very long button title that exceeds the limit",
+              type: "actions",
+              children: [{ type: "button", id: "nested", label: "Nested" }],
             },
           ],
         },
       ],
-    };
-    const result = cardToWhatsApp(card);
-    expect(result.type).toBe("interactive");
-    if (
-      result.type === "interactive" &&
-      "buttons" in result.interactive.action
-    ) {
-      expect(
-        result.interactive.action.buttons[0].reply.title.length
-      ).toBeLessThanOrEqual(20);
-    }
+    });
+    expect(result).toMatchObject({
+      type: "interactive",
+      interactive: {
+        type: "button",
+        action: {
+          buttons: [
+            {
+              type: "reply",
+              reply: { id: 'chat:{"a":"nested"}', title: "Nested" },
+            },
+          ],
+        },
+      },
+    });
   });
 });
 

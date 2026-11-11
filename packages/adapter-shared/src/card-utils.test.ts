@@ -37,6 +37,19 @@ describe("findCardActions", () => {
     expect(findCardActions(card.children)).toBe(actions);
   });
 
+  it("keeps searching after a section without actions", () => {
+    const actions = Actions([Button({ id: "ok", label: "OK" })]);
+    const card = Card({ children: [Section([CardText("Hi")]), actions] });
+    expect(findCardActions(card.children)).toBe(actions);
+  });
+
+  it("returns the first actions in depth-first order", () => {
+    const nested = Actions([Button({ id: "nested", label: "Nested" })]);
+    const later = Actions([Button({ id: "later", label: "Later" })]);
+    const card = Card({ children: [Section([CardText("Hi"), nested]), later] });
+    expect(findCardActions(card.children)).toBe(nested);
+  });
+
   it("returns null without actions", () => {
     const card = Card({ children: [Section([CardText("Hi")])] });
     expect(findCardActions(card.children)).toBeNull();

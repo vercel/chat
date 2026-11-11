@@ -1,12 +1,12 @@
 /**
  * Convert CardElement to WhatsApp interactive messages or text fallback.
  *
- * WhatsApp supports interactive messages including:
- * - Reply buttons: up to 3 buttons (title max 20 chars)
- * - List messages: up to 10 rows across sections (title max 24 chars)
+ * Two interactive shapes are produced:
+ * - Reply buttons: the first 3 buttons, with titles truncated to 20 chars
  * - CTA URL: a single link button mapped to interactive.type "cta_url"
  *
- * Cards that exceed these limits fall back to formatted text messages.
+ * Cards that match neither shape become formatted text messages. List
+ * messages are not produced.
  *
  * @see https://developers.facebook.com/docs/whatsapp/cloud-api/messages/interactive-messages
  */
@@ -14,8 +14,8 @@
 import {
   decodeCallbackData,
   encodeCallbackData,
-  findCardActions as findActions,
-  truncateWithEllipsis as truncate,
+  findCardActions,
+  truncateWithEllipsis,
 } from "@chat-adapter/shared";
 import type {
   ActionsElement,
@@ -87,9 +87,8 @@ export interface CardToWhatsAppOptions {
 /**
  * Convert a CardElement to a WhatsApp message payload.
  *
- * If the card has action buttons that fit WhatsApp's constraints
- * (max 3 buttons, titles max 20 chars), produces an interactive
- * button message. A card whose only interactive element is a single
+ * If the card has reply buttons, produces an interactive button message
+ * from the first 3, with titles truncated to 20 chars. A card whose only interactive element is a single
  * LinkButton with an http(s) URL — and whose content the interactive
  * body can carry without loss — becomes a native cta_url message.
  * Otherwise, produces a text fallback.
@@ -98,7 +97,7 @@ export function cardToWhatsApp(
   card: CardElement,
   options?: CardToWhatsAppOptions
 ): WhatsAppCardResult {
-  const actions = findActions(card.children);
+  const actions = findCardActions(card.children);
   const actionButtons = actions ? extractReplyButtons(actions) : null;
 
   if (actionButtons) {
@@ -121,7 +120,7 @@ export function cardToWhatsApp(
             type: "reply" as const,
             reply: {
               id: encodeWhatsAppCallbackData(btn.id, btn.value),
-              title: truncate(btn.label, MAX_BUTTON_TITLE_LENGTH),
+              title: truncateWithEllipsis(btn.label, MAX_BUTTON_TITLE_LENGTH),
             },
           })),
         },
@@ -140,7 +139,10 @@ export function cardToWhatsApp(
           action: {
             name: "cta_url",
             parameters: {
-              display_text: truncate(ctaLink.label, MAX_BUTTON_TITLE_LENGTH),
+              display_text: truncateWithEllipsis(
+                ctaLink.label,
+                MAX_BUTTON_TITLE_LENGTH
+              ),
               url: ctaLink.url,
             },
           },
@@ -346,12 +348,12 @@ function buildInteractiveEnvelope(
       ? {
           header: {
             type: "text" as const,
-            text: truncate(card.title, MAX_HEADER_LENGTH),
+            text: truncateWithEllipsis(card.title, MAX_HEADER_LENGTH),
           },
         }
       : {}),
     body: {
-      text: truncate(bodyText, MAX_BODY_LENGTH),
+      text: truncateWithEllipsis(bodyText, MAX_BODY_LENGTH),
     },
   };
 }
