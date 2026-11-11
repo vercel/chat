@@ -46,16 +46,33 @@ function toInlineKeyboardRow(
   return row;
 }
 
+/**
+ * Split buttons into the fewest rows that fit Telegram's per-row limit,
+ * keeping row widths within one button of each other (11 → 6 + 5).
+ */
+function wrapInlineKeyboardRow(
+  buttons: TelegramInlineKeyboardButton[]
+): TelegramInlineKeyboardButton[][] {
+  const rows: TelegramInlineKeyboardButton[][] = [];
+  const rowCount = Math.ceil(buttons.length / TELEGRAM_MAX_BUTTONS_PER_ROW);
+  let start = 0;
+
+  for (let remaining = rowCount; remaining > 0; remaining--) {
+    const size = Math.ceil((buttons.length - start) / remaining);
+    rows.push(buttons.slice(start, start + size));
+    start += size;
+  }
+
+  return rows;
+}
+
 function collectInlineKeyboardRows(
   children: CardChild[],
   rows: TelegramInlineKeyboardButton[][]
 ): void {
   for (const child of children) {
     if (child.type === "actions") {
-      const row = toInlineKeyboardRow(child);
-      for (let i = 0; i < row.length; i += TELEGRAM_MAX_BUTTONS_PER_ROW) {
-        rows.push(row.slice(i, i + TELEGRAM_MAX_BUTTONS_PER_ROW));
-      }
+      rows.push(...wrapInlineKeyboardRow(toInlineKeyboardRow(child)));
       continue;
     }
 
