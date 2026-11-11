@@ -997,10 +997,7 @@ export class TelegramAdapter
       !update.message.media_group_id &&
       this.handleSlashCommandUpdate(
         update.message,
-        this.encodeThreadId({
-          chatId: String(update.message.chat.id),
-          messageThreadId: getTopicThreadId(update.message),
-        }),
+        this.threadIdForMessage(update.message),
         options
       );
 
@@ -1191,10 +1188,7 @@ export class TelegramAdapter
       return;
     }
 
-    const threadId = this.encodeThreadId({
-      chatId: String(telegramMessage.chat.id),
-      messageThreadId: getTopicThreadId(telegramMessage),
-    });
+    const threadId = this.threadIdForMessage(telegramMessage);
 
     if (telegramMessage.media_group_id) {
       const task = this.processIncomingMediaGroup(
@@ -1435,9 +1429,7 @@ export class TelegramAdapter
       return;
     }
 
-    const threadId = this.encodeThreadId({
-      chatId: String(callbackQuery.message.chat.id),
-      messageThreadId: getTopicThreadId(callbackQuery.message),
+    const threadId = this.threadIdForMessage(callbackQuery.message, {
       businessConnectionId: callbackQuery.message.business_connection_id,
     });
 
@@ -1485,9 +1477,10 @@ export class TelegramAdapter
       return tasks;
     }
 
+    // A reaction update does not say whether its message is in a topic, so it
+    // always resolves to the chat's thread.
     const threadId = this.encodeThreadId({
       chatId: String(reactionUpdate.chat.id),
-      messageThreadId: reactionUpdate.message_thread_id,
     });
 
     const messageId = this.encodeMessageId(
@@ -1707,12 +1700,7 @@ export class TelegramAdapter
     const parsedMessages = rawMessages.map((rawMessage) =>
       this.parseTelegramMessage(
         rawMessage,
-        this.encodeThreadId({
-          chatId: String(rawMessage.chat.id),
-          messageThreadId:
-            getTopicThreadId(rawMessage) ?? parsedThread.messageThreadId,
-          businessConnectionId: parsedThread.businessConnectionId,
-        }),
+        this.threadIdForMessage(rawMessage, parsedThread),
         rich
           ? {
               formatted: rich.formatted,
@@ -1871,11 +1859,7 @@ export class TelegramAdapter
       };
     }
 
-    const resultingThreadId = this.encodeThreadId({
-      chatId: String(result.chat.id),
-      messageThreadId: getTopicThreadId(result) ?? parsedThread.messageThreadId,
-      businessConnectionId: parsedThread.businessConnectionId,
-    });
+    const resultingThreadId = this.threadIdForMessage(result, parsedThread);
 
     const parsedMessage = this.parseTelegramMessage(
       result,
@@ -2367,12 +2351,7 @@ export class TelegramAdapter
             },
           }
         );
-        const resultingThreadId = this.encodeThreadId({
-          chatId: String(raw.chat.id),
-          messageThreadId:
-            getTopicThreadId(raw) ?? parsedThread.messageThreadId,
-          businessConnectionId: parsedThread.businessConnectionId,
-        });
+        const resultingThreadId = this.threadIdForMessage(raw, parsedThread);
         const formatted = this.formatConverter.toAst(accumulated);
         const message = this.parseTelegramMessage(raw, resultingThreadId, {
           formatted,
@@ -2404,11 +2383,7 @@ export class TelegramAdapter
       undefined,
       threadId
     );
-    const resultingThreadId = this.encodeThreadId({
-      chatId: String(raw.chat.id),
-      messageThreadId: getTopicThreadId(raw) ?? parsedThread.messageThreadId,
-      businessConnectionId: parsedThread.businessConnectionId,
-    });
+    const resultingThreadId = this.threadIdForMessage(raw, parsedThread);
     const message = this.parseTelegramMessage(raw, resultingThreadId);
     this.cacheMessage(message);
     return {
@@ -2648,11 +2623,27 @@ export class TelegramAdapter
     };
   }
 
-  parseMessage(raw: TelegramRawMessage): Message<TelegramRawMessage> {
-    const threadId = this.encodeThreadId({
-      chatId: String(raw.chat.id),
-      messageThreadId: getTopicThreadId(raw),
+  /**
+   * The thread a Telegram message belongs to. `target` is the thread a sent
+   * message was posted to: it supplies the business connection, and the topic
+   * when the Bot API response does not identify one.
+   */
+  private threadIdForMessage(
+    message: Pick<
+      TelegramMessage,
+      "chat" | "is_topic_message" | "message_thread_id"
+    >,
+    target?: Pick<TelegramThreadId, "businessConnectionId" | "messageThreadId">
+  ): string {
+    return this.encodeThreadId({
+      chatId: String(message.chat.id),
+      messageThreadId: getTopicThreadId(message) ?? target?.messageThreadId,
+      businessConnectionId: target?.businessConnectionId,
     });
+  }
+
+  parseMessage(raw: TelegramRawMessage): Message<TelegramRawMessage> {
+    const threadId = this.threadIdForMessage(raw);
 
     const message = this.parseTelegramMessage(raw, threadId);
     this.cacheMessage(message);
