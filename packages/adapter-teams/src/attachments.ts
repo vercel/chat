@@ -41,6 +41,10 @@ type AttachmentRetrieval =
       url: string;
     }
   | {
+      mode: "graph-hosted-content";
+      url: string;
+    }
+  | {
       mode: "rejected";
       url: string;
     };
@@ -50,6 +54,8 @@ export interface TeamsAttachmentFetchers {
   fetchAuthenticated: (url: string) => Promise<Buffer>;
   /** Download a SharePoint or OneDrive file reference through Microsoft Graph. */
   fetchGraphFile: (url: string) => Promise<Buffer>;
+  /** Download a Graph `hostedContents` item, such as an image pasted into a message. */
+  fetchGraphHostedContent: (url: string) => Promise<Buffer>;
 }
 
 export interface TeamsActivityAttachment {
@@ -113,6 +119,9 @@ function createFetchDataFn(
   }
   if (retrieval.mode === "graph") {
     return () => fetchers.fetchGraphFile(retrieval.url);
+  }
+  if (retrieval.mode === "graph-hosted-content") {
+    return () => fetchers.fetchGraphHostedContent(retrieval.url);
   }
 
   return async () => {
@@ -262,6 +271,18 @@ export function createTeamsGraphAttachment(
   };
 }
 
+export function createTeamsGraphInlineImage(
+  url: string,
+  fetchers: TeamsAttachmentFetchers
+): Attachment {
+  return {
+    type: "image",
+    url,
+    fetchMetadata: { url, auth: "graph-hosted-content" },
+    fetchData: () => fetchers.fetchGraphHostedContent(url),
+  };
+}
+
 export function rehydrateTeamsAttachment(
   attachment: Attachment,
   fetchers: TeamsAttachmentFetchers
@@ -279,6 +300,8 @@ export function rehydrateTeamsAttachment(
       : { mode: "rejected", url };
   } else if (attachment.fetchMetadata?.auth === "graph") {
     retrieval = { mode: "graph", url };
+  } else if (attachment.fetchMetadata?.auth === "graph-hosted-content") {
+    retrieval = { mode: "graph-hosted-content", url };
   }
 
   return {

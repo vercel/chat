@@ -84,7 +84,7 @@ import {
 } from "./cards";
 import { toAppOptions } from "./config";
 import { handleTeamsError } from "./errors";
-import { TeamsGraphReader } from "./graph-api";
+import { isGraphHostedContentUrl, TeamsGraphReader } from "./graph-api";
 import { isInstallAction, parseInstallationAction } from "./installation";
 import { TeamsFormatConverter } from "./markdown";
 import {
@@ -1105,6 +1105,7 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
     createAnonymousFetchData: (url) => this.createFetchDataFn(url),
     fetchAuthenticated: (url) => this.fetchAuthenticatedAttachment(url),
     fetchGraphFile: (url) => this.fetchGraphFile(url),
+    fetchGraphHostedContent: (url) => this.fetchGraphHostedContent(url),
   };
 
   protected createFetchDataFn(url: string): () => Promise<Buffer> {
@@ -1125,6 +1126,23 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
       handleTeamsError(error, "fetchGraphFile");
     }
     return this.createFetchDataFn(downloadUrl)();
+  }
+
+  private async fetchGraphHostedContent(url: string): Promise<Buffer> {
+    if (!isGraphHostedContentUrl(url)) {
+      throw new NetworkError(
+        "teams",
+        "Refusing to send a Graph token to a URL that is not Graph hosted content"
+      );
+    }
+    try {
+      const response = await this.app.graph.http.get<ArrayBuffer>(url, {
+        responseType: "arraybuffer",
+      });
+      return Buffer.from(response.data);
+    } catch (error) {
+      handleTeamsError(error, "fetchGraphHostedContent");
+    }
   }
 
   private async fetchAuthenticatedAttachment(url: string): Promise<Buffer> {
