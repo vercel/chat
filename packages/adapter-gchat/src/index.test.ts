@@ -10,6 +10,7 @@ import {
   type ChatInstance,
   DEFAULT_MAX_INCOMING_PARSE_LENGTH,
   type Lock,
+  type Logger,
   type Message,
   paragraph,
   root,
@@ -172,10 +173,11 @@ async function createInitializedAdapter(opts?: {
   pubsubAudience?: string;
   workspaceAddOnServiceAccountEmail?: string;
   pubsubServiceAccountEmail?: string;
+  logger?: Logger;
 }) {
   const adapter = createGoogleChatAdapter({
     credentials: TEST_CREDENTIALS,
-    logger: mockLogger,
+    logger: opts?.logger ?? mockLogger,
     botUserId: opts?.botUserId,
     pubsubTopic: opts?.pubsubTopic,
     userName: opts?.userName,
@@ -823,6 +825,452 @@ describe("GoogleChatAdapter", () => {
 
       expect(message.text).toBe("@OtherBot @ourbot hi");
       expect(adapter.botUserId).toBe("users/OUR_BOT");
+    });
+  });
+
+  describe("mention annotations", () => {
+    const BOT_ID = "users/111";
+    const SPACE = "spaces/ABC123";
+    const THREAD = `${SPACE}/threads/T1`;
+
+    type Annotation = Record<string, unknown>;
+    interface Input {
+      annotations?: Annotation[] | null;
+      text: string;
+    }
+    type Adapter = Awaited<
+      ReturnType<typeof createInitializedAdapter>
+    >["adapter"];
+    type MockChat = Awaited<
+      ReturnType<typeof createInitializedAdapter>
+    >["mockChat"];
+
+    const mention = (
+      user: Record<string, unknown> | undefined,
+      range: { startIndex: number; length: number }
+    ): Annotation => ({
+      type: "USER_MENTION",
+      ...range,
+      userMention: user ? { user, type: "MENTION" } : { type: "MENTION" },
+    });
+
+    const messageBody = (input: Input) => ({
+      name: `${SPACE}/messages/msg1`,
+      sender: { name: "users/100", displayName: "Alice", type: "HUMAN" },
+      text: input.text,
+      createTime: "2024-01-01T00:00:00Z",
+      thread: { name: THREAD },
+      annotations: input.annotations,
+    });
+
+    const post = async (adapter: Adapter, body: unknown) => {
+      const response = await adapter.handleWebhook(
+        new Request("https://example.com/webhook", {
+          method: "POST",
+          body: JSON.stringify(body),
+        })
+      );
+      if (response.status !== 200) {
+        throw new Error(`Webhook returned ${response.status}`);
+      }
+    };
+
+    const dispatched = async (mockChat: MockChat): Promise<Message> => {
+      const calls = vi.mocked(mockChat.processMessage).mock.calls;
+      if (calls.length !== 1) {
+        throw new Error(
+          `Expected one processMessage call, got ${calls.length}`
+        );
+      }
+      const arg = calls[0][2];
+      return typeof arg === "function" ? await arg() : arg;
+    };
+
+    // Each transport delivers the same message through the adapter's public
+    // entry point, so a parser that stops reading annotations fails here.
+    const transports: Record<
+      string,
+      (adapter: Adapter, mockChat: MockChat, input: Input) => Promise<Message>
+    > = {
+      "direct webhook": async (adapter, mockChat, input) => {
+        await post(adapter, {
+          chat: {
+            messagePayload: {
+              space: { name: SPACE, type: "ROOM" },
+              message: messageBody(input),
+            },
+          },
+        });
+        return dispatched(mockChat);
+      },
+      "Pub/Sub": async (adapter, mockChat, input) => {
+        await post(
+          adapter,
+          makePubSubPushMessage({
+            message: messageBody(input) as Partial<GoogleChatMessage>,
+          })
+        );
+        return dispatched(mockChat);
+      },
+      "list API": async (adapter, _mockChat, input) => {
+        const list = vi.fn().mockResolvedValue({
+          data: { messages: [messageBody(input)] },
+        });
+        Object.assign(adapter, {
+          chatApi: { spaces: { messages: { list } } },
+        });
+        const result = await adapter.fetchMessages(
+          adapter.encodeThreadId({ spaceName: SPACE, threadName: THREAD })
+        );
+        if (result.messages.length !== 1) {
+          throw new Error(
+            `Expected one message, got ${result.messages.length}`
+          );
+        }
+        return result.messages[0];
+      },
+    };
+
+    const bot = { name: BOT_ID, displayName: "Bot Dev", type: "BOT" };
+    const range = { startIndex: 0, length: 8 };
+
+    const cases: Array<{
+      botUserId?: string;
+      input: Input;
+      isMention: boolean | undefined;
+      name: string;
+      text: string;
+    }> = [
+      {
+        name: "the bot is mentioned",
+        botUserId: BOT_ID,
+        input: { text: "@Bot Dev hi", annotations: [mention(bot, range)] },
+        isMention: true,
+        text: "@Bot hi",
+      },
+      {
+        name: "another app with the same display name is mentioned",
+        botUserId: BOT_ID,
+        input: {
+          text: "@Bot Dev hi",
+          annotations: [mention({ ...bot, name: "users/222" }, range)],
+        },
+        isMention: false,
+        text: "@Bot Dev hi",
+      },
+      {
+        name: "a user whose name starts with the bot's is mentioned",
+        botUserId: BOT_ID,
+        input: {
+          text: "@Bot Dev hi",
+          annotations: [
+            mention(
+              { name: "users/222", displayName: "Bot Dev", type: "HUMAN" },
+              range
+            ),
+          ],
+        },
+        isMention: false,
+        text: "@Bot Dev hi",
+      },
+      {
+        name: "the bot's annotation is not a USER_MENTION",
+        botUserId: BOT_ID,
+        input: {
+          text: "@Bot Dev hi",
+          annotations: [{ ...mention(bot, range), type: "SLASH_COMMAND" }],
+        },
+        isMention: false,
+        text: "@Bot Dev hi",
+      },
+      {
+        name: "the mention annotation has no user",
+        botUserId: BOT_ID,
+        input: {
+          text: "@Bot Dev hi",
+          annotations: [mention(undefined, range)],
+        },
+        isMention: false,
+        text: "@Bot Dev hi",
+      },
+      {
+        name: "the text names the bot without an annotation",
+        botUserId: BOT_ID,
+        input: { text: "@Bot hi" },
+        isMention: false,
+        text: "@Bot hi",
+      },
+      {
+        name: "the bot's annotation has no user type",
+        botUserId: BOT_ID,
+        input: {
+          text: "@Bot Dev hi",
+          annotations: [mention({ name: BOT_ID }, range)],
+        },
+        isMention: true,
+        text: "@Bot hi",
+      },
+      {
+        // Same user shape as the `mention` recording in the gchat replay fixture.
+        name: "the bot's annotation has no display name",
+        botUserId: BOT_ID,
+        input: {
+          text: "@Bot Dev hi",
+          annotations: [mention({ name: BOT_ID, type: "BOT" }, range)],
+        },
+        isMention: true,
+        text: "@Bot hi",
+      },
+      {
+        name: "the bot's annotation has a display name but no range",
+        botUserId: BOT_ID,
+        input: {
+          text: "hi @Bot Dev",
+          annotations: [
+            {
+              type: "USER_MENTION",
+              userMention: { user: bot, type: "MENTION" },
+            },
+          ],
+        },
+        isMention: true,
+        text: "hi @Bot",
+      },
+      {
+        name: "the bot is mentioned twice",
+        botUserId: BOT_ID,
+        input: {
+          text: "@Bot Dev hi @Bot Dev",
+          annotations: [
+            mention(bot, { startIndex: 0, length: 8 }),
+            mention(bot, { startIndex: 12, length: 8 }),
+          ],
+        },
+        isMention: true,
+        text: "@Bot hi @Bot",
+      },
+      {
+        // The list API's message type allows null for every field.
+        name: "the annotations are null",
+        botUserId: BOT_ID,
+        input: { text: "@Bot hi", annotations: null },
+        isMention: false,
+        text: "@Bot hi",
+      },
+      {
+        name: "the bot's annotation has null fields besides the user name",
+        botUserId: BOT_ID,
+        input: {
+          text: "hi @Bot Dev",
+          annotations: [
+            {
+              type: "USER_MENTION",
+              startIndex: null,
+              length: null,
+              userMention: {
+                user: { name: BOT_ID, displayName: "Bot Dev", type: null },
+              },
+            },
+          ],
+        },
+        isMention: true,
+        text: "hi @Bot",
+      },
+      {
+        name: "botUserId is unset and a human mention sits beside a link annotation",
+        input: {
+          text: "@Ann see https://example.com",
+          annotations: [
+            mention(
+              { name: "users/222", displayName: "Ann", type: "HUMAN" },
+              { startIndex: 0, length: 4 }
+            ),
+            {
+              type: "RICH_LINK",
+              startIndex: 9,
+              length: 19,
+              richLinkMetadata: { uri: "https://example.com" },
+            },
+          ],
+        },
+        isMention: false,
+        text: "@Ann see https://example.com",
+      },
+      {
+        name: "the bot is mentioned after another user",
+        botUserId: BOT_ID,
+        input: {
+          text: "@Ann @Bot Dev hi",
+          annotations: [
+            mention(
+              { name: "users/222", displayName: "Ann", type: "HUMAN" },
+              { startIndex: 0, length: 4 }
+            ),
+            mention(bot, { startIndex: 5, length: 8 }),
+          ],
+        },
+        isMention: true,
+        text: "@Ann @Bot hi",
+      },
+      {
+        name: "botUserId is unset and only a human is mentioned",
+        input: {
+          text: "@Bot Dev hi",
+          annotations: [
+            mention(
+              { name: "users/222", displayName: "Bot Dev", type: "HUMAN" },
+              range
+            ),
+          ],
+        },
+        isMention: false,
+        text: "@Bot Dev hi",
+      },
+      {
+        name: "botUserId is unset and an app is mentioned",
+        input: { text: "@Bot Dev hi", annotations: [mention(bot, range)] },
+        isMention: undefined,
+        text: "@Bot Dev hi",
+      },
+      {
+        name: "botUserId is unset and the mentioned user has no type",
+        input: {
+          text: "@Bot Dev hi",
+          annotations: [mention({ name: BOT_ID }, range)],
+        },
+        isMention: undefined,
+        text: "@Bot Dev hi",
+      },
+      {
+        name: "botUserId is unset and a human and an app are mentioned",
+        input: {
+          text: "@Ann @Bot Dev hi",
+          annotations: [
+            mention(
+              { name: "users/222", displayName: "Ann", type: "HUMAN" },
+              { startIndex: 0, length: 4 }
+            ),
+            mention(bot, { startIndex: 5, length: 8 }),
+          ],
+        },
+        isMention: undefined,
+        text: "@Ann @Bot Dev hi",
+      },
+      {
+        name: "botUserId is unset and there are no annotations",
+        input: { text: "@Bot hi" },
+        isMention: undefined,
+        text: "@Bot hi",
+      },
+    ];
+
+    describe.each(Object.entries(transports))("%s", (_transport, deliver) => {
+      it.each(cases)("isMention is $isMention when $name", async (testCase) => {
+        const { adapter, mockChat } = await createInitializedAdapter({
+          botUserId: testCase.botUserId,
+          userName: "Bot",
+        });
+
+        const message = await deliver(adapter, mockChat, testCase.input);
+
+        expect(message.isMention).toBe(testCase.isMention);
+        expect(message.text).toBe(testCase.text);
+      });
+    });
+
+    describe("unmatched app mention warning", () => {
+      const otherApp = mention({ name: "users/222", type: "BOT" }, range);
+      const unmatchedWarnings = (logger: ReturnType<typeof createMockLogger>) =>
+        vi.mocked(logger.warn).mock.calls.filter(([, meta]) => {
+          const fields = meta as Record<string, unknown> | undefined;
+          return fields?.mentionedUserId !== undefined;
+        });
+      const parse = (adapter: Adapter, annotations?: Annotation[]) =>
+        adapter.parseMessage({
+          chat: {
+            messagePayload: {
+              space: { name: SPACE, type: "ROOM" },
+              message: messageBody({ text: "@Bot Dev hi", annotations }),
+            },
+          },
+        } as GoogleChatEvent);
+
+      it("is logged once with both IDs across several messages", async () => {
+        const logger = createMockLogger();
+        const { adapter } = await createInitializedAdapter({
+          botUserId: BOT_ID,
+          logger,
+        });
+
+        parse(adapter, [otherApp]);
+        parse(adapter, [otherApp]);
+
+        const warnings = unmatchedWarnings(logger);
+        expect(warnings).toHaveLength(1);
+        expect(warnings[0][1]).toEqual({
+          botUserId: BOT_ID,
+          mentionedUserId: "users/222",
+        });
+      });
+
+      it.each([
+        ["the bot is mentioned", BOT_ID, [mention(bot, range)]],
+        [
+          "the bot is mentioned alongside another app",
+          BOT_ID,
+          [otherApp, mention(bot, range)],
+        ],
+        [
+          "a human is mentioned",
+          BOT_ID,
+          [mention({ name: "users/222", type: "HUMAN" }, range)],
+        ],
+        ["there are no annotations", BOT_ID, undefined],
+        [
+          "another app appears in an annotation that is not a mention",
+          BOT_ID,
+          [{ ...otherApp, type: "SLASH_COMMAND" }],
+        ],
+        ["botUserId is unset", undefined, [otherApp]],
+      ])("is not logged when %s", async (_name, botUserId, annotations) => {
+        const logger = createMockLogger();
+        const { adapter } = await createInitializedAdapter({
+          botUserId,
+          logger,
+        });
+
+        parse(adapter, annotations);
+
+        expect(unmatchedWarnings(logger)).toHaveLength(0);
+      });
+    });
+
+    describe("botUserId format warning", () => {
+      const formatWarnings = (logger: ReturnType<typeof createMockLogger>) =>
+        vi
+          .mocked(logger.warn)
+          .mock.calls.filter(([message]) =>
+            String(message).includes("users/{id}")
+          );
+
+      it("is logged when botUserId is not a users/ resource name", async () => {
+        const logger = createMockLogger();
+        await createInitializedAdapter({ botUserId: "111", logger });
+
+        const warnings = formatWarnings(logger);
+        expect(warnings).toHaveLength(1);
+        expect(warnings[0][1]).toEqual({ botUserId: "111" });
+      });
+
+      it.each([
+        ["is a users/ resource name", BOT_ID],
+        ["is unset", undefined],
+      ])("is not logged when botUserId %s", async (_name, botUserId) => {
+        const logger = createMockLogger();
+        await createInitializedAdapter({ botUserId, logger });
+
+        expect(formatWarnings(logger)).toHaveLength(0);
+      });
     });
   });
 

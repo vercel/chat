@@ -115,9 +115,11 @@ entry point. It dispatches based on the Chat event envelope:
    defaults to `https://chat.googleapis.com`; override via
    `webhookAudience`.
 2. **Event type**
-   - `MESSAGE` → `chat.handleIncomingMessage`. Mentions are detected
-     by walking `message.annotations[].userMention` for the bot's own
-     resource name.
+   - `MESSAGE` → `chat.handleIncomingMessage`. `message.isMention` is
+     set by walking `message.annotations[].userMention` for the bot's
+     own resource name (`botUserId`). Without `botUserId` it is `false`
+     only when every mention is of a human, and otherwise unset so Chat
+     matches `@{userName}` in the text.
    - `ADDED_TO_SPACE` → bot becomes available in a new space; chained
      to optional `onSpaceJoined` handlers.
    - `REMOVED_FROM_SPACE` → cleanup hook.

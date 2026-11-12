@@ -92,6 +92,25 @@ const REACTION_MESSAGE_NAME_PATTERN = /(spaces\/[^/]+\/messages\/[^/]+)/;
 // Re-export GoogleChatThreadId from thread-utils
 export type { GoogleChatThreadId } from "./thread-utils";
 
+interface MentionAnnotation {
+  length?: number | null;
+  startIndex?: number | null;
+  type?: string | null;
+  userMention?: {
+    user?: {
+      displayName?: string | null;
+      name?: string | null;
+      type?: string | null;
+    } | null;
+  } | null;
+}
+
+/** The fields mention handling reads, shared by webhook, Pub/Sub, and list API messages. */
+interface AnnotatedMessage {
+  annotations?: MentionAnnotation[] | null;
+  text?: string | null;
+}
+
 /** Google Chat message structure */
 export interface GoogleChatMessage {
   annotations?: Array<{
@@ -264,6 +283,7 @@ export class GoogleChatAdapter implements Adapter<GoogleChatThreadId, unknown> {
   private warnedNoPubsubVerification = false;
   /** User info cache for display name lookups - initialized later in initialize() */
   private userInfoCache: UserInfoCache;
+  private warnedUnmatchedBotMention = false;
 
   constructor(
     config: GoogleChatAdapterConfig = {} as GoogleChatAdapterAutoConfig
@@ -427,7 +447,12 @@ export class GoogleChatAdapter implements Adapter<GoogleChatThreadId, unknown> {
     this.userInfoCache = new UserInfoCache(this.state, this.logger);
     if (!this.botUserId) {
       this.logger.warn(
-        "Google Chat botUserId is not configured. BOT senders will be treated as self to prevent reply loops, and bot mentions cannot be normalized. Set GOOGLE_CHAT_BOT_USER_ID."
+        "Google Chat botUserId is not configured. BOT senders will be treated as self to prevent reply loops, and bot mentions cannot be matched or normalized. Set GOOGLE_CHAT_BOT_USER_ID."
+      );
+    } else if (!this.botUserId.startsWith("users/")) {
+      this.logger.warn(
+        "Google Chat botUserId is not a users/{id} resource name, so it cannot match mention annotations or message senders. Use the sender.name of a message authored by your Chat app.",
+        { botUserId: this.botUserId }
       );
     }
   }
@@ -1270,6 +1295,7 @@ export class GoogleChatAdapter implements Adapter<GoogleChatThreadId, unknown> {
       threadId,
       ...this.formatConverter.parseIncoming(text),
       raw: notification,
+      isMention: this.mentionsBot(message),
       author: {
         userId,
         userName: displayName,
@@ -1448,8 +1474,6 @@ export class GoogleChatAdapter implements Adapter<GoogleChatThreadId, unknown> {
       throw new ValidationError("gchat", "Event has no message payload");
     }
 
-    // Normalize bot mentions: replace @BotDisplayName with @{userName}
-    // so the Chat SDK's mention detection works properly
     const text = this.normalizeBotMentions(message);
 
     const isBot = message.sender?.type === "BOT";
@@ -1477,6 +1501,7 @@ export class GoogleChatAdapter implements Adapter<GoogleChatThreadId, unknown> {
       threadId,
       ...this.formatConverter.parseIncoming(text),
       raw: event,
+      isMention: this.mentionsBot(message),
       author: {
         userId,
         userName: displayName,
@@ -2175,8 +2200,9 @@ export class GoogleChatAdapter implements Adapter<GoogleChatThreadId, unknown> {
     return new Message({
       id: msg.name || "",
       threadId: msgThreadId,
-      ...this.formatConverter.parseIncoming(msg.text || ""),
+      ...this.formatConverter.parseIncoming(this.normalizeBotMentions(msg)),
       raw: msg,
+      isMention: this.mentionsBot(msg),
       author: {
         userId,
         userName: displayName,
@@ -2738,54 +2764,101 @@ export class GoogleChatAdapter implements Adapter<GoogleChatThreadId, unknown> {
   }
 
   /**
-   * Normalize bot mentions in message text.
-   * Google Chat uses the bot's display name (e.g., "@Chat SDK Demo") but the
-   * Chat SDK expects "@{userName}" format. This method replaces bot mentions
-   * with the adapter's userName so mention detection works properly.
-   * Only annotations matching the configured bot user ID are rewritten.
+   * Replace the bot's mention in the message text with `@{userName}`.
+   * Google Chat writes the app's display name (e.g., "@Chat SDK Demo"), and
+   * handlers that match or strip `@{userName}` read `message.text`, so the
+   * rewrite is needed even though `isMention` comes from the annotations.
+   * Only annotations for the configured bot user ID are rewritten.
    */
-  protected normalizeBotMentions(message: GoogleChatMessage): string {
+  protected normalizeBotMentions(message: AnnotatedMessage): string {
     let text = message.text || "";
 
-    // Find bot mentions in annotations and replace with @{userName}
-    const annotations = message.annotations || [];
-    for (const annotation of annotations) {
-      if (
-        annotation.type === "USER_MENTION" &&
-        annotation.userMention?.user?.type === "BOT"
-      ) {
-        const botUser = annotation.userMention.user;
-        if (botUser.name !== this.botUserId) {
-          continue;
-        }
-        const botDisplayName = botUser.displayName;
+    // Rewrite from the end of the text backwards, because each replacement
+    // shifts the indexes of everything after it.
+    const botMentions = (message.annotations ?? [])
+      .filter((annotation) => this.isBotMentionAnnotation(annotation))
+      .sort((a, b) => (b.startIndex ?? -1) - (a.startIndex ?? -1));
 
-        // Replace the bot mention with @{userName}
-        // Pub/Sub messages don't include displayName, so use startIndex/length
-        if (
-          annotation.startIndex !== undefined &&
-          annotation.length !== undefined
-        ) {
-          const startIndex = annotation.startIndex;
-          const length = annotation.length;
-          const mentionText = text.slice(startIndex, startIndex + length);
-          text =
-            text.slice(0, startIndex) +
-            `@${this.userName}` +
-            text.slice(startIndex + length);
-          this.logger.debug("Normalized bot mention", {
-            original: mentionText,
-            replacement: `@${this.userName}`,
-          });
-        } else if (botDisplayName) {
-          // Fallback: use displayName if available (direct webhook)
-          const mentionText = `@${botDisplayName}`;
-          text = text.replace(mentionText, `@${this.userName}`);
-        }
+    for (const annotation of botMentions) {
+      // Pub/Sub messages don't include displayName, so use startIndex/length
+      if (
+        typeof annotation.startIndex === "number" &&
+        typeof annotation.length === "number"
+      ) {
+        const startIndex = annotation.startIndex;
+        const length = annotation.length;
+        const mentionText = text.slice(startIndex, startIndex + length);
+        text =
+          text.slice(0, startIndex) +
+          `@${this.userName}` +
+          text.slice(startIndex + length);
+        this.logger.debug("Normalized bot mention", {
+          original: mentionText,
+          replacement: `@${this.userName}`,
+        });
+        continue;
+      }
+      const botDisplayName = annotation.userMention?.user?.displayName;
+      if (botDisplayName) {
+        text = text.replace(`@${botDisplayName}`, `@${this.userName}`);
       }
     }
 
     return text;
+  }
+
+  private isBotMentionAnnotation(annotation: MentionAnnotation): boolean {
+    return (
+      Boolean(this.botUserId) &&
+      annotation.type === "USER_MENTION" &&
+      annotation.userMention?.user?.name === this.botUserId
+    );
+  }
+
+  /**
+   * Whether the message's `USER_MENTION` annotations mention this bot.
+   *
+   * With `botUserId` configured the answer is definitive. Without it the bot
+   * cannot be identified, so the only definitive answer is `false`, when every
+   * mention is of a human. Anything else is `undefined`, which leaves Chat to
+   * match `@{userName}` in the text.
+   */
+  private mentionsBot(message: AnnotatedMessage): boolean | undefined {
+    const mentions = (message.annotations ?? []).filter(
+      (annotation) => annotation.type === "USER_MENTION"
+    );
+
+    if (!this.botUserId) {
+      const onlyHumans =
+        mentions.length > 0 &&
+        mentions.every(
+          (annotation) => annotation.userMention?.user?.type === "HUMAN"
+        );
+      return onlyHumans ? false : undefined;
+    }
+
+    if (
+      mentions.some((annotation) => this.isBotMentionAnnotation(annotation))
+    ) {
+      return true;
+    }
+
+    // Another app being mentioned is normal, so this is logged once rather
+    // than per message.
+    const otherBot = mentions.find(
+      (annotation) => annotation.userMention?.user?.type === "BOT"
+    );
+    if (otherBot && !this.warnedUnmatchedBotMention) {
+      this.warnedUnmatchedBotMention = true;
+      this.logger.warn(
+        "A Google Chat app mention did not match the configured botUserId. If the mentioned app is this bot, set GOOGLE_CHAT_BOT_USER_ID to the mentioned user ID. Logged once.",
+        {
+          botUserId: this.botUserId,
+          mentionedUserId: otherBot.userMention?.user?.name,
+        }
+      );
+    }
+    return false;
   }
 
   /**
