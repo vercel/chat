@@ -4500,6 +4500,8 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
         return links;
       }
       const remaining = deadline - Date.now();
+      // Check 0 explicitly: Date.now() can move backward, which would make
+      // `remaining` positive and start polling even though waiting is disabled.
       if (stored || this.unfurlWaitMs === 0 || remaining <= 0) {
         break;
       }

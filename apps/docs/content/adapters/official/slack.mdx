@@ -439,7 +439,7 @@ const slack = createSlackAdapter({ unfurlWaitMs: 0 });
 
 Links whose previews arrive later remain bare in the delivered message. A positive value sets a shorter or longer polling budget. Negative or non-finite values throw a `ValidationError` when you create the adapter.
 
-The budget controls polling, including message processing tracked by `waitUntil`. The adapter acknowledges an ordinary message webhook before that processing finishes. Cache reads are still awaited, so `unfurlWaitMs` does not set a timeout for the state store or the whole webhook request.
+The adapter returns an HTTP 200 response for ordinary message webhooks without waiting for message processing. If your host waits for the processing registered with `waitUntil` before sending the response, polling can add to that response time. Cache reads remain awaited, so `unfurlWaitMs` does not set a timeout for the state store or the whole request.
 
 ### Environment variables
 

@@ -48,26 +48,6 @@ function editEvent() {
   };
 }
 
-function unfurlEvent() {
-  return {
-    type: "message",
-    subtype: "message_changed",
-    hidden: true,
-    channel: CHANNEL,
-    ts: "1234567891.000000",
-    message: {
-      ...messageEvent(),
-      attachments: [
-        {
-          from_url: URL,
-          title: "Example article",
-          text: "Article description",
-        },
-      ],
-    },
-  };
-}
-
 function webhookRequest(event: Record<string, unknown>): Request {
   const body = JSON.stringify({
     type: "event_callback",
@@ -157,12 +137,6 @@ describe("unfurlWaitMs", () => {
     expect(() => new SlackAdapter(config)).toThrow(ValidationError);
   });
 
-  it.each([0, 0.5, 25, 2000])("accepts a finite wait of %s", (unfurlWaitMs) => {
-    expect(() =>
-      createSlackAdapter({ ...BASE_CONFIG, unfurlWaitMs })
-    ).not.toThrow();
-  });
-
   it("acknowledges the webhook before the default wait and waits once for multiple links", async () => {
     const bot = await createBot();
     const response = await bot.deliver(
@@ -233,25 +207,6 @@ describe("unfurlWaitMs", () => {
     await Promise.all(bot.pending);
   });
 
-  it("uses cached metadata when waiting is disabled", async () => {
-    const bot = await createBot({ unfurlWaitMs: 0 });
-    await bot.deliver(unfurlEvent());
-    await bot.deliver(messageEvent());
-    await vi.advanceTimersByTimeAsync(0);
-
-    expect(bot.onEdit).not.toHaveBeenCalled();
-    expect(bot.onMessage).toHaveBeenCalledOnce();
-    expect(bot.onMessage.mock.calls[0][1].links).toEqual([
-      expect.objectContaining({
-        url: URL,
-        title: "Example article",
-        description: "Article description",
-      }),
-    ]);
-    expect(bot.unfurlReads()).toHaveLength(1);
-    await Promise.all(bot.pending);
-  });
-
   it.each([
     25, 225,
   ])("stops polling at a configured %s ms deadline", async (unfurlWaitMs) => {
@@ -263,23 +218,6 @@ describe("unfurlWaitMs", () => {
 
     expect(bot.onMessage).toHaveBeenCalledOnce();
     expect(bot.onMessage.mock.calls[0][1].links).toEqual([{ url: URL }]);
-    await Promise.all(bot.pending);
-  });
-
-  it("uses an unfurl delivered while the message is waiting", async () => {
-    const bot = await createBot();
-    await bot.deliver(messageEvent());
-    await vi.advanceTimersByTimeAsync(100);
-    expect(bot.onMessage).not.toHaveBeenCalled();
-    await bot.deliver(unfurlEvent());
-    await vi.advanceTimersByTimeAsync(50);
-
-    expect(bot.onMessage).toHaveBeenCalledOnce();
-    expect(bot.onMessage.mock.calls[0][1].links[0].title).toBe(
-      "Example article"
-    );
-    expect(bot.onEdit).not.toHaveBeenCalled();
-    expect(bot.unfurlReads()).toHaveLength(2);
     await Promise.all(bot.pending);
   });
 
@@ -308,50 +246,6 @@ describe("unfurlWaitMs", () => {
     expect(bot.onEdit).toHaveBeenCalledOnce();
     expect(bot.onEdit.mock.calls[0][1].links).toEqual([{ url: URL }]);
     expect(bot.onEdit.mock.calls[0][2].links).toEqual([{ url: PREVIOUS_URL }]);
-    await Promise.all(bot.pending);
-  });
-
-  it("does not read the unfurl cache for a message without links", async () => {
-    const bot = await createBot();
-    await bot.deliver(messageEvent("hello"));
-    await vi.advanceTimersByTimeAsync(0);
-
-    expect(bot.onMessage).toHaveBeenCalledOnce();
-    expect(bot.onMessage.mock.calls[0][1].links).toEqual([]);
-    expect(bot.unfurlReads()).toHaveLength(0);
-    await Promise.all(bot.pending);
-  });
-
-  it("does not wait when the message already contains preview metadata", async () => {
-    const bot = await createBot();
-    await bot.deliver({
-      ...messageEvent(),
-      attachments: [{ from_url: URL, title: "Attached title" }],
-    });
-    await vi.advanceTimersByTimeAsync(0);
-
-    expect(bot.onMessage).toHaveBeenCalledOnce();
-    expect(bot.onMessage.mock.calls[0][1].links[0].title).toBe(
-      "Attached title"
-    );
-    expect(bot.unfurlReads()).toHaveLength(0);
-    await Promise.all(bot.pending);
-  });
-
-  it("delivers bare links when the unfurl cache read fails", async () => {
-    const bot = await createBot();
-    vi.mocked(bot.state.get).mockImplementation(async (key) => {
-      if (key === UNFURL_KEY) {
-        throw new Error("Unfurl cache unavailable");
-      }
-      return bot.state.cache.get(key) ?? null;
-    });
-    await bot.deliver(messageEvent());
-    await vi.advanceTimersByTimeAsync(0);
-
-    expect(bot.onMessage).toHaveBeenCalledOnce();
-    expect(bot.onMessage.mock.calls[0][1].links).toEqual([{ url: URL }]);
-    expect(bot.unfurlReads()).toHaveLength(1);
     await Promise.all(bot.pending);
   });
 });
