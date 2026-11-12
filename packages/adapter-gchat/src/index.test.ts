@@ -32,6 +32,7 @@ import {
   type GoogleChatEvent,
   type GoogleChatMessage,
   type GoogleChatThreadId,
+  type GoogleChatUser,
 } from "./index";
 import { GoogleChatFormatConverter } from "./markdown";
 import type {
@@ -85,6 +86,15 @@ function createMockStateAdapter(): StateAdapter & {
       storage.set(key, value);
       return Promise.resolve();
     }),
+    setIfNotExists: vi
+      .fn()
+      .mockImplementation((key: string, value: unknown) => {
+        if (storage.has(key)) {
+          return Promise.resolve(false);
+        }
+        storage.set(key, value);
+        return Promise.resolve(true);
+      }),
     delete: vi.fn().mockImplementation((key: string) => {
       storage.delete(key);
       return Promise.resolve();
@@ -101,6 +111,7 @@ function makeMessageEvent(
     messageName?: string;
     senderName?: string;
     senderDisplayName?: string;
+    senderEmail?: string;
     senderType?: string;
     threadName?: string;
     annotations?: GoogleChatMessage["annotations"];
@@ -120,6 +131,7 @@ function makeMessageEvent(
             name: overrides.senderName ?? "users/100",
             displayName: overrides.senderDisplayName ?? "Test User",
             type: overrides.senderType ?? "HUMAN",
+            email: overrides.senderEmail,
           },
           text: overrides.messageText ?? "Hello",
           createTime: new Date().toISOString(),
@@ -161,6 +173,53 @@ function makePubSubPushMessage(
     },
     subscription: "projects/test/subscriptions/test-sub",
   };
+}
+
+/** Helper: build a card click event, with the user on the payload or on chat.user */
+function makeClickEvent(users: {
+  chatUser?: GoogleChatUser;
+  payloadUser?: GoogleChatUser;
+}): GoogleChatEvent {
+  return {
+    commonEventObject: { parameters: { actionId: "approve" } },
+    chat: {
+      user: users.chatUser,
+      buttonClickedPayload: {
+        space: { name: "spaces/ABC123", type: "ROOM" },
+        message: {
+          name: "spaces/ABC123/messages/msg1",
+          sender: { name: "users/1", displayName: "U", type: "HUMAN" },
+          text: "",
+          createTime: new Date().toISOString(),
+        },
+        user: users.payloadUser,
+      },
+    },
+  };
+}
+
+/** Helper: wrap an event or Pub/Sub push in a webhook request */
+function makeWebhookRequest(
+  body: GoogleChatEvent | PubSubPushMessage
+): Request {
+  return new Request("https://example.com/webhook", {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
+}
+
+/** Helper: resolve the message most recently handed to chat.processMessage */
+async function lastDispatchedMessage(
+  mockChat: ChatInstance
+): Promise<Message<unknown>> {
+  const call = vi.mocked(mockChat.processMessage).mock.calls.at(-1);
+  if (!call) {
+    throw new Error("processMessage was not called");
+  }
+  const messageOrFactory = call[2];
+  return typeof messageOrFactory === "function"
+    ? await messageOrFactory()
+    : messageOrFactory;
 }
 
 /** Helper: create an initialized adapter with mocks */
@@ -442,6 +501,28 @@ describe("GoogleChatAdapter", () => {
       expect(msg.author.fullName).toBe("Alice");
       expect(msg.author.userId).toBe("users/ALICE1");
       expect(msg.author.isBot).toBe(false);
+    });
+
+    it("should expose the sender email on the author", async () => {
+      const { adapter } = await createInitializedAdapter();
+      const event = makeMessageEvent({ senderEmail: "alice@example.com" });
+
+      const msg = adapter.parseMessage(event);
+
+      expect(msg.author.email).toBe("alice@example.com");
+    });
+
+    it.each([
+      ["is absent", undefined],
+      ["is an empty string", ""],
+    ])("should leave the author email undefined when the sender email %s", async (_case, senderEmail) => {
+      const { adapter } = await createInitializedAdapter();
+      const event = makeMessageEvent({ senderEmail });
+
+      const msg = adapter.parseMessage(event);
+
+      expect(msg.author).not.toHaveProperty("email", expect.anything());
+      expect(msg.author.email).toBeUndefined();
     });
 
     it("should throw when event has no messagePayload", () => {
@@ -1763,6 +1844,54 @@ describe("GoogleChatAdapter", () => {
         }),
         undefined
       );
+    });
+
+    it.each([
+      ["a present email", "clicker@example.com", "clicker@example.com"],
+      ["an empty email", "", undefined],
+      ["no email", undefined, undefined],
+    ])("should set the action user email from a click with %s", async (_case, email, expected) => {
+      const { adapter, mockChat } = await createInitializedAdapter();
+
+      await adapter.handleWebhook(
+        makeWebhookRequest(
+          makeClickEvent({
+            payloadUser: {
+              name: "users/2",
+              displayName: "Clicker",
+              type: "HUMAN",
+              email,
+            },
+          })
+        )
+      );
+
+      const calls = vi.mocked(mockChat.processAction).mock.calls;
+      expect(calls).toHaveLength(1);
+      expect(calls[0][0].user.userId).toBe("users/2");
+      expect(calls[0][0].user.email).toBe(expected);
+    });
+
+    it("should read the action user email from chat.user when the click payload has no user", async () => {
+      const { adapter, mockChat } = await createInitializedAdapter();
+
+      await adapter.handleWebhook(
+        makeWebhookRequest(
+          makeClickEvent({
+            chatUser: {
+              name: "users/3",
+              displayName: "Fallback Clicker",
+              type: "HUMAN",
+              email: "fallback@example.com",
+            },
+          })
+        )
+      );
+
+      const calls = vi.mocked(mockChat.processAction).mock.calls;
+      expect(calls).toHaveLength(1);
+      expect(calls[0][0].user.userId).toBe("users/3");
+      expect(calls[0][0].user.email).toBe("fallback@example.com");
     });
 
     it("should ignore card click when space is missing", async () => {
@@ -3495,7 +3624,7 @@ describe("GoogleChatAdapter", () => {
       await adapter.initialize(mockChat);
     });
 
-    it("should cache user info from direct webhook messages", () => {
+    it("should cache user info from direct webhook messages", async () => {
       const event: GoogleChatEvent = {
         chat: {
           messagePayload: {
@@ -3519,19 +3648,21 @@ describe("GoogleChatAdapter", () => {
       adapter.parseMessage(event);
 
       // Verify user info was cached
-      expect(mockState.set).toHaveBeenCalledWith(
-        "gchat:user:users/123456789",
-        {
-          avatarUrl: "https://lh3.googleusercontent.com/a/photo.jpg",
-          displayName: "John Doe",
-          email: "john@example.com",
-          isBot: false,
-        },
-        expect.any(Number)
-      );
+      await vi.waitFor(() => {
+        expect(mockState.set).toHaveBeenCalledWith(
+          "gchat:user:users/123456789",
+          {
+            avatarUrl: "https://lh3.googleusercontent.com/a/photo.jpg",
+            displayName: "John Doe",
+            email: "john@example.com",
+            isBot: false,
+          },
+          expect.any(Number)
+        );
+      });
     });
 
-    it("should not cache user info when displayName is unknown", () => {
+    it("should not cache user info when displayName is unknown", async () => {
       const event: GoogleChatEvent = {
         chat: {
           messagePayload: {
@@ -3551,8 +3682,16 @@ describe("GoogleChatAdapter", () => {
       };
 
       adapter.parseMessage(event);
+      // A later sender's write marks the point by which this one would have landed
+      adapter.parseMessage(
+        makeMessageEvent({ senderName: "users/later", senderDisplayName: "L" })
+      );
+      await vi.waitFor(() => {
+        expect(mockState.storage.has("gchat:user:users/later")).toBe(true);
+      });
 
       // Verify user info was NOT cached
+      expect(mockState.storage.has("gchat:user:users/123456789")).toBe(false);
       expect(mockState.set).not.toHaveBeenCalledWith(
         "gchat:user:users/123456789",
         expect.anything(),
@@ -4466,6 +4605,426 @@ describe("GoogleChatAdapter", () => {
 
       const response = await adapter.handleWebhook(request);
       expect(response.status).toBe(401);
+    });
+  });
+
+  describe("sender email from the user info cache", () => {
+    const USER_ID = "users/777";
+    const USER_KEY = `gchat:user:${USER_ID}`;
+    const EMAIL = "alice@example.com";
+
+    /** Create a second adapter over the same state, with an empty in-memory cache */
+    async function createAdapterOnState(mockState: StateAdapter) {
+      const adapter = createGoogleChatAdapter({
+        credentials: TEST_CREDENTIALS,
+        logger: mockLogger,
+      });
+      const mockChat = createMockChatInstance({ state: mockState });
+      await adapter.initialize(mockChat);
+      return { adapter, mockChat };
+    }
+
+    /** Deliver a webhook message from the user and wait for the cache write */
+    async function seedFromWebhook(
+      adapter: GoogleChatAdapter,
+      mockState: StateAdapter & { storage: Map<string, unknown> },
+      senderEmail: string | undefined = EMAIL
+    ) {
+      const response = await adapter.handleWebhook(
+        makeWebhookRequest(
+          makeMessageEvent({
+            senderName: USER_ID,
+            senderDisplayName: "Alice",
+            senderEmail,
+          })
+        )
+      );
+      if (response.status !== 200) {
+        throw new Error(`Webhook returned ${response.status}`);
+      }
+      await vi.waitFor(() => {
+        if (!mockState.storage.has(USER_KEY)) {
+          throw new Error("User info not cached yet");
+        }
+      });
+    }
+
+    function makePubSubMessagePush(sender: {
+      displayName?: string;
+      email?: string;
+    }): PubSubPushMessage {
+      return makePubSubPushMessage({
+        message: {
+          name: "spaces/ABC123/messages/pubsub1",
+          sender: {
+            name: USER_ID,
+            type: "HUMAN",
+            ...sender,
+          } as GoogleChatMessage["sender"],
+          text: "follow-up",
+          createTime: new Date().toISOString(),
+        },
+      });
+    }
+
+    function makeReactionPush(): PubSubPushMessage {
+      return makePubSubPushMessage(
+        {
+          reaction: {
+            name: "spaces/ABC123/messages/msg1/reactions/react1",
+            emoji: { unicode: "\u{1f44d}" },
+            user: { name: USER_ID, type: "HUMAN" },
+          },
+        },
+        "google.workspace.chat.reaction.v1.created"
+      );
+    }
+
+    function stubChatApi(adapter: GoogleChatAdapter, list?: unknown[]) {
+      (adapter as unknown as { chatApi: unknown }).chatApi = {
+        spaces: {
+          messages: {
+            get: vi.fn().mockResolvedValue({
+              data: { thread: { name: "spaces/ABC123/threads/T1" } },
+            }),
+            list: vi.fn().mockResolvedValue({ data: { messages: list ?? [] } }),
+          },
+        },
+      };
+    }
+
+    const LISTED_MESSAGE = {
+      name: "spaces/ABC123/messages/listed1",
+      text: "Listed",
+      createTime: "2024-01-01T00:00:00Z",
+      sender: { name: USER_ID, displayName: "Alice", type: "HUMAN" },
+      thread: { name: "spaces/ABC123/threads/T1" },
+    };
+
+    async function fetchListedAuthor(adapter: GoogleChatAdapter) {
+      stubChatApi(adapter, [LISTED_MESSAGE]);
+      const threadId = adapter.encodeThreadId({
+        spaceName: "spaces/ABC123",
+        threadName: "spaces/ABC123/threads/T1",
+      });
+      const result = await adapter.fetchMessages(threadId, { limit: 10 });
+      const [message, ...rest] = result.messages;
+      if (!message || rest.length > 0 || message.author.userId !== USER_ID) {
+        throw new Error("Expected exactly one listed message from the user");
+      }
+      return message.author;
+    }
+
+    it("should set the email on a webhook message handed to processMessage", async () => {
+      const { adapter, mockChat, mockState } = await createInitializedAdapter();
+
+      await seedFromWebhook(adapter, mockState);
+
+      const message = await lastDispatchedMessage(mockChat);
+      expect(message.author.userId).toBe(USER_ID);
+      expect(message.author.email).toBe(EMAIL);
+    });
+
+    it.each([
+      ["without a display name", {}],
+      ["with a display name", { displayName: "Alice" }],
+    ])("should set the email on a Pub/Sub message %s for a user seen on a webhook", async (_case, sender) => {
+      const { adapter, mockChat, mockState } = await createInitializedAdapter();
+      await seedFromWebhook(adapter, mockState);
+
+      const response = await adapter.handleWebhook(
+        makeWebhookRequest(makePubSubMessagePush(sender))
+      );
+
+      expect(response.status).toBe(200);
+      const message = await lastDispatchedMessage(mockChat);
+      expect(message.id).toBe("spaces/ABC123/messages/pubsub1");
+      expect(message.author.userId).toBe(USER_ID);
+      expect(message.author.fullName).toBe("Alice");
+      expect(message.author.email).toBe(EMAIL);
+    });
+
+    it("should set the email on a Pub/Sub message handled by another instance sharing the state", async () => {
+      const first = await createInitializedAdapter();
+      await seedFromWebhook(first.adapter, first.mockState);
+      const second = await createAdapterOnState(first.mockState);
+
+      await second.adapter.handleWebhook(
+        makeWebhookRequest(makePubSubMessagePush({}))
+      );
+
+      const message = await lastDispatchedMessage(second.mockChat);
+      expect(message.author.fullName).toBe("Alice");
+      expect(message.author.email).toBe(EMAIL);
+    });
+
+    it("should leave the Pub/Sub author email undefined for a user never seen on a webhook", async () => {
+      const { adapter, mockChat } = await createInitializedAdapter();
+
+      await adapter.handleWebhook(
+        makeWebhookRequest(makePubSubMessagePush({ displayName: "Alice" }))
+      );
+
+      const message = await lastDispatchedMessage(mockChat);
+      expect(message.author.userId).toBe(USER_ID);
+      expect(message.author.email).toBeUndefined();
+    });
+
+    it("should prefer an email carried by the Pub/Sub payload over the cached one", async () => {
+      const { adapter, mockChat, mockState } = await createInitializedAdapter();
+      await seedFromWebhook(adapter, mockState);
+
+      await adapter.handleWebhook(
+        makeWebhookRequest(
+          makePubSubMessagePush({ email: "payload@example.com" })
+        )
+      );
+
+      const message = await lastDispatchedMessage(mockChat);
+      expect(message.author.email).toBe("payload@example.com");
+    });
+
+    it("should keep the stored entry after a Pub/Sub message that carries only a display name", async () => {
+      const { adapter, mockChat, mockState } = await createInitializedAdapter();
+      await seedFromWebhook(adapter, mockState);
+      const setCallsBefore = vi.mocked(mockState.set).mock.calls.length;
+      const createCallsBefore = vi.mocked(mockState.setIfNotExists).mock.calls
+        .length;
+
+      await adapter.handleWebhook(
+        makeWebhookRequest(makePubSubMessagePush({ displayName: "Alice B" }))
+      );
+      const message = await lastDispatchedMessage(mockChat);
+      expect(message.author.fullName).toBe("Alice B");
+      await vi.waitFor(() => {
+        expect(
+          vi.mocked(mockState.setIfNotExists).mock.calls.length
+        ).toBeGreaterThan(createCallsBefore);
+      });
+
+      expect(vi.mocked(mockState.set).mock.calls.length).toBe(setCallsBefore);
+      expect(mockState.storage.get(USER_KEY)).toEqual({
+        avatarUrl: undefined,
+        displayName: "Alice",
+        email: EMAIL,
+        isBot: false,
+      });
+      const user = await adapter.getUser(USER_ID);
+      expect(user?.fullName).toBe("Alice B");
+      expect(user?.email).toBe(EMAIL);
+      const cold = await createAdapterOnState(mockState);
+      const coldUser = await cold.adapter.getUser(USER_ID);
+      expect(coldUser?.fullName).toBe("Alice");
+      expect(coldUser?.email).toBe(EMAIL);
+    });
+
+    it("should keep the cached email after a later webhook message without one", async () => {
+      const { adapter, mockState } = await createInitializedAdapter();
+      await seedFromWebhook(adapter, mockState);
+      const setCallsBefore = vi.mocked(mockState.set).mock.calls.length;
+
+      adapter.parseMessage(
+        makeMessageEvent({ senderName: USER_ID, senderDisplayName: "Alice" })
+      );
+      await vi.waitFor(() => {
+        expect(vi.mocked(mockState.set).mock.calls.length).toBeGreaterThan(
+          setCallsBefore
+        );
+      });
+
+      expect((await adapter.getUser(USER_ID))?.email).toBe(EMAIL);
+    });
+
+    it("should set the email on fetchMessages authors for a user seen on a webhook", async () => {
+      const first = await createInitializedAdapter();
+      await seedFromWebhook(first.adapter, first.mockState);
+
+      expect((await fetchListedAuthor(first.adapter)).email).toBe(EMAIL);
+
+      const second = await createAdapterOnState(first.mockState);
+      expect((await fetchListedAuthor(second.adapter)).email).toBe(EMAIL);
+    });
+
+    it("should leave fetchMessages author email undefined for a user never seen on a webhook", async () => {
+      const { adapter } = await createInitializedAdapter();
+
+      const author = await fetchListedAuthor(adapter);
+
+      expect(author.fullName).toBe("Alice");
+      expect(author.email).toBeUndefined();
+    });
+
+    it("should still return fetchMessages results when the state read fails", async () => {
+      const first = await createInitializedAdapter();
+      await seedFromWebhook(first.adapter, first.mockState);
+      const second = await createAdapterOnState(first.mockState);
+      vi.mocked(first.mockState.get).mockRejectedValue(
+        new Error("State error")
+      );
+
+      const author = await fetchListedAuthor(second.adapter);
+
+      expect(author.fullName).toBe("Alice");
+      expect(author.email).toBeUndefined();
+    });
+
+    it("should still dispatch a Pub/Sub message when the state read fails", async () => {
+      const first = await createInitializedAdapter();
+      await seedFromWebhook(first.adapter, first.mockState);
+      const second = await createAdapterOnState(first.mockState);
+      vi.mocked(first.mockState.get).mockRejectedValue(
+        new Error("State error")
+      );
+
+      const response = await second.adapter.handleWebhook(
+        makeWebhookRequest(makePubSubMessagePush({}))
+      );
+
+      expect(response.status).toBe(200);
+      const message = await lastDispatchedMessage(second.mockChat);
+      expect(message.id).toBe("spaces/ABC123/messages/pubsub1");
+      expect(message.author.fullName).toBe("User 777");
+      expect(message.author.email).toBeUndefined();
+    });
+
+    it("should keep the stored email when a fetchMessages lookup fails and its cache write succeeds", async () => {
+      const first = await createInitializedAdapter();
+      await seedFromWebhook(first.adapter, first.mockState);
+      const second = await createAdapterOnState(first.mockState);
+      vi.mocked(first.mockState.get).mockRejectedValueOnce(
+        new Error("State error")
+      );
+
+      expect((await fetchListedAuthor(second.adapter)).email).toBeUndefined();
+
+      await vi.waitFor(async () => {
+        expect((await second.adapter.getUser(USER_ID))?.fullName).toBe("Alice");
+      });
+      expect(first.mockState.storage.get(USER_KEY)).toMatchObject({
+        email: EMAIL,
+      });
+      const third = await createAdapterOnState(first.mockState);
+      expect((await third.adapter.getUser(USER_ID))?.email).toBe(EMAIL);
+    });
+
+    it("should pick up an email cached by another instance after this one cached the name", async () => {
+      const warm = await createInitializedAdapter();
+      expect((await fetchListedAuthor(warm.adapter)).email).toBeUndefined();
+      await vi.waitFor(() => {
+        expect(warm.mockState.storage.has(USER_KEY)).toBe(true);
+      });
+      const other = await createAdapterOnState(warm.mockState);
+      await other.adapter.handleWebhook(
+        makeWebhookRequest(
+          makeMessageEvent({
+            senderName: USER_ID,
+            senderDisplayName: "Alice",
+            senderEmail: EMAIL,
+          })
+        )
+      );
+      await vi.waitFor(() => {
+        expect(warm.mockState.storage.get(USER_KEY)).toMatchObject({
+          email: EMAIL,
+        });
+      });
+
+      await warm.adapter.handleWebhook(
+        makeWebhookRequest(makePubSubMessagePush({}))
+      );
+      const message = await lastDispatchedMessage(warm.mockChat);
+      expect(message.id).toBe("spaces/ABC123/messages/pubsub1");
+      expect(message.author.email).toBe(EMAIL);
+
+      const createCallsBefore = vi.mocked(warm.mockState.setIfNotExists).mock
+        .calls.length;
+      expect((await fetchListedAuthor(warm.adapter)).email).toBe(EMAIL);
+      await vi.waitFor(() => {
+        expect(
+          vi.mocked(warm.mockState.setIfNotExists).mock.calls.length
+        ).toBeGreaterThan(createCallsBefore);
+      });
+      expect(warm.mockState.storage.get(USER_KEY)).toMatchObject({
+        email: EMAIL,
+      });
+      const cold = await createAdapterOnState(warm.mockState);
+      expect((await cold.adapter.getUser(USER_ID))?.email).toBe(EMAIL);
+    });
+
+    it("should set the email on a reaction user seen on a webhook", async () => {
+      const first = await createInitializedAdapter();
+      await seedFromWebhook(first.adapter, first.mockState);
+      const second = await createAdapterOnState(first.mockState);
+      stubChatApi(second.adapter);
+
+      const response = await second.adapter.handleWebhook(
+        makeWebhookRequest(makeReactionPush())
+      );
+
+      expect(response.status).toBe(200);
+      const processReaction = vi.mocked(second.mockChat.processReaction);
+      await vi.waitFor(() => {
+        expect(processReaction).toHaveBeenCalledTimes(1);
+      });
+      const event = processReaction.mock.calls[0][0];
+      expect(event.user.userId).toBe(USER_ID);
+      expect(event.user.email).toBe(EMAIL);
+      expect(event.messageId).toBe("spaces/ABC123/messages/msg1");
+    });
+
+    it("should leave the reaction user email undefined for a user never seen on a webhook", async () => {
+      const { adapter, mockChat } = await createInitializedAdapter();
+      stubChatApi(adapter);
+
+      await adapter.handleWebhook(makeWebhookRequest(makeReactionPush()));
+
+      const processReaction = vi.mocked(mockChat.processReaction);
+      await vi.waitFor(() => {
+        expect(processReaction).toHaveBeenCalledTimes(1);
+      });
+      const event = processReaction.mock.calls[0][0];
+      expect(event.user.userId).toBe(USER_ID);
+      expect(event.user.email).toBeUndefined();
+    });
+
+    it("should still process a reaction when the state read fails", async () => {
+      const { adapter, mockChat, mockState } = await createInitializedAdapter();
+      stubChatApi(adapter);
+      vi.mocked(mockState.get).mockRejectedValue(new Error("State error"));
+
+      await adapter.handleWebhook(makeWebhookRequest(makeReactionPush()));
+
+      const processReaction = vi.mocked(mockChat.processReaction);
+      await vi.waitFor(() => {
+        expect(processReaction).toHaveBeenCalledTimes(1);
+      });
+      expect(processReaction.mock.calls[0][0].user.email).toBeUndefined();
+    });
+
+    it("should not cache an empty sender email", async () => {
+      const { adapter, mockState } = await createInitializedAdapter();
+
+      await seedFromWebhook(adapter, mockState, "");
+
+      expect(mockState.storage.get(USER_KEY)).toEqual({
+        avatarUrl: undefined,
+        displayName: "Alice",
+        email: undefined,
+        isBot: false,
+      });
+      const user = await adapter.getUser(USER_ID);
+      expect(user?.fullName).toBe("Alice");
+      expect(user?.email).toBeUndefined();
+    });
+
+    it("should return an undefined email from getUser for an entry cached with an empty email", async () => {
+      const { adapter, mockState } = await createInitializedAdapter();
+      mockState.storage.set(USER_KEY, { displayName: "Alice", email: "" });
+
+      const user = await adapter.getUser(USER_ID);
+
+      expect(user?.fullName).toBe("Alice");
+      expect(user?.email).toBeUndefined();
     });
   });
 

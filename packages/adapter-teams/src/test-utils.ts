@@ -57,9 +57,11 @@ export class TestTeamsAdapter extends TeamsAdapter {
       authorize: () => Promise<unknown>;
     };
     vi.spyOn(server, "authorize").mockResolvedValue({ success: true, token });
+    this.stubUserToken();
   }
 
   receive(body: { type: string; [key: string]: unknown }) {
+    this.stubUserToken();
     return this.app.process({ body, token });
   }
 }
