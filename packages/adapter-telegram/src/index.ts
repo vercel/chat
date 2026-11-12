@@ -193,6 +193,8 @@ const EMOJI_NAME_PATTERN = /^[a-z0-9_+-]+$/i;
 const TELEGRAM_DEFAULT_POLLING_TIMEOUT_SECONDS = 30;
 const TELEGRAM_DEFAULT_POLLING_LIMIT = 100;
 const TELEGRAM_DEFAULT_POLLING_RETRY_DELAY_MS = 1000;
+const TELEGRAM_POLLING_DEADLINE_GRACE_MS = 30_000;
+const TELEGRAM_SETUP_REQUEST_TIMEOUT_MS = 30_000;
 const TELEGRAM_DEFAULT_STREAM_UPDATE_INTERVAL_MS = 250;
 const TELEGRAM_DEFAULT_PRIVATE_STREAMING_EDIT_INTERVAL_MS = 1100;
 const TELEGRAM_DEFAULT_NON_PRIVATE_STREAMING_EDIT_INTERVAL_MS = 3100;
@@ -654,7 +656,11 @@ export class TelegramAdapter
       return;
     }
     if (!this.botIdentityPromise) {
-      this.botIdentityPromise = this.telegramFetch<TelegramUser>("getMe")
+      this.botIdentityPromise = this.telegramFetch<TelegramUser>(
+        "getMe",
+        undefined,
+        { timeoutMs: TELEGRAM_SETUP_REQUEST_TIMEOUT_MS }
+      )
         .then((me) => {
           this._botUserId = String(me.id);
           this.webhookScope = createHash("sha256")
@@ -911,9 +917,11 @@ export class TelegramAdapter
   }
 
   async resetWebhook(dropPendingUpdates = false): Promise<void> {
-    await this.telegramFetch<boolean>("deleteWebhook", {
-      drop_pending_updates: dropPendingUpdates,
-    });
+    await this.telegramFetch<boolean>(
+      "deleteWebhook",
+      { drop_pending_updates: dropPendingUpdates },
+      { timeoutMs: TELEGRAM_SETUP_REQUEST_TIMEOUT_MS }
+    );
 
     this.logger.info("Telegram webhook reset", {
       dropPendingUpdates,
@@ -4491,6 +4499,7 @@ export class TelegramAdapter
             this.pollingAbortController?.abort();
           }, remaining);
         }
+        const timeout = remaining === 0 ? 0 : config.timeout;
         let updates: TelegramUpdate[];
         try {
           updates = await this.telegramFetch<TelegramUpdate[]>(
@@ -4499,9 +4508,12 @@ export class TelegramAdapter
               allowed_updates: config.allowedUpdates,
               limit: config.limit,
               offset: checkpoint.offset,
-              timeout: remaining === 0 ? 0 : config.timeout,
+              timeout,
             },
-            { signal: this.pollingAbortController.signal }
+            {
+              signal: this.pollingAbortController.signal,
+              timeoutMs: timeout * 1000 + TELEGRAM_POLLING_DEADLINE_GRACE_MS,
+            }
           );
         } catch (error) {
           if (collecting && this.pollingActive && this.isAbortError(error)) {
@@ -4664,6 +4676,28 @@ export class TelegramAdapter
     return error instanceof Error && error.name === "AbortError";
   }
 
+  protected isTimeoutError(error: unknown): boolean {
+    return error instanceof Error && error.name === "TimeoutError";
+  }
+
+  protected toRequestError(
+    error: unknown,
+    method: string,
+    message: string
+  ): unknown {
+    if (this.isAbortError(error)) {
+      return error;
+    }
+
+    return new NetworkError(
+      "telegram",
+      this.isTimeoutError(error)
+        ? `Telegram ${method} request timed out`
+        : message,
+      error instanceof Error ? error : undefined
+    );
+  }
+
   protected async sleep(delayMs: number, signal?: AbortSignal): Promise<void> {
     if (delayMs <= 0 || signal?.aborted) {
       return;
@@ -4690,45 +4724,75 @@ export class TelegramAdapter
     payload?: Record<string, unknown> | FormData,
     request?: {
       signal?: AbortSignal;
+      timeoutMs?: number;
     }
   ): Promise<TResult> {
     const botToken = this.staticBotToken ?? (await this.resolveBotToken());
     const url = `${this.apiBaseUrl}/bot${botToken}/${method}`;
 
-    let response: Response;
-    try {
-      response = await fetch(url, {
-        method: "POST",
-        headers:
-          payload instanceof FormData
-            ? undefined
-            : {
-                "Content-Type": "application/json",
-              },
-        body:
-          payload instanceof FormData ? payload : JSON.stringify(payload ?? {}),
-        signal: request?.signal,
-      });
-    } catch (error) {
-      if (this.isAbortError(error)) {
-        throw error;
+    const callerSignal = request?.signal;
+    let signal = callerSignal;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    let onCallerAbort: (() => void) | undefined;
+    if (request?.timeoutMs !== undefined) {
+      const controller = new AbortController();
+      signal = controller.signal;
+      if (callerSignal?.aborted) {
+        controller.abort(callerSignal.reason);
+      } else {
+        onCallerAbort = () => controller.abort(callerSignal?.reason);
+        callerSignal?.addEventListener("abort", onCallerAbort, { once: true });
+        timer = setTimeout(() => {
+          controller.abort(
+            new DOMException(
+              `Telegram ${method} request timed out`,
+              "TimeoutError"
+            )
+          );
+        }, request.timeoutMs);
       }
-
-      throw new NetworkError(
-        "telegram",
-        `Network error calling Telegram ${method}`,
-        error instanceof Error ? error : undefined
-      );
     }
 
+    let response: Response;
     let data: TelegramApiResponse<TResult>;
     try {
-      data = (await response.json()) as TelegramApiResponse<TResult>;
-    } catch {
-      throw new NetworkError(
-        "telegram",
-        `Failed to parse Telegram API response for ${method}`
-      );
+      try {
+        response = await fetch(url, {
+          method: "POST",
+          headers:
+            payload instanceof FormData
+              ? undefined
+              : {
+                  "Content-Type": "application/json",
+                },
+          body:
+            payload instanceof FormData
+              ? payload
+              : JSON.stringify(payload ?? {}),
+          signal,
+        });
+      } catch (error) {
+        throw this.toRequestError(
+          error,
+          method,
+          `Network error calling Telegram ${method}`
+        );
+      }
+
+      try {
+        data = (await response.json()) as TelegramApiResponse<TResult>;
+      } catch (error) {
+        throw this.toRequestError(
+          error,
+          method,
+          `Failed to parse Telegram API response for ${method}`
+        );
+      }
+    } finally {
+      clearTimeout(timer);
+      if (onCallerAbort) {
+        callerSignal?.removeEventListener("abort", onCallerAbort);
+      }
     }
 
     if (!(response.ok && data.ok)) {

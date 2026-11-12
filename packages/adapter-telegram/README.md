@@ -195,6 +195,8 @@ const bot = new Chat({
 // await telegram.stopPolling();
 ```
 
+Each `getUpdates` request has a deadline of the long polling `timeout` plus 30 seconds, and the `getMe` and `deleteWebhook` requests have a 30 second deadline. If a connection drops without a reset, the request fails at the deadline, the adapter logs a `Telegram polling request failed` warning with `Telegram getUpdates request timed out` in its `error` field, and polling resumes on a new connection after a backoff.
+
 ### Auto mode
 
 With `mode: "auto"` (the default), the adapter picks the right strategy for you. When deployed to a serverless environment like Vercel it uses webhooks; everywhere else (e.g. local dev) it falls back to polling automatically.
