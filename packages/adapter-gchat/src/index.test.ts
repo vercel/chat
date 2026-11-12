@@ -7,6 +7,7 @@ import {
 } from "@chat-adapter/tests";
 import { auth } from "@googleapis/chat";
 import {
+  Card,
   type ChatInstance,
   DEFAULT_MAX_INCOMING_PARSE_LENGTH,
   type Lock,
@@ -440,6 +441,38 @@ describe("GoogleChatAdapter", () => {
       expect(msg.author.fullName).toBe("Alice");
       expect(msg.author.userId).toBe("users/ALICE1");
       expect(msg.author.isBot).toBe(false);
+    });
+
+    it("should give a DM message the thread ID it was dispatched on", async () => {
+      const { adapter, mockChat } = await createInitializedAdapter();
+      const event = makeMessageEvent({
+        spaceType: "DM",
+        spaceName: "spaces/DM_SPACE",
+        threadName: "spaces/DM_SPACE/threads/thread1",
+      });
+      await adapter.handleWebhook(
+        new Request("https://example.com/webhook", {
+          method: "POST",
+          body: JSON.stringify(event),
+        })
+      );
+
+      const msg = adapter.parseMessage(event);
+
+      expect(msg.threadId).toBe("gchat:spaces/DM_SPACE:dm");
+      expect(msg.threadId).toBe(mockChat.processMessage.mock.calls[0]?.[1]);
+    });
+
+    it("should give a room message its thread's ID", async () => {
+      const { adapter } = await createInitializedAdapter();
+      const event = makeMessageEvent({
+        spaceType: "ROOM",
+        threadName: "spaces/ABC123/threads/XYZ",
+      });
+
+      expect(adapter.parseMessage(event).threadId).toBe(
+        `gchat:spaces/ABC123:${Buffer.from("spaces/ABC123/threads/XYZ").toString("base64url")}`
+      );
     });
 
     it("should throw when event has no messagePayload", () => {
@@ -1335,57 +1368,169 @@ describe("GoogleChatAdapter", () => {
       expect(mockChat).not.toHaveDispatched("processAction");
     });
 
-    it("should use the same thread ID for a DM card click as for a DM message", async () => {
-      const { adapter, mockChat } = await createInitializedAdapter();
-      const spaceName = "spaces/DM_SPACE";
-      const threadName = "spaces/DM_SPACE/threads/thread1";
-
-      const messageEvent = makeMessageEvent({
-        spaceType: "DM",
-        spaceName,
-        threadName,
-      });
-      await adapter.handleWebhook(
-        new Request("https://example.com/webhook", {
-          method: "POST",
-          body: JSON.stringify(messageEvent),
-        })
+    describe("thread ID", () => {
+      const DM_SPACE = "spaces/DM_SPACE";
+      const ROOM_SPACE = "spaces/ABC123";
+      const THREAD_B64 = Buffer.from("spaces/X/threads/thread1").toString(
+        "base64url"
       );
-      const messageThreadId = (mockChat.processMessage as any).mock.calls[0][1];
+      const MESSAGE_B64 = Buffer.from("spaces/X/messages/msg1").toString(
+        "base64url"
+      );
 
-      const clickEvent: GoogleChatEvent = {
-        commonEventObject: {
-          parameters: { actionId: "approve" },
-        },
+      const makeClickEvent = (
+        space: GoogleChatSpace,
+        threadName?: string
+      ): GoogleChatEvent => ({
+        commonEventObject: { parameters: { actionId: "approve" } },
         chat: {
           buttonClickedPayload: {
-            space: { name: spaceName, type: "DM" },
+            space,
             message: {
-              name: "spaces/DM_SPACE/messages/msg1",
+              name: "spaces/X/messages/msg1",
               sender: { name: "users/1", displayName: "Bot", type: "BOT" },
               text: "",
               createTime: new Date().toISOString(),
-              thread: { name: threadName },
+              thread: threadName ? { name: threadName } : undefined,
             },
-            user: {
-              name: "users/2",
-              displayName: "Clicker",
-              type: "HUMAN",
-            },
+            user: { name: "users/2", displayName: "Clicker", type: "HUMAN" },
           },
         },
-      };
-      await adapter.handleWebhook(
-        new Request("https://example.com/webhook", {
-          method: "POST",
-          body: JSON.stringify(clickEvent),
-        })
-      );
+      });
 
-      const clickThreadId = (mockChat.processAction as any).mock.calls[0][0]
-        .threadId;
-      expect(messageThreadId).toBe(`gchat:${spaceName}:dm`);
-      expect(clickThreadId).toBe(messageThreadId);
+      const clickThreadId = async (event: GoogleChatEvent) => {
+        const { adapter, mockChat } = await createInitializedAdapter();
+        await adapter.handleWebhook(
+          new Request("https://example.com/webhook", {
+            method: "POST",
+            body: JSON.stringify(event),
+          })
+        );
+        return mockChat.processAction.mock.calls[0]?.[0].threadId;
+      };
+
+      it.each<[string, GoogleChatSpace]>([
+        ["legacy type DM", { name: DM_SPACE, type: "DM" }],
+        [
+          "spaceType DIRECT_MESSAGE",
+          { name: DM_SPACE, type: "", spaceType: "DIRECT_MESSAGE" },
+        ],
+        [
+          "singleUserBotDm",
+          { name: DM_SPACE, type: "", singleUserBotDm: true },
+        ],
+        [
+          "the captured DM space shape",
+          {
+            name: DM_SPACE,
+            type: "DM",
+            singleUserBotDm: true,
+            spaceType: "DIRECT_MESSAGE",
+          },
+        ],
+      ])("should use the space-only DM thread ID for %s", async (_label, space) => {
+        const threadId = await clickThreadId(
+          makeClickEvent(space, "spaces/X/threads/thread1")
+        );
+        expect(threadId).toBe("gchat:spaces/DM_SPACE:dm");
+      });
+
+      it("should use the card message's thread in a room", async () => {
+        const threadId = await clickThreadId(
+          makeClickEvent(
+            { name: ROOM_SPACE, type: "ROOM", spaceType: "SPACE" },
+            "spaces/X/threads/thread1"
+          )
+        );
+        expect(threadId).toBe(`gchat:spaces/ABC123:${THREAD_B64}`);
+      });
+
+      it("should use the card message's name in a room when it has no thread", async () => {
+        const threadId = await clickThreadId(
+          makeClickEvent({ name: ROOM_SPACE, type: "ROOM", spaceType: "SPACE" })
+        );
+        expect(threadId).toBe(`gchat:spaces/ABC123:${MESSAGE_B64}`);
+      });
+
+      it("should not treat a group chat as a DM", async () => {
+        const threadId = await clickThreadId(
+          makeClickEvent(
+            { name: ROOM_SPACE, type: "ROOM", spaceType: "GROUP_CHAT" },
+            "spaces/X/threads/thread1"
+          )
+        );
+        expect(threadId).toBe(`gchat:spaces/ABC123:${THREAD_B64}`);
+      });
+
+      it("should match the thread ID of a message in the same DM", async () => {
+        const { adapter, mockChat } = await createInitializedAdapter();
+        const messageEvent = makeMessageEvent({
+          spaceType: "DM",
+          spaceName: DM_SPACE,
+          threadName: "spaces/DM_SPACE/threads/other-thread",
+        });
+        await adapter.handleWebhook(
+          new Request("https://example.com/webhook", {
+            method: "POST",
+            body: JSON.stringify(messageEvent),
+          })
+        );
+        await adapter.handleWebhook(
+          new Request("https://example.com/webhook", {
+            method: "POST",
+            body: JSON.stringify(
+              makeClickEvent(
+                { name: DM_SPACE, type: "DM" },
+                "spaces/X/threads/thread1"
+              )
+            ),
+          })
+        );
+
+        const messageThreadId = mockChat.processMessage.mock.calls[0]?.[1];
+        const actionThreadId =
+          mockChat.processAction.mock.calls[0]?.[0].threadId;
+        expect(messageThreadId).toBe("gchat:spaces/DM_SPACE:dm");
+        expect(actionThreadId).toBe(messageThreadId);
+        expect(adapter.isDM(actionThreadId)).toBe(true);
+      });
+
+      it("should post to the space without a thread from a DM click thread ID", async () => {
+        const { adapter, mockChat } = await createInitializedAdapter();
+        await adapter.handleWebhook(
+          new Request("https://example.com/webhook", {
+            method: "POST",
+            body: JSON.stringify(
+              makeClickEvent(
+                { name: DM_SPACE, type: "DM" },
+                "spaces/X/threads/thread1"
+              )
+            ),
+          })
+        );
+        const threadId = mockChat.processAction.mock.calls[0]?.[0].threadId;
+
+        const mockCreate = vi.fn().mockResolvedValue({
+          data: { name: "spaces/DM_SPACE/messages/new1" },
+        });
+        (adapter as any).chatApi = {
+          spaces: { messages: { create: mockCreate } },
+        };
+        await adapter.postMessage(threadId, "Approved");
+        await adapter.postMessage(threadId, Card({ title: "Approved" }));
+
+        expect(mockCreate).toHaveBeenCalledTimes(2);
+        const [textRequest, cardRequest] = mockCreate.mock.calls.map(
+          (call) => call[0]
+        );
+        expect(textRequest.requestBody.text).toBe("Approved");
+        expect(cardRequest.requestBody.cardsV2).toHaveLength(1);
+        for (const request of [textRequest, cardRequest]) {
+          expect(request.parent).toBe("spaces/DM_SPACE");
+          expect(request.messageReplyOption).toBeUndefined();
+          expect(request.requestBody.thread).toBeUndefined();
+        }
+      });
     });
   });
 
@@ -1419,10 +1564,33 @@ describe("GoogleChatAdapter", () => {
 
       await adapter.handleWebhook(request);
 
-      expect(mockChat).toHaveDispatched("processMessage");
-      const call = (mockChat.processMessage as any).mock.calls[0];
-      // threadId for DM should end with :dm and not include thread name
-      expect(call[1]).toMatch(DM_SUFFIX_PATTERN);
+      expect(mockChat.processMessage).toHaveBeenCalledTimes(1);
+      const [, threadId, message] = mockChat.processMessage.mock.calls[0] ?? [];
+      expect(threadId).toBe("gchat:spaces/DM_SPACE:dm");
+      expect(message.threadId).toBe(threadId);
+    });
+
+    it.each<[string, Partial<GoogleChatSpace>]>([
+      ["spaceType DIRECT_MESSAGE", { type: "", spaceType: "DIRECT_MESSAGE" }],
+      ["singleUserBotDm", { type: "", singleUserBotDm: true }],
+    ])("should use space-only thread ID for a DM identified by %s", async (_label, space) => {
+      const { adapter, mockChat } = await createInitializedAdapter();
+      const event = makeMessageEvent({
+        spaceName: "spaces/DM_SPACE",
+        threadName: "spaces/DM_SPACE/threads/thread1",
+      });
+      Object.assign(event.chat?.messagePayload?.space ?? {}, space);
+
+      await adapter.handleWebhook(
+        new Request("https://example.com/webhook", {
+          method: "POST",
+          body: JSON.stringify(event),
+        })
+      );
+
+      expect(mockChat.processMessage.mock.calls[0]?.[1]).toBe(
+        "gchat:spaces/DM_SPACE:dm"
+      );
     });
 
     it("should include thread name for room messages", async () => {
@@ -1438,16 +1606,32 @@ describe("GoogleChatAdapter", () => {
 
       await adapter.handleWebhook(request);
 
-      expect(mockChat).toHaveDispatched("processMessage");
-      const call = (mockChat.processMessage as any).mock.calls[0];
-      // threadId should NOT end with :dm
-      expect(call[1]).not.toMatch(DM_SUFFIX_PATTERN);
+      expect(mockChat.processMessage).toHaveBeenCalledTimes(1);
+      expect(mockChat.processMessage.mock.calls[0]?.[1]).toBe(
+        `gchat:spaces/ABC123:${Buffer.from("spaces/ABC123/threads/XYZ").toString("base64url")}`
+      );
+    });
+
+    it("should use the message name for a room message without a thread", async () => {
+      const { adapter, mockChat } = await createInitializedAdapter();
+      const event = makeMessageEvent({ spaceType: "ROOM" });
+
+      await adapter.handleWebhook(
+        new Request("https://example.com/webhook", {
+          method: "POST",
+          body: JSON.stringify(event),
+        })
+      );
+
+      expect(mockChat.processMessage.mock.calls[0]?.[1]).toBe(
+        `gchat:spaces/ABC123:${Buffer.from("spaces/ABC123/messages/msg1").toString("base64url")}`
+      );
     });
   });
 
   describe("Pub/Sub message handling", () => {
     it("should handle Pub/Sub reaction.created events", async () => {
-      const { adapter } = await createInitializedAdapter();
+      const { adapter, mockChat } = await createInitializedAdapter();
 
       // Mock the chatApi.spaces.messages.get call for reaction thread lookup
       (adapter as any).chatApi = {
@@ -1476,10 +1660,218 @@ describe("GoogleChatAdapter", () => {
         body: JSON.stringify(pubsubMessage),
       });
 
-      const response = await adapter.handleWebhook(request);
+      const tasks: Promise<unknown>[] = [];
+      const response = await adapter.handleWebhook(request, {
+        waitUntil: (task) => {
+          tasks.push(task);
+        },
+      });
+      await Promise.all(tasks);
 
       expect(response.status).toBe(200);
-      // processReaction is called async via the buildReactionEvent -> processTask chain
+      expect(mockChat.processReaction).toHaveBeenCalledTimes(1);
+      expect(mockChat.processReaction.mock.calls[0]?.[0]).toMatchObject({
+        added: true,
+        messageId: "spaces/ABC123/messages/msg1",
+        threadId: `gchat:spaces/ABC123:${Buffer.from("spaces/ABC123/threads/T1").toString("base64url")}`,
+      });
+    });
+
+    describe("DM thread IDs", () => {
+      const DM_TARGET = "//chat.googleapis.com/spaces/DM_SPACE";
+      const dmMessage = {
+        name: "spaces/DM_SPACE/messages/msg1",
+        sender: { name: "users/100", displayName: "User", type: "HUMAN" },
+        text: "Hello",
+        createTime: "2026-01-01T00:00:00Z",
+        thread: { name: "spaces/DM_SPACE/threads/T1" },
+      };
+      const dmReaction = {
+        name: "spaces/DM_SPACE/messages/msg1/reactions/react1",
+        emoji: { unicode: "\u{1f44d}" },
+        user: { name: "users/100", displayName: "Reactor", type: "HUMAN" },
+      };
+      const THREADED_ID = `gchat:spaces/DM_SPACE:${Buffer.from("spaces/DM_SPACE/threads/T1").toString("base64url")}`;
+
+      const push = async (
+        adapter: GoogleChatAdapter,
+        pubsubMessage: PubSubPushMessage
+      ) => {
+        const tasks: Promise<unknown>[] = [];
+        await adapter.handleWebhook(
+          new Request("https://example.com/webhook", {
+            method: "POST",
+            body: JSON.stringify(pubsubMessage),
+          }),
+          {
+            waitUntil: (task) => {
+              tasks.push(task);
+            },
+          }
+        );
+        await Promise.all(tasks);
+      };
+
+      it("should use the space-only DM thread ID when the message space is a DM", async () => {
+        const { adapter, mockChat } = await createInitializedAdapter();
+        await push(
+          adapter,
+          makePubSubPushMessage(
+            {
+              message: {
+                ...dmMessage,
+                space: { name: "spaces/DM_SPACE", type: "DM" },
+              },
+            },
+            "google.workspace.chat.message.v1.created",
+            DM_TARGET
+          )
+        );
+
+        expect(mockChat.processMessage.mock.calls[0]?.[1]).toBe(
+          "gchat:spaces/DM_SPACE:dm"
+        );
+      });
+
+      it("should keep the message's thread when the payload has no space type", async () => {
+        const { adapter, mockChat } = await createInitializedAdapter();
+        await push(
+          adapter,
+          makePubSubPushMessage(
+            { message: dmMessage },
+            "google.workspace.chat.message.v1.created",
+            DM_TARGET
+          )
+        );
+
+        expect(mockChat.processMessage.mock.calls[0]?.[1]).toBe(THREADED_ID);
+      });
+
+      it("should use the space-only DM thread ID for a reaction when the fetched message is in a DM", async () => {
+        const { adapter, mockChat } = await createInitializedAdapter();
+        (adapter as any).chatApi = {
+          spaces: {
+            messages: {
+              get: vi.fn().mockResolvedValue({
+                data: {
+                  thread: { name: "spaces/DM_SPACE/threads/T1" },
+                  space: {
+                    name: "spaces/DM_SPACE",
+                    spaceType: "DIRECT_MESSAGE",
+                  },
+                },
+              }),
+            },
+          },
+        };
+        await push(
+          adapter,
+          makePubSubPushMessage(
+            { reaction: dmReaction },
+            "google.workspace.chat.reaction.v1.created",
+            DM_TARGET
+          )
+        );
+
+        expect(mockChat.processReaction).toHaveBeenCalledTimes(1);
+        expect(mockChat.processReaction.mock.calls[0]?.[0].threadId).toBe(
+          "gchat:spaces/DM_SPACE:dm"
+        );
+      });
+
+      it("should fall back to the space-only thread ID for a reaction when the message lookup fails", async () => {
+        const { adapter, mockChat } = await createInitializedAdapter();
+        (adapter as any).chatApi = {
+          spaces: {
+            messages: { get: vi.fn().mockRejectedValue(new Error("denied")) },
+          },
+        };
+        await push(
+          adapter,
+          makePubSubPushMessage(
+            { reaction: dmReaction },
+            "google.workspace.chat.reaction.v1.created",
+            DM_TARGET
+          )
+        );
+
+        expect(mockChat.processReaction.mock.calls[0]?.[0].threadId).toBe(
+          "gchat:spaces/DM_SPACE"
+        );
+      });
+
+      it("should use the message name for a Pub/Sub message without a thread", async () => {
+        const { adapter, mockChat } = await createInitializedAdapter();
+        const { thread: _thread, ...unthreaded } = dmMessage;
+        await push(
+          adapter,
+          makePubSubPushMessage(
+            { message: unthreaded },
+            "google.workspace.chat.message.v1.created",
+            DM_TARGET
+          )
+        );
+
+        expect(mockChat.processMessage.mock.calls[0]?.[1]).toBe(
+          `gchat:spaces/DM_SPACE:${Buffer.from("spaces/DM_SPACE/messages/msg1").toString("base64url")}`
+        );
+      });
+
+      it("should use the space-only thread ID for a reaction when the fetched message has no thread", async () => {
+        const { adapter, mockChat } = await createInitializedAdapter();
+        (adapter as any).chatApi = {
+          spaces: {
+            messages: {
+              get: vi.fn().mockResolvedValue({
+                data: {
+                  name: "spaces/DM_SPACE/messages/msg1",
+                  space: { name: "spaces/DM_SPACE", spaceType: "SPACE" },
+                },
+              }),
+            },
+          },
+        };
+        await push(
+          adapter,
+          makePubSubPushMessage(
+            { reaction: dmReaction },
+            "google.workspace.chat.reaction.v1.created",
+            DM_TARGET
+          )
+        );
+
+        expect(mockChat.processReaction.mock.calls[0]?.[0].threadId).toBe(
+          "gchat:spaces/DM_SPACE"
+        );
+      });
+
+      it("should keep the fetched thread for a reaction in a space that is not a DM", async () => {
+        const { adapter, mockChat } = await createInitializedAdapter();
+        (adapter as any).chatApi = {
+          spaces: {
+            messages: {
+              get: vi.fn().mockResolvedValue({
+                data: {
+                  thread: { name: "spaces/DM_SPACE/threads/T1" },
+                  space: { name: "spaces/DM_SPACE", spaceType: "SPACE" },
+                },
+              }),
+            },
+          },
+        };
+        await push(
+          adapter,
+          makePubSubPushMessage(
+            { reaction: dmReaction },
+            "google.workspace.chat.reaction.v1.created",
+            DM_TARGET
+          )
+        );
+
+        expect(mockChat.processReaction.mock.calls[0]?.[0].threadId).toBe(
+          THREADED_ID
+        );
+      });
     });
 
     it("should handle Pub/Sub reaction.deleted events", async () => {
@@ -2392,6 +2784,25 @@ describe("GoogleChatAdapter", () => {
       const result = await adapter.fetchChannelInfo("gchat:spaces/DM123");
 
       expect(result.isDM).toBe(true);
+    });
+
+    it.each([
+      ["spaceType DIRECT_MESSAGE", { spaceType: "DIRECT_MESSAGE" }, true],
+      ["singleUserBotDm", { singleUserBotDm: true }, true],
+      ["legacy type DM", { type: "DM" }, true],
+      ["a group chat", { spaceType: "GROUP_CHAT", type: "ROOM" }, false],
+    ])("should report isDM for %s", async (_label, space, expected) => {
+      const { adapter } = await createInitializedAdapter();
+      (adapter as any).chatApi = {
+        spaces: {
+          get: vi.fn().mockResolvedValue({ data: space }),
+          members: { list: vi.fn().mockResolvedValue({ data: {} }) },
+        },
+      };
+
+      const result = await adapter.fetchChannelInfo("gchat:spaces/DM123");
+
+      expect(result.isDM).toBe(expected);
     });
 
     it("should throw on invalid channel ID", async () => {
