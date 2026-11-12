@@ -32,6 +32,8 @@ import {
   tableToAscii,
 } from "chat";
 
+const LINE_BREAK_REGEX = /\r\n|\r|\n/;
+
 export class GoogleChatFormatConverter extends BaseFormatConverter {
   /**
    * Render an AST to Google Chat format.
@@ -145,10 +147,17 @@ export class GoogleChatFormatConverter extends BaseFormatConverter {
     }
 
     if (isBlockquoteNode(node)) {
-      // Google Chat doesn't have native blockquote, use > prefix
+      // Google Chat doesn't have native blockquote, so `>` is visual only.
+      // Quote every line, and keep a quoted blank line between blocks, so
+      // paragraphs and list items stay apart inside the quote.
       return getNodeChildren(node)
-        .map((child) => `> ${this.nodeToGChat(child)}`)
-        .join("\n");
+        .map((child) =>
+          this.nodeToGChat(child)
+            .split(LINE_BREAK_REGEX)
+            .map((line) => (line ? `> ${line}` : ">"))
+            .join("\n")
+        )
+        .join("\n>\n");
     }
 
     if (isListNode(node)) {

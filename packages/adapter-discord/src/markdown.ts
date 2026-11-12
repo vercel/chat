@@ -37,6 +37,7 @@ import {
 
 const SUPPRESSED_AUTOLINK_REGEX = /^<https?:\/\/[^<>\s]+>$/i;
 const SUPPRESSED_MASKED_LINK_REGEX = /\]\(<https?:\/\/[^<>\s]+>\)$/i;
+const LINE_BREAK_REGEX = /\r\n|\r|\n/;
 
 // biome-ignore lint/style/noEnum: Link styles must use an enum.
 enum DiscordLinkStyle {
@@ -245,9 +246,18 @@ export class DiscordFormatConverter extends BaseFormatConverter {
     }
 
     if (isBlockquoteNode(node)) {
+      // Quote every line, and keep a quoted blank line between blocks,
+      // so paragraphs and list items stay apart inside the quote. Discord
+      // only quotes a line that starts with `> `, so blank lines keep the
+      // space too.
       return getNodeChildren(node)
-        .map((child) => `> ${this.nodeToDiscordMarkdown(child)}`)
-        .join("\n");
+        .map((child) =>
+          this.nodeToDiscordMarkdown(child)
+            .split(LINE_BREAK_REGEX)
+            .map((line) => `> ${line}`)
+            .join("\n")
+        )
+        .join("\n> \n");
     }
 
     if (isListNode(node)) {

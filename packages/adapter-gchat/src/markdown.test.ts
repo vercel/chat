@@ -97,6 +97,59 @@ describe("GoogleChatFormatConverter", () => {
       expect(result).toContain("> quoted text");
     });
 
+    it("should quote every line of a multi-line paragraph", () => {
+      const ast = converter.toAst("> line one\n> line two");
+      expect(converter.fromAst(ast)).toBe("> line one\n> line two");
+    });
+
+    it("should quote every paragraph of a multi-paragraph blockquote", () => {
+      const ast = converter.toAst("> first paragraph\n>\n> second paragraph");
+      expect(converter.fromAst(ast)).toBe(
+        "> first paragraph\n>\n> second paragraph"
+      );
+    });
+
+    it("should quote every list item inside a blockquote", () => {
+      const ast = converter.toAst("> - a\n> - b");
+      expect(converter.fromAst(ast)).toBe("> • a\n> • b");
+    });
+
+    it("should prefix nested blockquotes and code blocks on every line", () => {
+      const ast = converter.toAst(
+        [
+          "> outer",
+          ">",
+          "> > inner one",
+          "> >",
+          "> > inner two",
+          ">",
+          "> ```",
+          "> line one",
+          "> line two",
+          "> ```",
+        ].join("\n")
+      );
+      expect(converter.fromAst(ast)).toBe(
+        [
+          "> outer",
+          ">",
+          "> > inner one",
+          "> >",
+          "> > inner two",
+          ">",
+          "> ```",
+          "> line one",
+          "> line two",
+          "> ```",
+        ].join("\n")
+      );
+    });
+
+    it("should treat a carriage return as a line break inside a quote", () => {
+      const ast = converter.toAst("> ```\r> first\r>\r> second\r> ```");
+      expect(converter.fromAst(ast)).toBe("> ```\n> first\n>\n> second\n> ```");
+    });
+
     it("should handle unordered lists with bullet points", () => {
       const ast = converter.toAst("- item 1\n- item 2");
       const result = converter.fromAst(ast);
