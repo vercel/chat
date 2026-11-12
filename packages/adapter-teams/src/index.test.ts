@@ -1882,6 +1882,83 @@ describe("TeamsAdapter", () => {
     });
   });
 
+  describe("raw Adaptive Cards", () => {
+    const adaptiveCard = {
+      type: "AdaptiveCard",
+      version: "1.5",
+      body: [{ type: "Badge", text: "Bug", style: "Attention" }],
+    };
+
+    function createAdapterWithMocks() {
+      const adapter = createTeamsAdapter({
+        appId: "test-app-id",
+        appPassword: "test",
+        logger,
+      });
+      const app = (
+        adapter as unknown as {
+          app: { api: unknown; sendTo: ReturnType<typeof vi.fn> };
+        }
+      ).app;
+      app.sendTo = vi.fn(async () => ({ id: "card-msg-1", type: "message" }));
+      const update = vi.fn(async () => ({ id: "card-msg-1" }));
+      app.api = {
+        conversations: { activities: () => ({ update, delete: vi.fn() }) },
+        reactions: { add: vi.fn(), remove: vi.fn() },
+        serviceUrl: "https://smba.trafficmanager.net/teams/",
+      };
+      const threadId = adapter.encodeThreadId({
+        conversationId: "19:abc@thread.tacv2",
+        serviceUrl: "https://smba.trafficmanager.net/teams/",
+      });
+      return { adapter, sendTo: app.sendTo, threadId, update };
+    }
+
+    it("posts the card as is with fallbackText as the summary", async () => {
+      const { adapter, sendTo, threadId } = createAdapterWithMocks();
+
+      await adapter.postMessage(threadId, {
+        adaptiveCard,
+        fallbackText: "Bug · Suggested reply",
+      });
+
+      expect(sendTo).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.objectContaining({
+          attachments: [
+            {
+              contentType: "application/vnd.microsoft.card.adaptive",
+              content: adaptiveCard,
+            },
+          ],
+          summary: "Bug · Suggested reply",
+        })
+      );
+    });
+
+    it("edits a message to the card as is", async () => {
+      const { adapter, threadId, update } = createAdapterWithMocks();
+
+      await adapter.editMessage(threadId, "card-msg-1", {
+        adaptiveCard,
+        fallbackText: "Bug · Sent",
+      });
+
+      expect(update).toHaveBeenCalledWith(
+        "card-msg-1",
+        expect.objectContaining({
+          attachments: [
+            {
+              contentType: "application/vnd.microsoft.card.adaptive",
+              content: adaptiveCard,
+            },
+          ],
+          summary: "Bug · Sent",
+        })
+      );
+    });
+  });
+
   describe("AI-generated label", () => {
     const SERVICE_URL = "https://smba.trafficmanager.net/teams/";
     const AI_LABEL = expect.arrayContaining([

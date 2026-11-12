@@ -451,6 +451,25 @@ Messages posted through the built-in [AI tools](/docs/ai/ai-sdk-tools) are label
 
 See Microsoft's [AI content labels documentation](https://learn.microsoft.com/en-us/microsoftteams/platform/agents-in-teams/integrate-ai/ai-content-labels).
 
+## Raw Adaptive Cards
+
+Chat SDK cards cover the elements that every platform can render. For Adaptive Card features they don't cover, such as `Badge` or container styles, pass the Adaptive Card JSON as `adaptiveCard` to the Teams adapter's `postMessage`, `postChannelMessage`, or `editMessage`. The adapter sends the card as is. `thread.post()` doesn't accept it, because other platforms can't render it.
+
+```typescript title="lib/bot.ts"
+const teams = bot.getAdapter("teams");
+
+await teams.postMessage(thread.id, {
+  adaptiveCard: {
+    type: "AdaptiveCard",
+    version: "1.5",
+    body: [{ type: "Badge", text: "Bug", style: "Attention" }],
+  },
+  fallbackText: "Bug: checkout fails on Safari",
+});
+```
+
+Teams shows `fallbackText` as the activity summary, in notifications and in clients that can't render the card.
+
 ## User lookup
 
 `bot.getUser()` looks up user profiles through the Microsoft Graph API. To enable it:

@@ -7,6 +7,7 @@
 
 import {
   createEmojiConverter,
+  extractCard,
   mapButtonStyle,
   cardToFallbackText as sharedCardToFallbackText,
   ValidationError,
@@ -42,6 +43,7 @@ import {
 } from "@microsoft/teams.cards";
 import type {
   ActionsElement,
+  AdapterPostableMessage,
   ButtonElement,
   CardChild,
   CardElement,
@@ -59,6 +61,7 @@ import type {
   TextInputElement,
 } from "chat";
 import { cardChildToFallbackText } from "chat";
+import type { TeamsPostableMessage } from "./types";
 
 /**
  * Convert emoji placeholders in text to Teams format.
@@ -68,6 +71,28 @@ const convertEmoji = createEmojiConverter("teams");
 const ADAPTIVE_CARD_SCHEMA =
   "http://adaptivecards.io/schemas/adaptive-card.json";
 const ADAPTIVE_CARD_VERSION = "1.5" as const;
+
+/** A raw Adaptive Card is sent as is, and a Chat SDK card is converted. */
+export function prepareTeamsMessage(input: TeamsPostableMessage): {
+  adaptiveCard?: unknown;
+  message: AdapterPostableMessage;
+  summary?: string;
+} {
+  if (typeof input === "object" && "adaptiveCard" in input) {
+    const { adaptiveCard, fallbackText, ...rest } = input;
+    return {
+      adaptiveCard,
+      message: { ...rest, raw: fallbackText ?? "" },
+      summary: fallbackText || undefined,
+    };
+  }
+
+  const card = extractCard(input);
+  return {
+    adaptiveCard: card ? cardToAdaptiveCard(card) : undefined,
+    message: input,
+  };
+}
 
 /**
  * Sentinel action ID for auto-injected submit buttons.
