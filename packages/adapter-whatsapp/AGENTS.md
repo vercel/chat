@@ -1,27 +1,29 @@
-# AGENTS.md — `@chat-adapter/whatsapp`
+# AGENTS.md: `@chat-adapter/whatsapp`
 
 Guidance for coding agents working inside the WhatsApp adapter
-package. The top-level repository [AGENTS.md](../../AGENTS.md) covers
-monorepo-wide build, lint, and release rules — read it first. This
-file documents the adapter-specific surface, conventions, and pitfalls.
+package. Read the top-level repository [AGENTS.md](../../AGENTS.md)
+first for monorepo-wide build, lint, and release rules. This file
+documents the adapter-specific surface, conventions, and pitfalls.
 
 ## Overview
 
 `@chat-adapter/whatsapp` connects a Chat SDK bot to the WhatsApp Cloud
 API (Meta-hosted Business Platform). It covers:
 
-- HTTP webhook endpoint at `/api/webhooks/whatsapp` with the GET
-  challenge handshake plus the POST event delivery (signed by Meta
-  with HMAC-SHA256).
-- Outbound messages via the Cloud API: text, media (image, document,
-  video, audio, sticker), interactive (buttons, lists), templates,
-  reactions, and read receipts.
-- Phone-number-driven addressing — WhatsApp threads are 1:1 between
-  the bot's phone number and the customer's E.164 number.
-- 24-hour conversation window — outside it, only approved templates
-  can be sent.
-- Multiple phone-number-id support (run a single bot across multiple
-  WhatsApp Business Accounts).
+- A webhook handler for the GET subscription check and signed POST
+  event delivery (HMAC-SHA256 with `appSecret`).
+- Outbound messages through the Cloud API: text, media (image,
+  document, video, audio), interactive reply buttons, CTA URL
+  messages, templates, reactions, typing indicators, and read
+  receipts.
+- 1:1 threads between one bot phone number and one user, who is
+  identified by a phone number or a business-scoped user ID (BSUID).
+
+The adapter is configured with a single `phoneNumberId`, and every
+send goes through it. It does not send list messages or stickers,
+does not track the 24-hour conversation window, and has no message
+history: `fetchMessages` returns an empty list. Editing and deleting
+messages always throw.
 
 ## Directory layout
 
@@ -30,14 +32,16 @@ packages/adapter-whatsapp/
 ├── src/
 │   ├── index.ts             # WhatsAppAdapter + createWhatsAppAdapter
 │   ├── index.test.ts
-│   ├── cards.ts             # PostableMessage / Card → interactive payloads
+│   ├── cards.ts             # CardElement → reply buttons, CTA URL, or text
 │   ├── cards.test.ts
 │   ├── errors.ts            # WhatsAppApiError (Meta Graph error envelope)
 │   ├── errors.test.ts
 │   ├── markdown.ts          # WhatsAppFormatConverter (mdast ↔ WA formatting)
 │   ├── markdown.test.ts
+│   ├── subclass.test-d.ts   # type tests for the protected subclassing surface
 │   └── types.ts             # Cloud API typings
 ├── sample-messages.md       # captured Cloud API webhook events
+├── CHANGELOG.md
 ├── package.json
 ├── tsconfig.json
 ├── tsup.config.ts
@@ -60,111 +64,163 @@ pnpm --filter @chat-adapter/whatsapp build
 pnpm --filter @chat-adapter/whatsapp test
 ```
 
-Replay tests live in
-`packages/integration-tests/src/replay-whatsapp-*.test.ts`.
+Tests resolve `@chat-adapter/shared` from its `dist`. Rebuild the
+shared package after you change it, or run tests through `pnpm test`
+at the repo root, which builds first.
+
+The replay test is
+`packages/integration-tests/src/replay-whatsapp.test.ts`. It reads
+`packages/integration-tests/fixtures/replay/dm/whatsapp.json` and
+uses the helpers in `packages/integration-tests/src/whatsapp-utils.ts`.
 
 ## Public surface
 
-Main exports from `src/index.ts`:
+Exports from `src/index.ts`:
 
-- `createWhatsAppAdapter(config?)` — primary factory. Auto-detects
+- `createWhatsAppAdapter(config?)`: the factory. It reads
   `WHATSAPP_ACCESS_TOKEN`, `WHATSAPP_APP_SECRET`,
-  `WHATSAPP_PHONE_NUMBER_ID`, `WHATSAPP_VERIFY_TOKEN`, and the
-  optional `WHATSAPP_WABA_ID` (used for cross-number reads).
-- `WhatsAppAdapter` class — implements `Adapter<WhatsAppThreadId,
-  unknown>`. Public methods: `handleWebhook`, `postMessage`, `reply`,
-  `editMessage`, `deleteMessage`, `addReaction`, `removeReaction`,
-  `startTyping`, `markRead`, `fetchThread`, `fetchMessages`,
-  `fetchSingleMessage`, `fetchChannelInfo`, `postChannelMessage`,
-  `openDM`, `sendTemplate`.
-- Configuration: `WhatsAppAdapterConfig`, `WhatsAppThreadId`,
-  `WhatsAppTemplateMessage`.
-- Errors: `WhatsAppApiError` (non-2xx Graph API responses) plus the
-  `WhatsAppGraphError` / `WhatsAppGraphErrorBody` envelope types.
-- Helpers: `cardToInteractive`, `cardToFallbackText`,
-  `WhatsAppFormatConverter`, `decodeThreadId`, `encodeThreadId`,
-  `isDM`.
+  `WHATSAPP_PHONE_NUMBER_ID`, and `WHATSAPP_VERIFY_TOKEN` when the
+  matching config field is missing, and throws `ValidationError` if
+  any of the four is absent from both. `WHATSAPP_BOT_USERNAME`
+  (defaults to `whatsapp-bot`) and `WHATSAPP_API_URL` are optional.
+- `WhatsAppAdapter`: implements
+  `Adapter<WhatsAppThreadId, WhatsAppRawMessage>`. The class
+  constructor does not validate its config. Only the factory does.
+- `WhatsAppApiError`, `splitMessage`, `getWhatsAppMediaType`,
+  `validateFileSize`.
+- Types: `WhatsAppAdapterConfig`, `WhatsAppThreadId`,
+  `WhatsAppRawMessage`, `WhatsAppMediaType`, `WhatsAppMediaResponse`,
+  `WhatsAppTemplateMessage` and its component and parameter types,
+  and the `WhatsAppGraphError` / `WhatsAppGraphErrorBody` envelope
+  types.
+
+Nothing from `cards.ts` or `markdown.ts` is exported from the
+package.
+
+`WhatsAppAdapterConfig` fields: `accessToken`, `appSecret`,
+`phoneNumberId`, `verifyToken`, `apiVersion` (defaults to `v25.0`),
+`apiUrl` (defaults to `https://graph.facebook.com`), `userName`, and
+`logger`.
+
+Public methods on `WhatsAppAdapter`:
+
+- Working: `initialize`, `handleWebhook`, `postMessage`, `reply`,
+  `sendTemplate`, `stream`, `addReaction`, `removeReaction`,
+  `startTyping`, `markAsRead`, `fetchThread`, `fetchMessages`
+  (always returns `{ messages: [] }`), `openDM`, `isDM`,
+  `channelIdFromThreadId`, `encodeThreadId`, `decodeThreadId`,
+  `parseMessage`, `renderFormatted`, `downloadMedia`,
+  `rehydrateAttachment`, `splitMessage`.
+- Always throw: `editMessage`, `deleteMessage`.
+
+The handlers and helpers that subclasses override are `protected`,
+for example `verifySignature`, `handleInboundMessage`,
+`handleReaction`, `handleInteractiveReply`, `handleButtonResponse`,
+and `buildMessage`. `subclass.test-d.ts` pins that surface. Keep it
+in sync when you add or rename a protected member.
 
 ## Thread ID format
 
-WhatsApp threads are scoped by the bot's phone-number-id and the
-customer's E.164 number (without the leading `+`):
-
 ```
-whatsapp:{phoneNumberId}:{customerPhone}
+whatsapp:{phoneNumberId}:{userWaId}
 ```
 
-`isDM(threadId)` always returns `true` — WhatsApp Cloud API has no
-group concept (groups exist only on the on-prem API and are not
-supported by this adapter).
+`WhatsAppThreadId` is `{ phoneNumberId: string; userWaId: string }`.
+`userWaId` is the user's routing identifier, which may be a phone
+number or a BSUID. `decodeThreadId` throws `ValidationError` unless
+the ID has the `whatsapp` prefix and exactly two non-empty segments
+after it. It does not strip a leading `+` or normalize the number in
+any other way.
+
+`isDM` always returns `true`. `channelIdFromThreadId` returns the
+thread ID unchanged. `openDM` encodes the user ID with the configured
+`phoneNumberId` and doesn't call the API.
 
 ## Webhook flow
 
 `WhatsAppAdapter.handleWebhook(request, options)` is the entry point.
 
-1. **Verification handshake** (GET) — Meta sends
-   `?hub.mode=subscribe&hub.verify_token=…&hub.challenge=…`. The
-   adapter checks `verify_token` against `WHATSAPP_VERIFY_TOKEN` and
-   echoes the challenge.
-2. **Event delivery** (POST) — Meta signs every body with HMAC-SHA256
-   using `appSecret`. The adapter verifies before parsing.
-3. **Event routing**
-   - `messages` (`text`, `image`, `audio`, `document`, `video`,
-     `sticker`, `location`, `interactive`, `button`) →
-     `chat.handleIncomingMessage`. Mentions are detected by matching
-     the bot's display phone number against `text.body`.
-   - `statuses` (`sent`, `delivered`, `read`, `failed`) → optional
-     delivery hooks. The adapter keeps a `lastUserMessageAt` cache so
-     it can decide when the 24-hour window has expired.
-   - `errors` → `chat.logger.error` with the Cloud API error
-     payload.
-   - `user_id_update` (a separate `field` from `messages`) → alias the
-     previous and current BSUID to the same canonical user so the
-     thread survives the rotation. `user_changed_number` and
-     `user_changed_user_id` system messages under `messages` update
-     identity state the same way, then skip message dispatch.
-4. **`waitUntil`** — the 200 response must land within 20 s; longer
-   work goes through `waitUntil`.
+1. **Subscription check** (GET). `verifyMetaWebhookChallenge` from
+   `@chat-adapter/shared` requires `hub.mode=subscribe` and a
+   `hub.verify_token` equal to `verifyToken`. The adapter responds
+   with 200 and the `hub.challenge` value, or 403.
+2. **Event delivery** (POST). `verifyMetaSignature` checks the
+   `X-Hub-Signature-256` header against the raw body. The header must
+   be `sha256=` followed by exactly 64 hex digits. A rejected
+   signature gets 401. If the check throws, `verifySignature` logs a
+   warning and treats the signature as rejected.
+3. **Other responses.** Invalid JSON gets 400. Everything else gets
+   200 with `ok`.
+4. **Event routing.** The adapter loops over every `entry[]` and
+   `changes[]`:
+   - `field: "messages"`, by message type:
+     - `text`, `image`, `document`, `audio`, `voice`, `video`,
+       `sticker`, `location`: `chat.processMessage`. Non-text types
+       get placeholder text such as `[Image]`, and image and document
+       captions are used as the text.
+     - `interactive` (`button_reply` and `list_reply`):
+       `chat.processAction`, with the reply ID decoded by
+       `decodeWhatsAppCallbackData`.
+     - `button` (a template quick reply): `chat.processAction` with
+       the button payload as the action ID.
+     - `reaction`: `chat.processReaction`. An empty emoji means the
+       reaction was removed.
+     - `system` (`user_changed_number`, `user_changed_user_id`):
+       updates identity state, then skips dispatch.
+     - Anything else is logged at debug level and ignored.
+   - `field: "user_id_update"`: aliases the previous and current
+     BSUID to the same canonical user so the thread survives the
+     change.
+   - `statuses` and any other field are ignored.
+5. **`waitUntil`.** The adapter passes `options` to the `process*`
+   calls and doesn't await them. Identity lookups and updates are
+   awaited before the 200.
+
+There is no mention detection. Inbound messages don't set
+`isMention`.
 
 ## Authentication
 
-Two flavours of access token:
+The access token is sent as an `Authorization: Bearer` header on
+every Graph API call, never as a query parameter. On media downloads
+the token is attached only to the Graph origin and to hosts under
+`fbcdn.net` and `fbsbx.com`, checked on every redirect hop.
 
-- **System User token** — long-lived, recommended. Generate via
-  Business Manager → System Users → token assignment for the
-  WhatsApp Business product.
-- **App user token** — short-lived (60 days). Use for development
-  only.
+The app secret is used only for webhook signature verification.
 
-The adapter never refreshes tokens; rotate them out-of-band when
-they expire and update `WHATSAPP_ACCESS_TOKEN`.
+The adapter never refreshes tokens. Rotate them out of band and
+update `WHATSAPP_ACCESS_TOKEN`.
 
 ## Format conversion
 
 WhatsApp uses a small set of formatting markers: `*bold*`, `_italic_`,
-`~strike~`, `` `inline code` ``, and triple-backtick code fences.
+`~strike~`, and triple-backtick code fences.
 `WhatsAppFormatConverter` (in `markdown.ts`):
 
-- mdast → WA formatting — preserves the supported markers and strips
-  unsupported ones (headings collapse to bold lines, lists become
-  plain paragraphs with bullet prefixes).
-- WA formatting → mdast — round-trips the same constructs. Mentions
-  are not recognised by the Cloud API except in a very limited
-  context (`Hey @[+1234567890]`), so the converter treats them as
-  plain text.
-- Tables flatten to fixed-width text in a code fence.
+- mdast → WhatsApp formatting. Headings become bold lines, thematic
+  breaks become `━━━`, and tables become an ASCII table in a code
+  block. Lists stay Markdown lists with `-` bullets.
+- WhatsApp formatting → mdast. `toAst` runs `normalizeCodeFences`
+  from `@chat-adapter/shared` first, so text after an opening fence
+  is code and not an info string.
+
+The converter has no mention handling.
+
+Outbound text has a 4096-character limit. `splitMessage` splits
+longer text at paragraph breaks, then line breaks, then a hard cut,
+and the adapter sends the chunks as sequential messages. The first
+chunk carries the reply context and the last message ID is returned.
 
 ## Cards (interactive payloads)
 
-WhatsApp supports two interactive shapes that map onto Chat SDK
-cards:
+`cardToWhatsApp` in `cards.ts` produces one of three results:
 
-- **Reply buttons** — up to 3 buttons. `cardToInteractive` builds an
-  `interactive.type: "button"` message when the card has 1–3
-  `<Button>` children with no `<Select>`.
-- **List messages** — up to 10 sections, each with up to 10 rows.
-  Used when the card has more than 3 actions or any `<Select>`.
-- **CTA URL messages** — `interactive.type: "cta_url"` when the
+- **Reply buttons** (`interactive.type: "button"`). Buttons come
+  from the first actions element, found with `findCardActions` from
+  `@chat-adapter/shared`. Only `<Button>` children with an `id` are
+  kept, and only the first 3. Extra buttons are dropped. They don't
+  trigger a list or the text fallback.
+- **CTA URL messages** (`interactive.type: "cta_url"`) when the
   card's only interactive element, across every actions row
   including rows nested in sections, is a single `LinkButton` with
   a non-empty label and an `http://` or `https://` URL. Promotion
@@ -172,20 +228,35 @@ cards:
   table, chart, or inline link children (the interactive body
   cannot carry them), or when the post includes files or
   attachments (the captioned media send wins). Text, fields,
-  sections, and dividers are fine. `display_text` truncates to 20
-  chars, the header to 60, the body to 1024.
+  sections, and dividers are fine.
+- **Text** otherwise, built by `cardToWhatsAppText`, where link
+  buttons render as `Label: url` and reply buttons as `[Label]`.
 
-Outside those shapes, cards fall back to plain text built from
-`cardToFallbackText`, where link buttons render as `Label: url`.
-When a card does render as an interactive button message, any
-`LinkButton` URLs are appended to the body as `Label: url` lines so
-they stay reachable. The same lines are added to media captions,
-since the shared fallback text excludes action elements.
+Limits, applied by truncating with `truncateWithEllipsis`: 20
+characters for a button title or CTA `display_text`, 60 for the
+header, and 1024 for the body. `cards.ts` never throws for a card
+that exceeds them.
+
+The adapter does not build list messages. The `list` interactive
+shape exists only as a type, and inbound `list_reply` events are
+handled.
+
+When a card renders as reply buttons, any `LinkButton` URLs are
+appended to the body as `Label: url` lines so they stay reachable.
+The same lines are added to media captions, which use
+`cardToFallbackText` from `@chat-adapter/shared` and so exclude
+action elements.
+
+Reply button IDs are `chat:{"a":"<id>","v":"<value>"}`, built by the
+shared callback data codec. `decodeWhatsAppCallbackData` returns the
+action ID `whatsapp_callback` for a missing ID and passes any ID
+without the `chat:` prefix through as both the action ID and the
+value.
 
 ## Templates
 
-Outside the 24-hour conversation window, the Cloud API only accepts
-**approved templates**. `sendTemplate` is the way to drive them:
+`sendTemplate` sends an approved template, which is what the Cloud
+API accepts outside the 24-hour conversation window:
 
 ```typescript
 await adapter.sendTemplate(threadId, {
@@ -200,9 +271,8 @@ await adapter.sendTemplate(threadId, {
 });
 ```
 
-The adapter does not auto-substitute templates for outbound text
-posts — handlers must opt in explicitly when they detect the window
-is closed.
+The adapter does not substitute templates for outbound text posts.
+Handlers must opt in explicitly.
 
 ## File uploads
 
@@ -228,55 +298,63 @@ else maps to `document`. Pre-flight size checks throw
 `ValidationError` when binary size is known (image 5 MB, audio/video
 16 MB, document 100 MB).
 
-**Cards + files.** When the card renders as an interactive message
-(reply buttons or a list), media is sent without a caption and the
-interactive message that follows carries the title, body, and
-buttons. Text-fallback cards caption the first media with the
-fallback text plus a `Label: url` line per link button. A card
-with only a link button is never promoted to a CTA URL message
-when media is attached; it takes this captioned path. Card validation runs before
-media upload, so `ValidationError` is thrown before any media is
-sent.
+**Cards + files.** When the card renders as reply buttons, media is
+sent without a caption and the interactive message that follows
+carries the title, body, and buttons. Text-fallback cards caption
+the first media with the fallback text plus a `Label: url` line per
+link button. A card with only a link button is never promoted to a
+CTA URL message when media is attached; it takes this captioned
+path. All media is resolved and uploaded before the first send, so a
+`ValidationError` for empty data, a non-HTTPS URL, or an oversized
+file is thrown before anything is sent.
 
-Media IDs expire after 30 days. For inbound media, the adapter
-exposes a lazy `fetchData()` that downloads the binary on demand.
+For inbound media, the adapter exposes a lazy `fetchData()` that
+downloads the binary on demand. `downloadMedia(mediaId, transport?)`
+does the same two-step fetch directly, and `rehydrateAttachment`
+rebuilds `fetchData` from stored metadata.
 
 ## Streaming
 
-WhatsApp does not support message edits via the Cloud API in the
-free tier (paid tiers added support late 2024). The adapter falls
-back to the buffered streaming pattern: accumulate the stream and
-post once when it completes. For markets with edit support, set
-`enableEdit: true` in the adapter config to switch to post-then-edit.
+`editMessage` always throws, so `stream()` buffers: it accumulates
+string and `markdown_text` chunks and posts once when the stream
+completes. There is no post-then-edit mode.
 
 ## WhatsApp quirks worth remembering
 
-- **24-hour window.** Free-form messages fail outside it with a
-  131047 error. Use approved templates to re-engage.
-- **Phone-number formatting.** Cloud API expects E.164 without the
-  leading `+`. `decodeThreadId` already handles this; raw API users
-  must too.
-- **Webhook signature includes the entire body.** Forwarding through
-  a proxy that mutates the body breaks verification.
-- **Read receipts** are sent via `messages` API with `status:
-  "read"`. The adapter exposes `markRead(threadId)` for handlers
-  that want explicit control.
-- **Stickers, voice notes, and PDFs** all arrive as separate event
-  shapes — extend `index.ts` thoughtfully when adding support.
-- **Interactive button limits.** 3 reply buttons, 20-character
-  labels, 256-character `id`s. The adapter throws `ValidationError`
-  before sending if you exceed them.
+- **24-hour window.** The adapter doesn't track it. A free-form
+  message outside the window fails with a `WhatsAppApiError` carrying
+  the Graph API's error code. Use `sendTemplate` to re-engage.
+- **User identifiers.** A user may be addressed by phone number or
+  by BSUID. The adapter keeps alias and route state under
+  `whatsapp:identity:*` keys and picks the recipient field from it.
+  Don't assume the third thread ID segment is a phone number.
+- **Webhook signature covers the entire raw body.** Forwarding
+  through a proxy that changes the body breaks verification.
+- **Read receipts.** `markAsRead` sends `status: "read"` for a
+  message ID. `startTyping` also marks the latest inbound message as
+  read, because the typing indicator is attached to that call. It
+  warns and returns when the thread has no inbound message yet.
+- **Reactions.** Removing a reaction sends an empty emoji.
+- **Stickers and voice notes** arrive as their own message types.
+  PDFs arrive as `document`.
+- **Malformed payloads.** `handleWebhook` doesn't guard against a
+  payload without `entry` or `changes`.
 
 ## Testing approach
 
-- **Unit tests** colocated with each module (`*.test.ts`). The
-  interactive-payload tests in `cards.test.ts` cover reply buttons
-  vs lists vs fallback text.
-- **Replay tests** in
-  `packages/integration-tests/src/replay-whatsapp-*.test.ts` consume
-  recorded `messages` and `statuses` events.
-- **Cloud API client** is mocked at the `fetch` boundary; never hit
-  `graph.facebook.com` from unit tests.
+- **Unit tests** sit next to each module (`*.test.ts`). `fetch` is
+  replaced on `globalThis`. Never call `graph.facebook.com` from unit
+  tests.
+- **Signed requests.** A test for a rejected signature must send a
+  well-formed `sha256=<64 hex>` header signed with the wrong secret
+  or for another body. A malformed header is rejected earlier, for a
+  different reason.
+- **Card limits.** Assert the exact output at the limit and one past
+  it. A length check alone passes for the wrong reason.
+- **Replay test** in
+  `packages/integration-tests/src/replay-whatsapp.test.ts` consumes
+  a recorded webhook session, including a status event that the
+  adapter ignores.
 
 When you add support for a new event subtype, capture a fresh fixture
 in `sample-messages.md`.
@@ -292,20 +370,25 @@ in `sample-messages.md`.
   rather than throwing `AdapterRateLimitError` / `AuthenticationError`
   directly. Transport and JSON parse failures throw `NetworkError`, and
   bad input throws `ValidationError`.
+- Webhook verification, callback data, and the card helpers
+  `findCardActions` and `truncateWithEllipsis` are shared with
+  Messenger and Instagram. Change them in `packages/adapter-shared`,
+  not here.
 - Top-level regex literals only.
-- Phone-number sanitization belongs in one helper — never inline
-  `replace(/\\+/, "")` calls.
+- Access tokens are sensitive. Never log them or include them in
+  error messages.
 
 ## Releases
 
-Behavioural changes need a changeset (`pnpm changeset`, choose
-`@chat-adapter/whatsapp` plus `chat` if a public type changed).
-Sample fixtures and AGENTS.md edits don't.
+Behavioral changes need a changeset (`pnpm changeset`, choose
+`@chat-adapter/whatsapp`). All packages release together in one
+fixed group, so you don't need to add `chat`. Sample fixtures and
+AGENTS.md edits don't need one.
 
 ## Where to look next
 
 - User-facing docs: [`apps/docs/content/adapters/official/whatsapp.mdx`](../../apps/docs/content/adapters/official/whatsapp.mdx)
 - README: [`packages/adapter-whatsapp/README.md`](README.md)
 - Shared error/utility helpers: [`packages/adapter-shared/src/index.ts`](../adapter-shared/src/index.ts)
-- Core Adapter contract: [`packages/chat/src/adapter.ts`](../chat/src/adapter.ts)
+- Core Adapter contract: [`packages/chat/src/types.ts`](../chat/src/types.ts)
 - Sample webhook payloads: [`packages/adapter-whatsapp/sample-messages.md`](sample-messages.md)

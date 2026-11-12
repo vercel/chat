@@ -98,9 +98,14 @@ describe("Telegram reply mention routing", () => {
       state: createMemoryState(),
       userName: "testbot",
     });
+    // Only a forum topic is its own thread. A regular supergroup reply also
+    // carries message_thread_id, but it stays in the chat's thread.
+    const threadId = scenario.topic
+      ? `telegram:${group.id}:5`
+      : `telegram:${group.id}`;
     const handler = vi.fn(async (thread: Thread, message: Message) => {
       expect(message.isMention).toBe(true);
-      expect(thread.id).toBe(`telegram:${group.id}:5`);
+      expect(thread.id).toBe(threadId);
       const posted = await thread.post("reply");
       expect(posted.threadId).toBe(thread.id);
     });
@@ -138,7 +143,7 @@ describe("Telegram reply mention routing", () => {
             expect.objectContaining({
               payload: expect.objectContaining({
                 chat_id: String(group.id),
-                message_thread_id: 5,
+                ...(scenario.topic ? { message_thread_id: 5 } : {}),
                 text: "reply",
               }),
             }),

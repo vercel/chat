@@ -5,12 +5,20 @@
  * - Generic Template: title, subtitle, image, up to 3 buttons
  * - Button Template: text with up to 3 buttons (no image)
  *
- * Cards that exceed constraints fall back to formatted text messages.
+ * Content past Messenger's limits is trimmed: only the first 3 buttons are
+ * kept, and titles, subtitles, and text are truncated. Cards with a table,
+ * select, or radio select, and cards without buttons, become formatted text.
  *
  * @see https://developers.facebook.com/docs/messenger-platform/send-messages/template/generic/
  * @see https://developers.facebook.com/docs/messenger-platform/send-messages/buttons/
  */
 
+import {
+  decodeCallbackData,
+  encodeCallbackData,
+  findCardActions,
+  truncateWithEllipsis,
+} from "@chat-adapter/shared";
 import type {
   ActionsElement,
   ButtonElement,
@@ -21,13 +29,6 @@ import type {
   TextElement,
 } from "chat";
 import type { MessengerButton, MessengerTemplatePayload } from "./types";
-
-const CALLBACK_DATA_PREFIX = "chat:";
-
-interface MessengerCardActionPayload {
-  a: string;
-  v?: string;
-}
 
 /** Maximum number of buttons Messenger allows per template */
 const MAX_BUTTONS = 3;
@@ -60,11 +61,7 @@ export function encodeMessengerCallbackData(
   actionId: string,
   value?: string
 ): string {
-  const payload: MessengerCardActionPayload = { a: actionId };
-  if (typeof value === "string") {
-    payload.v = value;
-  }
-  return `${CALLBACK_DATA_PREFIX}${JSON.stringify(payload)}`;
+  return encodeCallbackData(actionId, value);
 }
 
 /**
@@ -75,40 +72,14 @@ export function decodeMessengerCallbackData(data?: string): {
   actionId: string;
   value: string | undefined;
 } {
-  if (!data) {
-    return { actionId: "messenger_callback", value: undefined };
-  }
-
-  // Passthrough for legacy or externally-generated payloads that don't
-  // use the chat: prefix — treat the raw string as both actionId and value.
-  if (!data.startsWith(CALLBACK_DATA_PREFIX)) {
-    return { actionId: data, value: data };
-  }
-
-  try {
-    const decoded = JSON.parse(
-      data.slice(CALLBACK_DATA_PREFIX.length)
-    ) as MessengerCardActionPayload;
-
-    if (typeof decoded.a === "string" && decoded.a) {
-      return {
-        actionId: decoded.a,
-        value: typeof decoded.v === "string" ? decoded.v : undefined,
-      };
-    }
-  } catch {
-    // Malformed JSON after prefix — fall back to passthrough.
-  }
-
-  // Same passthrough as non-prefixed data: treat raw string as both fields.
-  return { actionId: data, value: data };
+  return decodeCallbackData(data, "messenger_callback");
 }
 
 /**
  * Convert a CardElement to a Messenger message payload.
  *
- * If the card has action buttons that fit Messenger's constraints
- * (max 3 buttons, titles max 20 chars), produces a template message.
+ * A card with at least one usable button produces a generic template when it
+ * has a title or image, or a button template when it has body text.
  * Otherwise, produces a text fallback.
  */
 export function cardToMessenger(card: CardElement): MessengerCardResult {
@@ -117,7 +88,7 @@ export function cardToMessenger(card: CardElement): MessengerCardResult {
     return { type: "text", text: cardToMessengerText(card) };
   }
 
-  const actions = findActions(card.children);
+  const actions = findCardActions(card.children);
   const buttons = actions ? extractButtons(actions) : null;
 
   // If we have valid buttons within constraints
@@ -209,9 +180,9 @@ function buildGenericTemplate(
     template_type: "generic",
     elements: [
       {
-        title: truncate(title, MAX_TITLE_LENGTH),
+        title: truncateWithEllipsis(title, MAX_TITLE_LENGTH),
         ...(subtitle
-          ? { subtitle: truncate(subtitle, MAX_SUBTITLE_LENGTH) }
+          ? { subtitle: truncateWithEllipsis(subtitle, MAX_SUBTITLE_LENGTH) }
           : {}),
         ...(card.imageUrl ? { image_url: card.imageUrl } : {}),
         buttons,
@@ -229,7 +200,7 @@ function buildButtonTemplate(
 ): MessengerTemplatePayload {
   return {
     template_type: "button",
-    text: truncate(text, MAX_BUTTON_TEMPLATE_TEXT_LENGTH),
+    text: truncateWithEllipsis(text, MAX_BUTTON_TEMPLATE_TEXT_LENGTH),
     buttons,
   };
 }
@@ -254,24 +225,6 @@ function hasUnsupportedElements(children: CardChild[]): boolean {
     }
   }
   return false;
-}
-
-/**
- * Find the first ActionsElement in a list of card children.
- */
-function findActions(children: CardChild[]): ActionsElement | null {
-  for (const child of children) {
-    if (child.type === "actions") {
-      return child;
-    }
-    if (child.type === "section") {
-      const nested = findActions(child.children);
-      if (nested) {
-        return nested;
-      }
-    }
-  }
-  return null;
 }
 
 /**
@@ -303,7 +256,7 @@ function extractButtons(actions: ActionsElement): MessengerButton[] | null {
 function convertButton(button: ButtonElement): MessengerButton {
   return {
     type: "postback",
-    title: truncate(button.label, MAX_BUTTON_TITLE_LENGTH),
+    title: truncateWithEllipsis(button.label, MAX_BUTTON_TITLE_LENGTH),
     payload: encodeMessengerCallbackData(button.id, button.value),
   };
 }
@@ -314,7 +267,7 @@ function convertButton(button: ButtonElement): MessengerButton {
 function convertLinkButton(button: LinkButtonElement): MessengerButton {
   return {
     type: "web_url",
-    title: truncate(button.label, MAX_BUTTON_TITLE_LENGTH),
+    title: truncateWithEllipsis(button.label, MAX_BUTTON_TITLE_LENGTH),
     url: button.url,
   };
 }
@@ -446,14 +399,4 @@ function childToPlainText(child: CardChild): string | null {
     default:
       return null;
   }
-}
-
-/**
- * Truncate text to a maximum length, adding ellipsis if needed.
- */
-function truncate(text: string, maxLength: number): string {
-  if (text.length <= maxLength) {
-    return text;
-  }
-  return `${text.slice(0, maxLength - 1)}\u2026`;
 }

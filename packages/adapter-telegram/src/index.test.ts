@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { readFileSync } from "node:fs";
 import {
   AdapterRateLimitError,
   AuthenticationError,
@@ -45,6 +46,8 @@ import { TELEGRAM_RICH_MESSAGE_LIMIT } from "./rich";
 
 const mockFetch = vi.fn<typeof fetch>();
 const BUSINESS_REACTION_ERROR = /business account/;
+const SAMPLE_HEADING_PATTERN = /^## /m;
+const SAMPLE_JSON_PATTERN = /```json\n([\s\S]*?)\n```/;
 process.env.TELEGRAM_ALLOW_UNVERIFIED_WEBHOOKS = "true";
 const SERVERLESS_ENV_KEYS = [
   "VERCEL",
@@ -114,6 +117,23 @@ function createMockChat(options?: { userName?: unknown }): ChatInstance {
   });
 }
 
+const SAMPLE_MESSAGES = readFileSync(
+  new URL("../sample-messages.md", import.meta.url),
+  "utf8"
+);
+
+/** The captured update under a `## heading` in sample-messages.md. */
+function loadSampleUpdate(heading: string): TelegramUpdate {
+  const section = SAMPLE_MESSAGES.split(SAMPLE_HEADING_PATTERN).find((part) =>
+    part.startsWith(`${heading}\n`)
+  );
+  const json = section?.match(SAMPLE_JSON_PATTERN)?.[1];
+  if (!json) {
+    throw new Error(`No captured update under "${heading}"`);
+  }
+  return JSON.parse(json) as TelegramUpdate;
+}
+
 function sampleMessage(overrides?: Partial<TelegramMessage>): TelegramMessage {
   return {
     message_id: 11,
@@ -132,6 +152,19 @@ function sampleMessage(overrides?: Partial<TelegramMessage>): TelegramMessage {
     text: "hello",
     ...overrides,
   };
+}
+
+const REGULAR_SUPERGROUP = {
+  id: -100_123,
+  type: "supergroup",
+  title: "General",
+} as const;
+
+/** The JSON body of the Bot API request at `callIndex`. */
+function requestBody(callIndex: number): Record<string, unknown> {
+  return JSON.parse(
+    String((mockFetch.mock.calls[callIndex]?.[1] as RequestInit).body)
+  ) as Record<string, unknown>;
 }
 
 function groupStreamMessage(text: string): TelegramMessage {
@@ -193,6 +226,75 @@ function createAbortError(): Error {
   }
 
   return new DOMException("Aborted", "AbortError");
+}
+
+function stallBeforeHeaders(init?: RequestInit): Promise<Response> {
+  const signal = init?.signal;
+  if (signal?.aborted) {
+    return Promise.reject(signal.reason);
+  }
+  return new Promise<Response>((_resolve, reject) => {
+    signal?.addEventListener("abort", () => reject(signal.reason), {
+      once: true,
+    });
+  });
+}
+
+function stallMidBody(init?: RequestInit): Promise<Response> {
+  const signal = init?.signal;
+  if (signal?.aborted) {
+    return Promise.reject(signal.reason);
+  }
+  return Promise.resolve(
+    new Response(
+      new ReadableStream({
+        start(controller) {
+          controller.enqueue(new TextEncoder().encode('{"ok":true,"result":['));
+          signal?.addEventListener(
+            "abort",
+            () => controller.error(signal.reason),
+            { once: true }
+          );
+        },
+      })
+    )
+  );
+}
+
+const BOT_IDENTITY = {
+  id: 999,
+  is_bot: true,
+  first_name: "Bot",
+  username: "mybot",
+};
+const POLLING_FAILURE_MESSAGE = "Telegram polling request failed";
+const POLLING_TIMEOUT_ERROR =
+  "NetworkError: Telegram getUpdates request timed out";
+
+function pollingFailures(): unknown[] {
+  return vi
+    .mocked(mockLogger.warn)
+    .mock.calls.filter(([message]) => message === POLLING_FAILURE_MESSAGE)
+    .map(([, data]) => data);
+}
+
+function pollBodies(): { offset?: number; timeout?: number }[] {
+  return mockFetch.mock.calls
+    .filter(([input]) => String(input).includes("/getUpdates"))
+    .map(([, init]) => JSON.parse(String(init?.body)));
+}
+
+interface TelegramRequestInternals {
+  ensureBotIdentity(): Promise<void>;
+  telegramFetch<TResult>(
+    method: string,
+    payload?: Record<string, unknown>,
+    request?: { signal?: AbortSignal; timeoutMs?: number }
+  ): Promise<TResult>;
+}
+
+function requestInternals(adapter: TelegramAdapter): TelegramRequestInternals {
+  return adapter as unknown as TelegramRequestInternals;
 }
 
 async function waitForCondition(
@@ -834,6 +936,525 @@ describe("TelegramAdapter", () => {
         String(input).includes("/sendChatAction")
       )
     ).toBe(false);
+  });
+
+  it.each([
+    {
+      // Outside forums, Telegram also sets message_thread_id on a reply to
+      // identify the reply thread, and omits is_topic_message. That reply
+      // belongs to the chat's thread, where the bot is subscribed.
+      name: "keeps a reply in a regular supergroup in the chat thread",
+      topic: {},
+      expected: "telegram:-100123",
+    },
+    {
+      name: "routes a forum topic message to its topic thread",
+      topic: { is_topic_message: true },
+      expected: "telegram:-100123:5",
+    },
+  ])("$name", async ({ topic, expected }) => {
+    mockFetch.mockResolvedValueOnce(
+      telegramOk({
+        id: 999,
+        is_bot: true,
+        first_name: "Bot",
+        username: "mybot",
+      })
+    );
+
+    const adapter = createTelegramAdapter({
+      botToken: "token",
+      mode: "webhook",
+      logger: mockLogger,
+      userName: "mybot",
+    });
+
+    const chat = createMockChat();
+    await adapter.initialize(chat);
+
+    const supergroup = {
+      id: -100123,
+      type: "supergroup",
+      title: "General",
+    } as const;
+    await adapter.handleWebhook(
+      new Request("https://example.com/webhook", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          update_id: 1,
+          message: sampleMessage({
+            chat: supergroup,
+            text: "and the second one?",
+            message_thread_id: 5,
+            ...topic,
+            reply_to_message: sampleMessage({
+              message_id: 5,
+              chat: supergroup,
+            }),
+          }),
+        }),
+      })
+    );
+
+    const processMessage = chat.processMessage as ReturnType<typeof vi.fn>;
+    expect(processMessage).toHaveBeenCalledTimes(1);
+
+    const [, threadId, parsedMessage] = processMessage.mock.calls[0] as [
+      unknown,
+      string,
+      { threadId: string },
+    ];
+
+    expect(threadId).toBe(expected);
+    expect(parsedMessage.threadId).toBe(expected);
+  });
+
+  it.each([
+    {
+      name: "answers a regular supergroup reply on the chat thread",
+      topic: {},
+      expectedThreadId: "telegram:-100123",
+      expectedTarget: { chat_id: "-100123" },
+    },
+    {
+      name: "answers a forum topic message inside its topic",
+      topic: { is_topic_message: true },
+      expectedThreadId: "telegram:-100123:5",
+      expectedTarget: { chat_id: "-100123", message_thread_id: 5 },
+    },
+  ])("$name", async ({ topic, expectedThreadId, expectedTarget }) => {
+    // The thread ID a handler receives is the one it posts back to, so the
+    // inbound rule also decides whether the answer carries message_thread_id.
+    const incoming = sampleMessage({
+      chat: REGULAR_SUPERGROUP,
+      text: "and the second one?",
+      message_thread_id: 5,
+      ...topic,
+      reply_to_message: sampleMessage({
+        message_id: 5,
+        chat: REGULAR_SUPERGROUP,
+      }),
+    });
+    mockFetch
+      .mockResolvedValueOnce(
+        telegramOk({
+          id: 999,
+          is_bot: true,
+          first_name: "Bot",
+          username: "mybot",
+        })
+      )
+      .mockResolvedValueOnce(
+        telegramOk(
+          sampleMessage({
+            chat: REGULAR_SUPERGROUP,
+            message_id: 12,
+            text: "answer",
+            // Assumes the Bot API marks a message sent into a topic the
+            // way it marks an incoming one.
+            ...("is_topic_message" in topic
+              ? { is_topic_message: true, message_thread_id: 5 }
+              : {}),
+          })
+        )
+      );
+
+    const adapter = createTelegramAdapter({
+      botToken: "token",
+      mode: "webhook",
+      logger: mockLogger,
+      userName: "mybot",
+    });
+
+    const chat = createMockChat();
+    await adapter.initialize(chat);
+    await adapter.handleWebhook(
+      new Request("https://example.com/webhook", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ update_id: 1, message: incoming }),
+      })
+    );
+
+    const processMessage = chat.processMessage as ReturnType<typeof vi.fn>;
+    expect(processMessage).toHaveBeenCalledTimes(1);
+    const [, threadId] = processMessage.mock.calls[0] as [unknown, string];
+    expect(threadId).toBe(expectedThreadId);
+
+    const posted = await adapter.postMessage(threadId, "answer");
+
+    expect(telegramMethods()).toEqual(["getMe", "sendMessage"]);
+    const { text: _text, ...target } = requestBody(1);
+    expect(target).toEqual(expectedTarget);
+    expect(posted.threadId).toBe(expectedThreadId);
+  });
+
+  it.each([
+    {
+      name: "routes a slash command in a regular supergroup reply to the chat thread",
+      topic: {},
+      expected: "telegram:-100123",
+    },
+    {
+      name: "routes a slash command in a forum topic to its topic thread",
+      topic: { is_topic_message: true },
+      expected: "telegram:-100123:5",
+    },
+  ])("$name", async ({ topic, expected }) => {
+    mockFetch.mockResolvedValueOnce(
+      telegramOk({
+        id: 999,
+        is_bot: true,
+        first_name: "Bot",
+        username: "mybot",
+      })
+    );
+
+    const adapter = createTelegramAdapter({
+      botToken: "token",
+      mode: "webhook",
+      logger: mockLogger,
+      userName: "mybot",
+    });
+
+    const chat = createMockChat();
+    await adapter.initialize(chat);
+    await adapter.handleWebhook(
+      new Request("https://example.com/webhook", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          update_id: 2,
+          message: sampleMessage({
+            chat: REGULAR_SUPERGROUP,
+            text: "/ping@mybot",
+            entities: [{ type: "bot_command", offset: 0, length: 11 }],
+            message_thread_id: 5,
+            ...topic,
+            reply_to_message: sampleMessage({
+              message_id: 5,
+              chat: REGULAR_SUPERGROUP,
+            }),
+          }),
+        }),
+      })
+    );
+
+    const processSlashCommand = chat.processSlashCommand as ReturnType<
+      typeof vi.fn
+    >;
+    expect(processSlashCommand).toHaveBeenCalledTimes(1);
+    expect(chat).not.toHaveDispatched("processMessage");
+    const [event] = processSlashCommand.mock.calls[0] as [
+      { channelId: string; command: string },
+    ];
+    expect(event.command).toBe("/ping");
+    expect(event.channelId).toBe(expected);
+  });
+
+  describe("thread of a sent message", () => {
+    // What the Bot API returns for a sent message, and the thread the adapter
+    // reports for it when it was sent to `target`.
+    const cases = [
+      {
+        name: "a reply thread id on the chat thread stays on the chat thread",
+        target: "telegram:-100123",
+        response: { message_thread_id: 7 },
+        expected: "telegram:-100123",
+      },
+      {
+        name: "a topic message sent to the chat thread lands on its topic",
+        target: "telegram:-100123",
+        response: { message_thread_id: 7, is_topic_message: true },
+        expected: "telegram:-100123:7",
+      },
+      {
+        name: "a response without a topic keeps the target thread's topic",
+        target: "telegram:-100123:7",
+        response: {},
+        expected: "telegram:-100123:7",
+      },
+      {
+        // Known inconsistency: replies to this message arrive on the chat
+        // thread, but no response field tells a stored reply thread ID from
+        // a topic.
+        name: "a reply thread id keeps a stored topic-form target thread",
+        target: "telegram:-100123:7",
+        response: { message_thread_id: 7 },
+        expected: "telegram:-100123:7",
+      },
+      {
+        name: "a response naming another topic wins over the target thread",
+        target: "telegram:-100123:7",
+        response: { message_thread_id: 9, is_topic_message: true },
+        expected: "telegram:-100123:9",
+      },
+    ] as const;
+
+    function sent(
+      response: Partial<TelegramMessage>,
+      overrides?: Partial<TelegramMessage>
+    ): Response {
+      return telegramOk(
+        sampleMessage({
+          chat: REGULAR_SUPERGROUP,
+          message_id: 21,
+          text: "hello",
+          ...response,
+          ...overrides,
+        })
+      );
+    }
+
+    async function createSendAdapter(
+      config?: Parameters<typeof createTelegramAdapter>[0]
+    ) {
+      mockFetch.mockResolvedValueOnce(
+        telegramOk({
+          id: 999,
+          is_bot: true,
+          first_name: "Bot",
+          username: "mybot",
+        })
+      );
+      const adapter = createTelegramAdapter({
+        botToken: "token",
+        mode: "webhook",
+        logger: mockLogger,
+        userName: "mybot",
+        ...config,
+      });
+      await adapter.initialize(createMockChat());
+      return adapter;
+    }
+
+    async function* textStream(): AsyncIterable<string> {
+      yield "hello";
+    }
+
+    it.each(cases)("postMessage: $name", async ({
+      target,
+      response,
+      expected,
+    }) => {
+      const adapter = await createSendAdapter();
+      mockFetch.mockResolvedValueOnce(sent(response));
+
+      const posted = await adapter.postMessage(target, "hello");
+
+      expect(telegramMethods()).toEqual(["getMe", "sendMessage"]);
+      expect(posted.threadId).toBe(expected);
+      const fetched = await adapter.fetchMessages(expected);
+      expect(fetched.messages.map((message) => message.id)).toEqual([
+        posted.id,
+      ]);
+    });
+
+    it.each(cases)("editMessage: $name", async ({
+      target,
+      response,
+      expected,
+    }) => {
+      const adapter = await createSendAdapter();
+      mockFetch.mockResolvedValueOnce(
+        sent(response, { edit_date: 1_735_689_700 })
+      );
+
+      const edited = await adapter.editMessage(target, "-100123:21", "hello");
+
+      expect(telegramMethods()).toEqual(["getMe", "editMessageText"]);
+      expect(edited.threadId).toBe(expected);
+    });
+
+    it.each(cases)("post-and-edit stream: $name", async ({
+      target,
+      response,
+      expected,
+    }) => {
+      const adapter = await createSendAdapter({ streamingEditIntervalMs: 0 });
+      mockFetch
+        .mockResolvedValueOnce(sent(response, { text: "..." }))
+        .mockResolvedValueOnce(sent(response));
+
+      const result = await adapter.stream(target, textStream(), {
+        updateIntervalMs: 0,
+      });
+
+      expect(telegramMethods()).toEqual([
+        "getMe",
+        "sendMessage",
+        "editMessageText",
+      ]);
+      expect(result?.threadId).toBe(expected);
+    });
+
+    // Draft streaming only runs in private chats, where a topic is a thread
+    // of the chat with the bot.
+    const privateCases = [
+      {
+        name: "a bare message_thread_id stays on the chat thread",
+        target: "telegram:123",
+        response: { message_thread_id: 7 },
+        expected: "telegram:123",
+      },
+      {
+        name: "a topic message lands on its topic",
+        target: "telegram:123",
+        response: { message_thread_id: 7, is_topic_message: true },
+        expected: "telegram:123:7",
+      },
+      {
+        name: "a response without a topic keeps the target thread's topic",
+        target: "telegram:123:7",
+        response: {},
+        expected: "telegram:123:7",
+      },
+    ] as const;
+
+    it.each(privateCases)("rich draft stream: $name", async ({
+      target,
+      response,
+      expected,
+    }) => {
+      const adapter = await createSendAdapter({ nativeStreaming: true });
+      mockFetch.mockResolvedValueOnce(telegramOk(true)).mockResolvedValueOnce(
+        telegramOk(
+          sampleMessage({
+            text: undefined,
+            rich_message: { blocks: [{ type: "paragraph", text: "hello" }] },
+            ...response,
+          })
+        )
+      );
+
+      const result = await adapter.stream(target, textStream(), {
+        updateIntervalMs: 0,
+      });
+
+      expect(telegramMethods()).toEqual([
+        "getMe",
+        "sendRichMessageDraft",
+        "sendRichMessage",
+      ]);
+      expect(result?.threadId).toBe(expected);
+    });
+
+    it.each(privateCases)("regular draft stream: $name", async ({
+      target,
+      response,
+      expected,
+    }) => {
+      const adapter = await createSendAdapter({ nativeStreaming: true });
+      // Rich drafts are unavailable, so the stream ends in a regular send.
+      mockFetch
+        .mockResolvedValueOnce(
+          telegramError(404, 404, "Not Found: method not found")
+        )
+        .mockResolvedValueOnce(telegramOk(true))
+        .mockResolvedValueOnce(
+          telegramOk(sampleMessage({ text: "hello", ...response }))
+        );
+
+      const result = await adapter.stream(target, textStream(), {
+        updateIntervalMs: 0,
+      });
+
+      expect(telegramMethods()).toEqual([
+        "getMe",
+        "sendRichMessageDraft",
+        "sendMessageDraft",
+        "sendMessage",
+      ]);
+      expect(result?.threadId).toBe(expected);
+    });
+  });
+
+  it("keeps a captured regular supergroup reply thread on the chat thread", async () => {
+    // Both captures carry message_thread_id 62, the bot message at the root
+    // of the reply thread, and neither has is_topic_message.
+    mockFetch.mockResolvedValueOnce(
+      telegramOk({
+        id: 8_000_000_001,
+        is_bot: true,
+        first_name: "Test Bot",
+        username: "testbot",
+      })
+    );
+
+    const adapter = createTelegramAdapter({
+      botToken: "token",
+      mode: "webhook",
+      logger: mockLogger,
+      userName: "testbot",
+      mentionOnReply: true,
+    });
+
+    const chat = createMockChat({ userName: "testbot" });
+    await adapter.initialize(chat);
+
+    const updates = [
+      loadSampleUpdate("Reply in a regular supergroup reply thread"),
+      loadSampleUpdate("Reply to a reply in a regular supergroup reply thread"),
+    ];
+    // Guard the premise: if the captures stop carrying a bare
+    // message_thread_id, the thread assertions below would pass vacuously.
+    expect(
+      updates.map(({ message }) => ({
+        chatType: message?.chat.type,
+        messageThreadId: message?.message_thread_id,
+        isTopicMessage: message?.is_topic_message,
+        replyTo: message?.reply_to_message?.message_id,
+      }))
+    ).toEqual([
+      {
+        chatType: "supergroup",
+        messageThreadId: 62,
+        isTopicMessage: undefined,
+        replyTo: 62,
+      },
+      {
+        chatType: "supergroup",
+        messageThreadId: 62,
+        isTopicMessage: undefined,
+        replyTo: 63,
+      },
+    ]);
+
+    for (const update of updates) {
+      await adapter.handleWebhook(
+        new Request("https://example.com/webhook", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify(update),
+        })
+      );
+    }
+
+    const processMessage = chat.processMessage as ReturnType<typeof vi.fn>;
+    const calls = processMessage.mock.calls as [
+      unknown,
+      string,
+      { threadId: string; isMention?: boolean },
+    ][];
+    expect(
+      calls.map(([, threadId, parsed]) => ({
+        threadId,
+        parsedThreadId: parsed.threadId,
+        isMention: parsed.isMention,
+      }))
+    ).toEqual([
+      {
+        threadId: "telegram:-1001000000001",
+        parsedThreadId: "telegram:-1001000000001",
+        isMention: true,
+      },
+      {
+        threadId: "telegram:-1001000000001",
+        parsedThreadId: "telegram:-1001000000001",
+        isMention: false,
+      },
+    ]);
   });
 
   it("deduplicates sequential and concurrent webhook updates", async () => {
@@ -2052,6 +2673,366 @@ describe("TelegramAdapter", () => {
     } finally {
       await adapter.stopPolling();
     }
+  });
+
+  it("gives a non blocking drain poll a deadline without the long polling timeout", async () => {
+    vi.useFakeTimers();
+    const albumUpdate = (updateId: number, group: string) => ({
+      update_id: updateId,
+      message: sampleMessage({
+        message_id: updateId,
+        media_group_id: group,
+        photo: [
+          {
+            file_id: `photo-${updateId}`,
+            file_unique_id: `photo-unique-${updateId}`,
+            width: 800,
+            height: 600,
+          },
+        ],
+        text: undefined,
+      }),
+    });
+    const drainStartedAt: number[] = [];
+    mockFetch
+      .mockResolvedValueOnce(telegramOk(BOT_IDENTITY))
+      .mockResolvedValueOnce(telegramOk(true))
+      .mockResolvedValueOnce(telegramOk([albumUpdate(10, "first-album")]))
+      .mockImplementationOnce(
+        () =>
+          new Promise<Response>((resolve) => {
+            setTimeout(
+              () => resolve(telegramOk([albumUpdate(11, "second-album")])),
+              500
+            );
+          })
+      )
+      .mockImplementation((_input, init) => {
+        if (JSON.parse(String(init?.body)).timeout === 0) {
+          drainStartedAt.push(Date.now());
+        }
+        return stallBeforeHeaders(init);
+      });
+
+    const adapter = createTelegramAdapter({
+      botToken: "token",
+      mode: "webhook",
+      logger: mockLogger,
+      userName: "mybot",
+    });
+    const chat = createMockChat();
+    const processMessage = chat.processMessage as ReturnType<typeof vi.fn>;
+    processMessage.mockImplementationOnce(() => {
+      vi.setSystemTime(Date.now() + 1000);
+    });
+
+    await adapter.initialize(chat);
+    await adapter.startPolling({ limit: 1, retryDelayMs: 0, timeout: 1 });
+    vi.mocked(mockLogger.warn).mockClear();
+
+    try {
+      await vi.advanceTimersByTimeAsync(3000);
+
+      expect(processMessage).toHaveBeenCalledTimes(1);
+      expect(pollBodies().at(-1)?.timeout).toBe(0);
+      expect(drainStartedAt).toHaveLength(1);
+
+      const elapsed = Date.now() - (drainStartedAt[0] ?? 0);
+      await vi.advanceTimersByTimeAsync(30_000 - elapsed - 1);
+      expect(drainStartedAt).toHaveLength(1);
+      expect(pollingFailures()).toEqual([]);
+
+      await vi.advanceTimersByTimeAsync(1);
+      expect(pollingFailures()).toEqual([
+        expect.objectContaining({
+          consecutiveFailures: 1,
+          error: POLLING_TIMEOUT_ERROR,
+        }),
+      ]);
+      expect(adapter.isPolling).toBe(true);
+    } finally {
+      await adapter.stopPolling();
+    }
+  });
+
+  it("retries a getUpdates request that stalls past its deadline", async () => {
+    vi.useFakeTimers();
+    let polls = 0;
+    mockFetch
+      .mockResolvedValueOnce(telegramOk(BOT_IDENTITY))
+      .mockResolvedValueOnce(telegramOk(true))
+      .mockImplementation((_input, init) => {
+        polls += 1;
+        if (polls === 2) {
+          return stallMidBody(init);
+        }
+        if (polls === 3) {
+          return Promise.resolve(
+            telegramOk([
+              {
+                update_id: 10,
+                message: sampleMessage({ message_id: 99, text: "after stall" }),
+              },
+            ])
+          );
+        }
+        return stallBeforeHeaders(init);
+      });
+
+    const adapter = createTelegramAdapter({
+      botToken: "token",
+      mode: "webhook",
+      logger: mockLogger,
+      userName: "mybot",
+    });
+    const chat = createMockChat();
+    const processMessage = chat.processMessage as ReturnType<typeof vi.fn>;
+
+    await adapter.initialize(chat);
+    await adapter.startPolling({ limit: 1, timeout: 1, retryDelayMs: 0 });
+    vi.mocked(mockLogger.warn).mockClear();
+
+    try {
+      await vi.advanceTimersByTimeAsync(0);
+      expect(polls).toBe(1);
+
+      await vi.advanceTimersByTimeAsync(30_999);
+      expect(polls).toBe(1);
+      expect(pollingFailures()).toEqual([]);
+
+      await vi.advanceTimersByTimeAsync(1);
+      expect(pollingFailures()).toEqual([
+        expect.objectContaining({
+          consecutiveFailures: 1,
+          error: POLLING_TIMEOUT_ERROR,
+        }),
+      ]);
+      expect(polls).toBe(2);
+
+      await vi.advanceTimersByTimeAsync(30_999);
+      expect(polls).toBe(2);
+      expect(pollingFailures()).toHaveLength(1);
+      expect(processMessage).not.toHaveBeenCalled();
+
+      await vi.advanceTimersByTimeAsync(1);
+      expect(pollingFailures()).toEqual([
+        expect.objectContaining({ consecutiveFailures: 1 }),
+        expect.objectContaining({
+          consecutiveFailures: 2,
+          error: POLLING_TIMEOUT_ERROR,
+        }),
+      ]);
+      expect(polls).toBeGreaterThanOrEqual(3);
+      expect(processMessage).toHaveBeenCalledTimes(1);
+      expect(adapter.isPolling).toBe(true);
+    } finally {
+      await adapter.stopPolling();
+    }
+    expect(adapter.isPolling).toBe(false);
+  });
+
+  it("starts the getUpdates deadline after the bot token resolves", async () => {
+    vi.useFakeTimers();
+    const botToken = vi.fn<() => Promise<string>>().mockResolvedValue("token");
+    mockFetch
+      .mockResolvedValueOnce(telegramOk(BOT_IDENTITY))
+      .mockResolvedValueOnce(telegramOk(true))
+      .mockImplementation((_input, init) => stallBeforeHeaders(init));
+
+    const adapter = createTelegramAdapter({
+      botToken,
+      mode: "webhook",
+      logger: mockLogger,
+      userName: "mybot",
+    });
+
+    await adapter.initialize(createMockChat());
+    botToken.mockResolvedValueOnce("token").mockImplementationOnce(
+      () =>
+        new Promise<string>((resolve) => {
+          setTimeout(() => resolve("token"), 60_000);
+        })
+    );
+    await adapter.startPolling({ limit: 1, timeout: 1, retryDelayMs: 0 });
+    vi.mocked(mockLogger.warn).mockClear();
+
+    try {
+      await vi.advanceTimersByTimeAsync(59_999);
+      expect(telegramMethods()).toEqual(["getMe", "deleteWebhook"]);
+      expect(pollingFailures()).toEqual([]);
+
+      await vi.advanceTimersByTimeAsync(1);
+      expect(telegramMethods()).toEqual([
+        "getMe",
+        "deleteWebhook",
+        "getUpdates",
+      ]);
+
+      await vi.advanceTimersByTimeAsync(30_999);
+      expect(pollingFailures()).toEqual([]);
+
+      await vi.advanceTimersByTimeAsync(1);
+      expect(pollingFailures()).toEqual([
+        expect.objectContaining({
+          consecutiveFailures: 1,
+          error: POLLING_TIMEOUT_ERROR,
+        }),
+      ]);
+    } finally {
+      await adapter.stopPolling();
+    }
+  });
+
+  it.each([
+    ["completes", () => Promise.resolve(telegramOk([])), "resolved"],
+    ["fails", () => Promise.reject(new TypeError("fetch failed")), "rejected"],
+  ] as const)("clears the deadline timer once a request %s", async (_outcome, respond, expected) => {
+    vi.useFakeTimers();
+    const timersDuringRequest: number[] = [];
+    mockFetch.mockImplementation(() => {
+      timersDuringRequest.push(vi.getTimerCount());
+      return respond();
+    });
+    const adapter = createTelegramAdapter({
+      botToken: "token",
+      mode: "webhook",
+      logger: mockLogger,
+    });
+    const controller = new AbortController();
+    const removeListener = vi.spyOn(controller.signal, "removeEventListener");
+
+    const outcome = await requestInternals(adapter)
+      .telegramFetch(
+        "getUpdates",
+        {},
+        {
+          signal: controller.signal,
+          timeoutMs: 31_000,
+        }
+      )
+      .then(
+        () => "resolved",
+        () => "rejected"
+      );
+
+    expect(outcome).toBe(expected);
+    expect(timersDuringRequest).toEqual([1]);
+    expect(vi.getTimerCount()).toBe(0);
+    expect(removeListener).toHaveBeenCalledWith("abort", expect.any(Function));
+  });
+
+  it.each([
+    [
+      "getMe",
+      (adapter: TelegramAdapter) =>
+        requestInternals(adapter).ensureBotIdentity(),
+    ],
+    ["deleteWebhook", (adapter: TelegramAdapter) => adapter.resetWebhook()],
+  ] as const)("fails a stalled %s request after 30 seconds", async (method, run) => {
+    vi.useFakeTimers();
+    mockFetch.mockImplementation((_input, init) => stallBeforeHeaders(init));
+    const adapter = createTelegramAdapter({
+      botToken: "token",
+      mode: "webhook",
+      logger: mockLogger,
+    });
+
+    let settled = false;
+    const outcome = run(adapter).then(
+      () => {
+        settled = true;
+        return;
+      },
+      (error: unknown) => {
+        settled = true;
+        return error;
+      }
+    );
+
+    await vi.advanceTimersByTimeAsync(29_999);
+    expect(telegramMethods()).toEqual([method]);
+    expect(settled).toBe(false);
+
+    await vi.advanceTimersByTimeAsync(1);
+    expect(settled).toBe(true);
+    const error = await outcome;
+    expect(error).toBeInstanceOf(NetworkError);
+    expect((error as NetworkError).message).toBe(
+      `Telegram ${method} request timed out`
+    );
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it("rejects without starting a deadline when the caller signal is already aborted", async () => {
+    vi.useFakeTimers();
+    const timersDuringRequest: number[] = [];
+    mockFetch.mockImplementation((_input, init) => {
+      timersDuringRequest.push(vi.getTimerCount());
+      return stallBeforeHeaders(init);
+    });
+    const adapter = createTelegramAdapter({
+      botToken: "token",
+      mode: "webhook",
+      logger: mockLogger,
+    });
+    const controller = new AbortController();
+    controller.abort();
+
+    const error = await requestInternals(adapter)
+      .telegramFetch(
+        "getUpdates",
+        {},
+        {
+          signal: controller.signal,
+          timeoutMs: 31_000,
+        }
+      )
+      .then(
+        () => undefined,
+        (reason: unknown) => reason
+      );
+
+    expect(error).toBe(controller.signal.reason);
+    expect((error as Error).name).toBe("AbortError");
+    expect(timersDuringRequest).toEqual([0]);
+    expect(mockFetch.mock.calls[0]?.[1]?.signal?.aborted).toBe(true);
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it.each([
+    ["before headers", stallBeforeHeaders],
+    ["mid body", stallMidBody],
+  ])("stops a getUpdates stalled %s without treating it as a failure", async (_stage, stall) => {
+    mockFetch
+      .mockResolvedValueOnce(
+        telegramOk({
+          id: 999,
+          is_bot: true,
+          first_name: "Bot",
+          username: "mybot",
+        })
+      )
+      .mockResolvedValueOnce(telegramOk(true))
+      .mockImplementation((_input, init) => stall(init));
+
+    const adapter = createTelegramAdapter({
+      botToken: "token",
+      mode: "webhook",
+      logger: mockLogger,
+      userName: "mybot",
+    });
+    vi.mocked(mockLogger.warn).mockClear();
+
+    await adapter.initialize(createMockChat());
+    await adapter.startPolling({ limit: 1, timeout: 1, retryDelayMs: 0 });
+    await waitForCondition(() => mockFetch.mock.calls.length >= 3);
+    await adapter.stopPolling();
+
+    expect(adapter.isPolling).toBe(false);
+    expect(mockLogger.warn).not.toHaveBeenCalledWith(
+      "Telegram polling request failed",
+      expect.anything()
+    );
   });
 
   it("mode polling starts polling during initialize", async () => {
@@ -4555,6 +5536,55 @@ describe("TelegramAdapter", () => {
     });
   });
 
+  it("posts a long actions block as wrapped inline keyboard rows", async () => {
+    mockFetch
+      .mockResolvedValueOnce(
+        telegramOk({
+          id: 999,
+          is_bot: true,
+          first_name: "Bot",
+          username: "mybot",
+        })
+      )
+      .mockResolvedValueOnce(telegramOk(sampleMessage()));
+
+    const adapter = createTelegramAdapter({
+      botToken: "token",
+      mode: "webhook",
+      logger: mockLogger,
+      userName: "mybot",
+    });
+
+    await adapter.initialize(createMockChat());
+
+    const ids = Array.from({ length: 11 }, (_, i) => `agent-${i + 1}`);
+    await adapter.postMessage("telegram:123", {
+      type: "card",
+      title: "Pick an agent",
+      children: [
+        {
+          type: "actions",
+          children: ids.map((id) => ({ type: "button", id, label: id })),
+        },
+      ],
+    });
+
+    const sendMessageBody = JSON.parse(
+      String((mockFetch.mock.calls[1]?.[1] as RequestInit).body)
+    ) as {
+      reply_markup?: {
+        inline_keyboard: Array<Array<{ text: string; callback_data?: string }>>;
+      };
+    };
+    const rows = sendMessageBody.reply_markup?.inline_keyboard;
+
+    expect(rows?.map((row) => row.map((button) => button.text))).toEqual([
+      ["agent-1", "agent-2", "agent-3", "agent-4", "agent-5", "agent-6"],
+      ["agent-7", "agent-8", "agent-9", "agent-10", "agent-11"],
+    ]);
+    expect(rows?.[1]?.[4]?.callback_data).toBe('chat:{"a":"agent-11"}');
+  });
+
   it("renders card title as MarkdownV2 bold", async () => {
     mockFetch
       .mockResolvedValueOnce(
@@ -4711,6 +5741,59 @@ describe("TelegramAdapter", () => {
     expect(removedEvent.rawEmoji).toBe("🔥");
   });
 
+  it("keeps a reaction on the chat thread whatever message_thread_id it carries", async () => {
+    mockFetch.mockResolvedValueOnce(
+      telegramOk({
+        id: 999,
+        is_bot: true,
+        first_name: "Bot",
+        username: "mybot",
+      })
+    );
+
+    const adapter = createTelegramAdapter({
+      botToken: "token",
+      mode: "webhook",
+      logger: mockLogger,
+      userName: "mybot",
+    });
+
+    const chat = createMockChat();
+    await adapter.initialize(chat);
+
+    await adapter.handleWebhook(
+      new Request("https://example.com/webhook", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          update_id: 8,
+          message_reaction: {
+            chat: REGULAR_SUPERGROUP,
+            message_id: 6,
+            message_thread_id: 5,
+            date: 1_735_689_600,
+            old_reaction: [],
+            new_reaction: [{ type: "emoji", emoji: "🚀" }],
+            user: {
+              id: 456,
+              is_bot: false,
+              first_name: "User",
+              username: "user",
+            },
+          },
+        }),
+      })
+    );
+
+    const processReaction = chat.processReaction as ReturnType<typeof vi.fn>;
+    expect(processReaction).toHaveBeenCalledTimes(1);
+    const [event] = processReaction.mock.calls[0] as [
+      { messageId: string; threadId: string },
+    ];
+    expect(event.threadId).toBe("telegram:-100123");
+    expect(event.messageId).toBe("-100123:6");
+  });
+
   it("paginates cached messages", async () => {
     mockFetch.mockResolvedValueOnce(
       telegramOk({
@@ -4790,6 +5873,104 @@ describe("TelegramAdapter", () => {
     expect(parsed.replyTo?.metadata.dateSent).toEqual(
       new Date(1735689500 * 1000)
     );
+  });
+
+  it("parses only forum topic messages onto a topic thread", () => {
+    const adapter = createTelegramAdapter({
+      botToken: "token",
+      mode: "webhook",
+      logger: mockLogger,
+      userName: "mybot",
+    });
+    const supergroup = {
+      id: -100123,
+      type: "supergroup",
+      title: "General",
+    } as const;
+    const reply = sampleMessage({
+      chat: supergroup,
+      message_thread_id: 5,
+      reply_to_message: sampleMessage({ message_id: 5, chat: supergroup }),
+    });
+
+    expect(adapter.parseMessage(reply).threadId).toBe("telegram:-100123");
+    expect(
+      adapter.parseMessage({ ...reply, is_topic_message: true }).threadId
+    ).toBe("telegram:-100123:5");
+  });
+
+  it.each([
+    {
+      name: "keeps a callback on a regular supergroup reply in the chat thread",
+      topic: {},
+      expected: "telegram:-100123",
+    },
+    {
+      name: "routes a callback on a forum topic message to its topic thread",
+      topic: { is_topic_message: true },
+      expected: "telegram:-100123:5",
+    },
+  ])("$name", async ({ topic, expected }) => {
+    mockFetch
+      .mockResolvedValueOnce(
+        telegramOk({
+          id: 999,
+          is_bot: true,
+          first_name: "Bot",
+          username: "mybot",
+        })
+      )
+      .mockResolvedValueOnce(telegramOk(true));
+
+    const adapter = createTelegramAdapter({
+      botToken: "token",
+      mode: "webhook",
+      logger: mockLogger,
+      userName: "mybot",
+    });
+
+    const chat = createMockChat();
+    await adapter.initialize(chat);
+
+    const supergroup = {
+      id: -100123,
+      type: "supergroup",
+      title: "General",
+    } as const;
+    await adapter.handleWebhook(
+      new Request("https://example.com/webhook", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          update_id: 4,
+          callback_query: {
+            id: "callback-3",
+            from: {
+              id: 456,
+              is_bot: false,
+              first_name: "User",
+              username: "user",
+            },
+            // The bot's keyboard message, sent as a reply, carries the reply
+            // thread's message_thread_id.
+            message: sampleMessage({
+              message_id: 6,
+              chat: supergroup,
+              message_thread_id: 5,
+              ...topic,
+            }),
+            chat_instance: "ci_3",
+            data: "approve",
+          },
+        }),
+      })
+    );
+
+    const processAction = chat.processAction as ReturnType<typeof vi.fn>;
+    expect(processAction).toHaveBeenCalledTimes(1);
+
+    const [event] = processAction.mock.calls[0] as [{ threadId: string }];
+    expect(event.threadId).toBe(expected);
   });
 
   it("decodes structured callback payloads into action id and value", async () => {
@@ -6457,6 +7638,33 @@ describe("reply", () => {
     expect(body.reply_parameters).toEqual(expectedReplyParameters);
   });
 
+  it("keeps a reply in a regular supergroup on the chat thread", async () => {
+    // The sent reply comes back with message_thread_id set to its reply
+    // thread and no is_topic_message. It still lives in the chat's thread.
+    mockFetch
+      .mockResolvedValueOnce(
+        telegramOk({ id: 1, is_bot: true, username: "mybot" })
+      )
+      .mockResolvedValueOnce(
+        telegramOk(
+          sampleMessage({
+            message_id: 11,
+            message_thread_id: 7,
+            chat: { id: -100123, type: "supergroup", title: "General" },
+          })
+        )
+      );
+
+    const adapter = createReplyAdapter();
+    await adapter.initialize(createMockChat());
+
+    const posted = await adapter.reply("telegram:-100123", "-100123:7", {
+      markdown: "hello",
+    });
+
+    expect(posted.threadId).toBe("telegram:-100123");
+  });
+
   it("threads a plain string message through sendMessage", async () => {
     mockFetch
       .mockResolvedValueOnce(
@@ -6790,10 +7998,10 @@ describe("mentionOnReply", () => {
   });
 
   it("counts a reply to the bot in a regular supergroup reply thread", async () => {
-    // Outside forums, Telegram sets message_thread_id on a reply to the id of
-    // the message it answers (a reply thread) and omits is_topic_message. That
-    // reply must still count, even though message_thread_id equals
-    // reply_to_message.message_id.
+    // Outside forums, Telegram also sets message_thread_id on a reply to
+    // identify the reply thread, and omits is_topic_message. A direct reply to
+    // the thread's root must still count, even though message_thread_id
+    // equals reply_to_message.message_id.
     const parsed = await deliverReply({
       mentionOnReply: true,
       replyFromBot: true,

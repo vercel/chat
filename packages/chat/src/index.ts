@@ -450,6 +450,7 @@ export type {
   RawMessage,
   ReactionEvent,
   ReactionHandler,
+  ReasoningChunk,
   ScheduledMessage,
   SentMessage,
   SlashCommandEvent,

@@ -237,6 +237,8 @@ const bot = new Chat({
 
 Polling and webhooks are mutually exclusive in Telegram. `mode: "polling"` deletes the webhook by default before calling `getUpdates`.
 
+Each long polling `getUpdates` request has a deadline of `longPolling.timeout` (30 seconds by default) plus 30 seconds. A `getUpdates` request that doesn't wait for new updates has a 30 second deadline, and so do the `getMe` and `deleteWebhook` requests. If a connection drops without a reset, for example after a network switch or a suspend and resume, the request fails at the deadline instead of waiting for the operating system to close the socket, which can take 15 minutes or more. The adapter then logs a `Telegram polling request failed` warning whose `error` field is `NetworkError: Telegram getUpdates request timed out`, backs off exponentially from `longPolling.retryDelayMs`, and polls again on a new connection. Requests your handlers make, such as sending a message, have no deadline.
+
 Polling waits for message, command, action and reaction processing before advancing its offset. If a handler fails, the adapter must successfully save the failed update and next offset in bot-scoped state before acknowledging it. Saved updates retry independently so one recipient's failure cannot pin the shared polling offset. A handler can return after saving its input to your durable queue; it does not need to wait for model execution.
 
 Albums are buffered in bot-scoped state so parts arriving in separate polling responses can be combined. The adapter saves the parts and offset before acknowledging them, retains the buffer until processing succeeds, and resumes saved buffers when polling starts again. Album grouping uses a short settling window because Telegram does not provide an end-of-album event.
@@ -313,6 +315,22 @@ Incoming media groups are delivered as one message after the album settles, with
 
 Multiple `files` or compatible `attachments` are sent as Telegram media groups. `files` upload as documents; `attachments` preserve image, audio, video, or file media type.
 
+## Threads
+
+By default, each Telegram chat is one thread, `telegram:{chatId}`. A message that Telegram marks with `is_topic_message` belongs to a topic, and each topic is its own thread, `telegram:{chatId}:{messageThreadId}`. The Bot API sets that field for topics in a forum supergroup and in a private chat with the bot. Business conversations use `telegram:biz:{connectionId}:{chatId}`, as described in [Business mode](#business-mode).
+
+Replies in a regular supergroup stay in the chat's thread. Telegram also sets `message_thread_id` on those replies to identify the reply thread, but the adapter only treats a message as part of a topic when `is_topic_message` is `true`. A bot subscribed to the chat receives the replies in `onSubscribedMessage`.
+
+Because the reply is on the chat's thread, `thread.post()` from its handler sends to the chat without `message_thread_id`. Use `thread.reply()` to answer a specific message. Every reply chain in the chat also shares the chat's lock, so your [`concurrency`](/docs/concurrency) strategy applies across all of them. With the default `drop` strategy, a message that arrives while a handler is still running for another message in the same chat is discarded.
+
+Reaction updates don't say whether the message is in a topic, so reactions always arrive on `telegram:{chatId}`.
+
+<Callout type="warn">
+Earlier versions gave each reply thread in a regular supergroup its own `telegram:{chatId}:{n}` thread ID. Subscriptions, `thread.setState` values, and anything else your bot keyed on those IDs no longer match, because the replies now arrive on `telegram:{chatId}`. Calling `thread.subscribe()` from a reply now subscribes the bot to the whole chat.
+
+Stop posting to stored `telegram:{chatId}:{n}` IDs from a regular supergroup. The adapter still sends `message_thread_id` for them, and the message it returns keeps the stored ID, while replies to that message arrive on `telegram:{chatId}`.
+</Callout>
+
 ## Business mode
 
 Telegram [Connected Business Bots](https://core.telegram.org/api/bots/connected-business-bots) let a bot reply to customer messages on behalf of a business account. Enable it with `businessMode: true`:
@@ -342,7 +360,8 @@ Business thread IDs start with `telegram:biz`, so state adapters that shard by t
 - Telegram does not expose full historical message APIs to bots. `fetchMessages` returns adapter-cached messages from the current process.
 - `listThreads` is not available for Telegram chats.
 - Telegram limits callback data to 64 bytes, so keep `Button` `id`/`value` payloads short.
-- Card elements other than buttons and link buttons, such as images, select menus, and radios, render as fallback text.
+- Telegram keeps only the first 8 buttons of an inline keyboard row and drops the rest, so an `Actions` block with more than 8 buttons wraps into evenly sized rows of at most 8. For example, 11 buttons render as a row of 6 and a row of 5.
+- Card images, select menus, and radios are not rendered. Tables, fields, and links render as text in the message body.
 - `Thread.reply()` threads with Bot API `reply_parameters` and sets `allow_sending_without_reply`, so a reply whose target was deleted, never existed, or lives in another forum topic is delivered unthreaded instead of failing. Only the chat half of a composite target ID is validated up front.
 
 ## Feature support

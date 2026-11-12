@@ -148,6 +148,10 @@ One of `googleChatProjectNumber`, `endpointUrl`, `pubsubAudience`, or `disableSi
 
 Set `botUserId` (or `GOOGLE_CHAT_BOT_USER_ID`) to the canonical `sender.name` from a verified message authored by your Chat app, such as `users/123456789`. The adapter never learns this identity from inbound mentions. When it is omitted, all `BOT` senders are conservatively treated as self to prevent reply loops.
 
+With `botUserId` set, the adapter reads `message.isMention` from the message's `USER_MENTION` annotations, for webhook, Pub/Sub, and fetched messages. It is `true` when an annotation names your Chat app and `false` otherwise, so in a space a plain-text `@name` without a mention annotation doesn't reach `onNewMention`. Direct messages are still routed as mentions when no `onDirectMessage` handler is registered. The app's mention in `message.text` is rewritten to `@{userName}`. The adapter logs a warning at startup if `botUserId` isn't a `users/...` resource name, and once if a message mentions an app whose ID differs from `botUserId`.
+
+Without `botUserId`, the adapter can't identify your Chat app in annotations. A message that only mentions people gets `isMention: false`. Every other message falls back to matching `@{userName}` in the text. That match needs `userName` to be your app's display name in Google Chat, and it also matches another app whose display name starts with `userName` followed by a space.
+
 Apps upgrading from an earlier release that rely on mention handlers must configure `botUserId` to preserve mention handling. Without it, bot mention annotations are left unchanged and the default `onNewMention` detection may no longer match them.
 
 ### Environment variables
@@ -230,6 +234,16 @@ Domain-wide delegation is required for Workspace Events subscriptions and for in
    https://www.googleapis.com/auth/chat.spaces.create
    ```
 4. Set `GOOGLE_CHAT_IMPERSONATE_USER` to an admin email.
+
+## User email addresses
+
+When Google Chat includes the sender's email address in a webhook event, the adapter sets `message.author.email` on incoming messages and `event.user.email` on card button clicks. If the event has no email, the field is `undefined`.
+
+Pub/Sub messages, reactions, and messages returned by `fetchMessages` come from the Chat API, whose user resource has no email address. With [Pub/Sub configured](#pubsub-for-receiving-all-messages), this covers messages in a space that don't @mention the bot, including most messages in a subscribed thread.
+
+For these, the adapter fills in the email from its user cache. Each webhook message stores the sender's display name and email in your state adapter, and `adapter.getUser(userId)` reads the same entry. An entry lasts seven days from the last time the adapter wrote it, which happens on each webhook message from the user, and a running instance also keeps its own copy in memory. `author.email` and the reaction's `user.email` are set when the adapter has a cached email for the user, which requires an earlier webhook message from them that included one.
+
+A message that @mentions the bot can arrive through both the webhook and Pub/Sub, and your handler runs for whichever arrives first. For a user the adapter hasn't cached yet, `author.email` can be `undefined` on that message, so handle a missing email wherever you read the field.
 
 ## Limitations
 

@@ -115,6 +115,143 @@ describe("Google Chat Integration", () => {
     });
   });
 
+  describe("mention routing from annotations", () => {
+    const BOT_USER_ID = "users/bot-user-id";
+    const prefixName = `${GCHAT_BOT_NAME} Dev`;
+
+    const mentionOf = (
+      user: { name: string; displayName: string; type: string },
+      length: number
+    ) => ({
+      type: "USER_MENTION",
+      startIndex: 0,
+      length,
+      userMention: { user, type: "MENTION" },
+    });
+
+    // Sends one space message and reports which handler Chat routed it to.
+    // The catch-all onNewMessage handler shows the message was processed when
+    // onNewMention stays quiet.
+    const route = async (
+      text: string,
+      annotations: ReturnType<typeof mentionOf>[] | undefined
+    ) => {
+      const onMention = vi.fn();
+      const onMessage = vi.fn();
+      chat.onNewMention((_thread, message) => {
+        onMention(message.text);
+      });
+      chat.onNewMessage(ANY_CHAR_REGEX, (_thread, message) => {
+        onMessage(message.text);
+      });
+
+      const event = createGoogleChatEvent({
+        text,
+        messageName: `${TEST_SPACE_NAME}/messages/msg-route`,
+        spaceName: TEST_SPACE_NAME,
+        threadName: TEST_THREAD_NAME,
+        senderId: "users/user-123",
+        senderName: "John Doe",
+      });
+      event.chat.messagePayload.message.annotations = annotations;
+
+      const response = await chat.webhooks.gchat(
+        createGoogleChatWebhookRequest(event),
+        { waitUntil: tracker.waitUntil }
+      );
+      await tracker.waitForAll();
+
+      return { onMention, onMessage, status: response.status };
+    };
+
+    const human = {
+      name: "users/222",
+      displayName: prefixName,
+      type: "HUMAN",
+    };
+
+    it("routes a mention of the configured bot to onNewMention", async () => {
+      gchatAdapter.botUserId = BOT_USER_ID;
+
+      const { onMention, onMessage, status } = await route(
+        `@${prefixName} look`,
+        [
+          mentionOf(
+            { name: BOT_USER_ID, displayName: prefixName, type: "BOT" },
+            prefixName.length + 1
+          ),
+        ]
+      );
+
+      expect(status).toBe(200);
+
+      expect(onMention).toHaveBeenCalledExactlyOnceWith(
+        `@${GCHAT_BOT_NAME} look`
+      );
+      expect(onMessage).not.toHaveBeenCalled();
+    });
+
+    it("does not route a mention of a user whose name starts with the bot's", async () => {
+      gchatAdapter.botUserId = BOT_USER_ID;
+
+      const { onMention, onMessage, status } = await route(
+        `@${prefixName} look`,
+        [mentionOf(human, prefixName.length + 1)]
+      );
+
+      expect(status).toBe(200);
+
+      expect(onMention).not.toHaveBeenCalled();
+      expect(onMessage).toHaveBeenCalledExactlyOnceWith(`@${prefixName} look`);
+    });
+
+    it("does not route a plain-text bot name when botUserId is configured", async () => {
+      gchatAdapter.botUserId = BOT_USER_ID;
+
+      const { onMention, onMessage, status } = await route(
+        `@${GCHAT_BOT_NAME} look`,
+        undefined
+      );
+
+      expect(status).toBe(200);
+
+      expect(onMention).not.toHaveBeenCalled();
+      expect(onMessage).toHaveBeenCalledExactlyOnceWith(
+        `@${GCHAT_BOT_NAME} look`
+      );
+    });
+
+    it("does not route a human-only mention when botUserId is unset", async () => {
+      expect(gchatAdapter.botUserId).toBeUndefined();
+
+      const { onMention, onMessage, status } = await route(
+        `@${prefixName} look`,
+        [mentionOf(human, prefixName.length + 1)]
+      );
+
+      expect(status).toBe(200);
+
+      expect(onMention).not.toHaveBeenCalled();
+      expect(onMessage).toHaveBeenCalledExactlyOnceWith(`@${prefixName} look`);
+    });
+
+    it("falls back to the text when botUserId is unset and nothing is annotated", async () => {
+      expect(gchatAdapter.botUserId).toBeUndefined();
+
+      const { onMention, onMessage, status } = await route(
+        `@${GCHAT_BOT_NAME} look`,
+        undefined
+      );
+
+      expect(status).toBe(200);
+
+      expect(onMention).toHaveBeenCalledExactlyOnceWith(
+        `@${GCHAT_BOT_NAME} look`
+      );
+      expect(onMessage).not.toHaveBeenCalled();
+    });
+  });
+
   describe("message handling", () => {
     it("should handle an @mention and call the handler", async () => {
       const handlerMock = vi.fn();

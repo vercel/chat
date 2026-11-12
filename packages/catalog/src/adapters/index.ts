@@ -13,6 +13,7 @@ import { wecom } from "./community/wecom";
 import { weixin } from "./community/weixin";
 import { zaileys } from "./community/zaileys";
 import { zalo } from "./community/zalo";
+import { zoom } from "./community/zoom";
 import { discord } from "./official/discord";
 import { gchat } from "./official/gchat";
 import { github } from "./official/github";
@@ -113,4 +114,5 @@ export const COMMUNITY_ADAPTERS = {
   line,
   signal,
   rocketchat,
+  zoom,
 } as const satisfies Record<string, CommunityAdapter>;

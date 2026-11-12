@@ -1,4 +1,8 @@
-import { cardToFallbackText as sharedCardToFallbackText } from "@chat-adapter/shared";
+import {
+  findCardActions,
+  cardToFallbackText as sharedCardToFallbackText,
+  truncateWithEllipsis,
+} from "@chat-adapter/shared";
 import type {
   ActionsElement,
   ButtonElement,
@@ -36,7 +40,7 @@ export function cardToTwilioText(card: CardElement): string {
 }
 
 export function cardToTwilioRcs(card: CardElement): TwilioRcsContentResult {
-  const actions = findActions(card.children);
+  const actions = findCardActions(card.children);
   if (!actions) {
     return { text: cardToTwilioText(card), type: "text" };
   }
@@ -67,7 +71,7 @@ function buildQuickReplyContent(
   const bodyText = buildBodyText(card) || card.title || "Choose an option";
   const items = buttons.slice(0, MAX_QUICK_REPLY_BUTTONS).map((btn) => ({
     id: encodeTwilioCallbackData(btn.id, btn.value),
-    title: truncate(btn.label, MAX_BUTTON_TITLE_LENGTH),
+    title: truncateWithEllipsis(btn.label, MAX_BUTTON_TITLE_LENGTH),
     type: "quick_reply" as const,
   }));
 
@@ -96,18 +100,18 @@ function buildCardContent(
   const actions = [
     ...buttons.map((btn) => ({
       id: encodeTwilioCallbackData(btn.id, btn.value),
-      title: truncate(btn.label, MAX_BUTTON_TITLE_LENGTH),
+      title: truncateWithEllipsis(btn.label, MAX_BUTTON_TITLE_LENGTH),
       type: "quick_reply" as const,
     })),
     ...links.map((link) => ({
-      title: truncate(link.label, MAX_BUTTON_TITLE_LENGTH),
+      title: truncateWithEllipsis(link.label, MAX_BUTTON_TITLE_LENGTH),
       type: "URL" as const,
       url: link.url,
     })),
   ].slice(0, MAX_QUICK_REPLY_BUTTONS);
 
   const cardType: Record<string, unknown> = {
-    title: truncate(card.title ?? "Menu", MAX_CARD_TITLE_LENGTH),
+    title: truncateWithEllipsis(card.title ?? "Menu", MAX_CARD_TITLE_LENGTH),
     body: buildBodyText(card) || card.subtitle || " ",
     actions,
   };
@@ -143,7 +147,7 @@ function buildCtaContent(
     ...overflow.map((link) => `${link.label}: ${link.url}`),
   ].join("\n");
   const actions = shown.map((link) => ({
-    title: truncate(link.label, MAX_BUTTON_TITLE_LENGTH),
+    title: truncateWithEllipsis(link.label, MAX_BUTTON_TITLE_LENGTH),
     type: "URL" as const,
     url: link.url,
   }));
@@ -167,21 +171,6 @@ function buildCtaContent(
 
 function smsFallbackText(card: CardElement): string {
   return cardToTwilioText(card) || TWILIO_EMPTY_CARD_FALLBACK;
-}
-
-function findActions(children: CardChild[]): ActionsElement | null {
-  for (const child of children) {
-    if (child.type === "actions") {
-      return child;
-    }
-    if (child.type === "section") {
-      const nested = findActions(child.children);
-      if (nested) {
-        return nested;
-      }
-    }
-  }
-  return null;
 }
 
 function extractReplyButtons(actions: ActionsElement): ButtonElement[] {
@@ -234,11 +223,4 @@ function childToPlainText(child: CardChild): string | null {
     default:
       return null;
   }
-}
-
-function truncate(text: string, maxLength: number): string {
-  if (text.length <= maxLength) {
-    return text;
-  }
-  return `${text.slice(0, maxLength - 1)}\u2026`;
 }
