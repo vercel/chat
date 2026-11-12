@@ -387,6 +387,12 @@ Because the adapter acknowledges the event with a 200 before handlers finish, Sl
       description:
         "Use Slack's native streaming API for streamed posts. Set false to always stream via post-and-edit.",
     },
+    unfurlWaitMs: {
+      type: "number",
+      default: "2000",
+      description:
+        "Polling budget in milliseconds for missing link previews. Set 0 to read cached previews once without waiting. Must be finite and nonnegative.",
+    },
     streamSegmentMaxAgeMs: {
       type: "number",
       default: "240000",
@@ -420,6 +426,20 @@ Because the adapter acknowledges the event with a 200 before handlers finish, Sl
 />
 
 Webhook mode requires `signingSecret` or a `webhookVerifier`. Socket mode requires `appToken`.
+
+### Link-preview wait
+
+Slack can deliver link previews in a separate event after the original message. By default, the adapter polls the preview cache with a 2-second budget before passing a message with missing previews to your handler. An edit with a previous-message snapshot can wait twice because the adapter parses both versions.
+
+Set `unfurlWaitMs: 0` to read the cache once and continue with any previews already available:
+
+```typescript
+const slack = createSlackAdapter({ unfurlWaitMs: 0 });
+```
+
+Links whose previews arrive later remain bare in the delivered message. A positive value sets a shorter or longer polling budget. Negative or non-finite values throw a `ValidationError` when you create the adapter.
+
+The budget controls polling, including message processing tracked by `waitUntil`. The adapter acknowledges an ordinary message webhook before that processing finishes. Cache reads are still awaited, so `unfurlWaitMs` does not set a timeout for the state store or the whole webhook request.
 
 ### Environment variables
 
