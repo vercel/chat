@@ -287,15 +287,7 @@ export const CLI_SCAFFOLD_SPEC = {
     invocation: { kind: "zero-arg" },
   },
   photon: {
-    invocation: {
-      kind: "object",
-      properties: [
-        { key: "local", value: literal("false") },
-        { key: "projectId", value: env("IMESSAGE_PROJECT_ID") },
-        { key: "projectSecret", value: env("IMESSAGE_PROJECT_SECRET") },
-        { key: "webhookSecret", value: env("IMESSAGE_WEBHOOK_SECRET") },
-      ],
-    },
+    invocation: { kind: "zero-arg" },
   },
   postgres: {
     invocation: { kind: "zero-arg" },

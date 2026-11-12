@@ -1,15 +1,19 @@
 ---
 title: Photon
-description: iMessage adapter for Chat SDK, built and maintained by Photon. Cloud, self-hosted, and on-device (local, macOS) iMessage over spectrum-ts, with HMAC-signed webhooks, tapback reactions, and DM sends that work from a cold webhook delivery.
-packageName: "@photon-ai/chat-adapter-imessage"
+description: Photon adapter for Chat SDK, built and maintained by Photon. Connects a bot to the iMessage, SMS, WhatsApp, WhatsApp Business, Telegram, and email channels of a Photon Beta project over signed webhooks or a WebSocket gateway.
+packageName: "@photon-ai/chat-adapter"
 slug: photon
 type: platform
-tagline: iMessage adapter for Chat SDK that runs against Spectrum Cloud, your own gRPC server, or on-device on a Mac. Maps iMessage chats to the Chat SDK thread, message, and reaction model, with signed webhooks and native tapbacks.
+tagline: Photon adapter for Chat SDK. One adapter reaches every channel connected to a Photon Beta project, including iMessage, SMS, WhatsApp, Telegram, and email, and receives messages through signed webhooks or a WebSocket gateway.
 community: true
 vendorOfficial: true
 author: Photon
 mdxBody: true
 ---
+
+<Callout type="warn">
+This adapter runs on Photon's Beta platform, which is a preview and doesn't have every feature of Photon's Stable platform yet. For example, iMessage on Beta supports only text and images. Photon recommends Stable for production agents, so confirm that Beta supports the features you need before you rely on it. The adapter replaces `@photon-ai/chat-adapter-imessage`. See [Migrating from the iMessage adapter](#migrating-from-the-imessage-adapter).
+</Callout>
 
 ## Create a new bot
 
@@ -21,109 +25,104 @@ The generated app uses the [Memory state adapter](/adapters/official/memory) for
 
 ## Install
 
-<PackageInstall package="@photon-ai/chat-adapter-imessage chat @chat-adapter/state-memory" />
-
-For production, use a persistent state adapter such as `@chat-adapter/state-redis` instead of in-memory state.
+<PackageInstall package="@photon-ai/chat-adapter chat @chat-adapter/state-memory" />
 
 ## Quick start
+
+Register the adapter as `photon`. It reads `PHOTON_PROJECT_ID` and `PHOTON_API_KEY` from the environment. Direct messages reach `onDirectMessage`. In a group, this bot subscribes when someone mentions `@mybot`, then replies to later messages in that thread.
 
 ```typescript title="lib/bot.ts" lineNumbers
 import { Chat } from "chat";
 import { createMemoryState } from "@chat-adapter/state-memory";
-import { createiMessageAdapter } from "@photon-ai/chat-adapter-imessage";
+import { createPhotonAdapter } from "@photon-ai/chat-adapter";
 
 export const bot = new Chat({
   userName: "mybot",
   state: createMemoryState(),
   adapters: {
-    imessage: createiMessageAdapter({
-      local: false,
-      projectId: process.env.IMESSAGE_PROJECT_ID,
-      projectSecret: process.env.IMESSAGE_PROJECT_SECRET,
-    }),
+    photon: createPhotonAdapter(),
   },
 });
 
-bot.onNewMention(async (thread, message) => {
+bot.onDirectMessage(async (thread, message) => {
+  await thread.post(`You said: ${message.text}`);
+});
+
+bot.onNewMention(async (thread) => {
+  await thread.subscribe();
+  await thread.post({ markdown: "Hi, I'm **here**." });
+});
+
+bot.onSubscribedMessage(async (thread, message) => {
   await thread.post(`You said: ${message.text}`);
 });
 ```
 
-For local development on a Mac, drop the credentials and use local mode:
+For production, use a persistent state adapter such as `@chat-adapter/state-redis`. In-memory state loses subscriptions, deduplication, and the gateway resume cursor on restart, and serverless invocations don't share it.
 
-```typescript
-createiMessageAdapter({ local: true });
+Route Photon's webhook to the adapter:
+
+```typescript title="app/api/webhooks/photon/route.ts" lineNumbers
+import { after } from "next/server";
+import { bot } from "@/lib/bot";
+
+export async function POST(request: Request): Promise<Response> {
+  return bot.webhooks.photon(request, {
+    waitUntil: (task) => after(() => task),
+  });
+}
 ```
 
-Local mode requires macOS with iMessage signed in and **Full Disk Access** granted to your terminal or app (**System Settings → Privacy & Security → Full Disk Access**).
+<Callout type="warn">
+Test an echo bot from your own phone or account, not from another automated line in the same project. Photon can report that line as a human sender, so two echo bots can keep replying to each other.
+</Callout>
 
 ## Platform setup
 
-The adapter is built on [spectrum-ts](https://github.com/photon-hq/spectrum-ts), Photon's unified messaging SDK, and runs in three modes. It detects the mode from environment variables.
-
-### Cloud (recommended)
-
-Cloud mode connects to [Spectrum Cloud](https://app.photon.codes) with a project ID and secret, and runs anywhere, including serverless.
-
-1. Sign up at [app.photon.codes](https://app.photon.codes) to get your project ID and project secret.
-2. Set `IMESSAGE_PROJECT_ID`, `IMESSAGE_PROJECT_SECRET`, and `IMESSAGE_LOCAL=false`.
-
-### Self-hosted
-
-Self-hosted mode connects to your own `@photon-ai/advanced-imessage` gRPC endpoint.
-
-1. Set `IMESSAGE_SERVER_URL` to the server's gRPC address as `host:port` (for example, `imessage.example.com:443`). Don't use an `https://` URL.
-2. Set `IMESSAGE_API_KEY` to the server's auth token, and `IMESSAGE_LOCAL=false`.
-
-### Local
-
-Local mode runs directly on a Mac and reads the on-device iMessage database. It is macOS only.
-
-1. Grant **Full Disk Access** to your terminal or app.
-2. Make sure iMessage is signed in and working on the Mac. Local mode is the default, so no extra environment variables are required.
+1. [Set up a Beta project and API key](https://photon.codes/docs/beta/get-started/project). The project API key needs `project:read` and `project:write` to receive messages and send replies.
+2. Connect the channels you want to use in the [Beta dashboard](https://app.beta.photon.codes/project). Photon suggests starting with its [iMessage guide](https://photon.codes/docs/beta/get-started/imessage) or [email guide](https://photon.codes/docs/beta/get-started/email).
+3. Set `PHOTON_PROJECT_ID` and `PHOTON_API_KEY` in your server's environment.
+4. To receive messages by webhook, [create a webhook destination](https://photon.codes/docs/beta/message-delivery/webhook) that points at your bot's HTTPS route, subscribe it to `message.received`, and save its signing secret as `PHOTON_WEBHOOK_SECRET`. The [WebSocket gateway](#websocket-gateway) needs only the project ID and API key.
 
 ## Configuration
 
+Options passed to `createPhotonAdapter()` take precedence over environment variables.
+
 <TypeTable
   type={{
-    local: {
-      type: "boolean",
-      description:
-        "Run on-device (local) iMessage. Defaults to local unless `local: false`, `IMESSAGE_LOCAL=false`, or remote credentials are provided.",
-    },
     projectId: {
       type: "string",
-      description:
-        "Spectrum Cloud project ID. Falls back to `IMESSAGE_PROJECT_ID`.",
-    },
-    projectSecret: {
-      type: "string",
-      description:
-        "Spectrum Cloud project secret. Falls back to `IMESSAGE_PROJECT_SECRET`.",
-    },
-    serverUrl: {
-      type: "string",
-      description:
-        "Self-host gRPC `host:port` (for example, `imessage.example.com:443`), not an https URL. Falls back to `IMESSAGE_SERVER_URL`.",
+      description: "Photon Beta project ID. Falls back to `PHOTON_PROJECT_ID`.",
     },
     apiKey: {
       type: "string",
       description:
-        "Auth token for a self-hosted server. Falls back to `IMESSAGE_API_KEY`.",
+        "Project API key (`pho_sk_...`). Falls back to `PHOTON_API_KEY`.",
     },
     webhookSecret: {
       type: "string",
       description:
-        "Per-webhook signing secret used to verify Spectrum Cloud deliveries. Falls back to `IMESSAGE_WEBHOOK_SECRET`.",
+        "Signing secret (`whsec_...`) of the webhook destination. Falls back to `PHOTON_WEBHOOK_SECRET`.",
     },
-    clients: {
-      type: "{ address; token; phone }[]",
+    agentUserId: {
+      type: "string",
       description:
-        "Explicit client list for multi-number self-host setups.",
+        "Agent User (`pho_usr_...`) that `openDM` starts conversations from. Falls back to `PHOTON_AGENT_USER_ID`.",
+    },
+    baseUrl: {
+      type: "string",
+      description:
+        "Photon API origin, without `/v1`. Falls back to `PHOTON_API_URL`, then `https://api.photon.codes`.",
+    },
+    userName: {
+      type: "string",
+      description:
+        "Bot name matched for @-mentions in group Spaces. Defaults to the Chat instance's `userName`.",
     },
     logger: {
       type: "Logger",
-      description: "Chat SDK-compatible logger. Defaults to `ConsoleLogger(\"info\")`.",
+      description:
+        "Chat SDK-compatible logger. Defaults to the Chat instance's logger.",
     },
   }}
 />
@@ -132,143 +131,149 @@ Local mode runs directly on a Mac and reads the on-device iMessage database. It 
 
 | Variable | Required | Description |
 | --- | --- | --- |
-| `IMESSAGE_LOCAL` | No | `"false"` for cloud/self-host; local mode is the default. |
-| `IMESSAGE_PROJECT_ID` | Cloud | Spectrum Cloud project ID. |
-| `IMESSAGE_PROJECT_SECRET` | Cloud | Spectrum Cloud project secret. |
-| `IMESSAGE_SERVER_URL` | Self-host | gRPC `host:port` of your iMessage server (not an https URL). |
-| `IMESSAGE_API_KEY` | Self-host | Auth token for the self-hosted server. |
-| `IMESSAGE_WEBHOOK_SECRET` | Webhooks | Per-webhook signing secret for verifying Spectrum Cloud deliveries. |
-| `IMESSAGE_PHONE` | No | Routing/identity phone for multi-number setups. |
+| `PHOTON_PROJECT_ID` | Yes | Photon Beta project ID. |
+| `PHOTON_API_KEY` | Yes | Project API key. This is not a Spectrum project secret. |
+| `PHOTON_WEBHOOK_SECRET` | Webhooks | Signing secret (`whsec_...`) of the webhook destination. Not needed for the WebSocket gateway. |
+| `PHOTON_AGENT_USER_ID` | `openDM` | Agent User (`pho_usr_...`) that starts conversations. |
+| `PHOTON_API_URL` | No | Photon API origin, without `/v1`. Defaults to `https://api.photon.codes`. |
 
-## Receiving messages
+## Webhooks
 
-The adapter maps an iMessage chat to a Chat SDK thread, a text to a message, and a tapback to a reaction, so subscriptions, handlers, posts, and reactions work the same as with any other adapter.
+`bot.webhooks.photon` verifies the [Standard Webhooks](https://www.standardwebhooks.com) headers `webhook-id`, `webhook-timestamp`, and `webhook-signature` against the exact request bytes, so pass the original `Request` without parsing or reserializing its body first. The adapter responds with:
 
-In remote (cloud) mode, you can receive inbound messages in two ways:
+- `401` when the signature is invalid or the timestamp is more than 5 minutes off.
+- `500` when no signing secret is configured.
+- `200` for every verified event. Events other than `message.received` are acknowledged without invoking handlers.
 
-- Webhooks, recommended for serverless: Spectrum Cloud delivers each message to an HTTPS endpoint as signed JSON, with no long-lived connection or cron job.
-- Gateway listener: `startGatewayListener()` consumes the spectrum-ts message stream in real time. It works in all modes, but in serverless it needs a cron job to stay connected.
+The `200` acknowledges the event. It doesn't mean your handler finished or that its reply was delivered. On serverless hosts, pass the host's background-task hook as `waitUntil` so handlers can finish after the response.
 
-### Webhooks
+Reactions, edits, and deletions arrive as content inside `message.received`, so they need no separate event subscriptions.
 
-Register your endpoint URL in the [Spectrum Cloud dashboard](https://app.photon.codes) and copy the per-webhook signing secret, which is shown only once, into `IMESSAGE_WEBHOOK_SECRET`. The adapter verifies the `X-Spectrum-Signature` HMAC on every delivery and rejects unsigned, mismatched, or stale requests older than 5 minutes.
+## WebSocket gateway
 
-```typescript title="app/api/imessage/webhook/route.ts" lineNumbers
-import { after } from "next/server";
-import { bot } from "@/lib/bot";
+For a process without a public URL, receive the same `message.received` events over Photon's [Socket.IO event stream](https://photon.codes/docs/beta/message-delivery/websocket). The gateway needs the project ID and API key, but no webhook destination or signing secret.
 
-export async function POST(request: Request): Promise<Response> {
-  return bot.webhooks.imessage(request, {
-    waitUntil: (task) => after(() => task),
-  });
-}
+`startGatewayListener(options, durationMs, abortSignal)` connects, reconnects after transient disconnects, and stores the sequence number of the last event it handled in the Chat SDK state adapter, so a later connection resumes after it. Use a persistent state adapter for the cursor to survive a restart. The listener runs for 3 minutes by default.
+
+On a long-running server, initialize the bot and listen until shutdown:
+
+```typescript title="gateway.ts" lineNumbers
+import { bot } from "./lib/bot";
+
+await bot.initialize();
+
+const controller = new AbortController();
+process.on("SIGTERM", () => controller.abort());
+
+await bot
+  .getAdapter("photon")
+  .startGatewayListener({}, Number.POSITIVE_INFINITY, controller.signal);
 ```
 
-`bot.webhooks.imessage` verifies the signature, parses the `messages` event, and routes the message into your bot. Processing runs in the background through `waitUntil`, so the endpoint acknowledges immediately. Spectrum Cloud retries failed deliveries and delivers at least once, so dedupe on `X-Spectrum-Webhook-Id` plus `message.id` if you need exactly-once side effects.
+For serverless deployments, prefer webhooks. If you need the gateway there, start it from a cron job that runs more often than the listener lasts, and check the cron secret first so nobody else can start listeners on your API key:
 
-A webhook delivery carries no live connection, but your bot can still respond. For a DM, the adapter rebuilds the thread from its address over spectrum-ts (gRPC) and can send, react, edit, and show typing without the gateway:
-
-```typescript
-bot.onNewMention(async (thread, message) => {
-  await thread.post("Got it!"); // works directly from a webhook delivery (DM)
-});
-```
-
-Replying into a group requires that the group was received over the gateway listener in the same session, because an unseen group cannot be reconstructed from its id. See [Limitations](#limitations).
-
-### Gateway listener for serverless
-
-Drive `startGatewayListener()` from an authenticated cron route so the stream stays connected:
-
-```typescript title="app/api/imessage/gateway/route.ts" lineNumbers
+```typescript title="app/api/photon/gateway/route.ts" lineNumbers
 import { after } from "next/server";
 import { bot } from "@/lib/bot";
 
 export const maxDuration = 800;
 
 export async function GET(request: Request): Promise<Response> {
-  const cronSecret = process.env.CRON_SECRET;
-  if (!cronSecret) {
-    return new Response("CRON_SECRET not configured", { status: 500 });
-  }
-  if (request.headers.get("authorization") !== `Bearer ${cronSecret}`) {
+  if (
+    request.headers.get("authorization") !== `Bearer ${process.env.CRON_SECRET}`
+  ) {
     return new Response("Unauthorized", { status: 401 });
   }
 
-  const durationMs = 600 * 1000;
-  return bot.adapters.imessage.startGatewayListener(
-    { waitUntil: (task) => after(() => task) },
-    durationMs
-  );
+  await bot.initialize();
+  return bot
+    .getAdapter("photon")
+    .startGatewayListener({ waitUntil: (task) => after(() => task) }, 600_000);
 }
 ```
 
-```json title="vercel.json"
-{
-  "crons": [{ "path": "/api/imessage/gateway", "schedule": "*/9 * * * *" }]
-}
+Overlapping listeners are safe, because Chat SDK drops a message it has already handled.
+
+## Direct messages
+
+Direct Spaces are DMs and reach `onDirectMessage`. To start a conversation, set `PHOTON_AGENT_USER_ID` to a connected Agent User, then pass an existing Photon User ID to the adapter's `openDM`. A phone number doesn't work here.
+
+```typescript
+await bot.initialize();
+
+const threadId = await bot
+  .getAdapter("photon")
+  .openDM("pho_usr_REPLACE_WITH_RECIPIENT_ID");
+
+await bot.thread(threadId).post("Hello from Photon!");
 ```
 
-Running every 9 minutes overlaps the 10-minute listener duration. `CRON_SECRET` is added automatically by Vercel when you configure cron jobs.
+Call `openDM` on the adapter, because `bot.openDM()` can't infer the Photon adapter from a Photon User ID. The adapter finds or creates the direct Space between the Agent and that User. Both must be on the same platform, and that platform's messaging rules still apply.
 
 ## Message format
 
-iMessage is plain text only. Outbound markdown is rendered to plain text, which strips the formatting but keeps the content. Inbound text is parsed into the Chat SDK AST.
+Markdown is sent to Photon as Markdown, and each platform renders what it supports. SMS, for example, receives plain text. Raw HTML in Markdown is dropped because Photon rejects it.
 
-## Reactions
+Photon content has no buttons or other actions, so a card is sent as its fallback text and modals can't open.
 
-iMessage uses tapbacks instead of emoji reactions. The adapter maps standard emoji names to tapbacks when adding a reaction (remote mode only):
+## Streaming
 
-| Emoji name | Tapback |
-| --- | --- |
-| `love` / `heart` | Love |
-| `like` / `thumbs_up` | Like |
-| `dislike` / `thumbs_down` | Dislike |
-| `laugh` | Laugh |
-| `emphasize` / `exclamation` | Emphasize |
-| `question` | Question |
-
-Removing reactions is not supported.
+The adapter collects a streamed reply and sends it once as a complete message. It doesn't post a placeholder and edit it, because most platforms behind Photon can't edit messages.
 
 ## Attachments
 
-The adapter supports file uploads for sending. Files attached to a post are delivered as iMessage media:
+Files attached to a post are uploaded as Photon attachments. The text and each file go out as separate messages, in the order given.
 
-```typescript
-import { readFile } from "node:fs/promises";
+Inbound attachments include the name, type, and size, with `fetchData()` to download the content.
 
-await thread.post({
-  markdown: "Here is the receipt.",
-  files: [
-    {
-      filename: "receipt.pdf",
-      mimeType: "application/pdf",
-      data: await readFile("receipt.pdf"),
-    },
-  ],
-});
+## Reactions, edits, and typing
+
+Support depends on the connected platform. When a platform doesn't support an operation, Photon refuses it and the adapter throws Chat SDK's `NotImplementedError`. Photon's README notes that iMessage doesn't support edits, deletes, or reactions yet, and that Telegram supports edits and deletes.
+
+| Chat SDK | Photon adapter behavior |
+| --- | --- |
+| `editMessage` / `deleteMessage` | Sends `message.update` / `message.delete` where the platform supports them. |
+| `addReaction` | Sends a `reaction` where the platform supports it. |
+| `onReaction` | Receives inbound reactions and reaction removals. |
+| `onMessageUpdated` / `onMessageDeleted` | Receives inbound edits and deletions, carrying the original message's ID. |
+| `startTyping` | Sends Space typing. A no-op on platforms without typing. |
+| `markAsRead` | Sends a read receipt. |
+
+## Message history
+
+`fetchMessages` reads paginated Space history, and `fetchThread` returns the Space in `metadata.space`.
+
+## Thread IDs
+
+A thread is one Photon Space, as seen by the Agent User that received the message:
+
+```text
+photon:<spaceId>:<agentUserId>:<spaceKind>
 ```
 
-## Modals
+`spaceKind` is the Photon Space kind, such as `direct` or `group`. Because the Agent is part of the ID, a reply goes out from the Agent the message arrived on, including in a later webhook invocation.
 
-Modal support is limited. Remote mode maps the Chat SDK's `openModal()` to iMessage native polls. Only the first `Select` in the modal is used: `Modal.title` becomes the poll question and `Select.options` (2 to 10) become the choices. Votes fire `onModalSubmit` with the selected option's `value`.
+## Migrating from the iMessage adapter
 
-```typescript
-bot.onModalSubmit("fav-color", async (event) => {
-  const color = event.values.color; // e.g. "red"
-});
-```
+`@photon-ai/chat-adapter` is a new adapter with a new API, not a rename of `@photon-ai/chat-adapter-imessage`. For an existing Spectrum integration, Photon keeps a [legacy guide](https://photon.codes/docs/integrations/chat-sdk).
 
-Not supported: `TextInput`, `RadioSelect`, placeholders, submit/close labels, more than one `Select`, and vote deselection. Polls in the same chat must have distinct titles. Local mode throws `NotImplementedError`.
+| iMessage adapter | Photon adapter |
+| --- | --- |
+| `@photon-ai/chat-adapter-imessage` | `@photon-ai/chat-adapter` |
+| `createiMessageAdapter()` and `adapters.imessage` | `createPhotonAdapter()` and `adapters.photon` |
+| Spectrum project ID and secret, `IMESSAGE_*` variables | Beta project ID and API key, `PHOTON_*` variables |
+| `bot.webhooks.imessage` and Spectrum webhook signatures | `bot.webhooks.photon` and a new `whsec_...` signing secret |
+| iMessage-specific thread IDs | Photon Space and Agent User IDs |
+
+Create a Beta project, connect its channels, replace the credentials and webhook destination, and review [feature support](#feature-support) before you switch traffic. Old thread IDs, subscriptions, and gateway cursors don't carry over, so use a separate state store or namespace for the new bot.
 
 ## Limitations
 
-- DMs can be sent cold, but groups are session-bound. A DM thread is rebuilt from its address over gRPC, so the adapter can send, react, edit, and show typing even into a thread it has not seen this session, including from a webhook. A group chat has no by-id resolver, so addressing one requires it to have been received over the gateway or stream in the current session. Cold sends to an unseen group throw `NotImplementedError`.
-- spectrum-ts doesn't support message history or thread info, so `fetchMessages` and `fetchThread` are unavailable.
-- `removeReaction` is not supported.
-- Reactions, typing, editing, and modals require cloud or self-host mode. Local mode supports sending and receiving only.
-- iMessage has no markdown or structured cards.
-- Local mode requires macOS. Cloud and self-host run anywhere.
+- `removeReaction` is not supported. Photon removes a reaction by deleting the reaction's own message, which can't be looked up from the message it reacts to.
+- Cards are sent as fallback text, and modals are not supported.
+- Edits, deletes, reactions, and typing depend on the connected platform.
+- Beta doesn't have every Stable feature. On iMessage, tapbacks, polls, message effects, and voice notes are available only on Stable for now.
+- The adapter requires Node.js 20 or later and runs server-side only.
 
 ## Feature support
 
@@ -276,8 +281,9 @@ Not supported: `TextInput`, `RadioSelect`, placeholders, submit/close labels, mo
 
 ## Resources
 
-- [GitHub](https://github.com/photon-hq/vercel-chat-adapter-imessage)
-- [npm](https://www.npmjs.com/package/@photon-ai/chat-adapter-imessage)
-- [spectrum-ts](https://github.com/photon-hq/spectrum-ts)
-- [Spectrum Cloud dashboard](https://app.photon.codes)
-- [Webhook docs](https://photon.codes/docs/webhooks/overview)
+- [GitHub](https://github.com/photon-hq/chat-adapter)
+- [npm](https://www.npmjs.com/package/@photon-ai/chat-adapter)
+- [Photon Chat SDK guide](https://photon.codes/docs/beta/integrations/chat-sdk)
+- [Beta dashboard](https://app.beta.photon.codes/project)
+- [Webhook delivery](https://photon.codes/docs/beta/message-delivery/webhook)
+- [WebSocket delivery](https://photon.codes/docs/beta/message-delivery/websocket)

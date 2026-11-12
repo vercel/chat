@@ -4,76 +4,59 @@ import type { CatalogAdapter } from "../../types";
 export const photon = {
   author: "Photon",
   description:
-    "iMessage adapter for Chat SDK, built and maintained by Photon. Cloud, self-hosted, and on-device (macOS) iMessage over spectrum-ts.",
+    "Photon adapter for Chat SDK, built and maintained by Photon. Connects a bot to the iMessage, SMS, WhatsApp, WhatsApp Business, Telegram, and email channels of a Photon Beta project over signed webhooks or a WebSocket gateway.",
   env: {
-    config: ["clients", "logger"],
-    credentialModes: [
-      {
-        label: "Spectrum Cloud",
-        vars: [
-          env("IMESSAGE_PROJECT_ID", "Spectrum Cloud project ID."),
-          secretEnv(
-            "IMESSAGE_PROJECT_SECRET",
-            "Spectrum Cloud project secret."
-          ),
-        ],
-      },
-      {
-        label: "Self-hosted",
-        vars: [
-          urlEnv(
-            "IMESSAGE_SERVER_URL",
-            "gRPC host:port of a self-hosted iMessage server (not an https URL)."
-          ),
-          secretEnv(
-            "IMESSAGE_API_KEY",
-            "Auth token for the self-hosted server."
-          ),
-        ],
-      },
+    config: ["userName", "logger"],
+    required: [
+      env("PHOTON_PROJECT_ID", "Photon Beta project ID."),
+      secretEnv("PHOTON_API_KEY", "Photon project API key."),
     ],
     optional: [
-      env(
-        "IMESSAGE_LOCAL",
-        'Set to "false" for cloud/self-host; on-device (local, macOS) mode is the default.'
-      ),
       secretEnv(
-        "IMESSAGE_WEBHOOK_SECRET",
-        "Per-webhook signing secret for verifying Spectrum Cloud deliveries."
+        "PHOTON_WEBHOOK_SECRET",
+        "Signing secret of the webhook destination. Required to receive messages by webhook."
       ),
-      env("IMESSAGE_PHONE", "Routing/identity phone for multi-number setups."),
+      env(
+        "PHOTON_AGENT_USER_ID",
+        "Agent User that openDM starts conversations from. Required for openDM."
+      ),
+      urlEnv(
+        "PHOTON_API_URL",
+        "Photon API origin, without /v1. Defaults to https://api.photon.codes."
+      ),
     ],
   },
-  factoryExport: "createiMessageAdapter",
+  factoryExport: "createPhotonAdapter",
   features: {
     postMessage: "yes",
-    editMessage: { status: "partial", label: "Remote only" },
-    deleteMessage: "no",
-    fileUploads: { status: "yes", label: "Send" },
-    streaming: "no",
+    editMessage: { status: "partial", label: "Platform-dependent" },
+    deleteMessage: { status: "partial", label: "Platform-dependent" },
+    fileUploads: "yes",
+    streaming: { status: "partial", label: "Buffered" },
     scheduledMessages: "no",
-    cardFormat: "no",
+    cardFormat: { status: "partial", label: "Plain text" },
     buttons: "no",
     linkButtons: "no",
     selectMenus: "no",
     tables: "no",
     fields: "no",
     imagesInCards: "no",
-    modals: { status: "partial", label: "Remote only, native polls" },
+    modals: "no",
     slashCommands: "no",
-    mentions: { status: "partial", label: "DMs only" },
-    addReactions: { status: "partial", label: "Tapbacks, remote only" },
+    mentions: "yes",
+    addReactions: { status: "partial", label: "Platform-dependent" },
     removeReactions: "no",
-    typingIndicator: { status: "partial", label: "Remote only" },
-    messageUpdatedEvents: "no",
-    messageDeletedEvents: "no",
+    typingIndicator: { status: "partial", label: "Platform-dependent" },
+    markAsRead: "yes",
+    messageUpdatedEvents: "yes",
+    messageDeletedEvents: "yes",
     directMessages: "yes",
     ephemeralMessages: "no",
     userLookup: "no",
-    customApiEndpoint: "no",
-    fetchMessages: "no",
+    customApiEndpoint: "yes",
+    fetchMessages: "yes",
     fetchSingleMessage: "no",
-    fetchThreadInfo: "no",
+    fetchThreadInfo: "yes",
     fetchChannelMessages: "no",
     listThreads: "no",
     fetchChannelInfo: "no",
@@ -81,10 +64,10 @@ export const photon = {
   },
   group: "vendor-official",
   name: "Photon",
-  packageName: "@photon-ai/chat-adapter-imessage",
+  packageName: "@photon-ai/chat-adapter",
   peerDeps: [],
   readme:
-    "https://github.com/photon-hq/vercel-chat-adapter-imessage/tree/d0dcf8837a031b50873df7d7771d6def25d55bb0",
+    "https://github.com/photon-hq/chat-adapter/tree/6ce80ad32af764f49e97eecf25beef5c65c8177e",
   slug: "photon",
   type: "platform",
 } as const satisfies CatalogAdapter;
