@@ -881,7 +881,7 @@ export class GoogleChatAdapter implements Adapter<GoogleChatThreadId, unknown> {
       }
       return {
         avatarUrl: cached.avatarUrl,
-        email: cached.email,
+        email: cached.email || undefined,
         fullName: cached.displayName,
         isBot: cached.isBot ?? false,
         userId,
@@ -1212,14 +1212,18 @@ export class GoogleChatAdapter implements Adapter<GoogleChatThreadId, unknown> {
         });
       }
 
+      const userId = reaction.user?.name || "unknown";
+      const email = await this.userInfoCache.getEmail(userId);
+
       return {
         emoji: normalizedEmoji,
         rawEmoji,
         added,
         user: {
-          userId: reaction.user?.name || "unknown",
+          userId,
           userName: reaction.user?.displayName || "unknown",
           fullName: reaction.user?.displayName || "unknown",
+          email,
           isBot: reaction.user?.type === "BOT",
           isMe,
         },
@@ -1258,12 +1262,13 @@ export class GoogleChatAdapter implements Adapter<GoogleChatThreadId, unknown> {
 
     // Pub/Sub messages don't include displayName - resolve from cache
     const userId = message.sender?.name || "unknown";
-    const displayName = await this.userInfoCache.resolveDisplayName(
-      userId,
-      message.sender?.displayName,
-      this.botUserId,
-      this.userName
-    );
+    const { displayName, email: cachedEmail } =
+      await this.userInfoCache.resolveUser(
+        userId,
+        message.sender?.displayName,
+        this.botUserId,
+        this.userName
+      );
 
     const parsedMessage = new Message({
       id: message.name,
@@ -1274,6 +1279,7 @@ export class GoogleChatAdapter implements Adapter<GoogleChatThreadId, unknown> {
         userId,
         userName: displayName,
         fullName: displayName,
+        email: message.sender?.email || cachedEmail,
         isBot,
         isMe,
       },
@@ -1459,12 +1465,13 @@ export class GoogleChatAdapter implements Adapter<GoogleChatThreadId, unknown> {
     // Cache user info for future Pub/Sub messages (which don't include displayName)
     const userId = message.sender?.name || "unknown";
     const displayName = message.sender?.displayName || "unknown";
+    const email = message.sender?.email || undefined;
     if (userId !== "unknown" && displayName !== "unknown") {
       this.userInfoCache
         .set(
           userId,
           displayName,
-          message.sender?.email,
+          email,
           message.sender?.type === "BOT",
           message.sender?.avatarUrl
         )
@@ -1482,7 +1489,7 @@ export class GoogleChatAdapter implements Adapter<GoogleChatThreadId, unknown> {
         userId,
         userName: displayName,
         fullName: displayName,
-        email: message.sender?.email || undefined,
+        email,
         isBot,
         isMe,
       },
@@ -2164,7 +2171,7 @@ export class GoogleChatAdapter implements Adapter<GoogleChatThreadId, unknown> {
 
     // Resolve display name - the list API may not include it
     const userId = msg.sender?.name || "unknown";
-    const displayName = await this.userInfoCache.resolveDisplayName(
+    const { displayName, email } = await this.userInfoCache.resolveUser(
       userId,
       msg.sender?.displayName ?? undefined,
       this.botUserId,
@@ -2183,6 +2190,7 @@ export class GoogleChatAdapter implements Adapter<GoogleChatThreadId, unknown> {
         userId,
         userName: displayName,
         fullName: displayName,
+        email,
         isBot: msgIsBot,
         isMe,
       },
