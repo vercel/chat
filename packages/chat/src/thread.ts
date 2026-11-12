@@ -156,6 +156,16 @@ function getNeverAbortedSignal(): AbortSignal {
   return neverAbortedSignal;
 }
 
+async function* withoutReasoning(
+  source: AsyncIterable<string | StreamChunk>
+): AsyncIterable<string | StreamChunk> {
+  for await (const chunk of source) {
+    if (typeof chunk === "string" || chunk.type !== "reasoning") {
+      yield chunk;
+    }
+  }
+}
+
 async function* takeUntilAborted<T>(
   source: AsyncIterable<T>,
   signal: AbortSignal
@@ -789,8 +799,14 @@ export class ThreadImpl<TState = Record<string, unknown>>
     callerOptions?: StreamOptions
   ): Promise<SentMessage> {
     // Normalize: handles plain strings, AI SDK fullStream events, and StreamChunk objects
-    const textStream = takeUntilAborted(fromFullStream(rawStream), this.signal);
     const adapter = this.adapter;
+    const normalized = fromFullStream(rawStream);
+    const textStream = takeUntilAborted(
+      adapter.supportsReasoningChunks
+        ? normalized
+        : withoutReasoning(normalized),
+      this.signal
+    );
     const defaults = this._binding
       ?.resolveOwner(adapter)
       ?.getStreamingOptions();
@@ -839,7 +855,7 @@ export class ThreadImpl<TState = Record<string, unknown>>
                 } else if (value.type === "markdown_text") {
                   accumulated += value.text;
                 }
-                // task_update and plan_update chunks don't contribute to accumulated text
+                // task_update, plan_update, and reasoning chunks don't contribute to accumulated text
               }
               return result;
             },
@@ -889,7 +905,7 @@ export class ThreadImpl<TState = Record<string, unknown>>
               if (value.type === "markdown_text") {
                 return { value: value.text, done: false };
               }
-              // Skip non-text chunks (task_update, plan_update) in fallback mode
+              // Skip non-text chunks (task_update, plan_update, reasoning) in fallback mode
             }
           },
         };

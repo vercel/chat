@@ -262,4 +262,32 @@ describe("fromFullStream", () => {
       expect(await collect(fromFullStream(stream))).toBe("hello world");
     });
   });
+
+  describe("StreamChunk objects", () => {
+    it("passes structured chunks through, including reasoning", async () => {
+      const chunks = [
+        { type: "reasoning", text: "thinking" },
+        { type: "plan_update", title: "Plan" },
+        { type: "task_update", id: "t1", title: "Task", status: "pending" },
+        { type: "markdown_text", text: "answer" },
+      ];
+      const seen: unknown[] = [];
+      for await (const chunk of fromFullStream(events(chunks))) {
+        seen.push(chunk);
+      }
+      expect(seen).toEqual(chunks);
+    });
+
+    it("skips AI SDK v4 reasoning events, which have no text field", async () => {
+      const stream = events([
+        { type: "reasoning", textDelta: "hmm" },
+        { type: "text-delta", textDelta: "answer" },
+      ]);
+      const seen: unknown[] = [];
+      for await (const chunk of fromFullStream(stream)) {
+        seen.push(chunk);
+      }
+      expect(seen).toEqual(["answer"]);
+    });
+  });
 });

@@ -1209,6 +1209,64 @@ describe("ThreadImpl", () => {
         { markdown: "Hello World" }
       );
     });
+
+    it("keeps reasoning chunks out of the message text", async () => {
+      async function* reasoningStream() {
+        yield { type: "reasoning" as const, text: "Let me think. " };
+        yield "Hello";
+        yield { type: "reasoning" as const, text: "Almost there." };
+        yield " World";
+      }
+
+      const collectStream = (seen: (string | StreamChunk)[]) =>
+        vi.fn(
+          async (
+            _threadId: string,
+            stream: AsyncIterable<string | StreamChunk>
+          ) => {
+            for await (const chunk of stream) {
+              seen.push(chunk);
+            }
+            return { id: "msg-stream", threadId: "t1", raw: {} };
+          }
+        );
+
+      // Native streaming without the opt-in: the adapter never sees reasoning.
+      const withoutOptIn: (string | StreamChunk)[] = [];
+      mockAdapter.stream = collectStream(withoutOptIn);
+      const filtered = await thread.post(
+        reasoningStream() as AsyncIterable<string>
+      );
+      expect(withoutOptIn).toEqual(["Hello", " World"]);
+      expect(filtered.text).toBe("Hello World");
+
+      // With the opt-in the adapter receives every chunk in order, and the
+      // text still excludes reasoning.
+      const withOptIn: (string | StreamChunk)[] = [];
+      mockAdapter.stream = collectStream(withOptIn);
+      (
+        mockAdapter as { supportsReasoningChunks?: boolean }
+      ).supportsReasoningChunks = true;
+      const streamed = await thread.post(
+        reasoningStream() as AsyncIterable<string>
+      );
+      expect(withOptIn).toEqual([
+        { type: "reasoning", text: "Let me think. " },
+        "Hello",
+        { type: "reasoning", text: "Almost there." },
+        " World",
+      ]);
+      expect(streamed.text).toBe("Hello World");
+
+      // Fallback post+edit: reasoning never reaches the posted message.
+      mockAdapter.stream = undefined;
+      await thread.post(reasoningStream() as AsyncIterable<string>);
+      expect(mockAdapter.editMessage).toHaveBeenLastCalledWith(
+        "slack:C123:1234.5678",
+        "msg-1",
+        { markdown: "Hello World" }
+      );
+    });
   });
 
   describe("allMessages iterator", () => {
