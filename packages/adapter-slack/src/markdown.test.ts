@@ -248,6 +248,28 @@ describe("SlackFormatConverter", () => {
       ).toContain("```\n");
     });
 
+    it("prefixes a lazy continuation line in a quote", () => {
+      expect(
+        converter.toResponseUrlText({ markdown: "> line one\nline two" })
+      ).toBe("> line one\n> line two");
+    });
+
+    it("skips a quote child that renders to nothing", () => {
+      expect(
+        converter.toResponseUrlText({
+          markdown: "> [foo]: https://example.com\n>\n> first\n>\n> second",
+        })
+      ).toBe("> first\n>\n> second");
+    });
+
+    it("does not end a quote with a blank quoted line", () => {
+      expect(
+        converter.toResponseUrlText({
+          markdown: "> text\n>\n> [foo]: https://example.com",
+        })
+      ).toBe("> text");
+    });
+
     it("quotes every line of a multi-line paragraph", () => {
       expect(
         converter.toResponseUrlText({ markdown: "> line one\n> line two" })

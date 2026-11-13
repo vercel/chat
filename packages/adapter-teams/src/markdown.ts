@@ -47,8 +47,6 @@ const PLAIN_TEXT_ENTITY_PATTERN = /&(?:lt|gt|amp|quot|#39|nbsp);/g;
 const BLOCK_TAG_PATTERN =
   /^<(?:br\b|\/(?:p|div|li|tr|h[1-6]|blockquote|pre|table|ul|ol)\b)/i;
 const EXTRA_NEWLINES_PATTERN = /\n{3,}/g;
-const LINE_BREAK_REGEX = /\r\n|\r|\n/;
-
 const HREF_PREFIX_LENGTH = 'href="'.length;
 const LINK_END_LENGTH = "</a>".length;
 
@@ -342,16 +340,7 @@ export class TeamsFormatConverter extends BaseFormatConverter {
     }
 
     if (isBlockquoteNode(node)) {
-      // Quote every line, and keep a quoted blank line between blocks,
-      // so paragraphs and list items stay apart inside the quote.
-      return getNodeChildren(node)
-        .map((child) =>
-          this.nodeToTeams(child)
-            .split(LINE_BREAK_REGEX)
-            .map((line) => (line ? `> ${line}` : ">"))
-            .join("\n")
-        )
-        .join("\n>\n");
+      return this.renderBlockquote(node, (child) => this.nodeToTeams(child));
     }
 
     if (isListNode(node)) {

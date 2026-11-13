@@ -37,7 +37,6 @@ import { slackMrkdwnToMarkdown, unescapeSlackText } from "./format";
 
 export type SlackTextPayload = { text: string } | { markdown_text: string };
 
-const LINE_BREAK_REGEX = /\r\n|\r|\n/;
 const SLACK_ID_PATTERN = /^[A-Z0-9_]+$/;
 const SPECIAL_MENTION_TOKEN_PATTERN = /^!(here|channel|everyone)(?:\|[^<>]*)?$/;
 const USER_GROUP_TOKEN_PATTERN = /^!subteam\^([A-Z0-9_]+)(?:\|@?(.+))?$/;
@@ -284,16 +283,7 @@ export class SlackFormatConverter extends BaseFormatConverter {
     }
 
     if (isBlockquoteNode(node)) {
-      // Quote every line, and keep a quoted blank line between blocks,
-      // so paragraphs and list items stay apart inside the quote.
-      return getNodeChildren(node)
-        .map((child) =>
-          this.nodeToMrkdwn(child)
-            .split(LINE_BREAK_REGEX)
-            .map((line) => (line ? `> ${line}` : ">"))
-            .join("\n")
-        )
-        .join("\n>\n");
+      return this.renderBlockquote(node, (child) => this.nodeToMrkdwn(child));
     }
 
     if (isListNode(node)) {
