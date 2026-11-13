@@ -278,8 +278,10 @@ Fallback to post-and-edit (`chat.update` deltas, throttled by
 
 Failures after native content has rendered still propagate — mixing the
 two surfaces would duplicate output. The one exception is Slack expiring
-a stream (`message_not_in_streaming_state`): the adapter continues in a
-new message with any text Slack had not confirmed.
+a stream (`message_not_in_streaming_state`): the adapter rewrites the
+expired message with the text Slack had confirmed (Slack otherwise shows
+it as "Something went wrong"), then continues in a new message with the
+rest.
 
 Slack expires a native stream after roughly five minutes, so `stream()`
 works in segments: once a segment is `streamSegmentMaxAgeMs` old (the
