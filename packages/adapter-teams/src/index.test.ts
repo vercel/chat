@@ -29,7 +29,13 @@ import {
   vi,
 } from "vitest";
 import type { TeamsActivityAttachment } from "./attachments";
-import { createTeamsAdapter, TeamsAdapter, type TeamsThreadId } from "./index";
+import { cardToAdaptiveCard } from "./cards";
+import {
+  createTeamsAdapter,
+  TeamsAdapter,
+  type TeamsPostableMessage,
+  type TeamsThreadId,
+} from "./index";
 import { TeamsFormatConverter } from "./markdown";
 import { appId, TestTeamsAdapter } from "./test-utils";
 
@@ -1879,6 +1885,422 @@ describe("TeamsAdapter", () => {
       expect(result.id).toBe("edit-msg-1");
       expect(result.threadId).toBe(threadId);
       expect(mockUpdate).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  describe("raw Adaptive Cards", () => {
+    const CARD_CONTENT_TYPE = "application/vnd.microsoft.card.adaptive";
+    const DM_CONVERSATION_ID = "a:1personal-chat-id";
+    const adaptiveCard = {
+      type: "AdaptiveCard",
+      version: "1.5",
+      body: [{ type: "Badge", text: "Bug", style: "Attention" }],
+    };
+
+    interface SentActivity {
+      attachments?: unknown[];
+      entities?: { additionalType?: string[] }[];
+      recipient?: { id?: string; isTargeted?: boolean };
+      summary?: string;
+    }
+
+    function createAdapterWithMocks(conversationId = "19:abc@thread.tacv2") {
+      const adapter = createTeamsAdapter({
+        appId: "test-app-id",
+        appPassword: "test",
+        logger,
+      });
+      const app = (
+        adapter as unknown as {
+          app: { api: unknown; sendTo: ReturnType<typeof vi.fn> };
+        }
+      ).app;
+      app.sendTo = vi.fn(async () => ({ id: "card-msg-1", type: "message" }));
+      const update = vi.fn(async () => ({ id: "card-msg-1" }));
+      app.api = {
+        conversations: { activities: () => ({ update, delete: vi.fn() }) },
+        reactions: { add: vi.fn(), remove: vi.fn() },
+        serviceUrl: TEST_SERVICE_URL,
+      };
+      const threadId = adapter.encodeThreadId({
+        conversationId,
+        serviceUrl: TEST_SERVICE_URL,
+      });
+      const sent = () => app.sendTo.mock.calls[0]?.[1] as SentActivity;
+      const updated = () =>
+        (update.mock.calls as unknown[][])[0]?.[1] as SentActivity;
+      return { adapter, sendTo: app.sendTo, sent, threadId, update, updated };
+    }
+
+    const isAiLabeled = (activity: SentActivity) =>
+      (activity.entities ?? []).some((entity) =>
+        entity.additionalType?.includes("AIGeneratedContent")
+      );
+
+    it("posts the card as is with fallbackText as the summary", async () => {
+      const { adapter, sent, sendTo, threadId } = createAdapterWithMocks();
+
+      await adapter.postMessage(threadId, {
+        adaptiveCard,
+        fallbackText: "Bug · Suggested reply",
+      });
+
+      expect(sendTo).toHaveBeenCalledTimes(1);
+      expect(sent().attachments).toEqual([
+        { contentType: CARD_CONTENT_TYPE, content: adaptiveCard },
+      ]);
+      expect(sent().summary).toBe("Bug · Suggested reply");
+    });
+
+    it("edits a message to the card as is", async () => {
+      const { adapter, threadId, update, updated } = createAdapterWithMocks();
+
+      await adapter.editMessage(threadId, "card-msg-1", {
+        adaptiveCard,
+        fallbackText: "Bug · Sent",
+      });
+
+      expect(update).toHaveBeenCalledTimes(1);
+      expect(update.mock.calls[0]).toEqual(["card-msg-1", expect.anything()]);
+      expect(updated().attachments).toEqual([
+        { contentType: CARD_CONTENT_TYPE, content: adaptiveCard },
+      ]);
+      expect(updated().summary).toBe("Bug · Sent");
+    });
+
+    it("posts the card to a channel with postChannelMessage", async () => {
+      const { adapter, sent, sendTo, threadId } = createAdapterWithMocks();
+
+      const result = await adapter.postChannelMessage(threadId, {
+        adaptiveCard,
+        fallbackText: "Bug · New report",
+      });
+
+      expect(sendTo).toHaveBeenCalledTimes(1);
+      expect(sendTo.mock.calls[0]?.[0]).toEqual(
+        expect.objectContaining({ conversationId: "19:abc@thread.tacv2" })
+      );
+      expect(sent().attachments).toEqual([
+        { contentType: CARD_CONTENT_TYPE, content: adaptiveCard },
+      ]);
+      expect(sent().summary).toBe("Bug · New report");
+      expect(result.id).toBe("card-msg-1");
+    });
+
+    it("sends the card to one user with postEphemeral in a channel", async () => {
+      const { adapter, sent, sendTo, threadId } = createAdapterWithMocks();
+
+      const result = await adapter.postEphemeral(threadId, "29:target-user", {
+        adaptiveCard,
+        fallbackText: "Bug · Only you",
+      });
+
+      expect(sendTo).toHaveBeenCalledTimes(1);
+      expect(result.usedFallback).toBe(false);
+      expect(sent().attachments).toEqual([
+        { contentType: CARD_CONTENT_TYPE, content: adaptiveCard },
+      ]);
+      expect(sent().summary).toBe("Bug · Only you");
+      expect(sent().recipient).toEqual(
+        expect.objectContaining({ id: "29:target-user", isTargeted: true })
+      );
+    });
+
+    it("posts the card normally when postEphemeral runs in a 1:1 chat", async () => {
+      const { adapter, sent, sendTo, threadId } =
+        createAdapterWithMocks(DM_CONVERSATION_ID);
+
+      const result = await adapter.postEphemeral(threadId, "29:target-user", {
+        adaptiveCard,
+        fallbackText: "Bug · Only you",
+      });
+
+      expect(sendTo).toHaveBeenCalledTimes(1);
+      expect(result.usedFallback).toBe(true);
+      expect(sent().attachments).toEqual([
+        { contentType: CARD_CONTENT_TYPE, content: adaptiveCard },
+      ]);
+      expect(sent().summary).toBe("Bug · Only you");
+      expect(sent().recipient?.isTargeted).not.toBe(true);
+    });
+
+    it("sends a card built with cardToAdaptiveCard without copying it", async () => {
+      const { adapter, sent, threadId } = createAdapterWithMocks();
+      const built = cardToAdaptiveCard({
+        type: "card",
+        title: "Weekly report",
+        children: [],
+      });
+
+      await adapter.postMessage(threadId, { adaptiveCard: built });
+
+      const [attachment] = sent().attachments as { content: unknown }[];
+      expect(attachment?.content).toBe(built);
+    });
+
+    it("sets no summary when fallbackText is omitted", async () => {
+      const { adapter, sent, threadId, updated } = createAdapterWithMocks();
+
+      await adapter.postMessage(threadId, { adaptiveCard });
+      await adapter.editMessage(threadId, "card-msg-1", { adaptiveCard });
+
+      expect(sent().attachments).toHaveLength(1);
+      expect(sent().summary).toBeUndefined();
+      expect(updated().attachments).toHaveLength(1);
+      expect(updated().summary).toBeUndefined();
+    });
+
+    it.each([
+      "postMessage",
+      "postChannelMessage",
+      "postEphemeral",
+    ] as const)("attaches files after the card with %s", async (method) => {
+      const { adapter, sent, threadId } = createAdapterWithMocks();
+      const message = {
+        adaptiveCard,
+        files: [
+          {
+            data: Buffer.from("steps to reproduce"),
+            filename: "repro.txt",
+            mimeType: "text/plain",
+          },
+        ],
+      };
+
+      await (method === "postEphemeral"
+        ? adapter.postEphemeral(threadId, "29:target-user", message)
+        : adapter[method](threadId, message));
+
+      expect(sent().attachments).toEqual([
+        { contentType: CARD_CONTENT_TYPE, content: adaptiveCard },
+        {
+          contentType: "text/plain",
+          contentUrl: `data:text/plain;base64,${Buffer.from("steps to reproduce").toString("base64")}`,
+          name: "repro.txt",
+        },
+      ]);
+    });
+
+    describe.each([
+      [
+        "card",
+        { card: { type: "card" as const, title: "Repro", children: [] } },
+        1,
+      ],
+      ["markdown message", { markdown: "Repro attached" }, 0],
+    ])("a Chat SDK %s with files", (_kind, postable, fileIndex) => {
+      it.each([
+        "postMessage",
+        "postChannelMessage",
+        "postEphemeral",
+      ] as const)("still attaches them with %s", async (method) => {
+        const { adapter, sent, threadId } = createAdapterWithMocks();
+        const message = {
+          ...postable,
+          files: [
+            {
+              data: Buffer.from("steps to reproduce"),
+              filename: "repro.txt",
+              mimeType: "text/plain",
+            },
+          ],
+        };
+
+        await (method === "postEphemeral"
+          ? adapter.postEphemeral(threadId, "29:target-user", message)
+          : adapter[method](threadId, message));
+
+        expect(sent().attachments).toHaveLength(fileIndex + 1);
+        expect(sent().attachments?.[fileIndex]).toEqual({
+          contentType: "text/plain",
+          contentUrl: `data:text/plain;base64,${Buffer.from("steps to reproduce").toString("base64")}`,
+          name: "repro.txt",
+        });
+      });
+    });
+
+    it("doesn't upload files when editing, as with any other message", async () => {
+      const { adapter, threadId, updated } = createAdapterWithMocks();
+
+      await adapter.editMessage(threadId, "card-msg-1", {
+        adaptiveCard,
+        files: [{ data: Buffer.from("log"), filename: "log.txt" }],
+      });
+
+      expect(updated().attachments).toEqual([
+        { contentType: CARD_CONTENT_TYPE, content: adaptiveCard },
+      ]);
+    });
+
+    it.each([
+      "postMessage",
+      "postChannelMessage",
+      "postEphemeral",
+      "editMessage",
+    ] as const)("%s labels the card as AI-generated only when aiGenerated is true", async (method) => {
+      const send = async (aiGenerated: boolean | undefined) => {
+        const { adapter, sent, threadId, updated } = createAdapterWithMocks();
+        const message = { adaptiveCard, aiGenerated };
+        if (method === "editMessage") {
+          await adapter.editMessage(threadId, "card-msg-1", message);
+          return updated();
+        }
+        await (method === "postEphemeral"
+          ? adapter.postEphemeral(threadId, "29:target-user", message)
+          : adapter[method](threadId, message));
+        return sent();
+      };
+
+      expect(isAiLabeled(await send(true))).toBe(true);
+
+      for (const flag of [false, undefined, "yes" as unknown as boolean]) {
+        const activity = await send(flag);
+        expect(activity.attachments).toHaveLength(1);
+        expect(isAiLabeled(activity)).toBe(false);
+      }
+    });
+
+    it.each([
+      ["markdown", { markdown: "Bug report" }],
+      ["raw", { raw: "Bug report" }],
+      ["card", { card: { type: "card", title: "Bug", children: [] } }],
+      ["ast", { ast: root([paragraph([text("Bug report")])]) }],
+    ])("rejects adaptiveCard combined with %s instead of dropping it", async (key, content) => {
+      const { adapter, sendTo, threadId, update } = createAdapterWithMocks();
+      const message = {
+        adaptiveCard,
+        ...content,
+      } as unknown as TeamsPostableMessage;
+
+      for (const call of [
+        () => adapter.postMessage(threadId, message),
+        () => adapter.postChannelMessage(threadId, message),
+        () => adapter.postEphemeral(threadId, "29:target-user", message),
+        () => adapter.editMessage(threadId, "card-msg-1", message),
+      ]) {
+        const error = await call().catch((caught: unknown) => caught);
+        expect(error).toBeInstanceOf(ValidationError);
+        expect((error as ValidationError).message).toContain(`\`${key}\``);
+      }
+      expect(sendTo).not.toHaveBeenCalled();
+      expect(update).not.toHaveBeenCalled();
+    });
+
+    describe.each([
+      ["undefined", undefined],
+      ["null", null],
+      ["a string", "AdaptiveCard"],
+      ["false", false],
+      ["an array", [{ type: "TextBlock", text: "Bug" }]],
+    ])("when adaptiveCard is %s", (_kind, invalidCard) => {
+      const message = {
+        adaptiveCard: invalidCard,
+        fallbackText: "Bug",
+      } as unknown as TeamsPostableMessage;
+
+      it.each([
+        ["postMessage", DM_CONVERSATION_ID],
+        ["postChannelMessage", "19:abc@thread.tacv2"],
+        ["postEphemeral", "19:abc@thread.tacv2"],
+        ["postEphemeral", DM_CONVERSATION_ID],
+        ["editMessage", "19:abc@thread.tacv2"],
+      ] as const)("%s in %s rejects it and sends nothing", async (method, conversationId) => {
+        const { adapter, sendTo, threadId, update } =
+          createAdapterWithMocks(conversationId);
+
+        const calls = {
+          editMessage: () =>
+            adapter.editMessage(threadId, "card-msg-1", message),
+          postChannelMessage: () =>
+            adapter.postChannelMessage(threadId, message),
+          postEphemeral: () =>
+            adapter.postEphemeral(threadId, "29:target-user", message),
+          postMessage: () => adapter.postMessage(threadId, message),
+        };
+
+        const error = await calls[method]().catch((caught: unknown) => caught);
+
+        expect(error).toBeInstanceOf(ValidationError);
+        expect((error as ValidationError).message).toContain("adaptiveCard");
+        expect(sendTo).not.toHaveBeenCalled();
+        expect(update).not.toHaveBeenCalled();
+      });
+    });
+  });
+
+  describe("Chat SDK card fallbackText", () => {
+    const card = { type: "card" as const, title: "Bug report", children: [] };
+
+    function setUp() {
+      const adapter = createTeamsAdapter({
+        appId: "test-app-id",
+        appPassword: "test",
+        logger,
+      });
+      const app = (
+        adapter as unknown as {
+          app: { api: unknown; sendTo: ReturnType<typeof vi.fn> };
+        }
+      ).app;
+      app.sendTo = vi.fn(async () => ({ id: "card-msg-1", type: "message" }));
+      const update = vi.fn(async () => ({ id: "card-msg-1" }));
+      app.api = {
+        conversations: { activities: () => ({ update, delete: vi.fn() }) },
+        reactions: { add: vi.fn(), remove: vi.fn() },
+        serviceUrl: TEST_SERVICE_URL,
+      };
+      const threadId = adapter.encodeThreadId({
+        conversationId: "19:abc@thread.tacv2",
+        serviceUrl: TEST_SERVICE_URL,
+      });
+      interface CardActivity {
+        attachments: { content: { body: { text?: string }[] } }[];
+        summary?: string;
+      }
+      const sent = () => app.sendTo.mock.calls[0]?.[1] as CardActivity;
+      const updated = () =>
+        (update.mock.calls as unknown[][])[0]?.[1] as CardActivity;
+      return { adapter, sent, threadId, updated };
+    }
+
+    it.each([
+      "postMessage",
+      "postChannelMessage",
+      "postEphemeral",
+      "editMessage",
+    ] as const)("%s converts the card and uses fallbackText as the summary", async (method) => {
+      const { adapter, sent, threadId, updated } = setUp();
+      const message = { card, fallbackText: "New bug report" };
+
+      if (method === "editMessage") {
+        await adapter.editMessage(threadId, "card-msg-1", message);
+      } else if (method === "postEphemeral") {
+        await adapter.postEphemeral(threadId, "29:target-user", message);
+      } else {
+        await adapter[method](threadId, message);
+      }
+
+      const activity = method === "editMessage" ? updated() : sent();
+      expect(activity.attachments).toHaveLength(1);
+      expect(activity.attachments[0]?.content.body[0]?.text).toBe("Bug report");
+      expect(activity.summary).toBe("New bug report");
+    });
+
+    it.each([
+      ["a card without fallbackText", { card }],
+      ["a bare card element", card],
+    ])("sets no summary for %s", async (_kind, message) => {
+      const { adapter, sent, threadId, updated } = setUp();
+
+      await adapter.postMessage(threadId, message);
+      await adapter.editMessage(threadId, "card-msg-1", message);
+
+      expect(sent().attachments[0]?.content.body[0]?.text).toBe("Bug report");
+      expect(sent().summary).toBeUndefined();
+      expect(updated().attachments[0]?.content.body[0]?.text).toBe(
+        "Bug report"
+      );
+      expect(updated().summary).toBeUndefined();
     });
   });
 

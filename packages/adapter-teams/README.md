@@ -328,6 +328,25 @@ await thread.postEphemeral(message.author, "Only you can see this.", {
 
 The adapter sends these natively with Teams targeted message metadata. `usedFallback` is `false` when the Teams API accepts the message.
 
+## Raw Adaptive Cards
+
+For Adaptive Card features that Chat SDK cards don't cover, such as `Badge`, pass the card as `adaptiveCard` to the adapter's `postMessage`, `postChannelMessage`, `postEphemeral`, or `editMessage`. The adapter sends the card as is and uses `fallbackText` as the activity summary:
+
+```typescript
+const teams = bot.getAdapter("teams");
+
+await teams.postMessage(thread.id, {
+  adaptiveCard: {
+    type: "AdaptiveCard",
+    version: "1.5",
+    body: [{ type: "Badge", text: "Bug", style: "Attention" }],
+  },
+  fallbackText: "Bug: checkout fails on Safari",
+});
+```
+
+`adaptiveCard` takes the card's JSON or a card object built with `@microsoft/teams.cards`. See the [Teams adapter docs](https://chat-sdk.dev/adapters/official/teams#raw-adaptive-cards) for details.
+
 ## Message history (`fetchMessages`)
 
 Fetching message history requires `TEAMS_APP_TENANT_ID` and the right permissions depending on the conversation type:
