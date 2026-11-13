@@ -32,6 +32,73 @@ import {
   tableToAscii,
 } from "chat";
 
+const CODE_FENCE = "```";
+const BOLD_PATTERN = /(?<![_*\\])\*([^\s*](?:[^*\n]*[^\s*])?)\*(?![_*])/g;
+const STRIKETHROUGH_PATTERN = /(?<!~)~([^\s~](?:[^~\n]*[^\s~])?)~(?!~)/g;
+const MARKER_PATTERN = /[*~]/g;
+
+/**
+ * Google Chat bold/strikethrough only wraps when a non-space character sits
+ * directly inside each marker, and never applies inside code. Matching any
+ * `*...*` pair also turned multiplication (`2 * 3`) into bold and rewrote
+ * code such as `rm -rf *`. Same approach as the Slack adapter's
+ * `applyEmphasis`, plus skipping fenced code blocks.
+ */
+function applyEmphasis(text: string): string {
+  let masked = "";
+  let cursor = 0;
+  let start = 0;
+
+  while (cursor < text.length) {
+    if (text[cursor] !== "`") {
+      cursor += 1;
+      continue;
+    }
+    const isFence = text.startsWith(CODE_FENCE, cursor);
+    const end = isFence
+      ? findCodeFenceEnd(text, cursor)
+      : findInlineCodeEnd(text, cursor);
+    if (end === -1) {
+      cursor += isFence ? CODE_FENCE.length : 1;
+      continue;
+    }
+    masked += text.slice(start, cursor) + "x".repeat(end - cursor);
+    start = end;
+    cursor = end;
+  }
+
+  masked += text.slice(start);
+  const markers = new Set<number>();
+  for (const pattern of [BOLD_PATTERN, STRIKETHROUGH_PATTERN]) {
+    for (const match of masked.matchAll(pattern)) {
+      markers.add(match.index);
+      markers.add(match.index + match[0].length - 1);
+    }
+  }
+  return text.replace(MARKER_PATTERN, (marker, index: number) =>
+    markers.has(index) ? marker.repeat(2) : marker
+  );
+}
+
+function findCodeFenceEnd(text: string, index: number): number {
+  const close = text.indexOf(CODE_FENCE, index + CODE_FENCE.length);
+  return close === -1 ? -1 : close + CODE_FENCE.length;
+}
+
+// Inline code spans never cross line breaks.
+function findInlineCodeEnd(text: string, index: number): number {
+  let cursor = index + 1;
+  while (
+    cursor < text.length &&
+    text[cursor] !== "`" &&
+    text[cursor] !== "\n" &&
+    text[cursor] !== "\r"
+  ) {
+    cursor += 1;
+  }
+  return text[cursor] === "`" ? cursor + 1 : -1;
+}
+
 export class GoogleChatFormatConverter extends BaseFormatConverter {
   /**
    * Render an AST to Google Chat format.
@@ -63,17 +130,9 @@ export class GoogleChatFormatConverter extends BaseFormatConverter {
    * Convert Google Chat format to standard markdown.
    */
   private toStandardMarkdown(gchatText: string): string {
-    let markdown = gchatText;
-
-    // Bold: *text* -> **text**
-    markdown = markdown.replace(/(?<![_*\\])\*([^*\n]+)\*(?![_*])/g, "**$1**");
-
-    // Strikethrough: ~text~ -> ~~text~~
-    markdown = markdown.replace(/(?<!~)~([^~\n]+)~(?!~)/g, "~~$1~~");
-
-    // Italic and code are the same format as markdown
-
-    return markdown;
+    // Bold: *text* -> **text**, strikethrough: ~text~ -> ~~text~~.
+    // Italic and code are the same format as markdown.
+    return applyEmphasis(gchatText);
   }
 
   private nodeToGChat(node: Content): string {

@@ -194,6 +194,109 @@ describe("GoogleChatFormatConverter", () => {
         children: [{ type: "code", value: "code" }],
       });
     });
+
+    it("keeps asterisks and tildes that aren't formatting as literal text", () => {
+      expect(converter.toAst("2 * 3 and 4 * 5, ~10 to ~20")).toMatchObject({
+        type: "root",
+        children: [
+          {
+            type: "paragraph",
+            children: [{ type: "text", value: "2 * 3 and 4 * 5, ~10 to ~20" }],
+          },
+        ],
+      });
+    });
+
+    it("parses bold next to a literal asterisk", () => {
+      expect(converter.toAst("*total*: 2 * 3")).toMatchObject({
+        type: "root",
+        children: [
+          {
+            type: "paragraph",
+            children: [
+              { type: "strong", children: [{ type: "text", value: "total" }] },
+              { type: "text", value: ": 2 * 3" },
+            ],
+          },
+        ],
+      });
+    });
+
+    it("keeps asterisks inside inline code", () => {
+      expect(converter.toAst("`rm -rf *` and `a*b*c`")).toMatchObject({
+        type: "root",
+        children: [
+          {
+            type: "paragraph",
+            children: [
+              { type: "inlineCode", value: "rm -rf *" },
+              { type: "text", value: " and " },
+              { type: "inlineCode", value: "a*b*c" },
+            ],
+          },
+        ],
+      });
+    });
+
+    it("keeps asterisks inside code blocks", () => {
+      expect(converter.toAst("```\nx = *a*\n```")).toMatchObject({
+        type: "root",
+        children: [{ type: "code", value: "x = *a*" }],
+      });
+    });
+
+    it("keeps bold that wraps or follows inline code", () => {
+      expect(converter.toAst("*bold with `*` inside*")).toMatchObject({
+        children: [
+          {
+            type: "paragraph",
+            children: [
+              {
+                type: "strong",
+                children: [
+                  { type: "text", value: "bold with " },
+                  { type: "inlineCode", value: "*" },
+                  { type: "text", value: " inside" },
+                ],
+              },
+            ],
+          },
+        ],
+      });
+      expect(converter.toAst("run `npm i` then *restart*")).toMatchObject({
+        children: [
+          {
+            type: "paragraph",
+            children: [
+              { type: "text", value: "run " },
+              { type: "inlineCode", value: "npm i" },
+              { type: "text", value: " then " },
+              {
+                type: "strong",
+                children: [{ type: "text", value: "restart" }],
+              },
+            ],
+          },
+        ],
+      });
+    });
+
+    it("pairs each code block's own fences", () => {
+      expect(
+        converter.toAst("```\na *1*\n```\n*bold*\n```\nb *2*\n```")
+      ).toMatchObject({
+        children: [
+          { type: "code", value: "a *1*" },
+          {
+            type: "paragraph",
+            children: [
+              { type: "strong", children: [{ type: "text", value: "bold" }] },
+            ],
+          },
+          { type: "code", value: "b *2*" },
+        ],
+      });
+    });
   });
 
   describe("extractPlainText", () => {
