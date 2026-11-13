@@ -91,6 +91,37 @@ Groups related content together.
 </Section>
 ```
 
+### Layout hints
+
+Pass an optional layout hint to `Section`, with one child `Section` per column or carousel item:
+
+```tsx
+<Section layout="columns">
+  <Section><CardText>First column</CardText></Section>
+  <Section><CardText>Second column</CardText></Section>
+</Section>
+```
+
+The function API accepts the same hint as its second argument:
+
+```ts
+Section([
+  Section([CardText("First column")]),
+  Section([CardText("Second column")]),
+], { layout: "columns" });
+```
+
+Use `layout: "carousel"` for a sequence of items, or `"stack"` for the default vertical grouping. Layout hints do not change action IDs, values, or handlers.
+
+| Adapter | Columns | Carousel |
+| --- | --- | --- |
+| Slack | Native layout when each item renders as one eligible block, up to 15 items | Native carousel for up to 10 simple items that fit Slack's card fields and limits |
+| Teams | Native `ColumnSet`, with actions kept inside their column | Vertical sections |
+| Google Chat | Native columns for up to 2 items containing supported widgets | Native carousel for items containing text, images, and buttons |
+| Other adapters | Existing vertical rendering | Existing vertical rendering |
+
+If the children do not fit a platform's native layout, the adapter uses its existing vertical rendering for the complete group. This includes complex Slack carousel items and Google Chat carousel items containing selectors. Existing platform message and control limits still apply. On narrow screens, a platform can stack otherwise eligible columns.
+
 ### Fields
 
 Renders key-value pairs in a compact layout.

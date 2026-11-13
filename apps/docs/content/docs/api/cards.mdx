@@ -198,6 +198,10 @@ Section([
 ])
 ```
 
+`Section(children, options?)` accepts `options.layout` as `"stack"`, `"columns"`, or `"carousel"`. The JSX equivalent is `<Section layout="columns">`. Each child section is a column or carousel item. `SectionElement.layout`, `SectionOptions`, and `SectionLayout` carry this hint through JSON and JSX/React conversion.
+
+Adapters use native layouts only when the group's content and platform limits permit them. Other groups use the existing vertical section rendering. See [layout hints](/docs/cards#layout-hints) for adapter behavior. Controls retain their existing platform-specific submission behavior and limits.
+
 ## Fields
 
 Renders key-value pairs in a compact, multi-column layout.

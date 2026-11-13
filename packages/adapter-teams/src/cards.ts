@@ -26,11 +26,14 @@ import type {
   VerticalAlignment,
 } from "@microsoft/teams.cards";
 import {
+  ActionSet,
   AdaptiveCard,
   Image as AdaptiveImage,
   Choice,
   ChoiceSetInput,
+  Column,
   ColumnDefinition,
+  ColumnSet,
   Container,
   Fact,
   FactSet,
@@ -494,6 +497,26 @@ function convertLinkButtonToAction(button: LinkButtonElement): OpenUrlAction {
 }
 
 function convertSectionToElements(element: SectionElement): ConvertResult {
+  const columns = element.children.filter(
+    (child): child is SectionElement => child.type === "section"
+  );
+  if (
+    element.layout === "columns" &&
+    columns.length > 0 &&
+    columns.length === element.children.length &&
+    columns.every((child) => child.children.length > 0)
+  ) {
+    return {
+      elements: [
+        new ColumnSet({
+          columns: columns.map((child) =>
+            new Column(...convertColumnItems(child)).withWidth("stretch")
+          ),
+        }),
+      ],
+      actions: [],
+    };
+  }
   const elements: CardElementArray = [];
   const actions: ActionArray = [];
 
@@ -511,6 +534,22 @@ function convertSectionToElements(element: SectionElement): ConvertResult {
   }
 
   return { elements, actions };
+}
+
+function convertColumnItems(element: SectionElement): CardElementArray {
+  const items: CardElementArray = [];
+  for (const child of element.children) {
+    if (child.type === "section" && child.layout !== "columns") {
+      items.push(...convertColumnItems(child));
+      continue;
+    }
+    const converted = convertChildToAdaptive(child);
+    items.push(...converted.elements);
+    if (converted.actions.length > 0) {
+      items.push(new ActionSet(...converted.actions));
+    }
+  }
+  return items;
 }
 
 const TABLE_HORIZONTAL_ALIGNMENT: Record<TableAlignment, HorizontalAlignment> =

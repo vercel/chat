@@ -925,6 +925,191 @@ describe("cardToAdaptiveCard with TextInput", () => {
   });
 });
 
+describe("portable section layouts", () => {
+  it("keeps buttons and input controls within their native column", () => {
+    const card = Card({
+      children: [
+        Section(
+          [
+            Section([
+              CardText("Choose a deployment"),
+              Actions([
+                Select({
+                  id: "environment",
+                  label: "Environment",
+                  initialOption: "production",
+                  options: [
+                    SelectOption({ label: "Production", value: "production" }),
+                  ],
+                }),
+                Button({ id: "deploy", label: "Deploy", value: "web" }),
+              ]),
+              CardText("This follows the controls"),
+            ]),
+            Section([
+              CardText("Documentation"),
+              Actions([
+                LinkButton({
+                  label: "Open docs",
+                  url: "https://example.com/docs",
+                }),
+              ]),
+            ]),
+          ],
+          { layout: "columns" }
+        ),
+      ],
+    });
+    const native = cardToAdaptiveCard(card);
+    expect(native.actions ?? []).toEqual([]);
+    expect(native.body).toMatchObject([
+      {
+        type: "ColumnSet",
+        columns: [
+          {
+            type: "Column",
+            width: "stretch",
+            items: [
+              { type: "TextBlock", text: "Choose a deployment" },
+              {
+                type: "Input.ChoiceSet",
+                id: "environment",
+                value: "production",
+              },
+              {
+                type: "ActionSet",
+                actions: [
+                  {
+                    type: "Action.Submit",
+                    data: { actionId: "deploy", value: "web" },
+                  },
+                ],
+              },
+              { type: "TextBlock", text: "This follows the controls" },
+            ],
+          },
+          {
+            type: "Column",
+            items: [
+              { type: "TextBlock", text: "Documentation" },
+              {
+                type: "ActionSet",
+                actions: [
+                  { type: "Action.OpenUrl", url: "https://example.com/docs" },
+                ],
+              },
+            ],
+          },
+        ],
+      },
+    ]);
+    expect(JSON.parse(JSON.stringify(native))).toMatchObject(
+      JSON.parse(JSON.stringify(primitivesCardToAdaptiveCard(card)))
+    );
+  });
+
+  it("retains automatic submit actions for inputs inside columns", () => {
+    const card = Card({
+      children: [
+        Section(
+          [
+            Section([
+              Actions([
+                RadioSelect({
+                  id: "choice",
+                  label: "Choose",
+                  options: [SelectOption({ label: "Yes", value: "yes" })],
+                }),
+              ]),
+            ]),
+          ],
+          { layout: "columns" }
+        ),
+      ],
+    });
+    expect(cardToAdaptiveCard(card).body).toMatchObject([
+      {
+        type: "ColumnSet",
+        columns: [
+          {
+            items: [
+              { type: "Input.ChoiceSet", id: "choice", style: "expanded" },
+              {
+                type: "ActionSet",
+                actions: [
+                  {
+                    type: "Action.Submit",
+                    data: { actionId: "__auto_submit" },
+                  },
+                ],
+              },
+            ],
+          },
+        ],
+      },
+    ]);
+  });
+
+  it("stacks carousel groups without requiring a newer Teams host", () => {
+    const card = Card({
+      children: [
+        Section(
+          [
+            Section([
+              CardText("First"),
+              Actions([Button({ id: "first", label: "Choose first" })]),
+            ]),
+            Section([
+              CardText("Second"),
+              Actions([Button({ id: "second", label: "Choose second" })]),
+            ]),
+          ],
+          { layout: "carousel" }
+        ),
+      ],
+    });
+    const rendered = cardToAdaptiveCard(card);
+    expect(JSON.stringify(rendered)).not.toContain('"Carousel"');
+    expect(rendered.body).toMatchObject([
+      {
+        type: "Container",
+        items: [
+          { type: "Container", items: [{ text: "First" }] },
+          { type: "Container", items: [{ text: "Second" }] },
+        ],
+      },
+    ]);
+    expect(rendered.actions).toMatchObject([
+      { data: { actionId: "first" } },
+      { data: { actionId: "second" } },
+    ]);
+    expect(JSON.parse(JSON.stringify(rendered))).toMatchObject(
+      JSON.parse(JSON.stringify(primitivesCardToAdaptiveCard(card)))
+    );
+  });
+
+  it("stacks mixed column children without dropping buttons", () => {
+    const rendered = cardToAdaptiveCard(
+      Card({
+        children: [
+          Section(
+            [
+              CardText("Before"),
+              Actions([Button({ id: "choose", label: "Choose" })]),
+              CardText("After"),
+            ],
+            { layout: "columns" }
+          ),
+        ],
+      })
+    );
+    expect(rendered.body).toMatchObject([
+      { type: "Container", items: [{ text: "Before" }, { text: "After" }] },
+    ]);
+    expect(rendered.actions).toMatchObject([{ data: { actionId: "choose" } }]);
+  });
+});
+
 describe("prepareTeamsMessage", () => {
   it("passes a null message through instead of probing it for a card", () => {
     expect(prepareTeamsMessage(null as never)).toEqual({
