@@ -1,5 +1,32 @@
 # @chat-adapter/teams
 
+## 4.45.0
+
+### Minor Changes
+
+- cba9b03: `postMessage`, `postChannelMessage`, `postEphemeral`, and `editMessage` accept a raw Adaptive Card as `{ adaptiveCard, fallbackText }` and send it as is, for Adaptive Card features that Chat SDK cards don't cover, such as `Badge`. `adaptiveCard` takes the card's JSON or a card built with `@microsoft/teams.cards`, and the adapter throws a `ValidationError` when it isn't an object or when the message also sets `markdown`, `raw`, `ast`, or `card`. The new `TeamsPostableAdaptiveCard` and `TeamsPostableMessage` types describe the input.
+  
+  `fallbackText` becomes the activity's `summary`. This now also applies to a Chat SDK card posted as `{ card, fallbackText }`, which previously sent no summary.
+
+### Patch Changes
+
+- 7012331: Quote every line of a Markdown block quote in the Discord, Slack, and Google Chat converters. Each converter added the `> ` prefix only to the first line of each block inside a quote, so later lines, list items, and code block lines fell out of the quote, and quoted paragraphs ran together. Slack hit this only on `response_url` replies. Now every line gets the prefix, and a quoted blank line separates the blocks. On Discord, which only quotes a line that starts with `> `, blank quoted lines keep the trailing space.
+  
+  The rendering now lives in a new `renderBlockquote` method on `BaseFormatConverter`, which the Teams converter also uses. It skips a quote child that renders to nothing, such as a link definition, so a quote no longer starts or ends with a blank quoted line.
+- 7de6dd4: The Teams converter now quotes every line of a Markdown block quote. It used to add the `> ` prefix only to the first line of each block and join blocks with a single newline. Teams then merged the paragraphs of the quote and folded every list item after the first into the first one. Now each line gets the prefix, and a lone `>` line separates the blocks.
+- 6e0bba3: The Teams adapter reports edited messages to `onMessageUpdated`. It used to drop Teams `messageUpdate` activities, so a bot never saw an edit. The updated message has `isMention` set from its mention entities, like a new message. Teams sends only the new version, so `previousMessage` is `undefined`. Undeletes are still ignored.
+  
+  Webhook options are now scoped to each request instead of the activity id, so an edit that reuses its message's id no longer loses its `waitUntil` while the original message is still being handled.
+  
+  In a DM, a stream posted from `onMessageUpdated` goes out as its own message instead of being written into the reply to the original message, which may still be streaming.
+  
+  The catalog lists Teams message edit events as partial, because channel edits haven't been checked against captured traffic.
+- Updated dependencies [7012331]
+- Updated dependencies [50c1116]
+- Updated dependencies [d0ff1dc]
+  - chat@4.45.0
+  - @chat-adapter/shared@4.45.0
+
 ## 4.44.0
 
 ### Patch Changes

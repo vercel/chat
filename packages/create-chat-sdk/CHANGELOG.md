@@ -1,5 +1,12 @@
 # create-chat-sdk
 
+## 0.7.1
+
+### Patch Changes
+
+- 09cb11e: Add Adeli as a vendor-official adapter (`@adeli/chat-sdk-adapter`) to the catalog, docs listing, and CLI scaffold spec.
+- 0801548: Point the Photon vendor-official adapter at `@photon-ai/chat-adapter`, which replaces `@photon-ai/chat-adapter-imessage`. The catalog entry, docs page, and CLI scaffold now use `createPhotonAdapter` and the `PHOTON_*` environment variables.
+
 ## 0.7.0
 
 ### Minor Changes

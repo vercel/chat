@@ -1,5 +1,18 @@
 # @chat-adapter/discord
 
+## 4.45.0
+
+### Patch Changes
+
+- 7012331: Quote every line of a Markdown block quote in the Discord, Slack, and Google Chat converters. Each converter added the `> ` prefix only to the first line of each block inside a quote, so later lines, list items, and code block lines fell out of the quote, and quoted paragraphs ran together. Slack hit this only on `response_url` replies. Now every line gets the prefix, and a quoted blank line separates the blocks. On Discord, which only quotes a line that starts with `> `, blank quoted lines keep the trailing space.
+  
+  The rendering now lives in a new `renderBlockquote` method on `BaseFormatConverter`, which the Teams converter also uses. It skips a quote child that renders to nothing, such as a link definition, so a quote no longer starts or ends with a blank quoted line.
+- Updated dependencies [7012331]
+- Updated dependencies [50c1116]
+- Updated dependencies [d0ff1dc]
+  - chat@4.45.0
+  - @chat-adapter/shared@4.45.0
+
 ## 4.44.0
 
 ### Patch Changes
