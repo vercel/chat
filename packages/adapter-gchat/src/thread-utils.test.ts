@@ -2,8 +2,10 @@ import { threadIdContract } from "@chat-adapter/tests";
 import { describe, expect, it } from "vitest";
 import {
   decodeThreadId,
+  encodeSpaceEventThreadId,
   encodeThreadId,
   type GoogleChatThreadId,
+  isDMSpace,
   isDMThread,
   parseMessageName,
 } from "./thread-utils";
@@ -112,5 +114,70 @@ describe("parseMessageName", () => {
     "",
   ])("rejects %j", (name) => {
     expect(() => parseMessageName(name)).toThrow(INVALID_MESSAGE_ID_REGEX);
+  });
+});
+
+describe("isDMSpace", () => {
+  it.each([
+    ["legacy type DM", { type: "DM" }],
+    ["spaceType DIRECT_MESSAGE", { spaceType: "DIRECT_MESSAGE" }],
+    ["singleUserBotDm", { singleUserBotDm: true }],
+  ])("should be true for %s", (_label, space) => {
+    expect(isDMSpace(space)).toBe(true);
+  });
+
+  it.each([
+    ["a room", { type: "ROOM", spaceType: "SPACE" }],
+    ["a group chat", { type: "ROOM", spaceType: "GROUP_CHAT" }],
+    ["singleUserBotDm false", { singleUserBotDm: false }],
+    ["null fields", { type: null, spaceType: null, singleUserBotDm: null }],
+    ["a space with only a name", { name: "spaces/ABC123" }],
+    ["null", null],
+    ["undefined", undefined],
+  ])("should be false for %s", (_label, space) => {
+    expect(isDMSpace(space)).toBe(false);
+  });
+});
+
+describe("encodeSpaceEventThreadId", () => {
+  it("should drop the thread and message for a DM", () => {
+    expect(
+      encodeSpaceEventThreadId({
+        spaceName: "spaces/DM123",
+        isDM: true,
+        threadName: "spaces/DM123/threads/t1",
+        messageName: "spaces/DM123/messages/m1",
+      })
+    ).toBe("gchat:spaces/DM123:dm");
+  });
+
+  it("should prefer the thread name outside a DM", () => {
+    expect(
+      encodeSpaceEventThreadId({
+        spaceName: "spaces/ABC123",
+        isDM: false,
+        threadName: "spaces/ABC123/threads/xyz",
+        messageName: "spaces/ABC123/messages/m1",
+      })
+    ).toBe("gchat:spaces/ABC123:c3BhY2VzL0FCQzEyMy90aHJlYWRzL3h5eg");
+  });
+
+  it("should fall back to the message name when there is no thread", () => {
+    expect(
+      encodeSpaceEventThreadId({
+        spaceName: "spaces/ABC123",
+        isDM: false,
+        threadName: null,
+        messageName: "spaces/ABC123/messages/m1",
+      })
+    ).toBe(
+      `gchat:spaces/ABC123:${Buffer.from("spaces/ABC123/messages/m1").toString("base64url")}`
+    );
+  });
+
+  it("should encode a space-only ID when there is no thread or message", () => {
+    expect(
+      encodeSpaceEventThreadId({ spaceName: "spaces/ABC123", isDM: false })
+    ).toBe("gchat:spaces/ABC123");
   });
 });
