@@ -505,6 +505,10 @@ This requires the [message history](#message-history) permissions for the conver
 
 `fetchData()` downloads the file with the app's tenant-wide `Files.ReadWrite.All` permission. It doesn't check whether the person who posted the message, or the person your bot replies to, can open the file, so only share file contents with people who should have access to them.
 
+### Pasted images in message history
+
+Messages read through Graph (`fetchMessages`, `fetchChannelMessages`, and `listThreads`) include each pasted image as an `image` attachment. Its `fetchData()` downloads the image with the app's Graph token, which the adapter sends only to `hostedContents` URLs on Microsoft Graph hosts. This uses the [message history](#message-history) permissions.
+
 ## Low-level APIs
 
 Use the low-level Teams subpaths when your app already owns routing, state, sessions, or workflow execution and only needs Teams-specific primitives.
