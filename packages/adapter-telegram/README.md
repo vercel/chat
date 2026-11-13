@@ -311,7 +311,7 @@ If Telegram rate limits the final edit, the adapter waits and retries when the r
 
 ## Markdown formatting
 
-On Telegram Bot API 10.1 and newer, explicit `{ markdown }` and `{ ast }` messages use rich messages, including native headings, lists, tables, task lists, formulas, details, and separate media blocks supported by the Bot API.
+On Telegram Bot API 10.1 and newer, explicit `{ markdown }` and `{ ast }` messages use rich messages, including native headings, lists, tables, task lists, details, and separate media blocks supported by the Bot API. The adapter escapes `$` outside code so Telegram doesn't read it as a formula delimiter, and turns single line breaks into hard breaks so each line stays on its own line, as it does in the MarkdownV2 path.
 
 Plain strings, raw messages, cards, and media captions retain their existing lightweight message paths. Cards and captions use Telegram's `MarkdownV2` parse mode with context-aware escaping. If an older or custom Bot API server does not support rich message methods, the adapter automatically falls back to the existing MarkdownV2 path.
 

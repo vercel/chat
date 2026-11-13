@@ -57,6 +57,7 @@ import {
   truncateForTelegram,
 } from "./markdown";
 import {
+  escapeRichMarkdown,
   fitsRichMessage,
   richMessageMedia,
   richMessageToMarkdown,
@@ -2480,7 +2481,7 @@ export class TelegramAdapter
 
       let draftText: string;
       if (streamUsesRich) {
-        draftText = truncateRichMarkdown(renderer.render());
+        draftText = truncateRichMarkdown(escapeRichMarkdown(renderer.render()));
       } else if (streamUsesMarkdown) {
         draftText = renderMarkdownText(renderer.render());
       } else {
@@ -2520,7 +2521,7 @@ export class TelegramAdapter
     await flushDraft();
 
     if (streamUsesRich) {
-      const markdown = truncateRichMarkdown(finalMarkdown);
+      const markdown = truncateRichMarkdown(escapeRichMarkdown(finalMarkdown));
       try {
         const raw = await this.telegramFetch<TelegramMessage>(
           "sendRichMessage",
@@ -3975,14 +3976,19 @@ export class TelegramAdapter
 
   /**
    * Render the untruncated rich-message markdown for a `{ markdown }` or
-   * `{ ast }` message, with emoji placeholders resolved.
+   * `{ ast }` message, with emoji placeholders resolved and text escaped for
+   * Telegram's rich-message parser.
    */
   protected renderRichMarkdown(
     message: { markdown: string } | { ast: Root }
   ): string {
-    return convertEmojiPlaceholders(
-      "markdown" in message ? message.markdown : stringifyMarkdown(message.ast),
-      "gchat"
+    return escapeRichMarkdown(
+      convertEmojiPlaceholders(
+        "markdown" in message
+          ? message.markdown
+          : stringifyMarkdown(message.ast),
+        "gchat"
+      )
     );
   }
 

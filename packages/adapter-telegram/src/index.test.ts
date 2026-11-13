@@ -4896,6 +4896,42 @@ describe("TelegramAdapter", () => {
     expect(sendMessageBody.rich_message.markdown).toBe("**bold** and _italic_");
   });
 
+  it("escapes dollar signs and line breaks in rich messages", async () => {
+    mockFetch
+      .mockResolvedValueOnce(
+        telegramOk({
+          id: 999,
+          is_bot: true,
+          first_name: "Bot",
+          username: "mybot",
+        })
+      )
+      .mockResolvedValueOnce(telegramOk(sampleMessage()));
+
+    const adapter = createTelegramAdapter({
+      botToken: "token",
+      mode: "webhook",
+      logger: mockLogger,
+      userName: "mybot",
+    });
+
+    await adapter.initialize(createMockChat());
+
+    await adapter.postMessage("telegram:123", {
+      markdown: "MU ~$950 (-3.3%)\nTSLA ~$403",
+    });
+
+    const sendMessageUrl = String(mockFetch.mock.calls[1]?.[0]);
+    const sendMessageBody = JSON.parse(
+      String((mockFetch.mock.calls[1]?.[1] as RequestInit).body)
+    ) as { rich_message: { markdown: string } };
+
+    expect(sendMessageUrl).toContain("/sendRichMessage");
+    expect(sendMessageBody.rich_message.markdown).toBe(
+      "MU ~\\$950 (-3.3%)\\\nTSLA ~\\$403"
+    );
+  });
+
   it("uses rich messages for AST messages", async () => {
     mockFetch
       .mockResolvedValueOnce(
