@@ -261,7 +261,7 @@ function applyMentionNames(text: string, names: SlackMentionNames): string {
  * Supports optional query parameters (e.g., ?thread_ts=...&cid=...).
  */
 const TRAILING_SLASH_PATTERN = /\/$/;
-const UNFURL_WAIT_MS = 2000;
+const DEFAULT_UNFURL_WAIT_MS = 2000;
 const UNFURL_POLL_MS = 150;
 
 interface SlackUnfurl {
@@ -1082,6 +1082,7 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
   protected readonly webClientOptions: SlackAdapterConfig["webClientOptions"];
   protected readonly fetch: SlackFetch;
   protected readonly configuredFileTransport: AttachmentTransport | undefined;
+  protected readonly unfurlWaitMs: number;
   protected readonly signingSecret: string | undefined;
   protected readonly webhookVerifier:
     | ((request: Request, body: string) => unknown | Promise<unknown>)
@@ -1237,6 +1238,18 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
   }
 
   constructor(config: SlackAdapterConfig = {}) {
+    const unfurlWaitMs = config.unfurlWaitMs;
+    if (
+      unfurlWaitMs !== undefined &&
+      (!Number.isFinite(unfurlWaitMs) || unfurlWaitMs < 0)
+    ) {
+      throw new ValidationError(
+        "slack",
+        "unfurlWaitMs must be a finite, nonnegative number."
+      );
+    }
+    this.unfurlWaitMs = unfurlWaitMs ?? DEFAULT_UNFURL_WAIT_MS;
+
     const webhookVerifier = config.webhookVerifier;
     // webhookVerifier takes precedence over signingSecret (config) and the
     // SLACK_SIGNING_SECRET env var. When the caller wires up a verifier we
@@ -4475,7 +4488,7 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
     // slack delivers unfurled attachments via a separate message_changed event
     // that lands ~100-2000ms after the original event. poll briefly so the
     // handler sees enriched links instead of bare urls.
-    const deadline = Date.now() + UNFURL_WAIT_MS;
+    const deadline = Date.now() + this.unfurlWaitMs;
     const state = this.chat.getState();
     let stored: Record<string, SlackUnfurl> | null = null;
     while (true) {
@@ -4486,10 +4499,15 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
       } catch {
         return links;
       }
-      if (stored || Date.now() >= deadline) {
+      const remaining = deadline - Date.now();
+      // Check 0 explicitly: Date.now() can move backward, which would make
+      // `remaining` positive and start polling even though waiting is disabled.
+      if (stored || this.unfurlWaitMs === 0 || remaining <= 0) {
         break;
       }
-      await new Promise((resolve) => setTimeout(resolve, UNFURL_POLL_MS));
+      await new Promise((resolve) =>
+        setTimeout(resolve, Math.min(UNFURL_POLL_MS, remaining))
+      );
     }
     if (!stored) {
       return links;
@@ -7596,6 +7614,7 @@ export function createSlackAdapter(config?: SlackAdapterConfig): SlackAdapter {
       config?.socketForwardingSecret ??
       process.env.SLACK_SOCKET_FORWARDING_SECRET,
     userName: config?.userName,
+    unfurlWaitMs: config?.unfurlWaitMs,
     botUserId: config?.botUserId,
     webClientOptions: config?.webClientOptions,
     webhookVerifier,

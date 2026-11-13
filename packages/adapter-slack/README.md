@@ -51,7 +51,7 @@ bot.onNewMention(async (thread, message) => {
 
 ## Configuration
 
-All options are auto-detected from environment variables when not provided. You can call `createSlackAdapter()` with no arguments if the env vars are set.
+You can call `createSlackAdapter()` with no arguments when the required environment variables are set.
 
 | Option | Required | Description |
 |--------|----------|-------------|
@@ -71,6 +71,7 @@ All options are auto-detected from environment variables when not provided. You 
 | `fileTransport` | No | Guarded file download transport; custom transports own connection/DNS policy |
 | `webClientOptions` | No | Options forwarded to Slack `WebClient` instances, excluding `slackApiUrl`. Supports `retryConfig`, per-request `timeout`, and `rejectRateLimitedCalls`; `agent` also configures Socket Mode, `tls` only its HTTP calls |
 | `logger` | No | Logger instance (defaults to `ConsoleLogger("info")`) |
+| `unfurlWaitMs` | No | Polling budget for missing link previews, in milliseconds (default `2000`). Set `0` to read cached previews once without polling. Must be finite and nonnegative |
 
 *`signingSecret` is required for webhook mode — either via config, `SLACK_SIGNING_SECRET` env var, or a `webhookVerifier`.
 **`appToken` is required for socket mode — either via config or `SLACK_APP_TOKEN` env var.
