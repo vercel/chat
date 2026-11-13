@@ -101,6 +101,12 @@ The package's main exports (see `src/index.ts`):
   `fetchSingleMessage`, `fetchChannelInfo`, `postChannelMessage`,
   `openDM`.
 - Configuration types: `TeamsAdapterConfig`, `TeamsThreadId`.
+- Message types: `TeamsPostableMessage`, `TeamsPostableAdaptiveCard`.
+  `postMessage`, `postChannelMessage`, `postEphemeral`, and `editMessage`
+  take a Chat SDK postable or a raw Adaptive Card as
+  `{ adaptiveCard, fallbackText }`. All four resolve the card through
+  `prepareTeamsMessage` and build the activity with `createCardActivity`, so
+  a change to card sending belongs in those two functions.
 - Helpers re-exported from sub-modules:
   `cardToAdaptiveCard`, `cardToFallbackText`, `TeamsFormatConverter`,
   `decodeThreadId`, `encodeThreadId`, `isDM`.

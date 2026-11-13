@@ -2,8 +2,6 @@ import { AsyncLocalStorage } from "node:async_hooks";
 
 import {
   bufferToDataUri,
-  extractCard,
-  extractFiles,
   NetworkError,
   toBuffer,
   ValidationError,
@@ -35,7 +33,6 @@ import { users } from "@microsoft/teams.graph-endpoints";
 import type {
   ActionEvent,
   Adapter,
-  AdapterPostableMessage,
   Attachment,
   Author,
   ChannelInfo,
@@ -79,7 +76,7 @@ import {
   AUTO_SUBMIT_KEYS,
   BUTTON_SUBMIT_KEYS,
   cardInputValues,
-  cardToAdaptiveCard,
+  type PreparedTeamsMessage,
   prepareTeamsMessage,
   submitValueToString,
 } from "./cards";
@@ -160,6 +157,27 @@ function resolveTeamsReactionType(
 ): MessageReactionType {
   const name = typeof emoji === "string" ? emoji : emoji.name;
   return TEAMS_REACTION_ALIASES[name] ?? name;
+}
+
+function createCardActivity(
+  card: Extract<PreparedTeamsMessage, { adaptiveCard: object }>,
+  fileAttachments: MessageActivity["attachments"] = []
+): MessageActivity {
+  const activity = new MessageActivity();
+  activity.attachments = [
+    {
+      contentType: "application/vnd.microsoft.card.adaptive",
+      content: card.adaptiveCard,
+    },
+    ...fileAttachments,
+  ];
+  if (card.aiGenerated) {
+    activity.addAiGenerated();
+  }
+  if (card.summary) {
+    activity.withSummary(card.summary);
+  }
+  return activity;
 }
 
 export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
@@ -1346,27 +1364,17 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
     threadId: string,
     input: TeamsPostableMessage
   ): Promise<RawMessage<unknown>> {
-    const { adaptiveCard, message, summary } = prepareTeamsMessage(input);
+    const prepared = prepareTeamsMessage(input);
     const target = this.decodeThreadId(threadId);
     const { conversationId } = target;
 
-    const files = extractFiles(message);
     const fileAttachments =
-      files.length > 0 ? await this.filesToAttachments(files) : [];
+      prepared.files.length > 0
+        ? await this.filesToAttachments(prepared.files)
+        : [];
 
-    if (adaptiveCard) {
-      const activity = new MessageActivity();
-      activity.attachments = [
-        {
-          contentType: "application/vnd.microsoft.card.adaptive",
-          content: adaptiveCard,
-        },
-        ...fileAttachments,
-      ];
-      applyAiGeneratedLabel(activity, message);
-      if (summary) {
-        activity.withSummary(summary);
-      }
+    if (prepared.adaptiveCard) {
+      const activity = createCardActivity(prepared, fileAttachments);
 
       this.logger.debug("Teams API: send (adaptive card)", {
         conversationId,
@@ -1388,6 +1396,7 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
     }
 
     // Regular text message
+    const { message } = prepared;
     const text = convertEmojiPlaceholders(
       this.formatConverter.renderPostable(message),
       "teams"
@@ -1425,10 +1434,10 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
   async postEphemeral(
     threadId: string,
     userId: string,
-    message: AdapterPostableMessage
+    input: TeamsPostableMessage
   ): Promise<EphemeralMessage<unknown>> {
     if (this.isDM(threadId)) {
-      const sent = await this.postMessage(threadId, message);
+      const sent = await this.postMessage(threadId, input);
       return {
         id: sent.id,
         threadId: sent.threadId,
@@ -1441,23 +1450,17 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
     const { conversationId } = target;
     const recipient = this.createTargetedRecipient(userId);
 
-    const files = extractFiles(message);
+    const prepared = prepareTeamsMessage(input);
     const fileAttachments =
-      files.length > 0 ? await this.filesToAttachments(files) : [];
+      prepared.files.length > 0
+        ? await this.filesToAttachments(prepared.files)
+        : [];
 
-    const card = extractCard(message);
-
-    if (card) {
-      const adaptiveCard = cardToAdaptiveCard(card);
-      const activity = new MessageActivity().withRecipient(recipient, true);
-      activity.attachments = [
-        {
-          contentType: "application/vnd.microsoft.card.adaptive",
-          content: adaptiveCard,
-        },
-        ...fileAttachments,
-      ];
-      applyAiGeneratedLabel(activity, message);
+    if (prepared.adaptiveCard) {
+      const activity = createCardActivity(
+        prepared,
+        fileAttachments
+      ).withRecipient(recipient, true);
 
       this.logger.debug("Teams API: send (targeted adaptive card)", {
         conversationId,
@@ -1485,6 +1488,7 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
       }
     }
 
+    const { message } = prepared;
     const text = convertEmojiPlaceholders(
       this.formatConverter.renderPostable(message),
       "teams"
@@ -1640,22 +1644,12 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
     messageId: string,
     input: TeamsPostableMessage
   ): Promise<RawMessage<unknown>> {
-    const { adaptiveCard, message, summary } = prepareTeamsMessage(input);
+    const prepared = prepareTeamsMessage(input);
     const target = this.decodeThreadId(threadId);
     const { conversationId, serviceUrl } = target;
 
-    if (adaptiveCard) {
-      const activity = new MessageActivity();
-      activity.attachments = [
-        {
-          contentType: "application/vnd.microsoft.card.adaptive",
-          content: adaptiveCard,
-        },
-      ];
-      applyAiGeneratedLabel(activity, message);
-      if (summary) {
-        activity.withSummary(summary);
-      }
+    if (prepared.adaptiveCard) {
+      const activity = createCardActivity(prepared);
 
       const targeted = await this.isTargetedActivity(conversationId, messageId);
 
@@ -1684,6 +1678,7 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
       return { id: messageId, threadId, raw: activity };
     }
 
+    const { message } = prepared;
     const text = convertEmojiPlaceholders(
       this.formatConverter.renderPostable(message),
       "teams"
@@ -2069,7 +2064,7 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
     channelId: string,
     input: TeamsPostableMessage
   ): Promise<RawMessage<unknown>> {
-    const { adaptiveCard, message, summary } = prepareTeamsMessage(input);
+    const prepared = prepareTeamsMessage(input);
     const target = this.decodeThreadId(channelId);
     const { conversationId } = target;
     const baseConversationId = conversationId.replace(
@@ -2089,23 +2084,13 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
           })
         : channelId;
 
-    const files = extractFiles(message);
     const fileAttachments =
-      files.length > 0 ? await this.filesToAttachments(files) : [];
+      prepared.files.length > 0
+        ? await this.filesToAttachments(prepared.files)
+        : [];
 
-    if (adaptiveCard) {
-      const activity = new MessageActivity();
-      activity.attachments = [
-        {
-          contentType: "application/vnd.microsoft.card.adaptive",
-          content: adaptiveCard,
-        },
-        ...fileAttachments,
-      ];
-      applyAiGeneratedLabel(activity, message);
-      if (summary) {
-        activity.withSummary(summary);
-      }
+    if (prepared.adaptiveCard) {
+      const activity = createCardActivity(prepared, fileAttachments);
 
       try {
         const sent = await this.app.sendTo(
@@ -2126,6 +2111,7 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
       }
     }
 
+    const { message } = prepared;
     const text = convertEmojiPlaceholders(
       this.formatConverter.renderPostable(message),
       "teams"
@@ -2248,6 +2234,7 @@ export type {
   TeamsAdapterConfig,
   TeamsAuthCertificate,
   TeamsAuthFederated,
+  TeamsPostableAdaptiveCard,
   TeamsPostableMessage,
   TeamsThreadId,
   TeamsWebhookVerifier,

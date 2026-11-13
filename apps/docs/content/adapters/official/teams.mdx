@@ -453,7 +453,7 @@ See Microsoft's [AI content labels documentation](https://learn.microsoft.com/en
 
 ## Raw Adaptive Cards
 
-Chat SDK cards cover the elements that every platform can render. For Adaptive Card features they don't cover, such as `Badge` or container styles, pass the Adaptive Card JSON as `adaptiveCard` to the Teams adapter's `postMessage`, `postChannelMessage`, or `editMessage`. The adapter sends the card as is. `thread.post()` doesn't accept it, because other platforms can't render it.
+Chat SDK cards cover the elements that every platform can render. For Adaptive Card features they don't cover, such as `Badge` or container styles, pass the card as `adaptiveCard` to the Teams adapter's `postMessage`, `postChannelMessage`, `postEphemeral`, or `editMessage`. The adapter sends the card as is. `thread.post()` doesn't accept it, because other platforms can't render it.
 
 ```typescript title="lib/bot.ts"
 const teams = bot.getAdapter("teams");
@@ -468,7 +468,11 @@ await teams.postMessage(thread.id, {
 });
 ```
 
-Teams shows `fallbackText` as the activity summary, in notifications and in clients that can't render the card.
+`adaptiveCard` takes the card's JSON or a card object built with `@microsoft/teams.cards`, including the card that `cardToAdaptiveCard` returns for a Chat SDK card. The adapter throws a `ValidationError` when `adaptiveCard` isn't an object, or when the same message also sets `markdown`, `raw`, `ast`, or `card`. To type your own helpers, import `TeamsPostableAdaptiveCard` from `@chat-adapter/teams`.
+
+Teams shows `fallbackText` as the activity summary, in notifications and in clients that can't render the card. A Chat SDK card posted as `{ card, fallbackText }` sets the same summary.
+
+A raw card message also accepts `files` and `aiGenerated`. `editMessage` updates the card and doesn't upload `files`, as with any other edit.
 
 ## User lookup
 

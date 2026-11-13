@@ -96,13 +96,17 @@ export type TeamsGraphContext = TeamsChannelContext | TeamsDmContext;
  * An Adaptive Card that Teams renders as is, for card features that Chat SDK
  * cards don't cover.
  */
-interface TeamsPostableAdaptiveCard {
-  adaptiveCard: Record<string, unknown>;
+export interface TeamsPostableAdaptiveCard {
+  /**
+   * The Adaptive Card: its JSON, or a card built with `@microsoft/teams.cards`
+   * or `cardToAdaptiveCard`.
+   */
+  adaptiveCard: object;
   /** Mark the message as AI-generated. */
   aiGenerated?: boolean;
   /** Activity summary, shown in notifications and in clients that can't render the card. */
   fallbackText?: string;
-  /** Files to upload */
+  /** Files to upload. `editMessage` doesn't upload files, as with any other message. */
   files?: FileUpload[];
 }
 

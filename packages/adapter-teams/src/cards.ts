@@ -8,6 +8,7 @@
 import {
   createEmojiConverter,
   extractCard,
+  extractFiles,
   mapButtonStyle,
   cardToFallbackText as sharedCardToFallbackText,
   ValidationError,
@@ -49,6 +50,7 @@ import type {
   CardElement,
   DividerElement,
   FieldsElement,
+  FileUpload,
   ImageElement,
   LinkButtonElement,
   RadioSelectElement,
@@ -72,25 +74,66 @@ const ADAPTIVE_CARD_SCHEMA =
   "http://adaptivecards.io/schemas/adaptive-card.json";
 const ADAPTIVE_CARD_VERSION = "1.5" as const;
 
+const MESSAGE_CONTENT_KEYS = ["ast", "card", "markdown", "raw"] as const;
+
+/** What a send path needs from a postable, with the card already resolved. */
+export type PreparedTeamsMessage =
+  | {
+      adaptiveCard: object;
+      aiGenerated: boolean;
+      files: FileUpload[];
+      summary?: string;
+    }
+  | {
+      adaptiveCard?: undefined;
+      files: FileUpload[];
+      message: AdapterPostableMessage;
+    };
+
 /** A raw Adaptive Card is sent as is, and a Chat SDK card is converted. */
-export function prepareTeamsMessage(input: TeamsPostableMessage): {
-  adaptiveCard?: unknown;
-  message: AdapterPostableMessage;
-  summary?: string;
-} {
-  if (typeof input === "object" && "adaptiveCard" in input) {
-    const { adaptiveCard, fallbackText, ...rest } = input;
+export function prepareTeamsMessage(
+  input: TeamsPostableMessage
+): PreparedTeamsMessage {
+  if (typeof input === "object" && input !== null && "adaptiveCard" in input) {
+    const { adaptiveCard, aiGenerated, fallbackText, files } = input;
+    if (
+      typeof adaptiveCard !== "object" ||
+      adaptiveCard === null ||
+      Array.isArray(adaptiveCard)
+    ) {
+      throw new ValidationError(
+        "teams",
+        "`adaptiveCard` must be an Adaptive Card object"
+      );
+    }
+    const content = MESSAGE_CONTENT_KEYS.find((key) => key in input);
+    if (content) {
+      throw new ValidationError(
+        "teams",
+        `A message can't combine \`adaptiveCard\` with \`${content}\``
+      );
+    }
     return {
       adaptiveCard,
-      message: { ...rest, raw: fallbackText ?? "" },
+      aiGenerated: aiGenerated === true,
+      files: files ?? [],
       summary: fallbackText || undefined,
     };
   }
 
+  const files = extractFiles(input);
   const card = extractCard(input);
+  if (!card) {
+    return { files, message: input };
+  }
+
+  const postable =
+    typeof input === "object" && "card" in input ? input : undefined;
   return {
-    adaptiveCard: card ? cardToAdaptiveCard(card) : undefined,
-    message: input,
+    adaptiveCard: cardToAdaptiveCard(card),
+    aiGenerated: postable?.aiGenerated === true,
+    files,
+    summary: postable?.fallbackText || undefined,
   };
 }
 

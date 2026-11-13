@@ -22,7 +22,11 @@ import {
   type TextInputOptions,
 } from "chat";
 import { describe, expect, it } from "vitest";
-import { cardToAdaptiveCard, cardToFallbackText } from "./cards";
+import {
+  cardToAdaptiveCard,
+  cardToFallbackText,
+  prepareTeamsMessage,
+} from "./cards";
 import { cardToAdaptiveCard as primitivesCardToAdaptiveCard } from "./cards-primitives";
 import { modalToAdaptiveCard } from "./modals";
 
@@ -918,5 +922,14 @@ describe("cardToAdaptiveCard with TextInput", () => {
       Object.keys(primitives).map((key) => [key, sdk[key]])
     );
     expect(shared).toEqual(primitives);
+  });
+});
+
+describe("prepareTeamsMessage", () => {
+  it("passes a null message through instead of probing it for a card", () => {
+    expect(prepareTeamsMessage(null as never)).toEqual({
+      files: [],
+      message: null,
+    });
   });
 });
