@@ -16,7 +16,7 @@ Documentation: [chat-sdk.dev/adapters/official/messenger](https://chat-sdk.dev/a
 ## Installation
 
 ```bash
-pnpm add @chat-adapter/messenger
+pnpm add @chat-adapter/messenger @chat-adapter/state-memory
 ```
 
 ## Scaffold with the CLI
@@ -34,12 +34,14 @@ Visit the [adapters directory](https://chat-sdk.dev/adapters) to see other avail
 ```typescript
 import { Chat } from "chat";
 import { createMessengerAdapter } from "@chat-adapter/messenger";
+import { createMemoryState } from "@chat-adapter/state-memory";
 
 const bot = new Chat({
   userName: "mybot",
   adapters: {
     messenger: createMessengerAdapter(),
   },
+  state: createMemoryState(),
 });
 
 bot.onDirectMessage(async (thread, message) => {
@@ -48,6 +50,8 @@ bot.onDirectMessage(async (thread, message) => {
 ```
 
 When using `createMessengerAdapter()` without arguments, credentials are auto-detected from environment variables.
+
+The memory state adapter keeps subscriptions and locks in process memory, which suits local development. Use a Redis or PostgreSQL state adapter in production.
 
 ## Facebook Messenger setup
 
@@ -94,25 +98,41 @@ Your Messenger bot needs a Facebook Page to send and receive messages. If you do
 4. Click **Generate Token**
 5. Copy the token — this becomes `FACEBOOK_PAGE_ACCESS_TOKEN`
 
+## Configuration
+
+You can call `createMessengerAdapter()` with no arguments when the environment variables are set.
+
+| Option | Required | Description |
+|--------|----------|-------------|
+| `appSecret` | No* | App secret for webhook signature verification. Auto-detected from `FACEBOOK_APP_SECRET` |
+| `pageAccessToken` | No* | Page access token. Auto-detected from `FACEBOOK_PAGE_ACCESS_TOKEN` |
+| `verifyToken` | No* | Webhook verify token. Auto-detected from `FACEBOOK_VERIFY_TOKEN` |
+| `apiVersion` | No | Graph API version (defaults to `v21.0`) |
+| `userName` | No | Bot username. Defaults to the Page name, or to the `userName` passed to `Chat` when the Page lookup fails |
+| `logger` | No | Logger instance (defaults to `ConsoleLogger("info")`) |
+
+*Required at runtime, either in config or as an environment variable.
+
 ## Environment variables
 
 ```bash
 FACEBOOK_APP_SECRET=...              # App secret from App Settings > Basic
 FACEBOOK_PAGE_ACCESS_TOKEN=...       # Generated Page access token
-FACEBOOK_VERIFY_TOKEN=...            # User-defined webhook verification secret
-FACEBOOK_BOT_USERNAME=...            # Optional, defaults to "messenger-bot"
-FACEBOOK_API_URL=...                 # Optional, override the Meta Graph API base URL
+FACEBOOK_VERIFY_TOKEN=...            # Webhook verify token that you choose
 ```
+
+All three are required unless you pass the matching option to `createMessengerAdapter()`.
 
 ## Webhook setup
 
 Messenger uses two webhook mechanisms:
 
-1. **Verification handshake** (GET) — Meta sends a `hub.verify_token` challenge that must match your `FACEBOOK_VERIFY_TOKEN`.
-2. **Event delivery** (POST) — incoming messages, reactions, and postbacks, verified via `X-Hub-Signature-256`.
+1. **Verification handshake** (GET). Meta sends `hub.mode=subscribe` and a `hub.verify_token` that must match your `FACEBOOK_VERIFY_TOKEN`. A mismatch gets a 403 response.
+2. **Event delivery** (POST). Incoming messages, reactions, and postbacks are verified with the `X-Hub-Signature-256` header. A missing or wrong signature gets a 403 response.
 
 ```typescript
 // Next.js App Router example
+import { after } from "next/server";
 import { bot } from "@/lib/bot";
 
 export async function GET(request: Request) {
@@ -120,9 +140,13 @@ export async function GET(request: Request) {
 }
 
 export async function POST(request: Request) {
-  return bot.webhooks.messenger(request);
+  return bot.webhooks.messenger(request, {
+    waitUntil: (task) => after(() => task),
+  });
 }
 ```
+
+The adapter responds before your handlers finish, so pass `waitUntil` on serverless platforms to keep the function alive until they do.
 
 ## Features
 
@@ -136,6 +160,9 @@ export async function POST(request: Request) {
 | Streaming | Buffered (accumulates then sends) |
 | Typing indicator | Yes |
 | Mark as read | Yes |
+| File uploads | No |
+
+Text is limited to 2000 characters. Longer text is cut to 1997 characters followed by `...`, and isn't split across messages.
 
 ### Rich content
 
@@ -146,8 +173,8 @@ export async function POST(request: Request) {
 | Link buttons | Yes (web_url) |
 | Select menus | No |
 | Tables | Text fallback |
-| Fields | Text fallback |
-| Images in cards | Yes (Generic Template) |
+| Fields | Rendered as `Label: Value` text lines |
+| Images in cards | Card `imageUrl` only (Generic Template) |
 | Modals | No |
 
 ### Conversations
@@ -155,9 +182,10 @@ export async function POST(request: Request) {
 | Feature | Supported |
 |---------|-----------|
 | Reactions | Receive only |
-| Typing indicator | Yes |
 | DMs | Yes (DM-only platform) |
 | Postbacks | Yes |
+
+Every inbound message is treated as a mention, because each conversation is a direct message with your Page. Button taps arrive through `onAction`. A quick-reply tap arrives as an ordinary text message.
 
 ### Inbound attachments
 
@@ -182,23 +210,39 @@ Messenger applies this action to the conversation's seen state rather than a sin
 
 | Feature | Supported |
 |---------|-----------|
-| Fetch messages | Cached sent messages only |
+| Fetch messages | In-memory cache only |
 | Fetch thread info | Yes |
+
+Messenger has no API for listing past messages, so `fetchMessages` reads from an in-memory cache of the messages this process has received and sent. The cache is empty after a restart and isn't shared between instances.
 
 ## Interactive messages
 
-Card elements are automatically converted to Messenger templates:
+The adapter converts a card to one Messenger template when it can:
 
-- **Generic Template** — Used when the card has a `title` or `imageUrl`. Supports up to 3 buttons.
-- **Button Template** — Used when the card has text content and buttons but no title/image. Max 640 characters.
-- **Text Fallback** — Used when the card contains unsupported elements (tables, select menus) or exceeds constraints.
+- **Generic Template**: the card has at least one button and a `title` or `imageUrl`.
+- **Button Template**: the card has at least one button and body text, but no title or image.
+- **Text**: the card has no buttons, or contains a table, select menu, or radio select.
 
-Template constraints:
+The adapter trims content to Messenger's limits and doesn't fall back to text for them:
 
-- Maximum 3 buttons per template
-- Button titles limited to 20 characters (truncated with ellipsis)
-- Subtitles limited to 80 characters
-- Button Template text limited to 640 characters
+- Only the first 3 buttons are sent. Extra buttons are dropped.
+- Button labels longer than 20 characters are truncated with an ellipsis.
+- Titles and subtitles longer than 80 characters are truncated.
+- Button Template text longer than 640 characters is truncated.
+
+## API errors
+
+Failed Graph API calls throw the error classes from `@chat-adapter/shared`:
+
+| Response | Error |
+|----------|-------|
+| HTTP 429, or Meta codes 4, 32, 613 | `AdapterRateLimitError`, with `retryAfter` in seconds when Meta sends a `Retry-After` header |
+| HTTP 401, or Meta code 190 | `AuthenticationError` |
+| HTTP 403, or Meta codes 10, 200 | `ValidationError` |
+| HTTP 404 | `ResourceNotFoundError` |
+| Anything else, and network failures | `NetworkError` |
+
+The adapter sends every message as a standard response and doesn't track Messenger's 24-hour messaging window. A send outside the window fails with the error the Graph API returns.
 
 ## Thread ID format
 

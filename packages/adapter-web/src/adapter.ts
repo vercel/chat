@@ -18,9 +18,11 @@ import {
   type FetchResult,
   type FormattedContent,
   type Logger,
+  type MarkdownTextChunk,
   Message,
   NotImplementedError,
   type RawMessage,
+  type ReasoningChunk,
   type StreamChunk,
   type StreamOptions,
   type ThreadInfo,
@@ -32,9 +34,15 @@ import {
   createSseResponse,
   generateId,
   type WebProtocol,
+  type WebStreamEvent,
   webProtocols,
 } from "./protocol";
-import type { WebAdapterConfig, WebMessage, WebUser } from "./types";
+import type {
+  WebAdapterConfig,
+  WebMessage,
+  WebMessagePart,
+  WebUser,
+} from "./types";
 
 /** Decoded thread id components for the Web adapter. */
 export interface WebThreadIdData {
@@ -55,6 +63,7 @@ export class WebAdapter implements Adapter<WebThreadIdData, WebMessage> {
   readonly userName: string;
   readonly persistMessageHistory: boolean;
   readonly lockScope = "thread" as const;
+  readonly supportsReasoningChunks = true;
 
   protected chat: ChatInstance | null = null;
   protected readonly logger: Logger;
@@ -154,7 +163,11 @@ export class WebAdapter implements Adapter<WebThreadIdData, WebMessage> {
     const message = this.buildMessageFromUI(userMessage, threadId, user);
 
     const chat = this.chat;
-    const run = { conversationId, runId: parsed.runId ?? generateId() };
+    const run = {
+      conversationId,
+      messageId: generateId(),
+      runId: parsed.runId ?? generateId(),
+    };
     return createSseResponse(this.protocol, async (send) => {
       for (const payload of this.protocol.begin(run)) {
         send(payload);
@@ -163,10 +176,16 @@ export class WebAdapter implements Adapter<WebThreadIdData, WebMessage> {
       try {
         await webRequestContext.run(
           {
-            write: (event) => send(this.protocol.encode(event)),
+            write: (event) => {
+              for (const payload of this.protocol.encode(event)) {
+                send(payload);
+              }
+            },
             signal: request.signal,
             userId: user.id,
             conversationId,
+            messageId: run.messageId,
+            dataParts: new Set(),
           },
           // Web requests are never redelivered, so a repeated message id
           // is a deliberate regenerate or reload and must reach the handler.
@@ -293,26 +312,98 @@ export class WebAdapter implements Adapter<WebThreadIdData, WebMessage> {
   ): Promise<RawMessage<WebMessage>> {
     const ctx = requireWebRequestContext();
     const id = generateId();
-    let fullText = "";
-    ctx.write({ type: "text-start", id });
+    // The parts this stream wrote, as a client assembles them from its events.
+    const parts: WebMessagePart[] = [];
+    // At most one text or reasoning part is open at a time, so parts keep
+    // the order the handler yielded them in.
+    let open: {
+      id: string;
+      kind: "text" | "reasoning";
+      part: WebMessagePart & { text: string };
+    } | null = null;
+    const started = { text: 0, reasoning: 0 };
+
+    const closePart = () => {
+      if (open) {
+        ctx.write({ type: `${open.kind}-end`, id: open.id });
+        open = null;
+      }
+    };
+    const openPart = (kind: "text" | "reasoning") => {
+      if (open?.kind === kind) {
+        return open;
+      }
+      closePart();
+      const index = started[kind]++;
+      let partId = `${id}-reasoning-${index}`;
+      if (kind === "text") {
+        // The first text part reuses the message id.
+        partId = index === 0 ? id : `${id}-${index}`;
+      }
+      const opened = { id: partId, kind, part: { type: kind, text: "" } };
+      parts.push(opened.part);
+      ctx.write({ type: `${kind}-start`, id: partId });
+      open = opened;
+      return opened;
+    };
+    const writeDelta = (kind: "text" | "reasoning", delta: string) => {
+      if (!delta) {
+        return;
+      }
+      const target = openPart(kind);
+      target.part.text += delta;
+      ctx.write({ type: `${kind}-delta`, id: target.id, delta });
+    };
+
     try {
       for await (const chunk of iterable) {
         if (ctx.signal.aborted) {
           break;
         }
-        const text = streamChunkToText(chunk);
-        if (text) {
-          fullText += text;
-          ctx.write({ type: "text-delta", id, delta: text });
+        if (typeof chunk === "string") {
+          writeDelta("text", chunk);
+          continue;
+        }
+        if (chunk.type === "markdown_text") {
+          writeDelta("text", chunk.text);
+          continue;
+        }
+        if (chunk.type === "reasoning") {
+          writeDelta("reasoning", chunk.text);
+          continue;
+        }
+        const event = streamChunkToDataEvent(chunk, ctx.messageId);
+        if (!event) {
+          continue;
+        }
+        // Clients replace a data part they already hold in place, so only a
+        // part that is new to the response ends the open text or reasoning.
+        const key = `${event.type}:${event.id}`;
+        if (!ctx.dataParts.has(key)) {
+          ctx.dataParts.add(key);
+          closePart();
+        }
+        ctx.write(event);
+        const existing = parts.findIndex(
+          (part) => part.type === event.type && part.id === event.id
+        );
+        if (existing === -1) {
+          parts.push({ ...event });
+        } else {
+          parts[existing] = { ...event };
         }
       }
     } finally {
-      ctx.write({ type: "text-end", id });
+      // A stream that produced nothing still sends one (empty) text part.
+      if (parts.length === 0) {
+        openPart("text");
+      }
+      closePart();
     }
     return {
       id,
       threadId,
-      raw: assistantMessageFromText(id, fullText),
+      raw: { id, role: "assistant", parts },
     };
   }
 
@@ -440,16 +531,42 @@ function extractText(message: WebMessage): string {
   return texts.join("\n");
 }
 
-function streamChunkToText(chunk: string | StreamChunk): string {
-  if (typeof chunk === "string") {
-    return chunk;
+type WebDataEvent = Extract<
+  WebStreamEvent,
+  { type: "data-task" | "data-plan" }
+>;
+
+/**
+ * Map a structured chunk to a data event, or `null` for a chunk the wire
+ * protocols can't carry. The `ai-sdk` protocol sends the event as the
+ * `data-*` part useChat stores on the message.
+ */
+function streamChunkToDataEvent(
+  chunk: Exclude<StreamChunk, MarkdownTextChunk | ReasoningChunk>,
+  messageId: string
+): WebDataEvent | null {
+  // Each case destructures on its own: TypeScript doesn't narrow a rest
+  // element through a destructured discriminant.
+  switch (chunk.type) {
+    case "task_update": {
+      const { type: _, ...data } = chunk;
+      // Keyed by task id, so each update replaces that task's previous state.
+      // Clients reject a data part whose id isn't a string.
+      return typeof data.id === "string"
+        ? { type: "data-task", id: data.id, data }
+        : null;
+    }
+    case "plan_update": {
+      const { type: _, ...data } = chunk;
+      // A response has one plan, keyed by the assistant message id.
+      return { type: "data-plan", id: messageId, data };
+    }
+    default:
+      // Chunk types added to core later reach here before this adapter
+      // maps them.
+      chunk satisfies never;
+      return null;
   }
-  if (chunk.type === "markdown_text") {
-    return chunk.text;
-  }
-  // task_update / plan_update — no native v1 representation on the wire.
-  // Future: emit as data-* parts. For now ignored so the stream stays clean.
-  return "";
 }
 
 function adapterPostableToText(

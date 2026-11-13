@@ -197,6 +197,35 @@ bot.onDirectMessage(async (thread, message) => {
 The adapter honours `request.signal`, so the iterator is short-
 circuited as soon as the browser disconnects.
 
+`streamChunkToDataEvent` in `adapter.ts` maps `task_update` and
+`plan_update` chunks to `data-task` and `data-plan` events; keep it in
+sync with `WebDataParts` in `types.ts` and `WebStreamEvent` in
+`protocol.ts`. It returns `null` for a chunk it can't map, and
+`stream()` skips those. `reasoning` chunks stream as `reasoning-*`
+events, which core only passes on because the adapter sets
+`supportsReasoningChunks`. At most one text or reasoning part is open
+at a time: text and reasoning close each other, and so does a data
+event that is new to the response. A data event the client already
+holds (same type and id, tracked per request in `als.ts`) is replaced
+in place on the client, so it leaves the open part alone. The next
+text part gets the id `{id}-{n}` (the first keeps the stream's message
+id), and reasoning parts get `{id}-reasoning-{n}`. A stream that
+writes nothing sends one empty text part.
+
+`data-plan` events are keyed by the request's assistant message id.
+`handleWebhook` generates it, the `ai-sdk` protocol sends it in the
+`start` chunk, and `stream()` reads it from the request context, so
+every stream in one response updates the same plan part. `stream()`
+returns a `raw` message listing the parts it wrote. Core doesn't
+persist `raw` for sent messages, so `thread.messages` holds only their
+text.
+
+`"ai-sdk"` sends these events unchanged as UI message stream chunks.
+`"ag-ui"` sends reasoning as `REASONING_*` events and data events as
+`CUSTOM` events named `task` and `plan`. `WebUIMessage` needs the `ai`
+types, so it lives in `ui-message.ts` and is exported only from the
+framework entries.
+
 ## Format conversion
 
 `WebFormatConverter` (in `format-converter.ts`) maps mdast to plain
@@ -297,5 +326,5 @@ version with the server entry.
 - User-facing docs: [`apps/docs/content/adapters/official/web.mdx`](../../apps/docs/content/adapters/official/web.mdx)
 - README: [`packages/adapter-web/README.md`](README.md)
 - Shared error/utility helpers: [`packages/adapter-shared/src/index.ts`](../adapter-shared/src/index.ts)
-- Core Adapter contract: [`packages/chat/src/adapter.ts`](../chat/src/adapter.ts)
+- Core Adapter contract: [`packages/chat/src/types.ts`](../chat/src/types.ts)
 - Example app: [`examples/nextjs-chat`](../../examples/nextjs-chat)

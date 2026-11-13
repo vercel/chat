@@ -12,6 +12,14 @@ import type { WebStreamEvent } from "./protocol";
 export interface WebRequestContext {
   /** The client's conversation id (`id` or `threadId` in the request body). */
   conversationId: string;
+  /**
+   * Keys (`{type}:{id}`) of the data parts already written to this response.
+   * Clients merge every stream of a response into one message, so a part
+   * sent by an earlier `stream()` call is still replaced in place.
+   */
+  dataParts: Set<string>;
+  /** Id of the assistant message this response builds on the client. */
+  messageId: string;
   /** Abort signal of the inbound HTTP request — used to short-circuit streaming. */
   signal: AbortSignal;
   /** The user id resolved by `WebAdapterConfig.getUser`. */

@@ -37,7 +37,6 @@ import {
 
 const SUPPRESSED_AUTOLINK_REGEX = /^<https?:\/\/[^<>\s]+>$/i;
 const SUPPRESSED_MASKED_LINK_REGEX = /\]\(<https?:\/\/[^<>\s]+>\)$/i;
-
 // biome-ignore lint/style/noEnum: Link styles must use an enum.
 enum DiscordLinkStyle {
   SuppressedAutolink = "suppressed-autolink",
@@ -245,9 +244,13 @@ export class DiscordFormatConverter extends BaseFormatConverter {
     }
 
     if (isBlockquoteNode(node)) {
-      return getNodeChildren(node)
-        .map((child) => `> ${this.nodeToDiscordMarkdown(child)}`)
-        .join("\n");
+      // Discord only quotes a line that starts with `> `, so blank quoted
+      // lines keep the space.
+      return this.renderBlockquote(
+        node,
+        (child) => this.nodeToDiscordMarkdown(child),
+        "> "
+      );
     }
 
     if (isListNode(node)) {

@@ -57,8 +57,8 @@ importers:
         specifier: ^1.4.3
         version: 1.4.3(@opentelemetry/api@1.9.0)(next@16.4.1(@opentelemetry/api@1.9.0)(@types/node@25.3.2)(react-dom@19.2.3(react@19.2.3))(react@19.2.3))
       '@vercel/geistdocs':
-        specifier: 2.14.4
-        version: 2.14.4(@svta/cml-cta@1.0.1(@svta/cml-structured-field-values@1.0.1(@svta/cml-utils@1.0.1))(@svta/cml-utils@1.0.1))(@svta/cml-structured-field-values@1.0.1(@svta/cml-utils@1.0.1))(@svta/cml-utils@1.0.1)(@tanstack/react-router@1.170.41(react-dom@19.2.3(react@19.2.3))(react@19.2.3))(@types/mdast@4.0.4)(@types/react-dom@19.2.3(@types/react@19.2.7))(@vercel/functions@3.9.9(@aws-sdk/credential-provider-web-identity@3.972.49)(ws@8.21.0))(h3@1.15.11)(lucide-react@0.555.0(react@19.2.3))(micromark-util-types@2.0.2)(micromark@4.0.2)(next@16.4.1(@opentelemetry/api@1.9.0)(@types/node@25.3.2)(react-dom@19.2.3(react@19.2.3))(react@19.2.3))(react-dom@19.2.3(react@19.2.3))(react@19.2.3)(tailwindcss@4.1.18)(vite@7.3.7(@types/node@25.3.2)(jiti@2.7.0)(lightningcss@1.33.0)(terser@5.48.0)(tsx@4.22.3)(yaml@2.9.0))
+        specifier: 2.15.3
+        version: 2.15.3(@svta/cml-cta@1.0.1(@svta/cml-structured-field-values@1.0.1(@svta/cml-utils@1.0.1))(@svta/cml-utils@1.0.1))(@svta/cml-structured-field-values@1.0.1(@svta/cml-utils@1.0.1))(@svta/cml-utils@1.0.1)(@tanstack/react-router@1.170.41(react-dom@19.2.3(react@19.2.3))(react@19.2.3))(@types/mdast@4.0.4)(@types/react-dom@19.2.3(@types/react@19.2.7))(@vercel/functions@3.9.9(@aws-sdk/credential-provider-web-identity@3.972.49)(ws@8.21.0))(h3@1.15.11)(lucide-react@0.555.0(react@19.2.3))(micromark-util-types@2.0.2)(micromark@4.0.2)(next@16.4.1(@opentelemetry/api@1.9.0)(@types/node@25.3.2)(react-dom@19.2.3(react@19.2.3))(react@19.2.3))(react-dom@19.2.3(react@19.2.3))(react@19.2.3)(tailwindcss@4.1.18)(vite@7.3.7(@types/node@25.3.2)(jiti@2.7.0)(lightningcss@1.33.0)(terser@5.48.0)(tsx@4.22.3)(yaml@2.9.0))
       '@vercel/speed-insights':
         specifier: ^1.3.1
         version: 1.3.1(next@16.4.1(@opentelemetry/api@1.9.0)(@types/node@25.3.2)(react-dom@19.2.3(react@19.2.3))(react@19.2.3))(react@19.2.3)(svelte@5.55.7)(vue-router@4.6.4(vue@3.5.39(typescript@5.9.3)))(vue@3.5.39(typescript@5.9.3))
@@ -1134,8 +1134,8 @@ importers:
         specifier: ^0.6.0
         version: 0.6.0
       '@hono/node-server':
-        specifier: ^2.1.3
-        version: 2.1.3(hono@4.12.18)
+        specifier: ^2.1.8
+        version: 2.1.8(hono@4.12.18)
       '@manypkg/get-packages':
         specifier: ^1.1.3
         version: 1.1.3
@@ -2417,11 +2417,11 @@ packages:
     peerDependencies:
       graphql: ^0.8.0 || ^0.9.0 || ^0.10.0 || ^0.11.0 || ^0.12.0 || ^0.13.0 || ^14.0.0 || ^15.0.0 || ^16.0.0 || ^17.0.0
 
-  '@hono/node-server@2.1.3':
-    resolution: {integrity: sha512-TA//nWMqPhbfdfneACk6t5a9eqbS9lABEPyKn0/xZTah3H3U2XaVg85rJFl0/Fyit0I552YDHgXGVSf3GwqbUw==}
+  '@hono/node-server@2.1.8':
+    resolution: {integrity: sha512-jdf7FHh6A1lzjpHHQUgxsg2GeER2vMetnAOfeActzcoli6jamlK+NAwL6Dsr5Fl3BS3tYUQzCdtZjU8Qxv7bEA==}
     engines: {node: '>=20'}
     peerDependencies:
-      hono: ^4
+      hono: ^4 || ^5.0.0-0
 
   '@iconify/types@2.0.0':
     resolution: {integrity: sha512-+wluvCrRhXrhyOmRDJ3q8mux9JkKy5SJ/v8ol2tu4FVjyYvtEzkc/3pK15ET6RKg4b4w4BmTk1+gsCUhf21Ykg==}
@@ -6065,7 +6065,9 @@ packages:
   '@smithy/core@3.29.5':
     resolution: {integrity: sha512-i0dk2t5B+CwV/dcJdUHILYkOQF5lof8f44dFCfDWToGCxjT9YQ+CgHqTAvJxzc3+zqQwm2QtVoJ5IqiNar/CnQ==}
     engines: {node: '>=18.0.0'}
-    deprecated: Deprecated due to a bug in custom logger data redaction. See https://github.com/aws/aws-sdk-js-v3/issues/8393.
+    deprecated: |-
+      Deprecated due to a bug in custom logger data redaction. Upgrade to the latest version. If you used a custom logger with this
+        version, review your logs and rotate any credentials or other secrets. See https://github.com/aws/aws-sdk-js-v3/issues/8393.
 
   '@smithy/credential-provider-imds@4.2.14':
     resolution: {integrity: sha512-Au28zBN48ZAoXdooGUHemuVBrkE+Ie6RPmGNIAJsFqj33Vhb6xAgRifUydZ2aY+M+KaMAETAlKk5NC5h1G7wpg==}
@@ -6162,7 +6164,9 @@ packages:
   '@smithy/smithy-client@4.12.13':
     resolution: {integrity: sha512-y/Pcj1V9+qG98gyu1gvftHB7rDpdh+7kIBIggs55yGm3JdtBV8GT8IFF3a1qxZ79QnaJHX9GXzvBG6tAd+czJA==}
     engines: {node: '>=18.0.0'}
-    deprecated: Deprecated due to a bug in custom logger data redaction. See https://github.com/aws/aws-sdk-js-v3/issues/8393.
+    deprecated: |-
+      Deprecated due to a bug in custom logger data redaction. Upgrade to the latest version. If you used a custom logger with
+        this version, review your logs and rotate any credentials or other secrets. See https://github.com/aws/aws-sdk-js-v3/issues/8393.
 
   '@smithy/types@4.14.1':
     resolution: {integrity: sha512-59b5HtSVrVR/eYNei3BUj3DCPKD/G7EtDDe7OEJE7i7FtQFugYo6MxbotS8mVJkLNVf8gYaAlEBwwtJ9HzhWSg==}
@@ -7178,6 +7182,10 @@ packages:
       next:
         optional: true
 
+  '@vercel/firewall@1.2.6':
+    resolution: {integrity: sha512-89ybsa2rnVNdw6RI3jGOVvqUJaBj6Umm4IagC1o3PKtr/MXxBKOLek+yyUgF0csA0O5W+dzcpdIhKxVXhgVVtA==}
+    engines: {node: '>= 20'}
+
   '@vercel/functions@3.9.9':
     resolution: {integrity: sha512-ocN/BNsIswReoyqfU1huilNyBM9tvY9kFXgYj0LlyPRATC1dt35gj2jN5hs9+Nag/CRyVQOX58L2FEhvL+0sSA==}
     engines: {node: '>= 20'}
@@ -7190,8 +7198,8 @@ packages:
       ws:
         optional: true
 
-  '@vercel/geistdocs@2.14.4':
-    resolution: {integrity: sha512-fPU0p9xbK6wd7slxd5k382h5GjGliFPaKXj8x1nmTf0H6myVHFFDYFWbj/u43iFWFDljDfILQcFoFVqRze15yA==}
+  '@vercel/geistdocs@2.15.3':
+    resolution: {integrity: sha512-5/bk8a5DS4Ee7yp52P+eVp+Z+UQeSpNsp2G6eyYReuDczVGMpcJiDmx/10YNFg3565jTs9eE/eyyo2IqfFoHzw==}
     hasBin: true
     peerDependencies:
       next: ^16.3.3
@@ -9428,6 +9436,9 @@ packages:
   graceful-fs@4.2.11:
     resolution: {integrity: sha512-RbJ5/jmFcNNCcDV5o9eTnBLJ/HszWV0P73bc+Ff4nS/rJj+YaS6IGyiOL0VoBYX+l1Wrl3k63h/KrH+nhJ0XvQ==}
 
+  graceful-fs@4.2.12:
+    resolution: {integrity: sha512-iuyGF2E4oafQfPsRrG2wtY2ILupMhvtdrhzrxB+0VcjsPpSPttpfYdjnGFGsTi5MaJFjI1jOKHPQ6UTbTj9TAw==}
+
   graphql@15.10.1:
     resolution: {integrity: sha512-BL/Xd/T9baO6NFzoMpiMD7YUZ62R6viR5tp/MULVEnbYJXZA//kRNW7J0j1w/wXArgL0sCxhDfK5dczSKn3+cg==}
     engines: {node: '>= 10.x'}
@@ -9575,8 +9586,8 @@ packages:
     resolution: {integrity: sha512-S9wWkJ/VSY9/k4qcjG318bqJNruzE4HySUhFYknwmu6LBP97KLLfwNf+n4V1BHurvFNkSKLFnK/RsuUnRTf9Vw==}
     engines: {iojs: '>= 1.0.0', node: '>= 0.12.0'}
 
-  http2-wrapper@2.2.1:
-    resolution: {integrity: sha512-V5nVw1PAOgfI3Lmeaj2Exmeg7fenjhRUgz1lPSezy1CuhPYbgQtbQj4jZfEAEMlaL+vupsvhjqCyjzob0yxsmQ==}
+  http2-wrapper@2.2.4:
+    resolution: {integrity: sha512-y5jx4isTOKEC5Hu1lswc+IxytGlqDmwF1qJtk9qIS8l1KVxuHO5g522UfmErt1H2pMcH/xq+KiFQUB8aVWIABA==}
     engines: {node: '>=10.19.0'}
 
   https-proxy-agent@5.0.1:
@@ -9638,6 +9649,7 @@ packages:
   image-size@2.0.2:
     resolution: {integrity: sha512-IRqXKlaXwgSMAMtpNzZa1ZAe8m+Sa1770Dhk8VkSsP9LS+iHD62Zd8FQKs8fbPiagBE7BzoFX23cxFnwshpV6w==}
     engines: {node: '>=16.x'}
+    deprecated: Use latest 2.x please
     hasBin: true
 
   immediate@3.0.6:
@@ -11974,6 +11986,11 @@ packages:
     engines: {node: '>=10'}
     hasBin: true
 
+  semver@7.8.6:
+    resolution: {integrity: sha512-9lpSSU4Mly3mrtruwLs1eLK6+gzbzqeBFwRNjIjE+9LuDpWdYctrQlQ3ej1Ilgi7gknpsTRnPoLP8DpCHqHIJw==}
+    engines: {node: '>=10'}
+    hasBin: true
+
   send@0.19.2:
     resolution: {integrity: sha512-VMbMxbDeehAxpOtWJXlcUS5E8iXh6QmN+BkRX1GARS3wRaXEEgzCcB10gTQazO42tpNIya8xIyNx8fll1OFPrg==}
     engines: {node: '>= 0.8.0'}
@@ -12249,8 +12266,8 @@ packages:
   strnum@2.2.3:
     resolution: {integrity: sha512-oKx6RUCuHfT3oyVjtnrmn19H1SiCqgJSg+54XqURKp5aCMbrXrhLjRN9TjuwMjiYstZ0MzDrHqkGZ5dFTKd+zg==}
 
-  strtok3@10.6.3:
-    resolution: {integrity: sha512-MD8mENgyXMr2mDaDfzP3RWYDSyYQxIIou7HhCiCJiBekrsoDtUG0id3vYnjDfY9ndOEbazFXe13Qw6u/1AB8ew==}
+  strtok3@10.7.0:
+    resolution: {integrity: sha512-iAqrCpp7UXD2FZiHWhLXqdJ6CmNeVzRkkHAyyhhKMVtbVm2KtPX3D/bJNonvtcyLTHS4rwqP2pz9fsjK1K4z0Q==}
     engines: {node: '>=18'}
 
   structured-clone-es@2.0.0:
@@ -12452,8 +12469,8 @@ packages:
     resolution: {integrity: sha512-o5sSPKEkg/DIQNmH43V0/uerLrpzVedkUh8tGNvaeXpfpuwjKenlSox/2O/BTlZUtEe+JG7s5YhEz608PlAHRA==}
     engines: {node: '>=0.6'}
 
-  token-types@6.1.2:
-    resolution: {integrity: sha512-dRXchy+C0IgK8WPC6xvCHFRIWYUbqqdEIKPaKo/AcTUNzwLTK6AH7RjdLWsEZcAN/TBdtfUw3PYEgPr5VPr6ww==}
+  token-types@6.2.0:
+    resolution: {integrity: sha512-s9euYHM//T3loJtbNUYdbAzsMlvKBeRS+XCLFy+UGosMQH19Hwjap5k19i4PPAEJJBsVIpMpVTxl4fIqCuNfUg==}
     engines: {node: '>=14.16'}
 
   totalist@3.0.1:
@@ -12488,6 +12505,9 @@ packages:
 
   tslib@2.8.1:
     resolution: {integrity: sha512-oJFu94HQb+KVduSUQL7wnpmqnfmLsOA/nAh6b6EH0wCEoK0/mPeXU6c3wKDV83MkOuHPRHtSXKKU99IBazS/2w==}
+
+  tslib@2.9.1:
+    resolution: {integrity: sha512-a4Ux9VKuIMHsOS7ENbEq6hK2ZGYIT27Rtl0E4eD9KqwxhKiQeMZE/9xb3IdYwWaSOyIBQLExhQgXDTYoiCxnWA==}
 
   tsup@8.5.1:
     resolution: {integrity: sha512-xtgkqwdhpKWr3tKPmCkvYmS9xnQK3m3XgxZHwSUjvfTjp7YfXe5tT3GgWi0F2N+ZSMsOeWeZFh7ZZFg5iPhing==}
@@ -14558,7 +14578,7 @@ snapshots:
     dependencies:
       graphql: 15.10.1
 
-  '@hono/node-server@2.1.3(hono@4.12.18)':
+  '@hono/node-server@2.1.8(hono@4.12.18)':
     dependencies:
       hono: 4.12.18
 
@@ -18540,7 +18560,7 @@ snapshots:
       commander: 8.3.0
       minimatch: 9.0.9
       piscina: 4.9.4
-      semver: 7.8.5
+      semver: 7.8.6
       slash: 3.0.0
       source-map: 0.7.6
       tinyglobby: 0.2.17
@@ -19072,7 +19092,7 @@ snapshots:
   '@tokenizer/inflate@0.4.1':
     dependencies:
       debug: 4.4.3(supports-color@8.1.1)
-      token-types: 6.1.2
+      token-types: 6.2.0
     transitivePeerDependencies:
       - supports-color
 
@@ -19419,6 +19439,8 @@ snapshots:
       '@opentelemetry/api': 1.9.0
       next: 16.4.1(@opentelemetry/api@1.9.0)(@types/node@25.3.2)(react-dom@19.2.3(react@19.2.3))(react@19.2.3)
 
+  '@vercel/firewall@1.2.6': {}
+
   '@vercel/functions@3.9.9(@aws-sdk/credential-provider-web-identity@3.972.13)(ws@8.21.0)':
     dependencies:
       '@vercel/oidc': 3.8.9
@@ -19433,7 +19455,7 @@ snapshots:
       '@aws-sdk/credential-provider-web-identity': 3.972.49
       ws: 8.21.0
 
-  '@vercel/geistdocs@2.14.4(@svta/cml-cta@1.0.1(@svta/cml-structured-field-values@1.0.1(@svta/cml-utils@1.0.1))(@svta/cml-utils@1.0.1))(@svta/cml-structured-field-values@1.0.1(@svta/cml-utils@1.0.1))(@svta/cml-utils@1.0.1)(@tanstack/react-router@1.170.41(react-dom@19.2.3(react@19.2.3))(react@19.2.3))(@types/mdast@4.0.4)(@types/react-dom@19.2.3(@types/react@19.2.7))(@vercel/functions@3.9.9(@aws-sdk/credential-provider-web-identity@3.972.49)(ws@8.21.0))(h3@1.15.11)(lucide-react@0.555.0(react@19.2.3))(micromark-util-types@2.0.2)(micromark@4.0.2)(next@16.4.1(@opentelemetry/api@1.9.0)(@types/node@25.3.2)(react-dom@19.2.3(react@19.2.3))(react@19.2.3))(react-dom@19.2.3(react@19.2.3))(react@19.2.3)(tailwindcss@4.1.18)(vite@7.3.7(@types/node@25.3.2)(jiti@2.7.0)(lightningcss@1.33.0)(terser@5.48.0)(tsx@4.22.3)(yaml@2.9.0))':
+  '@vercel/geistdocs@2.15.3(@svta/cml-cta@1.0.1(@svta/cml-structured-field-values@1.0.1(@svta/cml-utils@1.0.1))(@svta/cml-utils@1.0.1))(@svta/cml-structured-field-values@1.0.1(@svta/cml-utils@1.0.1))(@svta/cml-utils@1.0.1)(@tanstack/react-router@1.170.41(react-dom@19.2.3(react@19.2.3))(react@19.2.3))(@types/mdast@4.0.4)(@types/react-dom@19.2.3(@types/react@19.2.7))(@vercel/functions@3.9.9(@aws-sdk/credential-provider-web-identity@3.972.49)(ws@8.21.0))(h3@1.15.11)(lucide-react@0.555.0(react@19.2.3))(micromark-util-types@2.0.2)(micromark@4.0.2)(next@16.4.1(@opentelemetry/api@1.9.0)(@types/node@25.3.2)(react-dom@19.2.3(react@19.2.3))(react@19.2.3))(react-dom@19.2.3(react@19.2.3))(react@19.2.3)(tailwindcss@4.1.18)(vite@7.3.7(@types/node@25.3.2)(jiti@2.7.0)(lightningcss@1.33.0)(terser@5.48.0)(tsx@4.22.3)(yaml@2.9.0))':
     dependencies:
       '@ai-sdk/react': 3.0.184(react@19.2.3)(zod@4.6.5)
       '@clack/prompts': 0.11.0
@@ -19444,6 +19466,7 @@ snapshots:
       '@types/mdx': 2.0.13
       '@types/react': 19.2.7
       '@vercel/agent-readability': 0.7.0(@vercel/functions@3.9.9(@aws-sdk/credential-provider-web-identity@3.972.49)(ws@8.21.0))(h3@1.15.11)(next@16.4.1(@opentelemetry/api@1.9.0)(@types/node@25.3.2)(react-dom@19.2.3(react@19.2.3))(react@19.2.3))
+      '@vercel/firewall': 1.2.6
       '@vercel/oidc': 3.8.9
       ai: 6.0.182(zod@4.6.5)
       class-variance-authority: 0.7.1
@@ -19457,7 +19480,6 @@ snapshots:
       glob: 11.1.0
       mcp-handler: 2.2.0(@modelcontextprotocol/server@2.3.0)(next@16.4.1(@opentelemetry/api@1.9.0)(@types/node@25.3.2)(react-dom@19.2.3(react@19.2.3))(react@19.2.3))
       mermaid: 11.15.0
-      motion: 12.34.0(react-dom@19.2.3(react@19.2.3))(react@19.2.3)
       next: 16.4.1(@opentelemetry/api@1.9.0)(@types/node@25.3.2)(react-dom@19.2.3(react@19.2.3))(react@19.2.3)
       next-themes: 0.4.6(react-dom@19.2.3(react@19.2.3))(react@19.2.3)
       phase: 0.5.4(react@19.2.3)
@@ -19483,7 +19505,6 @@ snapshots:
       vaul: 1.1.2(@types/react-dom@19.2.3(@types/react@19.2.7))(@types/react@19.2.7)(react-dom@19.2.3(react@19.2.3))(react@19.2.3)
       zod: 4.6.5
     transitivePeerDependencies:
-      - '@emotion/is-prop-valid'
       - '@fumadocs/mdx-remote'
       - '@mixedbread/sdk'
       - '@orama/core'
@@ -20464,7 +20485,7 @@ snapshots:
       '@xhmikosr/decompress-tarbz2': 9.0.2
       '@xhmikosr/decompress-targz': 9.0.1
       '@xhmikosr/decompress-unzip': 8.2.1
-      graceful-fs: 4.2.11
+      graceful-fs: 4.2.12
       strip-dirs: 3.0.0
     transitivePeerDependencies:
       - bare-abort-controller
@@ -20753,7 +20774,7 @@ snapshots:
   binary-version-check@6.1.0:
     dependencies:
       binary-version: 7.1.0
-      semver: 7.8.5
+      semver: 7.8.6
       semver-truncate: 3.0.0
 
   binary-version@7.1.0:
@@ -22046,8 +22067,8 @@ snapshots:
   file-type@21.3.4:
     dependencies:
       '@tokenizer/inflate': 0.4.1
-      strtok3: 10.6.3
-      token-types: 6.1.2
+      strtok3: 10.7.0
+      token-types: 6.2.0
       uint8array-extras: 1.6.0
     transitivePeerDependencies:
       - supports-color
@@ -22446,7 +22467,7 @@ snapshots:
       cacheable-request: 13.0.19
       decompress-response: 10.0.0
       form-data-encoder: 4.1.0
-      http2-wrapper: 2.2.1
+      http2-wrapper: 2.2.4
       keyv: 5.6.0
       lowercase-keys: 3.0.0
       p-cancelable: 4.0.1
@@ -22454,6 +22475,8 @@ snapshots:
       type-fest: 4.41.0
 
   graceful-fs@4.2.11: {}
+
+  graceful-fs@4.2.12: {}
 
   graphql@15.10.1: {}
 
@@ -22680,7 +22703,7 @@ snapshots:
 
   http-shutdown@1.2.2: {}
 
-  http2-wrapper@2.2.1:
+  http2-wrapper@2.2.4:
     dependencies:
       quick-lru: 5.1.1
       resolve-alpn: 1.2.1
@@ -25686,7 +25709,7 @@ snapshots:
 
   rxjs@7.8.2:
     dependencies:
-      tslib: 2.8.1
+      tslib: 2.9.1
 
   safe-buffer@5.1.2: {}
 
@@ -25724,13 +25747,15 @@ snapshots:
 
   semver-truncate@3.0.0:
     dependencies:
-      semver: 7.8.5
+      semver: 7.8.6
 
   semver@6.3.1: {}
 
   semver@7.7.4: {}
 
   semver@7.8.5: {}
+
+  semver@7.8.6: {}
 
   send@0.19.2:
     dependencies:
@@ -26101,7 +26126,7 @@ snapshots:
 
   strnum@2.2.3: {}
 
-  strtok3@10.6.3:
+  strtok3@10.7.0:
     dependencies:
       '@tokenizer/token': 0.3.0
 
@@ -26331,7 +26356,7 @@ snapshots:
 
   toidentifier@1.0.1: {}
 
-  token-types@6.1.2:
+  token-types@6.2.0:
     dependencies:
       '@borewit/text-codec': 0.2.3
       '@tokenizer/token': 0.3.0
@@ -26359,6 +26384,8 @@ snapshots:
       code-block-writer: 13.0.3
 
   tslib@2.8.1: {}
+
+  tslib@2.9.1: {}
 
   tsup@8.5.1(@swc/core@1.15.3(@swc/helpers@0.5.23))(jiti@2.7.0)(postcss@8.5.31)(tsx@4.22.3)(typescript@5.9.3)(yaml@2.9.0):
     dependencies:

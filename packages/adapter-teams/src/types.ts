@@ -1,4 +1,4 @@
-import type { Logger } from "chat";
+import type { AdapterPostableMessage, FileUpload, Logger } from "chat";
 
 export interface TeamsAuthCertificate {
   /** PEM-encoded certificate private key */
@@ -91,3 +91,26 @@ export interface TeamsDmContext {
  * Group chats are not included — their conversation ID works as-is with Graph.
  */
 export type TeamsGraphContext = TeamsChannelContext | TeamsDmContext;
+
+/**
+ * An Adaptive Card that Teams renders as is, for card features that Chat SDK
+ * cards don't cover.
+ */
+export interface TeamsPostableAdaptiveCard {
+  /**
+   * The Adaptive Card: its JSON, or a card built with `@microsoft/teams.cards`
+   * or `cardToAdaptiveCard`.
+   */
+  adaptiveCard: object;
+  /** Mark the message as AI-generated. */
+  aiGenerated?: boolean;
+  /** Activity summary, shown in notifications and in clients that can't render the card. */
+  fallbackText?: string;
+  /** Files to upload. `editMessage` doesn't upload files, as with any other message. */
+  files?: FileUpload[];
+}
+
+/** A message the Teams adapter can post or edit. */
+export type TeamsPostableMessage =
+  | AdapterPostableMessage
+  | TeamsPostableAdaptiveCard;

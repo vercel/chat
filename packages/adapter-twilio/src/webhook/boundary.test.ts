@@ -1,19 +1,33 @@
-import { readFile } from "node:fs/promises";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
+import { SRC_DIR, walkImportGraph } from "../test-utils";
+
+const WEBHOOK_ENTRY = join(SRC_DIR, "webhook", "index.ts");
+const LIGHT_CALLBACK_SUBPATH = "@chat-adapter/shared/callback-data";
 
 describe("webhook import boundary", () => {
-  it("does not import the full adapter or runtime packages", async () => {
-    const files = ["index.ts", "parse.ts", "types.ts", "verify.ts"];
-    for (const file of files) {
-      const source = await readFile(new URL(`./${file}`, import.meta.url), {
-        encoding: "utf8",
-      });
+  it("reaches only the light shared callback subpath from the webhook entry sources", async () => {
+    const graph = await walkImportGraph(WEBHOOK_ENTRY, SRC_DIR);
 
-      expect(source).not.toContain('from "chat"');
-      expect(source).not.toContain("from '@chat-adapter/shared'");
-      expect(source).not.toContain('from "@chat-adapter/shared"');
-      expect(source).not.toContain('from "../index"');
-      expect(source).not.toContain('from "twilio"');
-    }
+    expect(graph.bare).toEqual({ [LIGHT_CALLBACK_SUBPATH]: ["callback.ts"] });
+    expect(graph.files).toEqual(
+      expect.arrayContaining([
+        "callback.ts",
+        "webhook/index.ts",
+        "webhook/parse.ts",
+        "webhook/verify.ts",
+      ])
+    );
+    expect(graph.files).not.toContain("index.ts");
+    expect(graph.files).not.toContain("cards.ts");
+  });
+
+  it("resolves the shared callback subpath to built files with no package imports", async () => {
+    const entry = fileURLToPath(import.meta.resolve(LIGHT_CALLBACK_SUBPATH));
+    const graph = await walkImportGraph(entry, dirname(entry));
+
+    expect(graph.files).toContain("callback-data.js");
+    expect(graph.bare).toEqual({});
   });
 });

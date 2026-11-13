@@ -1,0 +1,145 @@
+---
+title: Rocket.Chat
+description: Community Rocket.Chat adapter for Chat SDK with posts, edits, reactions, and message history over the REST API and Outgoing Webhooks.
+packageName: chat-adapter-rocketchat
+slug: rocketchat
+type: platform
+tagline: Community Rocket.Chat adapter for Chat SDK. Posts, edits, deletes, and reacts over the REST API, and receives messages through an Outgoing Webhook integration.
+community: true
+mdxBody: true
+---
+
+## Install
+
+<PackageInstall package="chat-adapter-rocketchat chat @chat-adapter/state-memory" />
+
+## Quick start
+
+The adapter requires Chat SDK ^4.44.0 and Node.js 20 or newer. It's published as `chat-adapter-rocketchat` because the `@chat-adapter/*` npm scope is reserved for official adapters.
+
+```typescript title="lib/bot.ts" lineNumbers
+import { Chat } from "chat";
+import { createMemoryState } from "@chat-adapter/state-memory";
+import { createRocketChatAdapter } from "chat-adapter-rocketchat";
+
+const adapter = createRocketChatAdapter({
+  baseUrl: process.env.ROCKETCHAT_URL,
+  token: process.env.ROCKETCHAT_TOKEN,
+  botUserId: process.env.ROCKETCHAT_USER_ID,
+  webhookToken: process.env.ROCKETCHAT_WEBHOOK_TOKEN,
+  // Must match the bot user's Rocket.Chat username, or onNewMention never fires.
+  userName: process.env.ROCKETCHAT_BOT_USERNAME,
+});
+
+export const bot = new Chat({
+  userName: "my-bot",
+  state: createMemoryState(),
+  adapters: {
+    rocketchat: adapter,
+  },
+});
+
+bot.onNewMention(async (thread) => {
+  await thread.post("Hello from Rocket.Chat via Chat SDK.");
+});
+
+await bot.initialize();
+```
+
+The memory state adapter keeps subscriptions and locks in process memory, which suits local development. Use [Redis](/adapters/official/redis) or [PostgreSQL](/adapters/official/postgres) in production.
+
+Route incoming Outgoing Webhook requests to the adapter in your server:
+
+```typescript title="app/api/webhooks/rocketchat/route.ts" lineNumbers
+import { bot } from "@/lib/bot";
+
+export async function POST(request: Request): Promise<Response> {
+  return bot.webhooks.rocketchat(request);
+}
+```
+
+## Platform setup
+
+1. **Create a bot user.** In the Rocket.Chat admin, go to **Users** and create a new user with the `bot` role. The `bot` role lacks the `create-personal-access-tokens` permission by default, so grant it to the role (or temporarily add the `user` role), log in as the bot, and generate a personal access token under **Profile > Personal Access Tokens**; this is `ROCKETCHAT_TOKEN`. The dialog that shows the token also shows the bot's user ID; this is `ROCKETCHAT_USER_ID`.
+2. **Add the bot to rooms.** Add the bot user to any channel, private group, or DM where it should respond. The REST API calls the bot makes (posting, editing, reacting) require it to be a member of the room.
+3. **Create an Outgoing Webhook integration.** In the admin, go to **Integrations > New > Outgoing Webhook**. Set the trigger to messages sent, the target URL to your bot's `/api/webhooks/rocketchat` endpoint, a random token of your choosing (this is `ROCKETCHAT_WEBHOOK_TOKEN`), and **Post as** set to the bot user — this field must name an existing user or the integration won't save. Rocket.Chat posts every matching message to that URL with the token in the payload, and the adapter rejects requests whose token doesn't match.
+4. **Scope the webhook to rooms.** Set the integration's **Channel** field to where the bot should listen, separated by commas: `#channel` names, `all_public_channels`, `all_private_groups`, `all_direct_messages`, or `@botusername` for DMs with the bot. An empty **Channel** field fires only for public channels, so private groups and DMs never reach the bot.
+
+The adapter uses the REST API for every outbound call and an Outgoing Webhook for inbound messages. It does not open a realtime WebSocket/DDP connection, so no long-running connection needs to be kept alive beyond your HTTP server.
+
+## Configuration
+
+<TypeTable
+  type={{
+    baseUrl: {
+      type: "string",
+      description:
+        "Rocket.Chat server base URL, without a trailing slash or `/api/v1` suffix. Falls back to `ROCKETCHAT_URL`.",
+    },
+    token: {
+      type: "string",
+      description:
+        "Personal access token (or login auth token) for the `X-Auth-Token` REST header. Falls back to `ROCKETCHAT_TOKEN`.",
+    },
+    botUserId: {
+      type: "string",
+      description:
+        "User ID of the bot account, used for the `X-User-Id` REST header and for ignoring the bot's own messages. Falls back to `ROCKETCHAT_USER_ID`.",
+    },
+    webhookToken: {
+      type: "string",
+      description:
+        "Shared secret configured on the Outgoing Webhook integration, compared against each incoming payload's token. Falls back to `ROCKETCHAT_WEBHOOK_TOKEN`.",
+    },
+    userName: {
+      type: "string",
+      default: '"rocketchat-bot"',
+      description:
+        "Bot username used for @-mention detection. Falls back to `ROCKETCHAT_BOT_USERNAME`.",
+    },
+    logger: {
+      type: "Logger",
+      default: "ConsoleLogger",
+      description: "Custom logger instance.",
+    },
+  }}
+/>
+
+### Environment variables
+
+| Variable | Required | Description |
+| --- | --- | --- |
+| `ROCKETCHAT_URL` | Yes, unless `baseUrl` is passed | Rocket.Chat server base URL |
+| `ROCKETCHAT_TOKEN` | Yes, unless `token` is passed | Bot personal access token |
+| `ROCKETCHAT_USER_ID` | Yes, unless `botUserId` is passed | Bot user ID |
+| `ROCKETCHAT_WEBHOOK_TOKEN` | Yes, unless `webhookToken` is passed | Outgoing Webhook shared secret |
+| `ROCKETCHAT_BOT_USERNAME` | Yes, unless `userName` is passed or the bot's username is `rocketchat-bot` | Bot's Rocket.Chat username, used for mention detection (default `rocketchat-bot`) |
+
+## Thread IDs
+
+```
+rocketchat:{roomId}
+rocketchat:{roomId}:{tmid}
+```
+
+`roomId` is the Rocket.Chat room ID (channel, private group, or DM), as sent in the webhook payload's `channel_id` and returned by `rooms.info`. The room-level thread ID (`rocketchat:{roomId}`) is used for a plain message posted directly in a room, and the thread-reply ID (`rocketchat:{roomId}:{tmid}`) is used when a message is a reply inside a Rocket.Chat thread (`tmid` is the parent message ID). The channel ID is always `rocketchat:{roomId}`, with no thread suffix.
+
+## Limitations
+
+- **No cards, buttons, or modals.** Interactive payloads are not implemented in this version. Posting a card falls back to its plain-text rendering.
+- **No slash commands.** The adapter only handles plain message events from the Outgoing Webhook integration.
+- **No native streaming.** The adapter has no `stream()` method, so Chat SDK streams by posting a placeholder and editing it as chunks arrive (`chat.postMessage`, then repeated `chat.update`).
+- **No typing indicator.** Rocket.Chat's REST API has no endpoint to send a typing event, so `startTyping()` is a documented no-op.
+- **Markdown tables render as an ASCII code block.** Rocket.Chat's markdown dialect has no native table syntax, so `| a | b |` tables are converted into a fixed-width table inside a code fence.
+- **REST-only transport.** There's no realtime DDP/WebSocket subscription; inbound messages depend entirely on the Outgoing Webhook integration reaching your bot's HTTP endpoint.
+- **Limited direct messages.** The adapter doesn't implement `openDM()` or `isDM()`, so the bot can't start a DM, `onDirectMessage` handlers don't run, and a DM reaches `onNewMention` only when it @-mentions the bot.
+
+## Feature support
+
+<FeatureSupport />
+
+## Resources
+
+- [Adapter source](https://github.com/mandreev-dev/chat-adapter-rocketchat)
+- [`chat-adapter-rocketchat` on npm](https://www.npmjs.com/package/chat-adapter-rocketchat)
+- [Rocket.Chat outgoing integrations](https://docs.rocket.chat/docs/integrations)

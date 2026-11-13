@@ -295,8 +295,81 @@ describe("DiscordFormatConverter", () => {
   describe("blockquotes", () => {
     it("should handle blockquotes", () => {
       const ast = converter.toAst("> quoted text");
-      const result = converter.fromAst(ast);
-      expect(result).toContain("> quoted text");
+      expect(converter.fromAst(ast)).toBe("> quoted text");
+    });
+
+    it("should prefix a lazy continuation line", () => {
+      const ast = converter.toAst("> line one\nline two");
+      expect(converter.fromAst(ast)).toBe("> line one\n> line two");
+    });
+
+    it("should skip a quote child that renders to nothing", () => {
+      const ast = converter.toAst(
+        "> [foo]: https://example.com\n>\n> first\n>\n> second"
+      );
+      expect(converter.fromAst(ast)).toBe("> first\n> \n> second");
+    });
+
+    it("should not end a quote with a blank quoted line", () => {
+      const ast = converter.toAst("> text\n>\n> [foo]: https://example.com");
+      expect(converter.fromAst(ast)).toBe("> text");
+    });
+
+    it("should quote every line of a multi-line paragraph", () => {
+      const markdown = "> line one\n> line two";
+      expect(converter.fromAst(converter.toAst(markdown))).toBe(markdown);
+      expect(converter.renderPostable({ markdown })).toBe(markdown);
+    });
+
+    it("should quote every paragraph of a multi-paragraph blockquote", () => {
+      // Discord only quotes lines that start with "> ", blank ones included.
+      const ast = converter.toAst("> first paragraph\n>\n> second paragraph");
+      expect(converter.fromAst(ast)).toBe(
+        "> first paragraph\n> \n> second paragraph"
+      );
+    });
+
+    it("should quote every list item inside a blockquote", () => {
+      const ast = converter.toAst("> - a\n> - b");
+      expect(converter.fromAst(ast)).toBe("> - a\n> - b");
+    });
+
+    it("should prefix nested blockquotes and code blocks on every line", () => {
+      const ast = converter.toAst(
+        [
+          "> outer",
+          ">",
+          "> > inner one",
+          "> >",
+          "> > inner two",
+          ">",
+          "> ```",
+          "> line one",
+          "> line two",
+          "> ```",
+        ].join("\n")
+      );
+      expect(converter.fromAst(ast)).toBe(
+        [
+          "> outer",
+          "> ",
+          "> > inner one",
+          "> > ",
+          "> > inner two",
+          "> ",
+          "> ```",
+          "> line one",
+          "> line two",
+          "> ```",
+        ].join("\n")
+      );
+    });
+
+    it("should treat a carriage return as a line break inside a quote", () => {
+      const ast = converter.toAst("> ```\r> first\r>\r> second\r> ```");
+      expect(converter.fromAst(ast)).toBe(
+        "> ```\n> first\n> \n> second\n> ```"
+      );
     });
   });
 

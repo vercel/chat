@@ -193,6 +193,8 @@ const EMOJI_NAME_PATTERN = /^[a-z0-9_+-]+$/i;
 const TELEGRAM_DEFAULT_POLLING_TIMEOUT_SECONDS = 30;
 const TELEGRAM_DEFAULT_POLLING_LIMIT = 100;
 const TELEGRAM_DEFAULT_POLLING_RETRY_DELAY_MS = 1000;
+const TELEGRAM_POLLING_DEADLINE_GRACE_MS = 30_000;
+const TELEGRAM_SETUP_REQUEST_TIMEOUT_MS = 30_000;
 const TELEGRAM_DEFAULT_STREAM_UPDATE_INTERVAL_MS = 250;
 const TELEGRAM_DEFAULT_PRIVATE_STREAMING_EDIT_INTERVAL_MS = 1100;
 const TELEGRAM_DEFAULT_NON_PRIVATE_STREAMING_EDIT_INTERVAL_MS = 3100;
@@ -390,6 +392,24 @@ export function applyTelegramEntities(
   }
 
   return result;
+}
+
+/**
+ * The forum topic a message belongs to, or `undefined` outside topics.
+ *
+ * Only a topic message (`is_topic_message`) gets its own thread. In a regular
+ * supergroup Telegram also sets `message_thread_id` on a reply, which the Bot
+ * API describes as the id of "a message thread or forum topic". Outside forums
+ * it identifies the reply thread by its root message, so for a reply to a
+ * reply it is not the direct parent. That is a reply chain inside the chat,
+ * not a topic, so the reply stays in the chat's thread.
+ */
+function getTopicThreadId(
+  message: Pick<TelegramMessage, "is_topic_message" | "message_thread_id">
+): number | undefined {
+  return message.is_topic_message === true
+    ? message.message_thread_id
+    : undefined;
 }
 
 /**
@@ -636,7 +656,11 @@ export class TelegramAdapter
       return;
     }
     if (!this.botIdentityPromise) {
-      this.botIdentityPromise = this.telegramFetch<TelegramUser>("getMe")
+      this.botIdentityPromise = this.telegramFetch<TelegramUser>(
+        "getMe",
+        undefined,
+        { timeoutMs: TELEGRAM_SETUP_REQUEST_TIMEOUT_MS }
+      )
         .then((me) => {
           this._botUserId = String(me.id);
           this.webhookScope = createHash("sha256")
@@ -893,9 +917,11 @@ export class TelegramAdapter
   }
 
   async resetWebhook(dropPendingUpdates = false): Promise<void> {
-    await this.telegramFetch<boolean>("deleteWebhook", {
-      drop_pending_updates: dropPendingUpdates,
-    });
+    await this.telegramFetch<boolean>(
+      "deleteWebhook",
+      { drop_pending_updates: dropPendingUpdates },
+      { timeoutMs: TELEGRAM_SETUP_REQUEST_TIMEOUT_MS }
+    );
 
     this.logger.info("Telegram webhook reset", {
       dropPendingUpdates,
@@ -1017,10 +1043,7 @@ export class TelegramAdapter
       !update.message.media_group_id &&
       this.handleSlashCommandUpdate(
         update.message,
-        this.encodeThreadId({
-          chatId: String(update.message.chat.id),
-          messageThreadId: update.message.message_thread_id,
-        }),
+        this.threadIdForMessage(update.message),
         options
       );
 
@@ -1211,10 +1234,7 @@ export class TelegramAdapter
       return;
     }
 
-    const threadId = this.encodeThreadId({
-      chatId: String(telegramMessage.chat.id),
-      messageThreadId: telegramMessage.message_thread_id,
-    });
+    const threadId = this.threadIdForMessage(telegramMessage);
 
     if (telegramMessage.media_group_id) {
       const task = this.processIncomingMediaGroup(
@@ -1455,9 +1475,7 @@ export class TelegramAdapter
       return;
     }
 
-    const threadId = this.encodeThreadId({
-      chatId: String(callbackQuery.message.chat.id),
-      messageThreadId: callbackQuery.message.message_thread_id,
+    const threadId = this.threadIdForMessage(callbackQuery.message, {
       businessConnectionId: callbackQuery.message.business_connection_id,
     });
 
@@ -1505,9 +1523,10 @@ export class TelegramAdapter
       return tasks;
     }
 
+    // A reaction update does not say whether its message is in a topic, so it
+    // always resolves to the chat's thread.
     const threadId = this.encodeThreadId({
       chatId: String(reactionUpdate.chat.id),
-      messageThreadId: reactionUpdate.message_thread_id,
     });
 
     const messageId = this.encodeMessageId(
@@ -1807,12 +1826,7 @@ export class TelegramAdapter
     const parsedMessages = rawMessages.map((rawMessage) =>
       this.parseTelegramMessage(
         rawMessage,
-        this.encodeThreadId({
-          chatId: String(rawMessage.chat.id),
-          messageThreadId:
-            rawMessage.message_thread_id ?? parsedThread.messageThreadId,
-          businessConnectionId: parsedThread.businessConnectionId,
-        }),
+        this.threadIdForMessage(rawMessage, parsedThread),
         // The whole message's content only describes a single sent message.
         rich && rawMessages.length === 1
           ? {
@@ -2025,11 +2039,7 @@ export class TelegramAdapter
       };
     }
 
-    const resultingThreadId = this.encodeThreadId({
-      chatId: String(result.chat.id),
-      messageThreadId: result.message_thread_id ?? parsedThread.messageThreadId,
-      businessConnectionId: parsedThread.businessConnectionId,
-    });
+    const resultingThreadId = this.threadIdForMessage(result, parsedThread);
 
     const parsedMessage = this.parseTelegramMessage(
       result,
@@ -2521,12 +2531,7 @@ export class TelegramAdapter
             },
           }
         );
-        const resultingThreadId = this.encodeThreadId({
-          chatId: String(raw.chat.id),
-          messageThreadId:
-            raw.message_thread_id ?? parsedThread.messageThreadId,
-          businessConnectionId: parsedThread.businessConnectionId,
-        });
+        const resultingThreadId = this.threadIdForMessage(raw, parsedThread);
         const formatted = this.formatConverter.toAst(accumulated);
         const message = this.parseTelegramMessage(raw, resultingThreadId, {
           formatted,
@@ -2558,11 +2563,7 @@ export class TelegramAdapter
       undefined,
       threadId
     );
-    const resultingThreadId = this.encodeThreadId({
-      chatId: String(raw.chat.id),
-      messageThreadId: raw.message_thread_id ?? parsedThread.messageThreadId,
-      businessConnectionId: parsedThread.businessConnectionId,
-    });
+    const resultingThreadId = this.threadIdForMessage(raw, parsedThread);
     const message = this.parseTelegramMessage(raw, resultingThreadId);
     this.cacheMessage(message);
     return {
@@ -2802,11 +2803,27 @@ export class TelegramAdapter
     };
   }
 
-  parseMessage(raw: TelegramRawMessage): Message<TelegramRawMessage> {
-    const threadId = this.encodeThreadId({
-      chatId: String(raw.chat.id),
-      messageThreadId: raw.message_thread_id,
+  /**
+   * The thread a Telegram message belongs to. `target` is the thread a sent
+   * message was posted to: it supplies the business connection, and the topic
+   * when the Bot API response does not identify one.
+   */
+  private threadIdForMessage(
+    message: Pick<
+      TelegramMessage,
+      "chat" | "is_topic_message" | "message_thread_id"
+    >,
+    target?: Pick<TelegramThreadId, "businessConnectionId" | "messageThreadId">
+  ): string {
+    return this.encodeThreadId({
+      chatId: String(message.chat.id),
+      messageThreadId: getTopicThreadId(message) ?? target?.messageThreadId,
+      businessConnectionId: target?.businessConnectionId,
     });
+  }
+
+  parseMessage(raw: TelegramRawMessage): Message<TelegramRawMessage> {
+    const threadId = this.threadIdForMessage(raw);
 
     const message = this.parseTelegramMessage(raw, threadId);
     this.cacheMessage(message);
@@ -3812,8 +3829,8 @@ export class TelegramAdapter
     //   message_thread_id), authored by whoever created the topic — the bot,
     //   when it did. Only an explicit reply to a different message counts.
     //   This applies to topic messages only: in a regular supergroup a reply
-    //   also carries message_thread_id equal to the replied-to message's id
-    //   (a reply thread), and that reply does address the bot.
+    //   also carries message_thread_id, identifying the reply thread by its
+    //   root message, and that reply does address the bot.
     // - The Bot API echoes the bot's own outbound replies back in send
     //   responses; the bot replying to itself is not a user addressing it.
     if (
@@ -4482,6 +4499,7 @@ export class TelegramAdapter
             this.pollingAbortController?.abort();
           }, remaining);
         }
+        const timeout = remaining === 0 ? 0 : config.timeout;
         let updates: TelegramUpdate[];
         try {
           updates = await this.telegramFetch<TelegramUpdate[]>(
@@ -4490,9 +4508,12 @@ export class TelegramAdapter
               allowed_updates: config.allowedUpdates,
               limit: config.limit,
               offset: checkpoint.offset,
-              timeout: remaining === 0 ? 0 : config.timeout,
+              timeout,
             },
-            { signal: this.pollingAbortController.signal }
+            {
+              signal: this.pollingAbortController.signal,
+              timeoutMs: timeout * 1000 + TELEGRAM_POLLING_DEADLINE_GRACE_MS,
+            }
           );
         } catch (error) {
           if (collecting && this.pollingActive && this.isAbortError(error)) {
@@ -4655,6 +4676,28 @@ export class TelegramAdapter
     return error instanceof Error && error.name === "AbortError";
   }
 
+  protected isTimeoutError(error: unknown): boolean {
+    return error instanceof Error && error.name === "TimeoutError";
+  }
+
+  protected toRequestError(
+    error: unknown,
+    method: string,
+    message: string
+  ): unknown {
+    if (this.isAbortError(error)) {
+      return error;
+    }
+
+    return new NetworkError(
+      "telegram",
+      this.isTimeoutError(error)
+        ? `Telegram ${method} request timed out`
+        : message,
+      error instanceof Error ? error : undefined
+    );
+  }
+
   protected async sleep(delayMs: number, signal?: AbortSignal): Promise<void> {
     if (delayMs <= 0 || signal?.aborted) {
       return;
@@ -4681,45 +4724,75 @@ export class TelegramAdapter
     payload?: Record<string, unknown> | FormData,
     request?: {
       signal?: AbortSignal;
+      timeoutMs?: number;
     }
   ): Promise<TResult> {
     const botToken = this.staticBotToken ?? (await this.resolveBotToken());
     const url = `${this.apiBaseUrl}/bot${botToken}/${method}`;
 
-    let response: Response;
-    try {
-      response = await fetch(url, {
-        method: "POST",
-        headers:
-          payload instanceof FormData
-            ? undefined
-            : {
-                "Content-Type": "application/json",
-              },
-        body:
-          payload instanceof FormData ? payload : JSON.stringify(payload ?? {}),
-        signal: request?.signal,
-      });
-    } catch (error) {
-      if (this.isAbortError(error)) {
-        throw error;
+    const callerSignal = request?.signal;
+    let signal = callerSignal;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    let onCallerAbort: (() => void) | undefined;
+    if (request?.timeoutMs !== undefined) {
+      const controller = new AbortController();
+      signal = controller.signal;
+      if (callerSignal?.aborted) {
+        controller.abort(callerSignal.reason);
+      } else {
+        onCallerAbort = () => controller.abort(callerSignal?.reason);
+        callerSignal?.addEventListener("abort", onCallerAbort, { once: true });
+        timer = setTimeout(() => {
+          controller.abort(
+            new DOMException(
+              `Telegram ${method} request timed out`,
+              "TimeoutError"
+            )
+          );
+        }, request.timeoutMs);
       }
-
-      throw new NetworkError(
-        "telegram",
-        `Network error calling Telegram ${method}`,
-        error instanceof Error ? error : undefined
-      );
     }
 
+    let response: Response;
     let data: TelegramApiResponse<TResult>;
     try {
-      data = (await response.json()) as TelegramApiResponse<TResult>;
-    } catch {
-      throw new NetworkError(
-        "telegram",
-        `Failed to parse Telegram API response for ${method}`
-      );
+      try {
+        response = await fetch(url, {
+          method: "POST",
+          headers:
+            payload instanceof FormData
+              ? undefined
+              : {
+                  "Content-Type": "application/json",
+                },
+          body:
+            payload instanceof FormData
+              ? payload
+              : JSON.stringify(payload ?? {}),
+          signal,
+        });
+      } catch (error) {
+        throw this.toRequestError(
+          error,
+          method,
+          `Network error calling Telegram ${method}`
+        );
+      }
+
+      try {
+        data = (await response.json()) as TelegramApiResponse<TResult>;
+      } catch (error) {
+        throw this.toRequestError(
+          error,
+          method,
+          `Failed to parse Telegram API response for ${method}`
+        );
+      }
+    } finally {
+      clearTimeout(timer);
+      if (onCallerAbort) {
+        callerSignal?.removeEventListener("abort", onCallerAbort);
+      }
     }
 
     if (!(response.ok && data.ok)) {

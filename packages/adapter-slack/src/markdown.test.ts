@@ -247,6 +247,88 @@ describe("SlackFormatConverter", () => {
         })
       ).toContain("```\n");
     });
+
+    it("prefixes a lazy continuation line in a quote", () => {
+      expect(
+        converter.toResponseUrlText({ markdown: "> line one\nline two" })
+      ).toBe("> line one\n> line two");
+    });
+
+    it("skips a quote child that renders to nothing", () => {
+      expect(
+        converter.toResponseUrlText({
+          markdown: "> [foo]: https://example.com\n>\n> first\n>\n> second",
+        })
+      ).toBe("> first\n>\n> second");
+    });
+
+    it("does not end a quote with a blank quoted line", () => {
+      expect(
+        converter.toResponseUrlText({
+          markdown: "> text\n>\n> [foo]: https://example.com",
+        })
+      ).toBe("> text");
+    });
+
+    it("quotes every line of a multi-line paragraph", () => {
+      expect(
+        converter.toResponseUrlText({ markdown: "> line one\n> line two" })
+      ).toBe("> line one\n> line two");
+    });
+
+    it("quotes every paragraph of a multi-paragraph blockquote", () => {
+      expect(
+        converter.toResponseUrlText({
+          markdown: "> first paragraph\n>\n> second paragraph",
+        })
+      ).toBe("> first paragraph\n>\n> second paragraph");
+    });
+
+    it("quotes every list item inside a blockquote", () => {
+      expect(converter.toResponseUrlText({ markdown: "> - a\n> - b" })).toBe(
+        "> • a\n> • b"
+      );
+    });
+
+    it("prefixes nested blockquotes and code blocks on every line", () => {
+      expect(
+        converter.toResponseUrlText({
+          markdown: [
+            "> outer",
+            ">",
+            "> > inner one",
+            "> >",
+            "> > inner two",
+            ">",
+            "> ```",
+            "> line one",
+            "> line two",
+            "> ```",
+          ].join("\n"),
+        })
+      ).toBe(
+        [
+          "> outer",
+          ">",
+          "> > inner one",
+          "> >",
+          "> > inner two",
+          ">",
+          "> ```",
+          "> line one",
+          "> line two",
+          "> ```",
+        ].join("\n")
+      );
+    });
+
+    it("treats a carriage return as a line break inside a quote", () => {
+      expect(
+        converter.toResponseUrlText({
+          markdown: "> ```\r> first\r>\r> second\r> ```",
+        })
+      ).toBe("> ```\n> first\n>\n> second\n> ```");
+    });
   });
 
   describe("mentions", () => {

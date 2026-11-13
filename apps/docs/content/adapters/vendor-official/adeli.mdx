@@ -1,0 +1,235 @@
+---
+title: Adeli
+description: Instagram, Facebook, and WhatsApp DMs, and Instagram and TikTok comments, through one Adeli API key. Users connect their accounts in the Adeli dashboard, so the bot needs no Meta app, App Review, or TikTok developer access.
+packageName: "@adeli/chat-sdk-adapter"
+slug: adeli
+type: platform
+tagline: Answer Instagram, Facebook, and WhatsApp DMs, and Instagram and TikTok comments, from one bot and one API key, with signed webhooks and native Instagram buttons.
+community: true
+vendorOfficial: true
+author: Adeli
+mdxBody: true
+---
+
+## Create a new bot
+
+Scaffold a Next.js bot with the Adeli adapter using [`create-chat-sdk`](/docs/create-chat-sdk):
+
+<CreateChatSdk adapters="adeli memory" />
+
+The generated app uses the [Memory state adapter](/adapters/official/memory) for local development. To add the adapter to an existing app, start at [Install](#install).
+
+## Install
+
+<PackageInstall package="@adeli/chat-sdk-adapter chat @chat-adapter/state-memory" />
+
+## Quick start
+
+```typescript title="lib/bot.ts" lineNumbers
+import { Chat } from "chat";
+import { createMemoryState } from "@chat-adapter/state-memory";
+import { createAdeliAdapter } from "@adeli/chat-sdk-adapter";
+
+export const bot = new Chat({
+  userName: "shopbot",
+  adapters: {
+    adeli: createAdeliAdapter({
+      apiKey: process.env.ADELI_API_KEY!,
+      webhookSecret: process.env.ADELI_WEBHOOK_SECRET!,
+    }),
+  },
+  state: createMemoryState(),
+});
+
+// A new DM, or a new top-level comment on one of the account's posts.
+bot.onNewMention(async (thread, message) => {
+  await thread.subscribe();
+  await thread.post(`Thanks for reaching out! You said: ${message.text}`);
+});
+
+// Later messages in a DM, or replies under the same comment.
+bot.onSubscribedMessage(async (thread, message) => {
+  await thread.post("Got it. A teammate will follow up shortly.");
+});
+```
+
+The memory state adapter forgets subscriptions on every restart. Use [Redis](/adapters/official/redis) or [PostgreSQL](/adapters/official/postgres) in production.
+
+Then create the webhook route:
+
+```typescript title="app/api/webhooks/adeli/route.ts" lineNumbers
+import { after } from "next/server";
+import { bot } from "@/lib/bot";
+
+export async function POST(request: Request) {
+  return bot.webhooks.adeli(request, { waitUntil: (task) => after(() => task) });
+}
+```
+
+## Platform setup
+
+1. Sign in at [app.tryadeli.com](https://app.tryadeli.com), open **API keys**, create a key, and set it as `ADELI_API_KEY`.
+2. On the **Accounts** page, connect the Instagram, Facebook Page, WhatsApp Business, or TikTok accounts the bot should answer for. Each connected account is one Chat SDK channel, `adeli:<accountId>`.
+3. Deploy the webhook route from [Quick start](#quick-start), for example at `https://bot.example.com/api/webhooks/adeli`. The URL must use `https`.
+4. Register a webhook for `message.created`, `message.postback`, and `comment.created`. In the dashboard, open **Webhooks**, click **Add webhook**, and enter the URL. You can also create it with the API:
+
+   ```bash
+   curl https://app.tryadeli.com/api/v1/webhooks \
+     -H "Authorization: Bearer $ADELI_API_KEY" \
+     -H "Content-Type: application/json" \
+     -d '{
+       "profileId": "<your profile id>",
+       "url": "https://bot.example.com/api/webhooks/adeli",
+       "events": ["message.created", "message.postback", "comment.created"]
+     }'
+   ```
+
+   Replace `<your profile id>` with your Adeli profile id (see [List profiles](https://www.tryadeli.com/docs/api/profiles/list-profiles)).
+
+5. Store the signing secret from the response as `ADELI_WEBHOOK_SECRET`. Adeli shows it only once. To rotate it, delete the webhook and create it again.
+6. Send a test event from the webhook's row in the dashboard. The adapter verifies and acknowledges test events (`"test": true`) without calling your handlers.
+
+## Configuration
+
+`createAdeliAdapter()` reads each credential from its environment variable when you omit it from the config.
+
+<TypeTable
+  type={{
+    apiKey: {
+      type: "string | (() => string | Promise<string>)",
+      description:
+        "Adeli API key (`rk_live_…`), or a function returning it. Resolved before every API request. Falls back to `ADELI_API_KEY`.",
+    },
+    webhookSecret: {
+      type: "string | (() => string | Promise<string>)",
+      description:
+        "Signing secret of the Adeli webhook that delivers to the bot (`whsec_…`), or a function returning it. Resolved on every webhook. Falls back to `ADELI_WEBHOOK_SECRET`.",
+    },
+    profileId: {
+      type: "string",
+      description:
+        "Profile id sent with API calls. Also scopes Chat SDK locks and dedupe. Only needed when the key can reach more than one profile. Falls back to `ADELI_PROFILE_ID`. Creating the webhook always takes a profile id, even when the adapter doesn't need one.",
+    },
+    baseURL: {
+      type: "string",
+      description:
+        "Adeli API origin. Falls back to `ADELI_BASE_URL`, then `https://app.tryadeli.com`.",
+    },
+    userName: {
+      type: "string",
+      description: 'Bot display name. Defaults to `"adeli-bot"`.',
+    },
+    webhookToleranceSeconds: {
+      type: "number",
+      description:
+        "Maximum age of a webhook's signed timestamp. Defaults to `300`.",
+    },
+    fetch: {
+      type: "typeof fetch",
+      description:
+        "`fetch` implementation for API calls. Defaults to `globalThis.fetch`.",
+    },
+    logger: {
+      type: "Logger",
+      description: "Custom logger. Defaults to the `Chat` instance's logger.",
+    },
+  }}
+/>
+
+### Environment variables
+
+| Variable | Required | Description |
+| --- | --- | --- |
+| `ADELI_API_KEY` | Yes | Adeli API key (`rk_live_…`), from **API keys** in the Adeli dashboard |
+| `ADELI_WEBHOOK_SECRET` | Yes | Signing secret of the Adeli webhook that delivers to your bot (`whsec_…`) |
+| `ADELI_PROFILE_ID` | No | Adeli profile id. Only needed when the key can reach more than one profile. Creating the webhook always takes one |
+| `ADELI_BASE_URL` | No | Adeli API origin. Defaults to `https://app.tryadeli.com` |
+
+### Rotating credentials
+
+`apiKey` and `webhookSecret` each accept a function instead of a string. The adapter calls `apiKey` before every API request and `webhookSecret` on every webhook, and never caches the result, so a rotated or short-lived credential takes effect on the next call:
+
+```typescript
+createAdeliAdapter({
+  apiKey: async () => (await secrets.get("adeli-api-key")).value,
+  webhookSecret: () => process.env.ADELI_WEBHOOK_SECRET!,
+});
+```
+
+## Webhooks
+
+Adeli signs every delivery with an `Adeli-Signature` header (HMAC-SHA256 with a timestamp). The adapter rejects unsigned, mis-signed, and stale deliveries (older than `webhookToleranceSeconds`) with `401`, answers `200` at once, and runs your handlers in `waitUntil`. Adeli retries failed deliveries for about nine hours with the same event id. Chat SDK drops redelivered messages and comments that arrive within its dedupe window (`dedupeTtlMs`, 10 minutes by default); button taps (`message.postback`) are not deduplicated.
+
+Unless you register `onDirectMessage`, every inbound DM reaches `onNewMention`, as does every new top-level comment. Replies under a comment reach `onSubscribedMessage` once the thread is subscribed. See the [Adeli webhooks docs](https://www.tryadeli.com/docs/api/webhooks) for the event payloads.
+
+## Buttons
+
+On Instagram DMs, a card's `<Button>` and `<LinkButton>` elements become native Instagram buttons, up to three per message. A tap arrives as `onAction` with the button's `id` and `value`:
+
+```tsx
+import { Actions, Button, Card, CardText, LinkButton } from "chat";
+
+bot.onNewMention(async (thread) => {
+  await thread.post(
+    <Card title="Track your order?">
+      <CardText>We can send you shipping updates here.</CardText>
+      <Actions>
+        <Button id="track" value="order-42">Yes please</Button>
+        <LinkButton url="https://shop.example.com/orders/42">View order</LinkButton>
+      </Actions>
+    </Card>,
+  );
+});
+
+bot.onAction("track", async (event) => {
+  await event.thread?.post(`Tracking ${event.value} for you.`);
+});
+```
+
+On Facebook, WhatsApp, and comment threads, the adapter sends cards as plain text and writes each link button as `label: url`.
+
+## Direct messages
+
+`openDM` takes `"<accountId>:<scoped id>"` for an Instagram user, or `"<accountId>:<platform>:<id>"` for any DM platform. It makes no network call, and the first post sends the message. Use it to follow up with someone outside the webhook that brought them in, for example from a job queue:
+
+```typescript
+const adeli = bot.getAdapter("adeli");
+const threadId = await adeli.openDM(`${accountId}:whatsapp:15555550123`);
+await bot.thread(threadId).post("Your order has shipped.");
+```
+
+## Formatting
+
+All five surfaces show plain text. The adapter flattens markdown: it drops emphasis markers, writes links as `text (url)`, and starts list items with `- `.
+
+`message.raw` is an `AdeliRawMessage` with `kind`, `accountId`, `platform`, the provider message or comment id, and the sender. `message.id` is the provider's id: an Instagram `mid`, a WhatsApp `wamid`, or a comment id.
+
+## Thread IDs
+
+A DM thread is one conversation between a connected account and one person. A comment thread is a top-level comment and its replies.
+
+- DMs: `adeli:dm:<accountId>:<base64url(conversationKey)>`, where `conversationKey` is `<platform>:<counterparty id>`
+- Comments: `adeli:comment:<accountId>:<platform>:<base64url(mediaId)>:<base64url(rootCommentId)>`
+
+## Limitations
+
+- Instagram, Facebook, and WhatsApp accept free-text messages only within 24 hours of the person's last message. Outside that window, a post throws `AdapterError` with code `window_closed`. To open a WhatsApp conversation, send an approved template with [`@adeli/sdk`](https://www.npmjs.com/package/@adeli/sdk); Chat SDK messages can't carry templates.
+- `editMessage`, `addReaction`, and `removeReaction` throw `NotImplementedError`. `startTyping` resolves without doing anything, so portable bots keep working.
+- `deleteMessage` works only on the account's own comments.
+- Instagram accounts connected through a Facebook Page before Unified Login, and TikTok accounts connected without comment access, send no events until reconnected in the Adeli dashboard.
+- A card with more than three buttons throws `ValidationError` on Instagram. A button's `id` and `value` must fit Instagram's 1,000-character postback payload.
+- Posting files or attachments throws `ValidationError`.
+- Streams are buffered and posted once, because none of Adeli's platforms can edit a sent message.
+- `fetchMessages` with `direction: "forward"` on a DM reads up to 1,000 messages and returns them in one page.
+- A workspace without billing that has used its free monthly sends gets `AdapterRateLimitError`, with `retryAfter` set to the reset time. Provider rate limits (`429`) map to the same error.
+- `401` maps to `AuthenticationError`, `403` to `PermissionError`, `404` to `ResourceNotFoundError`, `400` and `422` to `ValidationError`, and `5xx` or network failures to `NetworkError`, all from `@chat-adapter/shared`.
+
+## Feature support
+
+<FeatureSupport />
+
+## Resources
+
+- [Adapter source](https://github.com/kingscrosslabs/adeli-chat-sdk-adapter)
+- [Adeli Chat SDK docs](https://www.tryadeli.com/docs/chat-sdk)
+- [Adeli webhooks docs](https://www.tryadeli.com/docs/api/webhooks)

@@ -1,10 +1,22 @@
 import { ValidationError } from "@chat-adapter/shared";
 import { createMemoryState } from "@chat-adapter/state-memory";
+import {
+  DefaultChatTransport,
+  readUIMessageStream,
+  type UIMessage,
+  type UIMessageChunk,
+} from "ai";
 import { Chat, type Message, parseMarkdown, type StreamChunk } from "chat";
 import { describe, expect, it, vi } from "vitest";
+import { webRequestContext } from "./als";
 import { createWebAdapter, WebAdapter } from "./index";
-import { createSseResponse, webProtocols } from "./protocol";
+import {
+  createSseResponse,
+  type WebStreamEvent,
+  webProtocols,
+} from "./protocol";
 import type { WebMessage, WebUser } from "./types";
+import type { WebUIMessage } from "./ui-message";
 
 const TEST_USER: WebUser = { id: "u-test", name: "Test User" };
 
@@ -23,35 +35,6 @@ function makeWebRequest(body: unknown, signal?: AbortSignal): Request {
     body: JSON.stringify(body),
     ...(signal ? { signal } : {}),
   });
-}
-
-function parseSseFromText(text: string): Array<{
-  type: string;
-  delta?: string;
-  errorText?: string;
-  id?: string;
-}> {
-  const events: Array<{
-    type: string;
-    delta?: string;
-    errorText?: string;
-    id?: string;
-  }> = [];
-  for (const line of text.split("\n")) {
-    if (!line.startsWith("data: ")) {
-      continue;
-    }
-    const payload = line.slice(6).trim();
-    if (!payload || payload === "[DONE]") {
-      continue;
-    }
-    try {
-      events.push(JSON.parse(payload));
-    } catch {
-      // skip malformed lines
-    }
-  }
-  return events;
 }
 
 async function readSseEvents(response: Response): Promise<unknown[]> {
@@ -85,6 +68,91 @@ async function readSseEvents(response: Response): Promise<unknown[]> {
     }
   }
   return events;
+}
+
+async function assembleUIMessage(
+  stream: ReadableStream<UIMessageChunk>
+): Promise<WebUIMessage> {
+  let message: WebUIMessage | undefined;
+  // readUIMessageStream reports a failed chunk through onError and then ends
+  // the iteration normally, so the error is rethrown once the loop is done.
+  const errors: unknown[] = [];
+  for await (const snapshot of readUIMessageStream<WebUIMessage>({
+    stream,
+    onError: (error) => {
+      errors.push(error);
+    },
+  })) {
+    message = snapshot;
+  }
+  if (errors.length > 0) {
+    throw errors[0];
+  }
+  if (!message) {
+    throw new Error("The stream produced no message");
+  }
+  return message;
+}
+
+/**
+ * Send a user turn through the AI SDK's own client transport and return the
+ * assistant message a `useChat` client would hold once the response ends.
+ * The transport checks every chunk against the AI SDK's schema, and a chunk
+ * that fails makes this helper throw.
+ */
+async function sendWithAiSdkClient(chat: {
+  webhooks: { web: (request: Request) => Promise<Response> };
+}): Promise<WebUIMessage> {
+  const transport = new DefaultChatTransport<WebUIMessage>({
+    api: "https://example.com/api/chat",
+    fetch: (input, init) => chat.webhooks.web(new Request(input, init)),
+  });
+  const stream = await transport.sendMessages({
+    trigger: "submit-message",
+    chatId: "conv-client",
+    messageId: undefined,
+    messages: [
+      { id: "msg-1", role: "user", parts: [{ type: "text", text: "go" }] },
+    ],
+    abortSignal: undefined,
+  });
+  return assembleUIMessage(stream);
+}
+
+/** The parts a UI renders: everything but step markers and streaming state. */
+function renderedParts(message: WebUIMessage): unknown[] {
+  return message.parts.flatMap((part) => {
+    if (part.type === "text" || part.type === "reasoning") {
+      return [{ type: part.type, text: part.text }];
+    }
+    if (part.type === "data-task" || part.type === "data-plan") {
+      return [{ type: part.type, id: part.id, data: part.data }];
+    }
+    return part.type === "step-start" ? [] : [part];
+  });
+}
+
+/** Call `adapter.stream()` directly, the way core does inside a request. */
+async function streamDirectly(
+  adapter: WebAdapter,
+  chunks: Iterable<string | StreamChunk>
+) {
+  const events: WebStreamEvent[] = [];
+  async function* gen() {
+    yield* chunks;
+  }
+  const sent = await webRequestContext.run(
+    {
+      write: (event) => events.push(event),
+      signal: new AbortController().signal,
+      userId: TEST_USER.id,
+      conversationId: "conv-direct",
+      messageId: "assistant-1",
+      dataParts: new Set(),
+    },
+    () => adapter.stream("web:u-test:conv-direct", gen())
+  );
+  return { events, sent };
 }
 
 function buildChat(opts: {
@@ -537,17 +605,24 @@ describe("WebAdapter — end-to-end handler dispatch", () => {
     );
     expect(response.status).toBe(200);
 
-    const raw = await response.text();
-    const events = parseSseFromText(raw);
-    const deltas = events
-      .filter((e) => e.type === "text-delta")
-      .map((e) => e.delta);
-    expect(deltas.join("")).toBe("Hello, world!");
-
-    const startCount = events.filter((e) => e.type === "text-start").length;
-    const endCount = events.filter((e) => e.type === "text-end").length;
-    expect(startCount).toBeGreaterThanOrEqual(1);
-    expect(endCount).toBe(startCount);
+    const events = (await readSseEvents(response)) as Array<{
+      type: string;
+      id?: string;
+      messageId?: string;
+    }>;
+    const id = events.find((e) => e.type === "text-start")?.id;
+    expect(id).toEqual(expect.any(String));
+    expect(events).toEqual([
+      { type: "start", messageId: expect.any(String) },
+      { type: "start-step" },
+      { type: "text-start", id },
+      { type: "text-delta", id, delta: "Hello" },
+      { type: "text-delta", id, delta: ", " },
+      { type: "text-delta", id, delta: "world!" },
+      { type: "text-end", id },
+      { type: "finish-step" },
+      { type: "finish" },
+    ]);
   });
 
   it("returns a SentMessage whose id matches the streamed text-* event id", async () => {
@@ -587,9 +662,21 @@ describe("WebAdapter — end-to-end handler dispatch", () => {
     const ctrl = new AbortController();
     const seen: string[] = [];
     chat.onDirectMessage(async (thread) => {
-      async function* gen() {
+      async function* gen(): AsyncGenerator<string | StreamChunk> {
         yield "first";
+        yield {
+          type: "task_update",
+          id: "t1",
+          title: "Work",
+          status: "pending",
+        };
         ctrl.abort();
+        yield {
+          type: "task_update",
+          id: "t1",
+          title: "Work",
+          status: "complete",
+        };
         yield "second";
         yield "third";
       }
@@ -608,33 +695,42 @@ describe("WebAdapter — end-to-end handler dispatch", () => {
     const events = (await readSseEvents(response)) as Array<{
       type: string;
       delta?: string;
+      data?: { status?: string };
     }>;
     const deltas = events
       .filter((e) => e.type === "text-delta")
       .map((e) => e.delta);
     expect(deltas.join("")).toBe("first");
+    expect(
+      events.filter((e) => e.type === "data-task").map((e) => e.data?.status)
+    ).toEqual(["pending"]);
     expect(events.filter((e) => e.type === "text-end")).toHaveLength(1);
     expect(seen).toEqual(["done"]);
   });
 
-  it("drops non-text StreamChunks (task_update / plan_update) silently", async () => {
+  it("streams task_update and plan_update chunks as data parts in order", async () => {
     const { chat } = buildChat({});
+    const captured: { id?: string } = {};
     chat.onDirectMessage(async (thread) => {
       async function* gen(): AsyncGenerator<string | StreamChunk> {
+        yield { type: "plan_update", title: "Research" };
         yield "before";
         yield {
           type: "task_update",
           id: "t1",
-          title: "tool call",
+          title: "Search",
           status: "in_progress",
         };
+        yield { type: "markdown_text", text: "after" };
         yield {
-          type: "plan_update",
-          title: "step 1",
+          type: "task_update",
+          id: "t2",
+          title: "Read",
+          status: "pending",
         };
-        yield "after";
       }
-      await thread.post(gen());
+      const sent = await thread.post(gen());
+      captured.id = sent.id;
     });
 
     const response = await chat.webhooks.web(
@@ -647,13 +743,428 @@ describe("WebAdapter — end-to-end handler dispatch", () => {
 
     const events = (await readSseEvents(response)) as Array<{
       type: string;
-      delta?: string;
+      messageId?: string;
     }>;
-    const deltas = events
-      .filter((e) => e.type === "text-delta")
-      .map((e) => e.delta);
-    expect(deltas.join("")).toBe("beforeafter");
-    expect(deltas).toHaveLength(2);
+    const id = captured.id;
+    const messageId = events.find((e) => e.type === "start")?.messageId;
+    expect(id).toEqual(expect.any(String));
+    expect(messageId).toEqual(expect.any(String));
+    expect(messageId).not.toBe(id);
+    expect(
+      events.filter(
+        (e) => e.type.startsWith("text-") || e.type.startsWith("data-")
+      )
+    ).toEqual([
+      {
+        type: "data-plan",
+        id: messageId,
+        data: { title: "Research" },
+      },
+      { type: "text-start", id },
+      { type: "text-delta", id, delta: "before" },
+      { type: "text-end", id },
+      {
+        type: "data-task",
+        id: "t1",
+        data: { id: "t1", title: "Search", status: "in_progress" },
+      },
+      { type: "text-start", id: `${id}-1` },
+      { type: "text-delta", id: `${id}-1`, delta: "after" },
+      { type: "text-end", id: `${id}-1` },
+      {
+        type: "data-task",
+        id: "t2",
+        data: { id: "t2", title: "Read", status: "pending" },
+      },
+    ]);
+  });
+
+  it("keeps text in one part when a task or plan update replaces an earlier one", async () => {
+    const { chat } = buildChat({});
+    chat.onDirectMessage(async (thread) => {
+      async function* gen(): AsyncGenerator<string | StreamChunk> {
+        yield { type: "plan_update", title: "Research" };
+        yield {
+          type: "task_update",
+          id: "t1",
+          title: "Search",
+          status: "in_progress",
+        };
+        yield "Hello **wor";
+        yield {
+          type: "task_update",
+          id: "t1",
+          title: "Search",
+          status: "complete",
+        };
+        yield { type: "plan_update", title: "Research done" };
+        yield "ld**";
+        yield { type: "reasoning", text: "Next " };
+        yield {
+          type: "task_update",
+          id: "t1",
+          title: "Search",
+          status: "complete",
+          output: "3 results",
+        };
+        yield { type: "reasoning", text: "step." };
+      }
+      await thread.post(gen());
+    });
+
+    const message = await sendWithAiSdkClient(chat);
+    expect(renderedParts(message)).toEqual([
+      { type: "data-plan", id: message.id, data: { title: "Research done" } },
+      {
+        type: "data-task",
+        id: "t1",
+        data: {
+          id: "t1",
+          title: "Search",
+          status: "complete",
+          output: "3 results",
+        },
+      },
+      { type: "text", text: "Hello **world**" },
+      { type: "reasoning", text: "Next step." },
+    ]);
+  });
+
+  it("keys the plan by the client's assistant message id across streams", async () => {
+    const { chat } = buildChat({});
+    chat.onDirectMessage(async (thread) => {
+      async function* first(): AsyncGenerator<string | StreamChunk> {
+        yield { type: "plan_update", title: "Draft" };
+        yield {
+          type: "task_update",
+          id: "t1",
+          title: "Work",
+          status: "pending",
+        };
+        yield "one";
+      }
+      async function* second(): AsyncGenerator<string | StreamChunk> {
+        yield "tw";
+        yield { type: "plan_update", title: "Final" };
+        yield {
+          type: "task_update",
+          id: "t1",
+          title: "Work",
+          status: "complete",
+        };
+        yield "o";
+      }
+      await thread.post(first());
+      await thread.post(second());
+    });
+
+    const message = await sendWithAiSdkClient(chat);
+    expect(renderedParts(message)).toEqual([
+      { type: "data-plan", id: message.id, data: { title: "Final" } },
+      {
+        type: "data-task",
+        id: "t1",
+        data: { id: "t1", title: "Work", status: "complete" },
+      },
+      { type: "text", text: "one" },
+      { type: "text", text: "two" },
+    ]);
+  });
+
+  it("starts each response with no data parts carried over", async () => {
+    const { chat } = buildChat({});
+    chat.onDirectMessage(async (thread) => {
+      async function* gen(): AsyncGenerator<string | StreamChunk> {
+        yield "before";
+        yield {
+          type: "task_update",
+          id: "t1",
+          title: "Work",
+          status: "pending",
+        };
+        yield "after";
+      }
+      await thread.post(gen());
+    });
+
+    // The same task id is new to each response, so it splits the text in both.
+    for (let attempt = 0; attempt < 2; attempt++) {
+      const message = await sendWithAiSdkClient(chat);
+      expect(renderedParts(message)).toEqual([
+        { type: "text", text: "before" },
+        {
+          type: "data-task",
+          id: "t1",
+          data: { id: "t1", title: "Work", status: "pending" },
+        },
+        { type: "text", text: "after" },
+      ]);
+    }
+  });
+
+  it("skips chunks it has no part for without ending the open text part", async () => {
+    const { adapter } = buildChat({});
+    // Core drops unknown chunk types before the adapter, so stream() is
+    // called directly to reach the adapter's own handling.
+    const { events, sent } = await streamDirectly(adapter, [
+      "one",
+      { type: "status_update", text: "unknown" } as unknown as StreamChunk,
+      {
+        type: "task_update",
+        id: 7,
+        title: "Bad id",
+        status: "pending",
+      } as unknown as StreamChunk,
+      "two",
+    ]);
+
+    const id = sent.id;
+    expect(events).toEqual([
+      { type: "text-start", id },
+      { type: "text-delta", id, delta: "one" },
+      { type: "text-delta", id, delta: "two" },
+      { type: "text-end", id },
+    ]);
+    expect(sent.raw.parts).toEqual([{ type: "text", text: "onetwo" }]);
+  });
+
+  it("drops a task update with a non-string id so the AI SDK client accepts the response", async () => {
+    const { chat } = buildChat({});
+    chat.onDirectMessage(async (thread) => {
+      async function* gen(): AsyncGenerator<string | StreamChunk> {
+        yield "one";
+        yield {
+          type: "task_update",
+          id: 7,
+          title: "Bad id",
+          status: "pending",
+        } as unknown as StreamChunk;
+        yield "two";
+        // A trailing one too: every valid part has arrived by then, so only
+        // the client's chunk validation can tell it was written.
+        yield {
+          type: "task_update",
+          id: 8,
+          title: "Bad id",
+          status: "pending",
+        } as unknown as StreamChunk;
+      }
+      await thread.post(gen());
+    });
+
+    const message = await sendWithAiSdkClient(chat);
+    expect(renderedParts(message)).toEqual([{ type: "text", text: "onetwo" }]);
+  });
+
+  it("writes nothing for empty text and reasoning chunks", async () => {
+    const { adapter } = buildChat({});
+    const { events, sent } = await streamDirectly(adapter, [
+      { type: "reasoning", text: "" },
+      "Hello",
+      "",
+      { type: "markdown_text", text: "" },
+      { type: "reasoning", text: "" },
+      " world",
+    ]);
+
+    const id = sent.id;
+    expect(events).toEqual([
+      { type: "text-start", id },
+      { type: "text-delta", id, delta: "Hello" },
+      { type: "text-delta", id, delta: " world" },
+      { type: "text-end", id },
+    ]);
+  });
+
+  it("returns the streamed parts as the raw message", async () => {
+    const { adapter } = buildChat({});
+    const { events, sent } = await streamDirectly(adapter, [
+      { type: "reasoning", text: "Think" },
+      { type: "plan_update", title: "Plan" },
+      "Hello ",
+      { type: "task_update", id: "t1", title: "Work", status: "pending" },
+      "wor",
+      { type: "task_update", id: "t1", title: "Work", status: "complete" },
+      "ld",
+    ]);
+
+    expect(sent.raw).toEqual({
+      id: sent.id,
+      role: "assistant",
+      parts: [
+        { type: "reasoning", text: "Think" },
+        { type: "data-plan", id: "assistant-1", data: { title: "Plan" } },
+        { type: "text", text: "Hello " },
+        {
+          type: "data-task",
+          id: "t1",
+          data: { id: "t1", title: "Work", status: "complete" },
+        },
+        { type: "text", text: "world" },
+      ],
+    });
+
+    // The raw parts match what the AI SDK client builds from the same events.
+    const message = await assembleUIMessage(
+      new ReadableStream<UIMessageChunk>({
+        start(controller) {
+          for (const event of events) {
+            controller.enqueue(event);
+          }
+          controller.close();
+        },
+      })
+    );
+    expect(sent.raw.parts).toEqual(renderedParts(message));
+  });
+
+  it("streams reasoning chunks as reasoning parts that close when text resumes", async () => {
+    const { chat } = buildChat({});
+    const captured: { id?: string; text?: string } = {};
+    chat.onDirectMessage(async (thread) => {
+      async function* gen(): AsyncGenerator<string | StreamChunk> {
+        yield { type: "reasoning", text: "Let me " };
+        yield { type: "reasoning", text: "think." };
+        yield "Answer";
+        yield { type: "reasoning", text: "Check a tool." };
+        yield {
+          type: "task_update",
+          id: "t1",
+          title: "Search",
+          status: "complete",
+        };
+        yield { type: "reasoning", text: "Done." };
+      }
+      const sent = await thread.post(gen());
+      captured.id = sent.id;
+      captured.text = sent.text;
+    });
+
+    const response = await chat.webhooks.web(
+      makeWebRequest({
+        id: "conv-reasoning",
+        messages: [makeUserMessage("trigger")],
+      })
+    );
+
+    const events = (await readSseEvents(response)) as Array<{
+      type: string;
+    }>;
+    const id = captured.id;
+    expect(
+      events.filter(
+        (e) =>
+          e.type.startsWith("text-") ||
+          e.type.startsWith("reasoning-") ||
+          e.type.startsWith("data-")
+      )
+    ).toEqual([
+      { type: "reasoning-start", id: `${id}-reasoning-0` },
+      { type: "reasoning-delta", id: `${id}-reasoning-0`, delta: "Let me " },
+      { type: "reasoning-delta", id: `${id}-reasoning-0`, delta: "think." },
+      { type: "reasoning-end", id: `${id}-reasoning-0` },
+      { type: "text-start", id },
+      { type: "text-delta", id, delta: "Answer" },
+      { type: "text-end", id },
+      { type: "reasoning-start", id: `${id}-reasoning-1` },
+      {
+        type: "reasoning-delta",
+        id: `${id}-reasoning-1`,
+        delta: "Check a tool.",
+      },
+      { type: "reasoning-end", id: `${id}-reasoning-1` },
+      {
+        type: "data-task",
+        id: "t1",
+        data: { id: "t1", title: "Search", status: "complete" },
+      },
+      { type: "reasoning-start", id: `${id}-reasoning-2` },
+      { type: "reasoning-delta", id: `${id}-reasoning-2`, delta: "Done." },
+      { type: "reasoning-end", id: `${id}-reasoning-2` },
+    ]);
+    // Reasoning stays out of the message text.
+    expect(captured.text).toBe("Answer");
+
+    // The AI SDK client assembles the parts in the order they were yielded.
+    let message: UIMessage | undefined;
+    for await (const snapshot of readUIMessageStream({
+      stream: new ReadableStream<UIMessageChunk>({
+        start(controller) {
+          for (const event of events) {
+            controller.enqueue(event as UIMessageChunk);
+          }
+          controller.close();
+        },
+      }),
+    })) {
+      message = snapshot;
+    }
+    expect(
+      message?.parts.flatMap((part) => {
+        if (part.type === "reasoning" || part.type === "text") {
+          return [{ type: part.type, text: part.text, state: part.state }];
+        }
+        return part.type === "data-task" ? [{ type: part.type }] : [];
+      })
+    ).toEqual([
+      { type: "reasoning", text: "Let me think.", state: "done" },
+      { type: "text", text: "Answer", state: "done" },
+      { type: "reasoning", text: "Check a tool.", state: "done" },
+      { type: "data-task" },
+      { type: "reasoning", text: "Done.", state: "done" },
+    ]);
+  });
+
+  it("emits one empty text part for a stream with no text", async () => {
+    const { chat } = buildChat({});
+    chat.onDirectMessage(async (thread) => {
+      const empty: AsyncIterable<string> = {
+        [Symbol.asyncIterator]: () => ({
+          next: () =>
+            Promise.resolve({ done: true as const, value: undefined }),
+        }),
+      };
+      await thread.post(empty);
+    });
+
+    const response = await chat.webhooks.web(
+      makeWebRequest({
+        id: "conv-empty",
+        messages: [makeUserMessage("trigger")],
+      })
+    );
+    const events = (await readSseEvents(response)) as Array<{ type: string }>;
+    expect(
+      events.filter((e) => e.type.startsWith("text-")).map((e) => e.type)
+    ).toEqual(["text-start", "text-end"]);
+  });
+
+  it.each<[string, StreamChunk, unknown]>([
+    [
+      "tasks",
+      { type: "task_update", id: "t1", title: "Work", status: "complete" },
+      {
+        type: "data-task",
+        id: "t1",
+        data: { id: "t1", title: "Work", status: "complete" },
+      },
+    ],
+    [
+      "reasoning",
+      { type: "reasoning", text: "Thinking" },
+      { type: "reasoning", text: "Thinking" },
+    ],
+  ])("adds no empty text part to a stream with only %s", async (_name, chunk, part) => {
+    const { chat } = buildChat({});
+    chat.onDirectMessage(async (thread) => {
+      async function* gen(): AsyncGenerator<string | StreamChunk> {
+        yield chunk;
+      }
+      await thread.post(gen());
+    });
+
+    const message = await sendWithAiSdkClient(chat);
+    expect(renderedParts(message)).toEqual([part]);
   });
 
   it("propagates handler errors as an error chunk", async () => {
@@ -779,6 +1290,120 @@ describe("WebAdapter — AG-UI protocol", () => {
       role: "user",
       parts: [{ type: "text", text: "world" }],
     });
+  });
+
+  it("streams reasoning as REASONING events and tasks and plans as CUSTOM events", async () => {
+    const { chat } = buildAgUiChat();
+    chat.onDirectMessage(async (thread) => {
+      async function* gen() {
+        yield { type: "plan_update" as const, title: "Plan" };
+        yield { type: "reasoning" as const, text: "Thinking" };
+        yield "Hi";
+        yield {
+          type: "task_update" as const,
+          id: "t1",
+          title: "Search",
+          status: "complete" as const,
+        };
+      }
+      await thread.post(gen());
+    });
+
+    const response = await chat.webhooks.web(makeWebRequest(agUiBody("go")));
+    const events = (await readSseEvents(response)) as Array<{
+      type: string;
+      messageId?: string;
+    }>;
+    const id = events.find((e) => e.type === "TEXT_MESSAGE_START")?.messageId;
+    expect(events).toEqual([
+      { type: "RUN_STARTED", threadId: "conv-agui", runId: "run-1" },
+      { type: "CUSTOM", name: "plan", value: { title: "Plan" } },
+      { type: "REASONING_START", messageId: `${id}-reasoning-0` },
+      {
+        type: "REASONING_MESSAGE_START",
+        messageId: `${id}-reasoning-0`,
+        role: "reasoning",
+      },
+      {
+        type: "REASONING_MESSAGE_CONTENT",
+        messageId: `${id}-reasoning-0`,
+        delta: "Thinking",
+      },
+      { type: "REASONING_MESSAGE_END", messageId: `${id}-reasoning-0` },
+      { type: "REASONING_END", messageId: `${id}-reasoning-0` },
+      { type: "TEXT_MESSAGE_START", messageId: id, role: "assistant" },
+      { type: "TEXT_MESSAGE_CONTENT", messageId: id, delta: "Hi" },
+      { type: "TEXT_MESSAGE_END", messageId: id },
+      {
+        type: "CUSTOM",
+        name: "task",
+        value: { id: "t1", title: "Search", status: "complete" },
+      },
+      { type: "RUN_FINISHED", threadId: "conv-agui", runId: "run-1" },
+    ]);
+  });
+
+  it("keeps one text message across a replaced task and adds none for a stream without text", async () => {
+    const { chat } = buildAgUiChat();
+    chat.onDirectMessage(async (thread) => {
+      async function* gen(): AsyncGenerator<string | StreamChunk> {
+        yield {
+          type: "task_update",
+          id: "t1",
+          title: "Work",
+          status: "pending",
+        };
+        yield "Hel";
+        yield {
+          type: "task_update",
+          id: "t1",
+          title: "Work",
+          status: "complete",
+        };
+        yield "lo";
+      }
+      async function* tasksOnly(): AsyncGenerator<string | StreamChunk> {
+        yield {
+          type: "task_update",
+          id: "t2",
+          title: "More",
+          status: "complete",
+        };
+      }
+      await thread.post(gen());
+      await thread.post(tasksOnly());
+    });
+
+    const response = await chat.webhooks.web(makeWebRequest(agUiBody("go")));
+    const events = (await readSseEvents(response)) as Array<{
+      type: string;
+      messageId?: string;
+    }>;
+    const id = events.find((e) => e.type === "TEXT_MESSAGE_START")?.messageId;
+    expect(id).toEqual(expect.any(String));
+    expect(events).toEqual([
+      { type: "RUN_STARTED", threadId: "conv-agui", runId: "run-1" },
+      {
+        type: "CUSTOM",
+        name: "task",
+        value: { id: "t1", title: "Work", status: "pending" },
+      },
+      { type: "TEXT_MESSAGE_START", messageId: id, role: "assistant" },
+      { type: "TEXT_MESSAGE_CONTENT", messageId: id, delta: "Hel" },
+      {
+        type: "CUSTOM",
+        name: "task",
+        value: { id: "t1", title: "Work", status: "complete" },
+      },
+      { type: "TEXT_MESSAGE_CONTENT", messageId: id, delta: "lo" },
+      { type: "TEXT_MESSAGE_END", messageId: id },
+      {
+        type: "CUSTOM",
+        name: "task",
+        value: { id: "t2", title: "More", status: "complete" },
+      },
+      { type: "RUN_FINISHED", threadId: "conv-agui", runId: "run-1" },
+    ]);
   });
 
   it("keeps text and media content parts and drops the rest", async () => {

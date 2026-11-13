@@ -195,6 +195,10 @@ Most options are auto-detected from environment variables when not provided.
 
 Use the canonical `sender.name` from a verified message authored by your Chat app for `botUserId`. The adapter does not learn its identity from inbound mentions. Without this value it conservatively treats every `BOT` sender as self to prevent reply loops.
 
+With `botUserId` set, the adapter reads `message.isMention` from the message's `USER_MENTION` annotations, for webhook, Pub/Sub, and fetched messages. It is `true` when an annotation names your Chat app and `false` otherwise, so in a space a plain-text `@name` without a mention annotation doesn't reach `onNewMention`. Direct messages are still routed as mentions when no `onDirectMessage` handler is registered. The app's mention in `message.text` is rewritten to `@{userName}`. The adapter logs a warning at startup if `botUserId` isn't a `users/...` resource name, and once if a message mentions an app whose ID differs from `botUserId`.
+
+Without `botUserId`, the adapter can't identify your Chat app in annotations. A message that only mentions people gets `isMention: false`. Every other message falls back to matching `@{userName}` in the text. That match needs `userName` to be your app's display name in Google Chat, and it also matches another app whose display name starts with `userName` followed by a space.
+
 Apps upgrading from an earlier release that rely on mention handlers must configure `botUserId` to preserve mention handling. Without it, bot mention annotations are left unchanged and the default `onNewMention` detection may no longer match them.
 
 †One of `googleChatProjectNumber`, `endpointUrl`, `pubsubAudience`, or `disableSignatureVerification: true` is required — the constructor throws otherwise. Configure the verifier(s) for each transport you actually receive; requests of a shape whose verifier is unconfigured are rejected with HTTP 401.

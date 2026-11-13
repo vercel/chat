@@ -283,9 +283,7 @@ export class SlackFormatConverter extends BaseFormatConverter {
     }
 
     if (isBlockquoteNode(node)) {
-      return getNodeChildren(node)
-        .map((child) => `> ${this.nodeToMrkdwn(child)}`)
-        .join("\n");
+      return this.renderBlockquote(node, (child) => this.nodeToMrkdwn(child));
     }
 
     if (isListNode(node)) {

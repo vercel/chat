@@ -22,7 +22,11 @@ import {
   type TextInputOptions,
 } from "chat";
 import { describe, expect, it } from "vitest";
-import { cardToAdaptiveCard, cardToFallbackText } from "./cards";
+import {
+  cardToAdaptiveCard,
+  cardToFallbackText,
+  prepareTeamsMessage,
+} from "./cards";
 import { cardToAdaptiveCard as primitivesCardToAdaptiveCard } from "./cards-primitives";
 import { modalToAdaptiveCard } from "./modals";
 
@@ -1103,5 +1107,14 @@ describe("portable section layouts", () => {
       { type: "Container", items: [{ text: "Before" }, { text: "After" }] },
     ]);
     expect(rendered.actions).toMatchObject([{ data: { actionId: "choose" } }]);
+  });
+});
+
+describe("prepareTeamsMessage", () => {
+  it("passes a null message through instead of probing it for a card", () => {
+    expect(prepareTeamsMessage(null as never)).toEqual({
+      files: [],
+      message: null,
+    });
   });
 });

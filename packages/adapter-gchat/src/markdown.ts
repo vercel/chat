@@ -145,10 +145,7 @@ export class GoogleChatFormatConverter extends BaseFormatConverter {
     }
 
     if (isBlockquoteNode(node)) {
-      // Google Chat doesn't have native blockquote, use > prefix
-      return getNodeChildren(node)
-        .map((child) => `> ${this.nodeToGChat(child)}`)
-        .join("\n");
+      return this.renderBlockquote(node, (child) => this.nodeToGChat(child));
     }
 
     if (isListNode(node)) {

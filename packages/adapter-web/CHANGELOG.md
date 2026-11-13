@@ -1,5 +1,38 @@
 # @chat-adapter/web
 
+## 4.45.0
+
+### Minor Changes
+
+- d0ff1dc: feat: stream model reasoning with `reasoning` chunks
+  
+  `StreamChunk` has a new `reasoning` type, `{ type: "reasoning", text }`, for deltas of the model's reasoning. Like `task_update` and `plan_update`, `reasoning` chunks don't count toward the posted message's text.
+  
+  The Web adapter streams them to `useChat` as reasoning parts, or as AG-UI `REASONING_*` events with `protocol: "ag-ui"`. Consecutive `reasoning` chunks fill one part, and text, a new task, or the first plan chunk closes it. A `reasoning` chunk also closes the current text part, so `message.parts` keeps reasoning and text in the order the handler yielded them.
+  
+  `thread.post()` passes `reasoning` chunks only to adapters that set the new optional `supportsReasoningChunks` property on `Adapter` to `true`, which the Web adapter does. For every other adapter it removes them from the stream, so reasoning is never posted to a chat platform. The Slack adapter's `stream()` also skips them when called directly instead of forwarding them to Slack's streaming API, which has no reasoning chunk type. A rejected chunk would also turn off task and plan chunks for the rest of the stream.
+  
+  Reasoning events in an AI SDK `fullStream` or a TanStack AI stream are still skipped. Only `reasoning` chunks you yield are streamed.
+- d0ff1dc: feat(web): stream task and plan updates as data parts
+  
+  `task_update` and `plan_update` stream chunks, which the Web adapter used to drop, now reach `useChat` as `data-task` and `data-plan` UI message parts. A `data-task` part's `id` is the task's `id`, so each update replaces the task's earlier part in place, and its `data` is `{ id, title, status, details?, output? }`. A `data-plan` part's `id` is the assistant message ID and its `data` is `{ title }`.
+  
+  The first chunk for a task, or the first plan chunk, closes the current text part, and text yielded after it streams into a new text part with the ID `{id}-{n}`, where `id` is the ID of the message `thread.post()` returns. `message.parts` therefore lists text, tasks, and the plan in the order the handler first yielded them. A later update to the same task or plan replaces its part in place and leaves the current text part open. The first text part keeps that ID, and a stream that yields only text produces the same events as before. A stream that yields tasks or a plan but no text no longer adds an empty text part.
+  
+  The `start` chunk's `messageId` is now shared with the handler's streams, which is how `data-plan` parts get the assistant message ID. `stream()` returns a `raw` message that lists the streamed parts.
+  
+  The new `WebUIMessage` type, exported from `@chat-adapter/web/react`, `/vue`, and `/svelte`, types `useChat<WebUIMessage>()` so `part.data` narrows by part type. The server entry exports `WebTaskData` and `WebPlanData`, the `data` types of the two parts, and `WebDataParts`, which maps part names to them.
+  
+  With `protocol: "ag-ui"`, task and plan updates stream as `CUSTOM` events named `task` and `plan`, with the chunk minus its `type` as `value`.
+
+### Patch Changes
+
+- Updated dependencies [7012331]
+- Updated dependencies [50c1116]
+- Updated dependencies [d0ff1dc]
+  - chat@4.45.0
+  - @chat-adapter/shared@4.45.0
+
 ## 4.44.0
 
 ### Patch Changes
