@@ -1805,6 +1805,138 @@ describe("BaseFormatConverter", () => {
     });
   });
 
+  describe("renderBlockquote", () => {
+    class QuoteTestConverter extends BaseFormatConverter {
+      private readonly blankLine: string | undefined;
+
+      constructor(blankLine?: string) {
+        super();
+        this.blankLine = blankLine;
+      }
+
+      fromAst(ast: Root): string {
+        return this.fromAstWithNodeConverter(ast, (node) =>
+          this.nodeToText(node)
+        );
+      }
+
+      toAst(inputText: string): Root {
+        return parseMarkdown(inputText);
+      }
+
+      private nodeToText(node: Content): string {
+        if (isBlockquoteNode(node)) {
+          return this.renderBlockquote(
+            node,
+            (child) => this.nodeToText(child),
+            this.blankLine
+          );
+        }
+        if (isListNode(node)) {
+          return this.renderList(node, 0, (child) => this.nodeToText(child));
+        }
+        if (isCodeNode(node)) {
+          return `\`\`\`\n${node.value}\n\`\`\``;
+        }
+        return toPlainText({ type: "root", children: [node] });
+      }
+    }
+
+    const quoteConverter = new QuoteTestConverter();
+    const spacedConverter = new QuoteTestConverter("> ");
+
+    it("prefixes a lazy continuation line", () => {
+      expect(quoteConverter.fromMarkdown("> line one\nline two")).toBe(
+        "> line one\n> line two"
+      );
+    });
+
+    it("separates blocks with a quoted blank line", () => {
+      const ast = root([
+        blockquote([paragraph([text("first")]), paragraph([text("second")])]),
+      ]);
+      expect(quoteConverter.fromAst(ast)).toBe("> first\n>\n> second");
+    });
+
+    it("uses the given blank line between blocks and inside a block", () => {
+      const ast = root([
+        blockquote([paragraph([text("first")]), codeBlock("x\n\ny")]),
+      ]);
+      expect(spacedConverter.fromAst(ast)).toBe(
+        "> first\n> \n> ```\n> x\n> \n> y\n> ```"
+      );
+      expect(quoteConverter.fromAst(ast)).toBe(
+        "> first\n>\n> ```\n> x\n>\n> y\n> ```"
+      );
+    });
+
+    it("splits lines on CR and CRLF", () => {
+      const ast = root([blockquote([codeBlock("x\ry\r\nz")])]);
+      expect(quoteConverter.fromAst(ast)).toBe("> ```\n> x\n> y\n> z\n> ```");
+    });
+
+    it.each([
+      [
+        "leading",
+        [paragraph([]), paragraph([text("a")]), paragraph([text("b")])],
+      ],
+      [
+        "middle",
+        [paragraph([text("a")]), paragraph([]), paragraph([text("b")])],
+      ],
+      [
+        "trailing",
+        [paragraph([text("a")]), paragraph([text("b")]), paragraph([])],
+      ],
+      [
+        "whitespace-only",
+        [
+          paragraph([text("a")]),
+          paragraph([text(" \n ")]),
+          paragraph([text("b")]),
+        ],
+      ],
+    ])("skips a %s child that renders to nothing", (_position, children) => {
+      const ast = root([blockquote(children)]);
+      expect(quoteConverter.fromAst(ast)).toBe("> a\n>\n> b");
+      expect(spacedConverter.fromAst(ast)).toBe("> a\n> \n> b");
+    });
+
+    it("skips a link definition", () => {
+      expect(
+        quoteConverter.fromMarkdown("> text\n>\n> [foo]: https://example.com")
+      ).toBe("> text");
+    });
+
+    it("renders a quote with no content as an empty string", () => {
+      expect(quoteConverter.fromAst(root([blockquote([paragraph([])])]))).toBe(
+        ""
+      );
+    });
+
+    it("skips a nested quote with no content", () => {
+      const ast = root([
+        blockquote([blockquote([paragraph([])]), paragraph([text("a")])]),
+      ]);
+      expect(quoteConverter.fromAst(ast)).toBe("> a");
+    });
+
+    it("prefixes every level of a nested quote", () => {
+      const ast = root([
+        blockquote([
+          paragraph([text("outer")]),
+          blockquote([paragraph([text("one")]), paragraph([text("two")])]),
+        ]),
+      ]);
+      expect(quoteConverter.fromAst(ast)).toBe(
+        "> outer\n>\n> > one\n> >\n> > two"
+      );
+      expect(spacedConverter.fromAst(ast)).toBe(
+        "> outer\n> \n> > one\n> > \n> > two"
+      );
+    });
+  });
+
   describe("fromAstWithNodeConverter", () => {
     class NodeConverterTestConverter extends BaseFormatConverter {
       fromAst(ast: Root): string {
