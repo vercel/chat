@@ -20,6 +20,7 @@ import {
   twilio,
   twitch,
   web,
+  webhook,
   whatsapp,
   x,
   xchat,
@@ -49,6 +50,7 @@ const ICON_MAP: Record<
   twilio,
   messenger,
   twitch,
+  webhook,
   x,
   xchat,
 };

@@ -1,0 +1,67 @@
+{
+  "name": "@chat-adapter/webhook",
+  "version": "4.43.0",
+  "description": "Generic webhook adapter for Chat SDK: connect any platform that sends HTTP webhooks and accepts messages over HTTP",
+  "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
+  "main": "./dist/index.js",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsup",
+    "dev": "tsup --watch",
+    "test": "vitest run --coverage",
+    "test:watch": "vitest",
+    "typecheck": "tsc --noEmit",
+    "clean": "rm -rf dist"
+  },
+  "dependencies": {
+    "@chat-adapter/shared": "workspace:*",
+    "chat": "workspace:*"
+  },
+  "devDependencies": {
+    "@chat-adapter/tests": "workspace:*",
+    "@types/node": "^25.3.2",
+    "tsup": "^8.3.5",
+    "typescript": "^5.7.2",
+    "vitest": "^5.0.3"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/vercel/chat.git",
+    "directory": "packages/adapter-webhook"
+  },
+  "homepage": "https://chat-sdk.dev/adapters/official/webhook",
+  "bugs": {
+    "url": "https://github.com/vercel/chat/issues"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "keywords": [
+    "chat",
+    "chat-sdk",
+    "chatbot",
+    "webhook",
+    "http",
+    "generic",
+    "bot",
+    "adapter",
+    "messaging",
+    "ai-agent",
+    "ai-sdk",
+    "vercel"
+  ],
+  "license": "MIT"
+}
