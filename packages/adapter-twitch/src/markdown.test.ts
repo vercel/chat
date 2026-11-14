@@ -67,6 +67,12 @@ describe("TwitchFormatConverter block quotes", () => {
     );
   });
 
+  it("keeps a quote apart from the text around it", () => {
+    expect(converter.fromMarkdown("Before\n\n> a\n>\n> b\n\nAfter")).toBe(
+      "Before a b After"
+    );
+  });
+
   it("flattens nested quotes and quoted code blocks", () => {
     expect(
       converter.fromMarkdown("> Outer.\n>\n> > Inner.\n>\n> ```\n> a\n> ```")

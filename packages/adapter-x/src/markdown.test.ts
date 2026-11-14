@@ -104,6 +104,11 @@ describe("XFormatConverter", () => {
       expect(converter.fromAst(ast)).toBe("Intro:\n\n• one\n• two");
     });
 
+    it("keeps a quote apart from the text around it", () => {
+      const ast = parseMarkdown("Before\n\n> a\n>\n> b\n\nAfter");
+      expect(converter.fromAst(ast)).toBe("Before\n\na\n\nb\n\nAfter");
+    });
+
     it("flattens nested quotes into paragraphs", () => {
       const ast = parseMarkdown(
         "> Outer.\n>\n> > Inner one.\n> >\n> > Inner two.\n>\n> After."
