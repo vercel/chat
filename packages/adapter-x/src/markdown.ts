@@ -4,6 +4,7 @@ import {
   type Content,
   getNodeChildren,
   getNodeValue,
+  isBlockquoteNode,
   isCodeNode,
   isLinkNode,
   isListNode,
@@ -61,6 +62,12 @@ export class XFormatConverter extends BaseFormatConverter {
     }
     if (isListNode(node)) {
       return this.renderList(node, 0, (child) => this.nodeToText(child), "•");
+    }
+    if (isBlockquoteNode(node)) {
+      return getNodeChildren(node)
+        .map((child) => this.nodeToText(child))
+        .filter((block) => block.trim())
+        .join("\n\n");
     }
     if (isTableNode(node)) {
       return tableToAscii(node);

@@ -93,6 +93,48 @@ describe("XFormatConverter", () => {
     });
   });
 
+  describe("block quotes", () => {
+    it("separates quoted paragraphs with a blank line", () => {
+      const ast = parseMarkdown("> First.\n>\n> Second.");
+      expect(converter.fromAst(ast)).toBe("First.\n\nSecond.");
+    });
+
+    it("separates a quoted list from the text before it", () => {
+      const ast = parseMarkdown("> Intro:\n>\n> - one\n> - two");
+      expect(converter.fromAst(ast)).toBe("Intro:\n\n• one\n• two");
+    });
+
+    it("keeps a quote apart from the text around it", () => {
+      const ast = parseMarkdown("Before\n\n> a\n>\n> b\n\nAfter");
+      expect(converter.fromAst(ast)).toBe("Before\n\na\n\nb\n\nAfter");
+    });
+
+    it("flattens nested quotes into paragraphs", () => {
+      const ast = parseMarkdown(
+        "> Outer.\n>\n> > Inner one.\n> >\n> > Inner two.\n>\n> After."
+      );
+      expect(converter.fromAst(ast)).toBe(
+        "Outer.\n\nInner one.\n\nInner two.\n\nAfter."
+      );
+    });
+
+    it("keeps quoted code block lines", () => {
+      const ast = parseMarkdown("> Code:\n>\n> ```\n> a\n> b\n> ```");
+      expect(converter.fromAst(ast)).toBe("Code:\n\na\nb");
+    });
+
+    it("keeps single paragraph quotes and their line breaks", () => {
+      expect(converter.fromAst(parseMarkdown("> Just one."))).toBe("Just one.");
+      expect(converter.fromAst(parseMarkdown("> one\n> two"))).toBe("one\ntwo");
+    });
+
+    it("drops empty quotes and quote children that render to nothing", () => {
+      expect(converter.fromAst(parseMarkdown(">"))).toBe("");
+      const ast = parseMarkdown("> [a]: https://chat-sdk.dev\n>\n> Text.");
+      expect(converter.fromAst(ast)).toBe("Text.");
+    });
+  });
+
   describe("renderPostable", () => {
     it("passes strings through untouched", () => {
       expect(converter.renderPostable("raw *text*")).toBe("raw *text*");
