@@ -168,6 +168,9 @@ It performs:
    - `messageUpdate` / `messageDelete` → optional update/delete hooks.
    - `invoke` (`task/fetch`, `task/submit`, `adaptiveCard/action`) →
      modal lifecycle and action callbacks.
+   - `invoke` (`message/submitAction`, a click on the native feedback
+     buttons) → `chat.processAction` with the action ID
+     `"message_feedback"`, matching the Slack adapter.
 3. **Outbound `Activity`** — `postMessage` constructs an Activity with
    the Adaptive Card payload + fallback text, then sends it through
    the connector client. Sub-second roundtrips matter; long-running

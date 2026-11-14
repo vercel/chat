@@ -263,6 +263,7 @@ const planned = new StreamingPlan(stream, {
   endWith: [feedbackBlock],   // Slack: Block Kit elements appended after stream stops
   updateIntervalMs: 750,      // Post+edit cadence on supported adapters
   aiGenerated: true,          // Teams: show the "AI generated" label
+  feedbackButtons: true,      // Teams: show thumbs up/down feedback buttons
 });
 
 await thread.post(planned);
@@ -274,6 +275,7 @@ await thread.post(planned);
 | `endWith` | Slack | Block Kit elements attached when the stream stops (e.g. retry / feedback buttons) |
 | `updateIntervalMs` | Post+edit adapters | Minimum interval between post+edit cycles in ms (default `500`) |
 | `aiGenerated` | Teams | Show the "AI generated" label on the streamed message |
+| `feedbackButtons` | Teams | Show thumbs up/down feedback buttons on the streamed message. On Slack, use the adapter's `feedbackButtons` option |
 
 Adapters without structured chunk support extract text from `markdown_text` chunks and ignore other types. Slack-only options are silently ignored on other platforms.
 

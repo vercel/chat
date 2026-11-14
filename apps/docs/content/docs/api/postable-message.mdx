@@ -53,6 +53,10 @@ await thread.post({ raw: "Hello world" });
       description: 'Mark the message as AI-generated. Adapters with a native AI label (currently Teams) show it; others ignore it.',
       type: 'boolean | undefined',
     },
+    feedbackButtons: {
+      description: 'Show native thumbs up/down feedback buttons. Adapters that support them per message (currently Teams) show them; others ignore it. Clicks dispatch through `onAction` as `"message_feedback"`.',
+      type: 'boolean | undefined',
+    },
   }}
 />
 
@@ -80,6 +84,10 @@ await thread.post({ markdown: "**Bold** and _italic_" });
     },
     aiGenerated: {
       description: 'Mark the message as AI-generated. Adapters with a native AI label (currently Teams) show it; others ignore it.',
+      type: 'boolean | undefined',
+    },
+    feedbackButtons: {
+      description: 'Show native thumbs up/down feedback buttons. Adapters that support them per message (currently Teams) show them; others ignore it. Clicks dispatch through `onAction` as `"message_feedback"`.',
       type: 'boolean | undefined',
     },
   }}
@@ -113,6 +121,10 @@ await thread.post({
     },
     aiGenerated: {
       description: 'Mark the message as AI-generated. Adapters with a native AI label (currently Teams) show it; others ignore it.',
+      type: 'boolean | undefined',
+    },
+    feedbackButtons: {
+      description: 'Show native thumbs up/down feedback buttons. Adapters that support them per message (currently Teams) show them; others ignore it. Clicks dispatch through `onAction` as `"message_feedback"`.',
       type: 'boolean | undefined',
     },
   }}
@@ -153,6 +165,10 @@ await thread.post({
     },
     aiGenerated: {
       description: 'Mark the message as AI-generated. Adapters with a native AI label (currently Teams) show it; others ignore it.',
+      type: 'boolean | undefined',
+    },
+    feedbackButtons: {
+      description: 'Show native thumbs up/down feedback buttons. Adapters that support them per message (currently Teams) show them; others ignore it. Clicks dispatch through `onAction` as `"message_feedback"`.',
       type: 'boolean | undefined',
     },
   }}

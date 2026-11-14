@@ -997,6 +997,7 @@ describe("ThreadImpl", () => {
       for (const [, postable] of postCalls) {
         if (typeof postable === "object") {
           expect(postable).not.toHaveProperty("aiGenerated");
+          expect(postable).not.toHaveProperty("feedbackButtons");
         }
       }
       const editCalls = (mockAdapter.editMessage as ReturnType<typeof vi.fn>)
@@ -1004,12 +1005,64 @@ describe("ThreadImpl", () => {
       expect(editCalls.length).toBeGreaterThan(0);
       for (const [, , postable] of editCalls) {
         expect(postable).not.toHaveProperty("aiGenerated");
+        expect(postable).not.toHaveProperty("feedbackButtons");
       }
       expect(mockAdapter.editMessage).toHaveBeenLastCalledWith(
         "slack:C123:1234.5678",
         "msg-1",
         { markdown: "Hello World" }
       );
+    });
+
+    it("should pass feedbackButtons from StreamingPlan to adapter.stream", async () => {
+      const mockStream = vi.fn().mockResolvedValue({
+        id: "msg-stream",
+        threadId: "t1",
+        raw: "Hello",
+      });
+      mockAdapter.stream = mockStream;
+
+      await thread.post(
+        new StreamingPlan(createTextStream(["Hello"]), {
+          feedbackButtons: true,
+        })
+      );
+
+      expect(mockStream).toHaveBeenCalledWith(
+        "slack:C123:1234.5678",
+        expect.any(Object),
+        expect.objectContaining({ feedbackButtons: true })
+      );
+    });
+
+    it("should add feedbackButtons to fallback posts and edits when StreamingPlan has it", async () => {
+      mockAdapter.stream = undefined;
+
+      const threadNoPlaceholder = new ThreadImpl({
+        id: "slack:C123:1234.5678",
+        adapter: mockAdapter,
+        channelId: "C123",
+        stateAdapter: mockState,
+        fallbackStreamingPlaceholderText: null,
+      });
+
+      await threadNoPlaceholder.post(
+        new StreamingPlan(createTextStream(["Hi"]), {
+          aiGenerated: true,
+          feedbackButtons: true,
+        })
+      );
+
+      expect(mockAdapter.postMessage).toHaveBeenNthCalledWith(
+        1,
+        "slack:C123:1234.5678",
+        { markdown: "Hi", aiGenerated: true, feedbackButtons: true }
+      );
+      for (const [, , postable] of (
+        mockAdapter.editMessage as ReturnType<typeof vi.fn>
+      ).mock.calls) {
+        expect(postable).toHaveProperty("feedbackButtons", true);
+      }
     });
 
     it("should still work without options (backward compat)", async () => {

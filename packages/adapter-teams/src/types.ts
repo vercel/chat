@@ -106,6 +106,8 @@ export interface TeamsPostableAdaptiveCard {
   aiGenerated?: boolean;
   /** Activity summary, shown in notifications and in clients that can't render the card. */
   fallbackText?: string;
+  /** Show Teams' native thumbs up/down feedback buttons. */
+  feedbackButtons?: boolean;
   /** Files to upload. `editMessage` doesn't upload files, as with any other message. */
   files?: FileUpload[];
 }
