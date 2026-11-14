@@ -46,7 +46,7 @@ export const chatwoot = {
   group: "community",
   name: "Chatwoot",
   packageName: "chat-adapter-chatwoot",
-  readme: "https://github.com/nivandres/chat-adapter-chatwoot/tree/v0.1.1",
+  readme: "https://github.com/nivandres/chat-adapter-chatwoot/tree/v0.1.2",
   slug: "chatwoot",
   type: "platform",
 } as const satisfies CommunityAdapter;

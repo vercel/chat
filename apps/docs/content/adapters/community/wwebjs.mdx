@@ -17,13 +17,21 @@ This adapter uses whatsapp-web.js, which drives WhatsApp Web in a real browser. 
 
 <PackageInstall package="chat-adapter-wwebjs chat @chat-adapter/shared @chat-adapter/state-memory" />
 
-`chat`, `@chat-adapter/shared`, and whatsapp-web.js are peer dependencies, so you choose their versions. WhatsApp Web has renamed the IDs whatsapp-web.js reads, so whatsapp-web.js 1.34.7 can't send messages or find chats. Until a release carries the fix, install the commit the adapter is tested against:
+`chat`, `@chat-adapter/shared`, and whatsapp-web.js are peer dependencies, so you choose their versions. WhatsApp Web has renamed the IDs whatsapp-web.js reads, so whatsapp-web.js 1.34.7, the latest release, can't send messages or find chats. Until a release carries the fix, install the commit the adapter is tested against:
 
-```bash
-pnpm add github:pedroslopez/whatsapp-web.js#064a3d5
+<PackageInstall package="github:pedroslopez/whatsapp-web.js#064a3d5" />
+
+pnpm 10 and later run dependency build scripts only when you allow them. Allow whatsapp-web.js, which builds when installed from GitHub, and Puppeteer, which downloads a Chromium build, in `pnpm-workspace.yaml`:
+
+```yaml title="pnpm-workspace.yaml"
+onlyBuiltDependencies:
+  - whatsapp-web.js
+  - puppeteer
 ```
 
-On install, whatsapp-web.js downloads a Chromium build through Puppeteer. To print the QR code in the terminal, as the quick start does, also install `qrcode-terminal`:
+pnpm pins the commit in the lockfile rather than in `package.json`, so commit the lockfile.
+
+To print the QR code in the terminal, as the quick start does, also install `qrcode-terminal`:
 
 <PackageInstall package="qrcode-terminal" />
 
@@ -36,7 +44,9 @@ import { Chat } from "chat";
 import { createMemoryState } from "@chat-adapter/state-memory";
 import { createWWebJSAdapter } from "chat-adapter-wwebjs";
 import qrcode from "qrcode-terminal";
-import { LocalAuth } from "whatsapp-web.js";
+import wwebjs from "whatsapp-web.js";
+
+const { LocalAuth } = wwebjs;
 
 const whatsapp = createWWebJSAdapter({
   adapterName: "whatsapp",
@@ -70,7 +80,7 @@ The memory state adapter keeps subscriptions, locks, and the adapter's catch-up 
 ## Platform setup
 
 1. Make sure Chromium can start. Puppeteer's bundled Chromium covers most machines. On slim Linux images, install the shared libraries Chromium needs, or point `clientOptions.puppeteer.executablePath` at your own browser.
-2. Choose a whatsapp-web.js auth strategy and persist its data. `LocalAuth` stores the session in a directory, as in the quick start, and `RemoteAuth` stores it in a store you provide. Without a persisted session, you scan the QR code again on every start.
+2. Choose a whatsapp-web.js auth strategy and persist its data. `LocalAuth` stores the session in a directory, as in the quick start, and `RemoteAuth` stores it in a store you provide. Without a persisted session, you scan the QR code again on every start. The session signs in as your WhatsApp account, so keep its directory out of version control, for example by adding `.wwebjs-auth` to `.gitignore`.
 3. Start the process. On the phone, open WhatsApp, go to **Linked devices** > **Link a device**, and scan the QR code passed to `onQR`. WhatsApp replaces the QR code about every 20 seconds, so render each one `onQR` receives. To link without a camera, set `phoneNumber` and enter the code passed to `onPairingCode` under **Link with phone number**. Once a QR code or pairing code is shown, the adapter waits for it however long it takes.
 
 ## Configuration
@@ -344,7 +354,9 @@ Pass a whatsapp-web.js `Client` you already run, and the adapter bridges it as i
 
 ```typescript
 import { createWWebJSAdapter } from "chat-adapter-wwebjs";
-import { Client, LocalAuth } from "whatsapp-web.js";
+import wwebjs from "whatsapp-web.js";
+
+const { Client, LocalAuth } = wwebjs;
 
 const client = new Client({ authStrategy: new LocalAuth() });
 client.on("message", handleItYourself);

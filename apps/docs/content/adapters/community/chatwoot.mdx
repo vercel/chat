@@ -61,7 +61,7 @@ export async function POST(request: Request): Promise<Response> {
    - An account webhook, under **Settings** > **Integrations** > **Webhooks**, delivers the events you subscribe to across the account. Subscribe it to at least `message_created`. Add `message_updated` for edits, deletes, and card picks and forms from the website widget, plus any `conversation_*`, `contact_*`, or typing event you want in `onEvent`.
    - An API inbox's **Webhook URL** setting delivers the events in that inbox.
    - An agent bot, created under **Settings** > **Bots** and assigned to an inbox, delivers `message_created`, `message_updated`, `conversation_opened`, `conversation_resolved`, `conversation_status_changed`, `conversation_updated`, and `webwidget_triggered` for its inboxes.
-5. Each source signs with its own secret. Copy every secret that reaches your route into `CHATWOOT_WEBHOOK_SECRET`, separated by commas, or pass them as `webhookSecret: [accountSecret, inboxSecret]`.
+5. Each source signs with its own secret. Copy every secret that reaches your route into `CHATWOOT_WEBHOOK_SECRET`, separated by commas, or pass them as `webhookSecret: [accountSecret, inboxSecret]`. Chatwoot signs account webhooks from 4.11.2, and API inbox and agent bot webhooks from 4.13. An older install sends them unsigned, so the adapter refuses every delivery, and with an agent bot every conversation opens at once.
 
 ## Authentication
 
@@ -292,8 +292,8 @@ bot.onDirectMessage(async (thread, message) => {
     `${chatwootMention(30, "Bruce")} needs a look`,
   );
   await chatwoot.setLabels(thread.id, ["needs-human"]);
-  await chatwoot.assign({ threadId: thread.id, assigneeId: 30 });
   await chatwoot.toggleStatus({ threadId: thread.id, status: "open" });
+  await chatwoot.assign({ threadId: thread.id, assigneeId: 30 });
 });
 ```
 
@@ -346,6 +346,6 @@ adapters: {
 ## Resources
 
 - [Adapter source](https://github.com/nivandres/chat-adapter-chatwoot)
-- [Sample Chatwoot payloads](https://github.com/nivandres/chat-adapter-chatwoot/blob/v0.1.1/sample-messages.md)
+- [Sample Chatwoot payloads](https://github.com/nivandres/chat-adapter-chatwoot/blob/v0.1.2/sample-messages.md)
 - [`chat-adapter-chatwoot` on npm](https://www.npmjs.com/package/chat-adapter-chatwoot)
 - [Chatwoot](https://www.chatwoot.com)
