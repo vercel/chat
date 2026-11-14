@@ -1,0 +1,351 @@
+---
+title: Chatwoot
+description: Community Chatwoot adapter for Chat SDK that answers contacts on the channels your Chatwoot account connects, with cards, modals, attachments, private notes, and handoff to agents.
+packageName: "chat-adapter-chatwoot"
+slug: chatwoot
+type: platform
+tagline: Chatwoot adapter for Chat SDK. Receives signed Chatwoot webhooks and replies through the Application API as an agent or an agent bot, on app.chatwoot.com or a self-hosted install.
+community: true
+mdxBody: true
+---
+
+## Install
+
+<PackageInstall package="chat-adapter-chatwoot chat @chat-adapter/shared @chat-adapter/state-memory" />
+
+## Quick start
+
+The package is ESM only and needs Node.js 20 or newer. `chat` and `@chat-adapter/shared` are peer dependencies at 4.40 or a later 4.x release, so your app and the adapter share one copy of each.
+
+```typescript title="lib/bot.ts" lineNumbers
+import { Chat } from "chat";
+import { createMemoryState } from "@chat-adapter/state-memory";
+import { createChatwootAdapter } from "chat-adapter-chatwoot";
+
+export const bot = new Chat({
+  userName: "mybot",
+  adapters: {
+    chatwoot: createChatwootAdapter(),
+  },
+  state: createMemoryState(),
+});
+
+bot.onDirectMessage(async (thread, message) => {
+  await thread.post(`Hello, ${message.author.fullName}!`);
+});
+```
+
+When called with no arguments, `createChatwootAdapter()` reads its settings from the [environment variables](#environment-variables).
+
+The memory state adapter keeps subscriptions, locks, card options, open modals, and the adapter's edit and duplicate tracking in process memory, which suits local development. Use [Redis](/adapters/official/redis) or [PostgreSQL](/adapters/official/postgres) in production so they survive restarts and are shared between instances.
+
+Then create the webhook route:
+
+```typescript title="app/api/webhooks/chatwoot/route.ts" lineNumbers
+import { after } from "next/server";
+import { bot } from "@/lib/bot";
+
+export async function POST(request: Request): Promise<Response> {
+  return bot.webhooks.chatwoot(request, {
+    waitUntil: (task) => after(() => task),
+  });
+}
+```
+
+## Platform setup
+
+1. In Chatwoot, open **Settings** > **Agents** and add the agent the bot posts as.
+2. Sign in as that agent, open **Profile Settings**, and copy its **Access Token** into `CHATWOOT_ACCESS_TOKEN`. To use an agent bot's token instead, see [Agent bot token](#agent-bot-token).
+3. Copy your account ID from the dashboard URL, `/app/accounts/<id>/...`, into `CHATWOOT_ACCOUNT_ID`. For a self-hosted install, set `CHATWOOT_BASE_URL` to its URL.
+4. Point one or more webhook sources at your deployed `/api/webhooks/chatwoot` route:
+   - An account webhook, under **Settings** > **Integrations** > **Webhooks**, delivers the events you subscribe to across the account. Subscribe it to at least `message_created`. Add `message_updated` for edits, deletes, and card picks and forms from the website widget, plus any `conversation_*`, `contact_*`, or typing event you want in `onEvent`.
+   - An API inbox's **Webhook URL** setting delivers the events in that inbox.
+   - An agent bot, created under **Settings** > **Bots** and assigned to an inbox, delivers `message_created`, `message_updated`, `conversation_opened`, `conversation_resolved`, `conversation_status_changed`, `conversation_updated`, and `webwidget_triggered` for its inboxes.
+5. Each source signs with its own secret. Copy every secret that reaches your route into `CHATWOOT_WEBHOOK_SECRET`, separated by commas, or pass them as `webhookSecret: [accountSecret, inboxSecret]`. Chatwoot signs account webhooks from 4.11.2, and API inbox and agent bot webhooks from 4.13. An older install sends them unsigned, so the adapter refuses every delivery, and with an agent bot every conversation opens at once.
+
+## Authentication
+
+The adapter calls Chatwoot's Application API with the token in `accessToken`. It accepts an agent's token or an agent bot's token, and `initialize()` detects which one it has.
+
+### Agent access token
+
+An agent's token unlocks every method on this page. The bot posts as that agent and, unless you set `userName`, takes the agent's name.
+
+### Agent bot token
+
+Chatwoot's `BOT_ACCESSIBLE_ENDPOINTS` let an agent bot's token post messages and private notes, stream, read the conversation, toggle typing, and change status, priority, assignment, labels, and custom attributes. Chatwoot refuses these adapter methods with `401`, which the adapter raises as a `PermissionError`: `fetchMessage`, `deleteMessage`, `markAsRead`, `markAsUnread`, `mute`, `unmute`, `listThreads`, `fetchChannelInfo`, `getUser`, `fetchContact`, `listAgents`, and `openDM`. A bot token can't list messages either, so `fetchMessages()` returns nothing and Chat SDK serves the thread history it records in the state adapter instead. The adapter logs a warning at startup rather than failing.
+
+A conversation in an agent bot's inbox starts as `pending`. Call `toggleStatus({ threadId, status: "open" })` to hand it to people. Chatwoot also opens the conversation when a `message_created` or `message_updated` delivery to the bot fails, so a missing or wrong webhook secret shows up as every conversation opening at once.
+
+## Configuration
+
+<TypeTable
+  type={{
+    accessToken: {
+      type: "string",
+      description:
+        "Agent or agent bot access token. See [Authentication](#authentication). Falls back to `CHATWOOT_ACCESS_TOKEN`.",
+    },
+    accountId: {
+      type: "number",
+      description:
+        "Chatwoot account ID. Webhooks from other accounts are ignored. Falls back to `CHATWOOT_ACCOUNT_ID`.",
+    },
+    baseUrl: {
+      type: "string",
+      default: "\"https://app.chatwoot.com\"",
+      description:
+        "Chatwoot base URL, for a self-hosted install. A path after the host is kept. Falls back to `CHATWOOT_BASE_URL`.",
+    },
+    webhookSecret: {
+      type: "string | readonly string[]",
+      description:
+        "Secret, or list of secrets, that verify `X-Chatwoot-Signature`. Pass every source's secret. Falls back to `CHATWOOT_WEBHOOK_SECRET`, split on commas.",
+    },
+    allowUnverifiedWebhooks: {
+      type: "boolean",
+      default: "false",
+      description:
+        "Accept webhooks while no `webhookSecret` is set. Anyone who can reach the route can then post as any contact, so use it for local development only.",
+    },
+    inboxId: {
+      type: "number",
+      description:
+        "Inbox that `openDM()` searches and opens new conversations in. Falls back to `CHATWOOT_INBOX_ID`.",
+    },
+    userName: {
+      type: "string",
+      description:
+        "Bot display name. Falls back to `CHATWOOT_USER_NAME`, then to the agent's name, or to the adapter name with an agent bot token.",
+    },
+    adapterName: {
+      type: "string",
+      default: "\"chatwoot\"",
+      description:
+        "Adapter identity and thread ID prefix, for running several accounts in one bot. Must not contain `:`. See [Thread IDs](#thread-ids).",
+    },
+    receiveAgentMessages: {
+      type: "boolean",
+      default: "false",
+      description:
+        "Also pass other agents' and bots' replies to your message handlers.",
+    },
+    receivePrivateNotes: {
+      type: "boolean",
+      default: "false",
+      description: "Also pass private notes to your message handlers.",
+    },
+    slashCommands: {
+      type: "string[]",
+      description:
+        "Commands, such as `\"/help\"`, whose messages from the contact reach `onSlashCommand` instead of your message handlers. See [Slash commands](#slash-commands).",
+    },
+    modalTexts: {
+      type: "Partial<ChatwootModalTexts>",
+      description:
+        "Phrases a conversational modal sends, to translate them: `cancel`, `cancelHint`, `cancelled`, `invalid`, `noResults`, `search`, `skip`, and `skipHint`. Contacts reply with the `cancel` and `skip` words.",
+    },
+    onEvent: {
+      type: "(payload: ChatwootWebhookPayload) => void | Promise<void>",
+      description:
+        "Called with every verified webhook payload, including events Chat SDK has no handler for.",
+    },
+    timestampToleranceMs: {
+      type: "number",
+      default: "300000",
+      description:
+        "How far a signed webhook's `X-Chatwoot-Timestamp` may be from the server clock before the adapter refuses it as a replay.",
+    },
+    maxBodyBytes: {
+      type: "number",
+      default: "4194304",
+      description:
+        "Largest webhook body the adapter reads, in bytes. A larger body gets `413`.",
+    },
+    timeoutMs: {
+      type: "number",
+      default: "30000",
+      description:
+        "How long one Chatwoot API request or attachment download may take, in milliseconds.",
+    },
+    logger: {
+      type: "Logger",
+      default: "ConsoleLogger(\"info\")",
+      description:
+        "Logger used until `Chat` initializes the adapter. After that, the adapter logs through the `Chat` instance's logger.",
+    },
+  }}
+/>
+
+### Environment variables
+
+| Variable | Required | Description |
+| --- | --- | --- |
+| `CHATWOOT_ACCESS_TOKEN` | Yes, unless `accessToken` is passed | Agent or agent bot access token |
+| `CHATWOOT_ACCOUNT_ID` | Yes, unless `accountId` is passed | Account ID, from `/app/accounts/<id>/` in the dashboard URL |
+| `CHATWOOT_WEBHOOK_SECRET` | Yes, unless `webhookSecret` is passed | Webhook secrets, separated by commas |
+| `CHATWOOT_BASE_URL` | No | Self-hosted Chatwoot URL. Defaults to `https://app.chatwoot.com` |
+| `CHATWOOT_INBOX_ID` | No | Inbox that `openDM()` uses for new conversations |
+| `CHATWOOT_USER_NAME` | No | Bot display name |
+
+`createChatwootAdapter()` throws a `ValidationError` when it finds neither the option nor the environment variable for the access token or the account ID.
+
+## Webhooks
+
+Every webhook must carry an `X-Chatwoot-Signature`, the HMAC-SHA256 of `{timestamp}.{body}`, that matches one of the configured secrets. The adapter answers `401` when no secret is configured, when the signature or `X-Chatwoot-Timestamp` header is missing, when the timestamp is more than `timestampToleranceMs` from the server clock, or when no secret matches. It checks the headers before reading the body, and answers `413` to a body larger than `maxBodyBytes`, stopping at the limit. With `allowUnverifiedWebhooks` and no secret, it accepts unsigned webhooks.
+
+A verified webhook gets `200` right away, and your handlers run in the background through `waitUntil`. Chatwoot counts any other status as a failed delivery, so the adapter also answers `200` to event types it doesn't know and ignores them. When the account webhook and an API inbox deliver the same payload, the adapter handles it once.
+
+The adapter ignores any event that names an account other than `accountId`, including in `onEvent`, and any message event that names no account. Thread IDs come from the payload while replies go to the configured account, so a secret shared across accounts, such as a global agent bot's, can't make the bot answer in the wrong one.
+
+Only the contact's own messages reach your handlers by default. Set `receiveAgentMessages` to also receive other agents' and bots' replies, and `receivePrivateNotes` to receive private notes. With both off, a bot never repeats an internal note to the customer, and two bots on one account never answer each other.
+
+`onEvent` receives every verified payload, so conversation lifecycle, typing, contact, and inbox events are available too:
+
+```typescript
+createChatwootAdapter({
+  onEvent: (event) => {
+    if (event.event === "conversation_resolved") console.log(event.id, "closed");
+  },
+});
+```
+
+## Direct messages
+
+Every Chatwoot conversation is a one-to-one thread between a contact and your account, so `onDirectMessage` receives all of them.
+
+The adapter's `openDM(contactId)` reuses one of the contact's conversations, preferring an unresolved one. When they have none, it opens one in an inbox that can reach the contact, preferring the contact's own. Set `inboxId` to limit both the search and the new conversation to one inbox. `chat.openDM()` and `chat.getUser()` route numeric user IDs only to the Discord, Telegram, or GitHub adapter, so call this adapter's methods directly:
+
+```typescript
+const chatwoot = bot.getAdapter("chatwoot");
+const thread = bot.thread(await chatwoot.openDM("20"));
+await thread.post("Hello!");
+```
+
+`getUser(userId)` looks the ID up among contacts first, then among the account's agents. Contacts and agents are numbered separately, so an agent that shares a contact's ID resolves to the contact. `fetchContact(contactId)` returns a contact's full record, and `listAgents()` lists the account's agents.
+
+## Formatting and cards
+
+Chatwoot stores message content as CommonMark and renders it for each channel, so the adapter sends markdown and parses incoming text as markdown.
+
+A card's text renders as markdown: a bold title, the subtitle, fields as `**Label:** value` lines, tables in a code block, charts as a text table of their data, and link buttons as markdown links. The card's images, the header image first, go out as attachments of the same message. Each image keeps the file name its URL ends with, and Chatwoot shows it as an image when that name has an image extension such as `.png` or `.jpg`.
+
+Buttons and select options become an `input_select`, the only interactive content Chatwoot patches back onto a message. Each channel presents it differently:
+
+- The website widget reports the pick on the card itself.
+- WhatsApp renders native buttons, up to 3 and then a list, and sends the tapped button's title back, quoting the card.
+- Telegram and LINE send the button's value, and Facebook sends its title.
+- Instagram and email show the options as text, and a reply that matches an option's title or value counts as the pick.
+
+A pick fires `onAction` with a `triggerId` and never reaches your message handlers. The adapter keeps each card's options in Chat SDK state for 24 hours, and a message counts as a pick when it matches an option of the card it quotes or of the conversation's latest card. Keep labels under 20 characters, which WhatsApp enforces and Chatwoot doesn't check, and values under 64 bytes for Telegram. Disabled buttons are left out, and a card posted as a private note goes without its options. Chatwoot's own `cards` content type isn't used, because its postback buttons only raise an event in the visitor's browser.
+
+## Modals
+
+`event.openModal()` works from every slash command and card pick, because each carries a `triggerId`. To open a modal elsewhere, build a trigger with `triggerIdOf(threadId, contactId)` and call the adapter's `openModal()`.
+
+- In a website widget conversation, a modal whose fields are all required, and are text inputs without a length limit, selects, or radio selects, shows as Chatwoot's native form. The adapter accepts a submission only when it answers exactly the fields it asked, with the options it offered, and passes the values to `onModalSubmit`.
+- Anywhere else, or when the modal has a number, date, external select, optional, or length-limited field, the modal runs as a conversation. The adapter asks each field in turn and asks again when a reply doesn't fit. A select shows numbered options, answered by number or label, and an external select searches through `onOptionsLoad`. `skip` keeps an optional field empty or at its initial value. Replying with `cancel`, or with the modal's `closeLabel` when it sets one, stops the modal and calls `onModalClose` when the modal sets `notifyOnClose`.
+
+Either way, an `errors` response asks again for those fields only, and an `update` or `push` response opens the new modal. An open modal waits 24 hours for its answers, kept in Chat SDK state per account, conversation, and contact. While a conversational modal is open, the contact's replies answer it instead of reaching your handlers. Set `modalTexts` to put the phrases it sends in your contacts' language.
+
+## Slash commands
+
+Chatwoot has no slash commands, so list yours in `slashCommands`. A contact's message whose first word matches one, ignoring case, reaches `onSlashCommand` instead of your message handlers: `"/help me"` arrives as command `/help` with text `"me"`. Any other text that starts with `/` stays a message. The event's channel is the conversation, so `event.channel.post()` answers there.
+
+```typescript
+createChatwootAdapter({ slashCommands: ["/help"] });
+
+bot.onSlashCommand("/help", async (event) => {
+  await event.channel.post(`Looking into ${event.text}`);
+});
+```
+
+## Streaming
+
+Chatwoot can't edit a sent message, so `thread.post(stream)` turns on the typing indicator while the stream runs, then posts the whole answer as one message. `thread.startTyping()` toggles the same typing status, which agents and the website widget show.
+
+## Attachments
+
+Send files with `files` or postable `attachments`, up to 15 per message including a card's images. A file without a `mimeType` gets one from its extension, because website widget inboxes refuse files outside the types Chatwoot accepts. Incoming `message.attachments` carry `type`, `name`, `mimeType`, and `size`, and `fetchData()` downloads the file when you call it. Instagram posts, reels, and stories arrive as images and videos. When a message has no text, a voice note's Chatwoot transcript becomes its text, and a shared location reads `Location: <name> (<lat>, <long>)`.
+
+The access token goes only to Chatwoot's API and its ActiveStorage file paths on the configured origin. Files anywhere else, including the storage service ActiveStorage redirects to, go through Chat SDK's SSRF-guarded downloader, which accepts HTTPS only, refuses private addresses, and checks every redirect again. Card image URLs and attachments sent by URL are downloaded the same way. Downloads stop at 40 MiB and at `timeoutMs`.
+
+## Message actions
+
+- `thread.reply()` posts a message that quotes another through Chatwoot's `in_reply_to`. Incoming messages don't set `message.replyTo`.
+- `deleteMessage()` deletes a message, and Chatwoot leaves a deleted placeholder in its place. `editMessage()` throws `NotImplementedError`, because Chatwoot has no message edit API.
+- `thread.markAsRead()` marks the whole conversation as seen by the bot's agent, because Chatwoot tracks read state per conversation, not per message.
+- Edits and deletes from `message_updated` events reach `onMessageUpdated` and `onMessageDeleted`. Chatwoot fires `message_updated` for any change, delivery status included, and delivers webhooks in no particular order, so an update reaches `onMessageUpdated` only when its content differs from what the adapter last recorded for that message, and an update that arrives before its message isn't an edit. Deletes reach `onMessageDeleted` once.
+
+## Conversation control
+
+Reach Chatwoot features that have no Chat SDK equivalent through `requireChatwootAdapter(thread)`, or narrow with `isChatwootAdapter(thread.adapter)` when the bot runs other adapters too:
+
+```typescript
+import { chatwootMention, requireChatwootAdapter } from "chat-adapter-chatwoot";
+
+bot.onDirectMessage(async (thread, message) => {
+  const chatwoot = requireChatwootAdapter(thread);
+
+  await chatwoot.postPrivateNote(
+    thread.id,
+    `${chatwootMention(30, "Bruce")} needs a look`,
+  );
+  await chatwoot.setLabels(thread.id, ["needs-human"]);
+  await chatwoot.toggleStatus({ threadId: thread.id, status: "open" });
+  await chatwoot.assign({ threadId: thread.id, assigneeId: 30 });
+});
+```
+
+| Method | Description |
+| --- | --- |
+| `postPrivateNote(threadId, message)` | Posts a note that agents see and the contact never does. Chatwoot notifies mentions only in private notes, so build them with `chatwootMention(id, name)`, or `chatwootMention(id, name, "team")` for a team |
+| `toggleStatus({ threadId, status, snoozedUntil })` | Opens, resolves, or snoozes the conversation, or moves it back to pending. With an agent token, opening also assigns the conversation to that agent |
+| `assign({ threadId, assigneeId, teamId })` | Assigns an agent, a team, or both. Pass `null` to unassign |
+| `setPriority({ threadId, priority })` | Sets the priority to `low`, `medium`, `high`, or `urgent`, or clears it with `null` |
+| `setLabels(threadId, labels)` | Replaces the conversation's labels |
+| `setCustomAttributes(threadId, attributes)` | Replaces the conversation's custom attributes. Chatwoot doesn't merge them |
+| `mute(threadId)` and `unmute(threadId)` | Resolves the conversation and blocks the contact across the account, then unblocks them. This is Chatwoot's mute, not a notification setting |
+| `markAsUnread(threadId)` | Restores the conversation's unread badge |
+| `fetch(endpoint, request)` | Calls any Application API route under `/api/v1`, with typed errors, the request timeout, and retries |
+
+A GET request that fails on the network, times out, or gets a 5xx response is retried up to three times with backoff, and so is a `429` whose `Retry-After` is 5 seconds or less. Writes are never retried, because Chatwoot can't tell a retried write from a new one. Timeouts and 5xx responses raise `NetworkError`, and other failures map onto the matching `@chat-adapter/shared` error.
+
+## Message history
+
+`fetchMessages()` pages back 20 messages at a time and forward up to 100. It returns private notes and activity messages too, so filter on `message.raw.private` and `message.author.isSystem`. `fetchMessage()` reads one message by ID.
+
+`listThreads()` lists an inbox's conversations, 25 per page with the newest activity first. Each thread's `rootMessage` is the conversation's latest message rather than its first, and conversations without messages are left out. `fetchThread()` returns the conversation's status, priority, labels, unread count, contact, assignee, and channel type in `metadata`, and `fetchChannelInfo()` returns the inbox's name and channel type.
+
+For a message that arrived by webhook, `message.subject` resolves to its conversation, titled with the contact's name, with its status, labels, assignee, and dashboard link.
+
+## Thread IDs
+
+Thread IDs take the form `chatwoot:{inboxId}:{contactId}:{conversationId}`, for example `chatwoot:10:20:300`. `conversationId` is Chatwoot's account-scoped `display_id`, the ID every conversation route takes, and `contactId` is `0` when a payload names no contact. Channel IDs take the form `chatwoot:{inboxId}`.
+
+To run two Chatwoot accounts in one bot, give each adapter an `adapterName` and register it under that same key, so `chat.thread(threadId)` resolves the right one:
+
+```typescript
+adapters: {
+  "chatwoot-sales": createChatwootAdapter({ adapterName: "chatwoot-sales", accountId: 2 }),
+  "chatwoot-support": createChatwootAdapter({ adapterName: "chatwoot-support", accountId: 3 }),
+}
+```
+
+## Limitations
+
+- Chatwoot has no edit or reaction API, so `editMessage()`, `addReaction()`, and `removeReaction()` throw `NotImplementedError`.
+- No scheduled messages, ephemeral messages, or posting to and reading from an inbox as a channel.
+- Message content is limited to 150,000 characters, and a longer post throws `ValidationError`.
+- Chatwoot never sends activity messages as webhooks, so they appear only in `fetchMessages()`.
+
+## Feature support
+
+<FeatureSupport />
+
+## Resources
+
+- [Adapter source](https://github.com/nivandres/chat-adapter-chatwoot)
+- [Sample Chatwoot payloads](https://github.com/nivandres/chat-adapter-chatwoot/blob/v0.1.2/sample-messages.md)
+- [`chat-adapter-chatwoot` on npm](https://www.npmjs.com/package/chat-adapter-chatwoot)
+- [Chatwoot](https://www.chatwoot.com)
