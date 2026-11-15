@@ -1,9 +1,103 @@
 import { toPlainText } from "chat";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { SlackFormatConverter } from "./markdown";
 
 describe("SlackFormatConverter", () => {
   const converter = new SlackFormatConverter();
+
+  describe("incoming fallback links", () => {
+    it.each([
+      "*".repeat(2049),
+      "]".repeat(129),
+      "a".repeat(16385),
+      "<".repeat(20000),
+      "<unfinished\n".repeat(2000),
+    ])("preserves explicit links without parsing over-budget input %#", (prefix) => {
+      const parsing = new SlackFormatConverter();
+      const parse = vi.spyOn(parsing, "toAst");
+      const result = parsing.parseIncoming(
+        `${prefix} <https://example.com/a?a=1&amp;b=2|領収書>`
+      );
+      expect(parse).not.toHaveBeenCalled();
+      expect(result.text).toBe(`${prefix} 領収書`);
+      expect(result.formatted).toEqual({
+        type: "root",
+        children: [
+          {
+            type: "paragraph",
+            children: [
+              { type: "text", value: `${prefix} ` },
+              {
+                type: "link",
+                url: "https://example.com/a?a=1&b=2",
+                children: [{ type: "text", value: "領収書" }],
+              },
+            ],
+          },
+        ],
+      });
+    });
+  });
+
+  it("keeps parsing at the emphasis boundary", () => {
+    const parsing = new SlackFormatConverter();
+    const parse = vi.spyOn(parsing, "toAst");
+    parsing.parseIncoming(`${"*".repeat(2048)} <https://example.com|receipt>`);
+    expect(parse).toHaveBeenCalledOnce();
+  });
+
+  it("preserves links when parsing overflows the stack", () => {
+    const parsing = new SlackFormatConverter();
+    vi.spyOn(parsing, "toAst").mockImplementation(() => {
+      throw new RangeError("stack");
+    });
+    expect(
+      parsing.parseIncoming("<https://example.com|receipt>").formatted
+    ).toMatchObject({
+      children: [{ children: [{ type: "link", url: "https://example.com" }] }],
+    });
+  });
+
+  it("preserves fallback labels, mentions, entities, and malformed tokens", () => {
+    const prefix = "*".repeat(2049);
+    const input = `${prefix} <@U_FAKE|sam> <#C_FAKE|team> <!here> &amp; <https://example.com|A &amp; B> <mailto:test@example.com> <tel:+15550000000|call> <https://example.com|> <javascript:alert(1)|bad> &lt;https://example.com&gt;`;
+    const result = converter.parseIncoming(input);
+    expect(result.text).toBe(
+      `${prefix} @sam #team (C_FAKE) @here & A & B test@example.com call <https://example.com|> <javascript:alert(1)|bad> <https://example.com>`
+    );
+    expect(toPlainText(result.formatted)).toBe(result.text);
+    const paragraph = result.formatted.children[0];
+    expect(paragraph?.type).toBe("paragraph");
+    if (paragraph?.type === "paragraph") {
+      expect(
+        paragraph.children
+          .filter((node) => node.type === "link")
+          .map((node) => node.url)
+      ).toEqual([
+        "https://example.com",
+        "mailto:test@example.com",
+        "tel:+15550000000",
+      ]);
+    }
+  });
+
+  it("preserves links in parts when the combined message exceeds the budget", () => {
+    const part = "<https://example.com|receipt>";
+    const parse = converter.incomingPartsParser(["*".repeat(2049), part]);
+    expect(parse(part)).toMatchObject({
+      children: [
+        {
+          children: [
+            {
+              type: "link",
+              url: "https://example.com",
+              children: [{ type: "text", value: "receipt" }],
+            },
+          ],
+        },
+      ],
+    });
+  });
 
   describe("toMarkdown (mrkdwn -> markdown)", () => {
     it.each([

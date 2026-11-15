@@ -16416,6 +16416,31 @@ describe("inbound markdown budget", { timeout: 20_000 }, () => {
       }
     });
 
+    it("preserves link destinations above the emphasis limit on both incoming paths", async () => {
+      const prefix = "*".repeat(2049);
+      for (const message of await parseBoth({
+        text: `${prefix} <https://example.com/a|receipt>`,
+      })) {
+        expect(message.text).toBe(`${prefix} receipt`);
+        expect(message.formatted).toEqual({
+          type: "root",
+          children: [
+            {
+              type: "paragraph",
+              children: [
+                { type: "text", value: `${prefix} ` },
+                {
+                  type: "link",
+                  url: "https://example.com/a",
+                  children: [{ type: "text", value: "receipt" }],
+                },
+              ],
+            },
+          ],
+        });
+      }
+    });
+
     it("keeps oversized history messages unparsed", async () => {
       const { adapter } = await createAdapter();
       mockClientMethod(
@@ -16679,7 +16704,23 @@ describe("inbound markdown budget", { timeout: 20_000 }, () => {
       for (const message of await parseBoth({ text: input })) {
         expect(message.formatted).toEqual({
           type: "root",
-          children: [unparsed(expected)],
+          children: [
+            {
+              type: "paragraph",
+              children: [
+                {
+                  type: "text",
+                  value: "Tom & Jerry @alice joined #general (C789), see ",
+                },
+                {
+                  type: "link",
+                  url: "https://example.com",
+                  children: [{ type: "text", value: "the docs" }],
+                },
+                { type: "text", value: ` <now> *as typed*${FILLER}` },
+              ],
+            },
+          ],
         });
         expect(message.text).toBe(expected);
       }
@@ -16711,7 +16752,26 @@ describe("inbound markdown budget", { timeout: 20_000 }, () => {
       const expected = `@devs mail https://example.com${FILLER}`;
       expect(messages[0]?.formatted).toEqual({
         type: "root",
-        children: [unparsed(expected)],
+        children: [
+          {
+            type: "paragraph",
+            children: [
+              { type: "text", value: "@devs " },
+              {
+                type: "link",
+                url: "mailto:a@example.com",
+                children: [{ type: "text", value: "mail" }],
+              },
+              { type: "text", value: " " },
+              {
+                type: "link",
+                url: "https://example.com",
+                children: [{ type: "text", value: "https://example.com" }],
+              },
+              { type: "text", value: FILLER },
+            ],
+          },
+        ],
       });
       expect(messages[0]?.text).toBe(expected);
     });
@@ -16725,7 +16785,25 @@ describe("inbound markdown budget", { timeout: 20_000 }, () => {
       for (const message of await parseBoth({ text: input })) {
         expect(message.formatted).toEqual({
           type: "root",
-          children: [unparsed(expected)],
+          children: [
+            {
+              type: "paragraph",
+              children: [
+                { type: "text", value: "Plain *bold* words and " },
+                ...Array.from({ length: 330 }, (_, index) => [
+                  {
+                    type: "link",
+                    url: "https://example.com",
+                    children: [{ type: "text", value: "a link" }],
+                  },
+                  {
+                    type: "text",
+                    value: index === 329 ? ".\n" : ".\nPlain *bold* words and ",
+                  },
+                ]).flat(),
+              ],
+            },
+          ],
         });
         expect(message.text).toBe(expected);
       }
