@@ -205,6 +205,9 @@ export const CLI_SCAFFOLD_SPEC = {
     },
     stateHint: "production - ioredis driver",
   },
+  hail: {
+    invocation: { kind: "zero-arg" },
+  },
   instagram: {
     invocation: { kind: "zero-arg" },
   },
