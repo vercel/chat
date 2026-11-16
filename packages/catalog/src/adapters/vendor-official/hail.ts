@@ -55,7 +55,7 @@ export const hail = {
   packageName: "@hail-hq/chat-sdk-adapter",
   peerDeps: [],
   readme:
-    "https://github.com/hail-hq/chat-sdk-adapter/tree/1e9099ea7881cd5fc31731ea05a0ebff9f6db562",
+    "https://github.com/hail-hq/chat-sdk-adapter/tree/8c8b8b83eeb63d9fc78355e6ddfbb620a0c79ccc",
   slug: "hail",
   type: "platform",
 } as const satisfies CatalogAdapter;
