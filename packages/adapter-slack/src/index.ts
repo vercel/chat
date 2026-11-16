@@ -2806,12 +2806,14 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
           });
         }
 
-        await this.routeSocketEvent(
-          body as Record<string, unknown>,
-          type as string,
-          ack,
-          undefined,
-          retry_num
+        await this.handleSocketEventSafely(type as string, () =>
+          this.routeSocketEvent(
+            body as Record<string, unknown>,
+            type as string,
+            ack,
+            undefined,
+            retry_num
+          )
         );
       }
     );
@@ -3045,24 +3047,26 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
         }
 
         const eventType = type as string;
-        if (webhookUrl) {
-          await ack();
-          await this.forwardSocketEvent(webhookUrl, {
-            type: "socket_event",
-            eventType,
-            body: body as Record<string, unknown>,
-            retryNum: retry_num,
-            timestamp: Date.now(),
-          });
-        } else {
-          await this.routeSocketEvent(
-            body as Record<string, unknown>,
-            eventType,
-            ack,
-            options,
-            retry_num
-          );
-        }
+        await this.handleSocketEventSafely(eventType, async () => {
+          if (webhookUrl) {
+            await ack();
+            await this.forwardSocketEvent(webhookUrl, {
+              type: "socket_event",
+              eventType,
+              body: body as Record<string, unknown>,
+              retryNum: retry_num,
+              timestamp: Date.now(),
+            });
+          } else {
+            await this.routeSocketEvent(
+              body as Record<string, unknown>,
+              eventType,
+              ack,
+              options,
+              retry_num
+            );
+          }
+        });
       }
     );
 
@@ -3141,6 +3145,24 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
         type: (event.body.type as string) || "unknown",
         error: String(error),
       });
+    }
+  }
+
+  /**
+   * Run a `slack_event` listener's work, logging a failure instead of throwing.
+   * SocketModeClient doesn't await its listeners, so a rejection would be an
+   * unhandled rejection, which terminates Node. The usual cause is `ack()`
+   * rejecting while the socket is closing or reconnecting; Slack redelivers
+   * the unacknowledged event, so it isn't lost.
+   */
+  private async handleSocketEventSafely(
+    type: string,
+    handle: () => Promise<void>
+  ): Promise<void> {
+    try {
+      await handle();
+    } catch (error) {
+      this.logger.error("Error handling socket mode event", { type, error });
     }
   }
 

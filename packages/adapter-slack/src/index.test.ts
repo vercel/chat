@@ -12821,6 +12821,35 @@ describe("socket mode - routeSocketEvent", () => {
       { type: "hello" }
     );
   });
+
+  it("logs instead of rejecting when ack fails", async () => {
+    const { chatInstance, slackEventHandler } = await createSocketAdapter();
+    const error = new Error(
+      "Failed to send a WebSocket message as the client is not ready"
+    );
+
+    await expect(
+      slackEventHandler({
+        ack: vi.fn().mockRejectedValue(error),
+        type: "events_api",
+        body: {
+          event: {
+            type: "message",
+            channel: "C123",
+            ts: "1234567890.123456",
+            text: "hello from socket",
+            user: "U_USER",
+          },
+        },
+      })
+    ).resolves.toBeUndefined();
+
+    expect(mockLogger.error).toHaveBeenCalledWith(
+      "Error handling socket mode event",
+      { type: "events_api", error }
+    );
+    expect(chatInstance).not.toHaveDispatched("processMessage");
+  });
 });
 
 describe("socket mode - disconnect", () => {
@@ -13230,6 +13259,55 @@ describe("startSocketModeListener", () => {
 
     expect(response.status).toBe(500);
     expect(await response.text()).toContain("waitUntil");
+  });
+
+  it("logs instead of rejecting when ack fails", async () => {
+    mockSocketOn.mockClear();
+    const adapter = createSlackAdapter({
+      botToken: "xoxb-test-token",
+      signingSecret: secret,
+      appToken: "xapp-test-token",
+      logger: mockLogger,
+    });
+    const abortController = new AbortController();
+    const waitUntil = vi.fn();
+    await adapter.startSocketModeListener(
+      { waitUntil },
+      1000,
+      abortController.signal,
+      "https://example.com/api/webhooks/slack"
+    );
+    await vi.waitFor(() => {
+      expect(mockSocketOn).toHaveBeenCalledWith(
+        "slack_event",
+        expect.any(Function)
+      );
+    });
+    const slackEventHandler = mockSocketOn.mock.calls.find(
+      (call: unknown[]) => call[0] === "slack_event"
+    )?.[1] as (args: {
+      ack: () => Promise<void>;
+      body: Record<string, unknown>;
+      type: string;
+    }) => Promise<void>;
+    const error = new Error(
+      "Failed to send a WebSocket message as the client is not ready"
+    );
+
+    await expect(
+      slackEventHandler({
+        ack: vi.fn().mockRejectedValue(error),
+        type: "events_api",
+        body: {},
+      })
+    ).resolves.toBeUndefined();
+
+    expect(mockLogger.error).toHaveBeenCalledWith(
+      "Error handling socket mode event",
+      { type: "events_api", error }
+    );
+    abortController.abort();
+    await waitUntil.mock.calls[0]?.[0];
   });
 });
 
