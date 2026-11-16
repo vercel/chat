@@ -1064,6 +1064,116 @@ describe("ThreadImpl", () => {
     });
   });
 
+  describe("source stream cleanup", () => {
+    let closed: boolean;
+
+    async function* endless(): AsyncIterable<string> {
+      try {
+        while (true) {
+          yield "word ";
+        }
+      } finally {
+        closed = true;
+      }
+    }
+
+    function createThread(adapter: Adapter, signal?: AbortSignal): ThreadImpl {
+      return new ThreadImpl({
+        id: "slack:C123:1234.5678",
+        adapter,
+        channelId: "C123",
+        stateAdapter: createMockState(),
+        fallbackStreamingPlaceholderText: null,
+        signal,
+      });
+    }
+
+    beforeEach(() => {
+      closed = false;
+    });
+
+    it("closes the source when the adapter stream throws mid loop", async () => {
+      const adapter = createMockAdapter();
+      adapter.stream = async (_threadId, textStream) => {
+        for await (const _ of textStream) {
+          throw new Error("too long");
+        }
+        return null;
+      };
+
+      await expect(createThread(adapter).post(endless())).rejects.toThrow(
+        "too long"
+      );
+      expect(closed).toBe(true);
+    });
+
+    it("closes the source when the adapter stream breaks early", async () => {
+      const adapter = createMockAdapter();
+      adapter.stream = async (_threadId, textStream) => {
+        let count = 0;
+        for await (const _ of textStream) {
+          count++;
+          if (count === 2) {
+            break;
+          }
+        }
+        return { id: "msg-stream", threadId: "t1", raw: null };
+      };
+
+      const sent = await createThread(adapter).post(endless());
+
+      expect(closed).toBe(true);
+      expect(sent.text).toBe("word word");
+    });
+
+    it("closes the source when the fallback post fails", async () => {
+      const adapter = createMockAdapter();
+      adapter.stream = undefined;
+      vi.mocked(adapter.postMessage).mockRejectedValueOnce(
+        new Error("post failed")
+      );
+
+      await expect(createThread(adapter).post(endless())).rejects.toThrow(
+        "post failed"
+      );
+      expect(closed).toBe(true);
+    });
+
+    it("closes the source when the thread is aborted", async () => {
+      const controller = new AbortController();
+      const adapter = createMockAdapter();
+      adapter.stream = async (_threadId, textStream) => {
+        for await (const _ of textStream) {
+          controller.abort();
+        }
+        return { id: "msg-stream", threadId: "t1", raw: null };
+      };
+
+      await createThread(adapter, controller.signal).post(endless());
+
+      expect(closed).toBe(true);
+    });
+
+    it("stops early on a source iterator without return", async () => {
+      const source: AsyncIterable<string> = {
+        [Symbol.asyncIterator]: () => ({
+          next: async () => ({ done: false, value: "word " }),
+        }),
+      };
+      const adapter = createMockAdapter();
+      adapter.stream = async (_threadId, textStream) => {
+        for await (const _ of textStream) {
+          break;
+        }
+        return { id: "msg-stream", threadId: "t1", raw: null };
+      };
+
+      const sent = await createThread(adapter).post(source);
+
+      expect(sent.text).toBe("word");
+    });
+  });
+
   describe("streaming with StreamChunk objects", () => {
     let thread: ThreadImpl;
     let mockAdapter: Adapter;
