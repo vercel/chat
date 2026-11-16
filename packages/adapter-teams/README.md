@@ -293,6 +293,19 @@ asynchronous work. For team installs, associate the destination with
 See the [installation lifecycle guide](https://chat-sdk.dev/adapters/official/teams#installation-lifecycle)
 for persistence, upgrade cleanup, and proactive examples.
 
+## Outgoing attachments
+
+`files` are sent inline as base64 data URIs. An entry in `attachments` with an HTTPS `url` is sent by reference instead, so a large image doesn't count toward the message size. Teams loads the URL itself, so it has to be publicly reachable.
+
+```typescript
+await thread.post({
+  markdown: "Screenshot from the report",
+  attachments: [
+    { type: "image", url: "https://example.com/screenshot.png", mimeType: "image/png" },
+  ],
+});
+```
+
 ## Incoming attachments
 
 Incoming inline images and files are exposed through `message.attachments` with a lazy `fetchData()` method. The adapter authenticates connector-hosted inline attachments through the configured Teams bot client, while [Teams file download cards](https://learn.microsoft.com/en-us/microsoftteams/platform/bots/how-to/bots-filesv4) use their direct download URL without the bot token.
