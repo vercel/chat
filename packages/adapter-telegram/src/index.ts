@@ -1050,17 +1050,16 @@ export class TelegramAdapter
       tasks.push(task);
     }
 
-    const messageUpdate =
-      update.message ??
-      update.edited_message ??
-      update.channel_post ??
-      update.edited_channel_post;
+    const messageUpdate = update.message ?? update.channel_post;
+    const editedMessageUpdate =
+      update.edited_message ?? update.edited_channel_post;
     const businessMessageUpdate =
       update.business_message ?? update.edited_business_message;
     const userId =
       update.callback_query?.from.id ??
       update.message_reaction?.user?.id ??
       messageUpdate?.from?.id ??
+      editedMessageUpdate?.from?.id ??
       businessMessageUpdate?.from?.id;
 
     if (
@@ -1085,6 +1084,17 @@ export class TelegramAdapter
 
     if (messageUpdate && !handledSlashCommand) {
       const task = this.handleIncomingMessageUpdate(messageUpdate, options);
+      if (task) {
+        tasks.push(task);
+      }
+    }
+
+    if (editedMessageUpdate) {
+      const task = this.handleEditedMessageUpdate(
+        editedMessageUpdate,
+        this.threadIdForMessage(editedMessageUpdate),
+        options
+      );
       if (task) {
         tasks.push(task);
       }
@@ -1224,6 +1234,11 @@ export class TelegramAdapter
       businessConnectionId: connectionId,
     });
 
+    if (routing.isEdit) {
+      await this.handleEditedMessageUpdate(telegramMessage, threadId, options);
+      return;
+    }
+
     if (telegramMessage.media_group_id) {
       const task = this.processIncomingMediaGroup(
         telegramMessage,
@@ -1242,9 +1257,11 @@ export class TelegramAdapter
       return;
     }
 
-    const command =
-      !routing.isEdit &&
-      this.handleSlashCommandUpdate(telegramMessage, threadId, options);
+    const command = this.handleSlashCommandUpdate(
+      telegramMessage,
+      threadId,
+      options
+    );
     if (command) {
       await command;
       return;
@@ -1291,6 +1308,24 @@ export class TelegramAdapter
     this.cacheMessage(parsedMessage);
 
     return this.chat.processMessage(this, threadId, parsedMessage, options);
+  }
+
+  protected handleEditedMessageUpdate(
+    telegramMessage: TelegramMessage,
+    threadId: string,
+    options?: WebhookOptions
+  ): Promise<void> | undefined {
+    if (!this.chat) {
+      return;
+    }
+
+    const message = this.parseTelegramMessage(telegramMessage, threadId);
+    this.cacheMessage(message);
+
+    return this.chat.processMessageUpdated(
+      { adapter: this, message, threadId },
+      options
+    );
   }
 
   protected async processIncomingMediaGroup(

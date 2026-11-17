@@ -326,7 +326,7 @@ bot.onMessageDeleted(async (event) => {
 | `raw` | `unknown` | Platform-specific delete event |
 
 <Callout type="warn">
-Only the Slack adapter emits these events today. Registering the handlers on another platform is harmless but nothing will call them. Check the **Message edit events** and **Message delete events** rows on each [adapter page](/adapters) before relying on them.
+Only some adapters emit these events. Slack emits both, while Teams and Telegram emit only `onMessageUpdated`. Registering the handlers on another platform is harmless but nothing will call them. Check the **Message edit events** and **Message delete events** rows on each [adapter page](/adapters) before relying on them.
 </Callout>
 
 ## Handling interactions

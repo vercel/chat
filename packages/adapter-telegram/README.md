@@ -129,6 +129,12 @@ curl -X POST "https://api.telegram.org/bot$TELEGRAM_BOT_TOKEN/setWebhook" \
   }'
 ```
 
+## Message edits
+
+`onMessageUpdated` fires for `edited_message`, `edited_channel_post`, and, in Business mode, `edited_business_message` updates. Telegram sends only the new version, so `previousMessage` is `undefined`. The updated message keeps the original message ID, `isMention` is worked out from the edited message like a new one, and `metadata.editedAt` is Telegram's `edit_date`. Edits never reach `onNewMessage`, `onNewMention`, `onSubscribedMessage`, or `onSlashCommand`, and they don't start a typing indicator.
+
+Telegram reports an edited album caption as an edit of that one item, so its ID is the item's message ID rather than the ID of the combined album message.
+
 ## Business mode (Connected Business Bots)
 
 Enable Telegram Business mode when your bot manages customer conversations on behalf of a connected business account:
@@ -146,6 +152,7 @@ With `businessMode: true`, the adapter:
 - Encodes business threads as `telegram:biz:{connectionId}:{chatId}`. Each business conversation is its own channel, kept apart from any direct chat the same customer has with the bot
 - Passes `business_connection_id` on outbound `sendMessage`, edits, typing, file uploads, and on threads created from inline-keyboard callbacks
 - Routes `/commands` from business chats through `onSlashCommand`, the same as regular chats
+- Reports `edited_business_message` updates to `onMessageUpdated`, the same as regular edits
 - Deletes messages with `deleteBusinessMessages`, which needs the `can_delete_sent_messages` right on the connection
 - Stores connection state in the Chat SDK state adapter, so a revoked or disabled connection is honoured by every running instance
 

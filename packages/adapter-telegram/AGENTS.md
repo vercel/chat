@@ -131,7 +131,9 @@ business thread under `telegram:biz`.
    - `message` → `chat.handleIncomingMessage`. Mentions are detected
      by walking `entities[].type === "mention"` and matching the bot's
      `@username`.
-   - `edited_message` → optional `onMessageEdit` hook.
+   - `edited_message` / `edited_channel_post` →
+     `chat.processMessageUpdated` with no `previousMessage`. No typing,
+     slash commands, or media group buffering.
    - `callback_query` → `chat.handleAction` (inline keyboard
      callbacks).
    - `inline_query` / `chosen_inline_result` → optional inline-mode
@@ -143,7 +145,8 @@ business thread under `telegram:biz`.
    - `business_message` / `edited_business_message` → resolve the
      connection from state (falling back to `getBusinessConnection`),
      drop owner-typed and `sender_business_bot` echoes, then route
-     slash commands, media groups, and messages like `message`.
+     slash commands, media groups, and messages like `message`, and
+     edits like `edited_message`.
 3. **`waitUntil`** — outbound API calls (`sendMessage`,
    `editMessageText`, etc.) run inside `waitUntil` so the webhook
    response lands quickly.
