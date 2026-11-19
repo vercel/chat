@@ -16895,6 +16895,7 @@ describe("user group mention resolution", () => {
       botToken: "xoxb-test-token",
       signingSecret: "test-signing-secret",
       logger: mockLogger,
+      botUserId: "U_BOT",
     });
     await adapter.initialize(chatInstance);
     const internals = adapter as unknown as UsergroupTestAdapter;
