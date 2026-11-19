@@ -356,6 +356,7 @@ oauth_config:
       - mpim:read
       - reactions:read
       - reactions:write
+      - usergroups:read
       - users:read
 
 settings:

@@ -167,3 +167,31 @@ This message event comes from the reproduction in [issue #956](https://github.co
   }]
 }
 ```
+
+## Unlabeled user group mention
+
+Slack sends a user group mention without a handle. `usergroups.list` supplies it.
+
+```json
+{
+  "type": "message",
+  "user": "U0123456789",
+  "channel": "C0123456789",
+  "ts": "1726600000.000200",
+  "text": "cc <!subteam^S0123456789>",
+  "blocks": [
+    {
+      "type": "rich_text",
+      "elements": [
+        {
+          "type": "rich_text_section",
+          "elements": [
+            { "type": "text", "text": "cc " },
+            { "type": "usergroup", "usergroup_id": "S0123456789" }
+          ]
+        }
+      ]
+    }
+  ]
+}
+```

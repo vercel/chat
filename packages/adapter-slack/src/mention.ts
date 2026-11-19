@@ -35,7 +35,7 @@ function mentionTokenPattern(userId: string): RegExp {
 /** The user ids referenced by `<@U…>` tokens in `text`. */
 function userMentionIds(text: string): Set<string> {
   const userIds = new Set<string>();
-  collectMentionIds(text, userIds, new Set());
+  collectMentionIds(text, userIds, new Set(), new Set());
   return userIds;
 }
 

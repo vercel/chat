@@ -199,8 +199,12 @@ writes themselves if they need to round-trip them.
 - `toAst(text)` — Slack mrkdwn → mdast. Handles `<@U…>`, `<#C…>`,
   `<!subteam^…>`, link/email syntax (`<url|label>`), bold (`*…*`),
   italic (`_…_`), strike (`~…~`), inline code, code fences, and
-  blockquotes. Mentions resolve via the `users.info` /
-  `usergroups.list` calls keyed by user-info cache to avoid round-trips.
+  blockquotes. Bare `<@U…>`, `<#C…>`, and `<!subteam^S…>` mentions resolve
+  through `users.info`, `conversations.info`, and `usergroups.list`
+  (`lookupMentionNames`), each cached in the state adapter for eight days
+  and scoped by installation. `usergroups.list` has no single-group
+  lookup, so `lookupUsergroup` lists groups and caches every handle. It needs
+  the `usergroups:read` scope and falls back to the ID on failure.
 - `fromAst(ast)` — mdast → mrkdwn. Lists, blockquotes, inline emphasis,
   links and code blocks all round-trip. Tables are flattened to fenced
   text because Slack mrkdwn has no table primitive.
