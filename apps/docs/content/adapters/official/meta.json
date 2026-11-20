@@ -21,6 +21,7 @@
     "xchat",
     "twitch",
     "web",
+    "webhook",
     "---State---",
     "memory",
     "redis",

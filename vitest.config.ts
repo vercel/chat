@@ -21,6 +21,7 @@ export default defineConfig({
       "packages/adapter-twilio",
       "packages/adapter-twitch",
       "packages/adapter-web",
+      "packages/adapter-webhook",
       "packages/adapter-whatsapp",
       "packages/adapter-x",
       "packages/create-chat-sdk",
