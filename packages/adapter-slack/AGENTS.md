@@ -285,7 +285,10 @@ Slack expires a native stream after roughly five minutes, so `stream()`
 works in segments: once a segment is `streamSegmentMaxAgeMs` old (the
 clock starts at the first call Slack accepts, not at construction), the
 next paragraph break (or, after a 30 s grace, the next line break)
-finalizes it and a new `chatStream` continues the reply. Rotation closes
+finalizes it and a new `chatStream` continues the reply. Slack also caps
+a stream's markdown_text at 12,000 characters in total, so a segment
+rotates early at the last line break that fits under
+`STREAM_SEGMENT_MAX_CHARS`. Rotation closes
 open task cards in the retired segment, replays them into the new segment,
 closes and reopens an open code fence, repeats a table header, replays the
 plan, and keeps `session_status: "processing"` with
