@@ -38,7 +38,7 @@
     "redis": "^5.11.0",
     "streamdown": "^2.3.0",
     "tailwindcss": "^4.1.18",
-    "workflow": "^4.2.4"
+    "workflow": "^5.7.0"
   },
   "devDependencies": {
     "@types/node": "^25.3.2",
