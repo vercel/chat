@@ -2933,6 +2933,12 @@ export interface HistoryConfig {
   thread?: {
     /** Maximum messages to store per thread (default: 100) */
     maxMessages?: number;
+    /**
+     * Store each message's `formatted` tree (default: true). Set to `false`
+     * to store a single text node holding the message's `text` instead, which
+     * keeps stored history close to the size of the text.
+     */
+    storeFormatted?: boolean;
     /** TTL for cached history in milliseconds (default: 7 days) */
     ttlMs?: number;
   };
