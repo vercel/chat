@@ -99,3 +99,47 @@
 ```
 
 None, yet as we are still working on the pubsub
+
+## Direct message
+
+A message in a DM with the app, from the replay fixture at `packages/integration-tests/fixtures/replay/dm/gchat.json`. The payload's top-level `space` carries the DM markers (`type`, `spaceType`, and `singleUserBotDm`), while `message.space` carries only the name. A card click in a DM has not been captured yet. The captured room click in `fixtures/replay/actions-reactions/gchat.json` carries the same top-level `space` fields under `buttonClickedPayload`.
+
+```json
+{
+  "chat": {
+    "user": {
+      "name": "users/100000000000000000001",
+      "displayName": "Test User",
+      "email": "testuser@example.com",
+      "type": "HUMAN"
+    },
+    "eventTime": "2026-01-02T18:02:52.270735Z",
+    "messagePayload": {
+      "space": {
+        "name": "spaces/jLQ7DiAAAAE",
+        "type": "DM",
+        "singleUserBotDm": true,
+        "spaceType": "DIRECT_MESSAGE"
+      },
+      "message": {
+        "name": "spaces/jLQ7DiAAAAE/messages/HpyRFx0N2eY.HpyRFx0N2eY",
+        "sender": {
+          "name": "users/100000000000000000001",
+          "displayName": "Test User",
+          "email": "testuser@example.com",
+          "type": "HUMAN"
+        },
+        "createTime": "2026-01-02T18:02:52.270735Z",
+        "text": "Thanks!",
+        "thread": {
+          "name": "spaces/jLQ7DiAAAAE/threads/HpyRFx0N2eY"
+        },
+        "space": {
+          "name": "spaces/jLQ7DiAAAAE"
+        },
+        "argumentText": "Thanks!"
+      }
+    }
+  }
+}
+```

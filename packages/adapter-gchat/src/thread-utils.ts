@@ -90,3 +90,49 @@ export function parseMessageName(messageId: string): GoogleChatMessageName {
 export function isDMThread(threadId: string): boolean {
   return threadId.endsWith(":dm");
 }
+
+/** The fields of a Google Chat space that identify a direct message. */
+export interface GoogleChatSpaceKind {
+  singleUserBotDm?: boolean | null;
+  /** Newer API format: "SPACE", "GROUP_CHAT", "DIRECT_MESSAGE" */
+  spaceType?: string | null;
+  /** Legacy format: "ROOM", "DM" */
+  type?: string | null;
+}
+
+/**
+ * Check if a space object describes a direct message. Payloads carry the
+ * legacy `type`, the newer `spaceType`, or both, depending on the source.
+ */
+export function isDMSpace(
+  space: GoogleChatSpaceKind | null | undefined
+): boolean {
+  return (
+    space?.type === "DM" ||
+    space?.spaceType === "DIRECT_MESSAGE" ||
+    space?.singleUserBotDm === true
+  );
+}
+
+/**
+ * Encode the thread ID an event in a space is dispatched on.
+ *
+ * A DM is a single conversation, so every event in it maps to the space-only
+ * `:dm` ID that openDM() returns, whatever thread the message sits in.
+ * Elsewhere the ID carries the message's thread, or the message itself when
+ * it has no thread.
+ */
+export function encodeSpaceEventThreadId(event: {
+  isDM: boolean;
+  messageName?: string | null;
+  spaceName: string;
+  threadName?: string | null;
+}): string {
+  if (event.isDM) {
+    return encodeThreadId({ spaceName: event.spaceName, isDM: true });
+  }
+  return encodeThreadId({
+    spaceName: event.spaceName,
+    threadName: event.threadName || event.messageName || undefined,
+  });
+}

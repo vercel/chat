@@ -55,8 +55,10 @@ import { cardToGoogleCard } from "./cards";
 import { GoogleChatFormatConverter } from "./markdown";
 import {
   decodeThreadId,
+  encodeSpaceEventThreadId,
   encodeThreadId,
   type GoogleChatThreadId,
+  isDMSpace,
   isDMThread,
   parseMessageName,
 } from "./thread-utils";
@@ -1133,10 +1135,11 @@ export class GoogleChatAdapter implements Adapter<GoogleChatThreadId, unknown> {
       "//chat.googleapis.com/",
       ""
     );
-    const threadName = message.thread?.name || message.name;
-    const threadId = this.encodeThreadId({
+    const threadId = encodeSpaceEventThreadId({
       spaceName: spaceName || message.space?.name || "",
-      threadName,
+      isDM: isDMSpace(message.space),
+      threadName: message.thread?.name,
+      messageName: message.name,
     });
 
     // Refresh subscription if needed (runs in background)
@@ -1212,9 +1215,10 @@ export class GoogleChatAdapter implements Adapter<GoogleChatThreadId, unknown> {
             name: messageName,
           });
           const threadName = messageResponse.data.thread?.name;
-          threadId = this.encodeThreadId({
+          threadId = encodeSpaceEventThreadId({
             spaceName: spaceName || "",
-            threadName: threadName ?? undefined,
+            isDM: isDMSpace(messageResponse.data.space),
+            threadName,
           });
           this.logger.debug("Fetched thread context for reaction", {
             messageName,
@@ -1389,10 +1393,11 @@ export class GoogleChatAdapter implements Adapter<GoogleChatThreadId, unknown> {
       return;
     }
 
-    const threadName = message?.thread?.name || message?.name;
-    const threadId = this.encodeThreadId({
+    const threadId = encodeSpaceEventThreadId({
       spaceName: space.name,
-      threadName,
+      isDM: isDMSpace(space),
+      threadName: message?.thread?.name,
+      messageName: message?.name,
     });
 
     const actionEvent: Omit<ActionEvent, "thread" | "openModal"> & {
@@ -1449,19 +1454,7 @@ export class GoogleChatAdapter implements Adapter<GoogleChatThreadId, unknown> {
       return;
     }
 
-    const message = messagePayload.message;
-    // For DMs, use space-only thread ID so all messages in the DM
-    // match the DM subscription created by openDM(). This treats the entire DM
-    // conversation as a single "thread" for subscription purposes.
-    const isDM =
-      messagePayload.space.type === "DM" ||
-      messagePayload.space.spaceType === "DIRECT_MESSAGE";
-    const threadName = isDM ? undefined : message.thread?.name || message.name;
-    const threadId = this.encodeThreadId({
-      spaceName: messagePayload.space.name,
-      threadName,
-      isDM,
-    });
+    const threadId = this.encodeMessageEventThreadId(messagePayload);
 
     // Let Chat class handle async processing and waitUntil
     this.chat.processMessage(
@@ -1470,6 +1463,19 @@ export class GoogleChatAdapter implements Adapter<GoogleChatThreadId, unknown> {
       this.parseGoogleChatMessage(event, threadId),
       options
     );
+  }
+
+  protected encodeMessageEventThreadId(
+    messagePayload: NonNullable<
+      NonNullable<GoogleChatEvent["chat"]>["messagePayload"]
+    >
+  ): string {
+    return encodeSpaceEventThreadId({
+      spaceName: messagePayload.space.name,
+      isDM: isDMSpace(messagePayload.space),
+      threadName: messagePayload.message.thread?.name,
+      messageName: messagePayload.message.name,
+    });
   }
 
   protected parseGoogleChatMessage(
@@ -2602,9 +2608,7 @@ export class GoogleChatAdapter implements Adapter<GoogleChatThreadId, unknown> {
       return {
         id: channelId,
         name: space.displayName ?? undefined,
-        isDM:
-          space.spaceType === "DIRECT_MESSAGE" ||
-          space.singleUserBotDm === true,
+        isDM: isDMSpace(space),
         memberCount,
         metadata: {
           spaceType: space.spaceType,
@@ -2760,13 +2764,10 @@ export class GoogleChatAdapter implements Adapter<GoogleChatThreadId, unknown> {
     if (!messagePayload) {
       throw new ValidationError("gchat", "Cannot parse non-message event");
     }
-    const threadName =
-      messagePayload.message.thread?.name || messagePayload.message.name;
-    const threadId = this.encodeThreadId({
-      spaceName: messagePayload.space.name,
-      threadName,
-    });
-    return this.parseGoogleChatMessage(event, threadId);
+    return this.parseGoogleChatMessage(
+      event,
+      this.encodeMessageEventThreadId(messagePayload)
+    );
   }
 
   renderFormatted(content: FormattedContent): string {
