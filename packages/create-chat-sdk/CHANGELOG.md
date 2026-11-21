@@ -1,5 +1,11 @@
 # create-chat-sdk
 
+## 0.7.2
+
+### Patch Changes
+
+- 9faccfa: Add the vendor-official Wayza adapter `@wayza/chat-adapter` to the catalog and `create-chat-sdk`.
+
 ## 0.7.1
 
 ### Patch Changes
