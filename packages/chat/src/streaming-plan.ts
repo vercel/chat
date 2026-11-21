@@ -22,6 +22,12 @@ export interface StreamingPlanOptions {
    */
   endWith?: unknown[];
   /**
+   * Show native thumbs up/down feedback buttons on the streamed message.
+   * Adapters that support them per message (currently Teams) show them;
+   * others ignore it.
+   */
+  feedbackButtons?: boolean;
+  /**
    * Controls how task_update chunks are displayed (Slack only).
    * - `"plan"` - all tasks grouped into a single plan block
    * - `"timeline"` - individual task cards shown inline with text (default)

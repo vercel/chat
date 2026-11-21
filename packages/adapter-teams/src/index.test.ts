@@ -14,6 +14,7 @@ import {
   ConsoleLogger,
   DEFAULT_MAX_INCOMING_PARSE_LENGTH,
   getEmoji,
+  type Logger,
   type Message,
   paragraph,
   root,
@@ -2161,6 +2162,35 @@ describe("TeamsAdapter", () => {
     });
 
     it.each([
+      "postMessage",
+      "postChannelMessage",
+      "postEphemeral",
+      "editMessage",
+    ] as const)("%s adds feedback buttons to the card only when feedbackButtons is true", async (method) => {
+      const send = async (feedbackButtons: boolean | undefined) => {
+        const { adapter, sent, threadId, updated } = createAdapterWithMocks();
+        const message = { adaptiveCard, feedbackButtons };
+        if (method === "editMessage") {
+          await adapter.editMessage(threadId, "card-msg-1", message);
+          return updated();
+        }
+        await (method === "postEphemeral"
+          ? adapter.postEphemeral(threadId, "29:target-user", message)
+          : adapter[method](threadId, message));
+        return sent();
+      };
+      const feedbackLoop = (activity: unknown) =>
+        (activity as { channelData?: { feedbackLoop?: unknown } }).channelData
+          ?.feedbackLoop;
+
+      expect(feedbackLoop(await send(true))).toEqual({ type: "default" });
+
+      for (const flag of [false, undefined, "yes" as unknown as boolean]) {
+        expect(feedbackLoop(await send(flag))).toBeUndefined();
+      }
+    });
+
+    it.each([
       ["markdown", { markdown: "Bug report" }],
       ["raw", { raw: "Bug report" }],
       ["card", { card: { type: "card", title: "Bug", children: [] } }],
@@ -2538,6 +2568,196 @@ describe("TeamsAdapter", () => {
         const { adapter, threadId, emit } = setUpNativeStream();
         await adapter.stream(threadId, chunks(["Usage ", "rose."]));
         expect(emit.mock.calls).toEqual([["Usage "], ["rose."]]);
+      });
+    });
+  });
+
+  describe("feedback buttons", () => {
+    const SERVICE_URL = "https://smba.trafficmanager.net/teams/";
+    const FEEDBACK_LOOP = { type: "default" };
+
+    const messagesWithButtons: [string, AdapterPostableMessage][] = [
+      [
+        "markdown",
+        { markdown: "Usage rose 12% this week.", feedbackButtons: true },
+      ],
+      [
+        "card",
+        {
+          card: { type: "card", title: "Weekly report", children: [] },
+          feedbackButtons: true,
+        },
+      ],
+    ];
+
+    interface SentActivity {
+      channelData?: { feedbackLoop?: unknown };
+    }
+
+    function setUp() {
+      const adapter = createTeamsAdapter({
+        appId: "test-app-id",
+        appPassword: "test",
+        logger,
+      });
+      const mockApp = (
+        adapter as unknown as {
+          app: { api: unknown; sendTo: ReturnType<typeof vi.fn> };
+        }
+      ).app;
+      mockApp.sendTo = vi.fn(async () => ({
+        id: "sent-msg-1",
+        type: "message",
+      }));
+      const update = vi.fn(async () => ({ id: "edit-msg-1" }));
+      mockApp.api = {
+        conversations: {
+          activities: () => ({ update, delete: vi.fn() }),
+        },
+        reactions: { add: vi.fn(), remove: vi.fn() },
+        serviceUrl: SERVICE_URL,
+      };
+      const threadId = adapter.encodeThreadId({
+        conversationId: "19:abc@thread.tacv2",
+        serviceUrl: SERVICE_URL,
+      });
+      const sentFeedbackLoop = () =>
+        (mockApp.sendTo.mock.calls[0]?.[1] as SentActivity).channelData
+          ?.feedbackLoop;
+      const updatedFeedbackLoop = () =>
+        (update.mock.calls[0]?.[1] as SentActivity | undefined)?.channelData
+          ?.feedbackLoop;
+      return { adapter, threadId, sentFeedbackLoop, updatedFeedbackLoop };
+    }
+
+    it.each(
+      messagesWithButtons
+    )("adds buttons to a %s message sent with postMessage", async (_kind, message) => {
+      const { adapter, threadId, sentFeedbackLoop } = setUp();
+      await adapter.postMessage(threadId, message);
+      expect(sentFeedbackLoop()).toEqual(FEEDBACK_LOOP);
+    });
+
+    it.each(
+      messagesWithButtons
+    )("adds buttons to a %s message sent with postChannelMessage", async (_kind, message) => {
+      const { adapter, threadId, sentFeedbackLoop } = setUp();
+      await adapter.postChannelMessage(threadId, message);
+      expect(sentFeedbackLoop()).toEqual(FEEDBACK_LOOP);
+    });
+
+    it.each(
+      messagesWithButtons
+    )("adds buttons to a targeted %s message sent with postEphemeral", async (_kind, message) => {
+      const { adapter, threadId, sentFeedbackLoop } = setUp();
+      await adapter.postEphemeral(threadId, "29:target-user", message);
+      expect(sentFeedbackLoop()).toEqual(FEEDBACK_LOOP);
+    });
+
+    it.each(
+      messagesWithButtons
+    )("adds buttons to a %s message updated with editMessage", async (_kind, message) => {
+      const { adapter, threadId, updatedFeedbackLoop } = setUp();
+      await adapter.editMessage(threadId, "edit-msg-1", message);
+      expect(updatedFeedbackLoop()).toEqual(FEEDBACK_LOOP);
+    });
+
+    it.each<[string, AdapterPostableMessage]>([
+      ["a plain string", "Sorry, something went wrong."],
+      ["markdown without the flag", { markdown: "Here's how to get started." }],
+      [
+        "markdown with the flag set to false",
+        { markdown: "Here's how to get started.", feedbackButtons: false },
+      ],
+      ["a bare card element", { type: "card", title: "Help", children: [] }],
+    ])("does not add buttons to %s", async (_kind, message) => {
+      const { adapter, threadId, sentFeedbackLoop } = setUp();
+      await adapter.postMessage(threadId, message);
+      expect(sentFeedbackLoop()).toBeUndefined();
+    });
+
+    it("does not carry the buttons over to an edit that omits the flag", async () => {
+      const { adapter, threadId, sentFeedbackLoop, updatedFeedbackLoop } =
+        setUp();
+      await adapter.postMessage(threadId, {
+        markdown: "Usage rose 12% this week.",
+        feedbackButtons: true,
+      });
+      await adapter.editMessage(threadId, "sent-msg-1", "Usage rose 15%.");
+      expect(sentFeedbackLoop()).toEqual(FEEDBACK_LOOP);
+      expect(updatedFeedbackLoop()).toBeUndefined();
+    });
+
+    it("sets the buttons independently of the AI-generated label", async () => {
+      const { adapter, threadId } = setUp();
+      const mockApp = (
+        adapter as unknown as {
+          app: { sendTo: ReturnType<typeof vi.fn> };
+        }
+      ).app;
+      await adapter.postMessage(threadId, {
+        markdown: "Usage rose 12% this week.",
+        aiGenerated: true,
+        feedbackButtons: true,
+      });
+      const activity = mockApp.sendTo.mock.calls[0]?.[1] as SentActivity & {
+        entities?: { additionalType?: string[] }[];
+      };
+      expect(activity.channelData?.feedbackLoop).toEqual(FEEDBACK_LOOP);
+      expect(
+        activity.entities?.some((entity) =>
+          entity.additionalType?.includes("AIGeneratedContent")
+        )
+      ).toBe(true);
+    });
+
+    describe("stream", () => {
+      async function* chunks(parts: string[]) {
+        yield* parts;
+      }
+
+      it("adds buttons to a buffered stream when feedbackButtons is set", async () => {
+        const { adapter, threadId, sentFeedbackLoop } = setUp();
+        await adapter.stream(threadId, chunks(["Usage ", "rose."]), {
+          feedbackButtons: true,
+        });
+        expect(sentFeedbackLoop()).toEqual(FEEDBACK_LOOP);
+      });
+
+      it("does not add buttons to a buffered stream without the flag", async () => {
+        const { adapter, threadId, sentFeedbackLoop } = setUp();
+        await adapter.stream(threadId, chunks(["Usage ", "rose."]));
+        expect(sentFeedbackLoop()).toBeUndefined();
+      });
+
+      it("adds buttons to every chunk emitted to an active streamer", async () => {
+        const { adapter, threadId } = setUp();
+        let onChunk: ((activity: { id: string }) => void) | undefined;
+        const emit = vi.fn(() => onChunk?.({ id: "answer-id" }));
+        (
+          adapter as unknown as { activeStreams: Map<string, unknown> }
+        ).activeStreams.set(threadId, {
+          canceled: false,
+          close: vi.fn(),
+          emit,
+          events: {
+            once: vi.fn((_event, listener) => {
+              onChunk = listener;
+            }),
+          },
+          update: vi.fn(),
+        });
+
+        await adapter.stream(threadId, chunks(["Usage ", "rose."]), {
+          feedbackButtons: true,
+        });
+
+        expect(emit).toHaveBeenCalledTimes(2);
+        for (const [arg] of emit.mock.calls as unknown[][]) {
+          expect((arg as SentActivity).channelData?.feedbackLoop).toEqual(
+            FEEDBACK_LOOP
+          );
+        }
       });
     });
   });
@@ -3580,6 +3800,147 @@ describe("card.action invoke ack", () => {
         (response as { value: string }).value.length > 0
     ).toBe(true);
     expect(chat.processAction).toHaveBeenCalledOnce();
+  });
+});
+
+describe("feedback button clicks", () => {
+  type InvokeHandler = (ctx: {
+    activity: Record<string, unknown>;
+  }) => Promise<unknown>;
+
+  // Modeled on Microsoft's documented message/submitAction payload; no
+  // captured traffic exists yet.
+  function feedbackInvoke(actionValue: Record<string, unknown>) {
+    return {
+      channelId: "msteams",
+      conversation: { conversationType: "personal", id: "a:1-dm" },
+      from: { id: "29:user-1", name: "Ada", aadObjectId: "aad-user-1" },
+      id: "invoke-feedback-1",
+      name: "message/submitAction",
+      replyToId: "1700000000000",
+      serviceUrl: TEST_SERVICE_URL,
+      type: "invoke",
+      value: { actionName: "feedback", actionValue },
+    };
+  }
+
+  async function setUp(adapterLogger: Logger = logger) {
+    const adapter = createTeamsAdapter({
+      appId: "test-app",
+      appPassword: "test",
+      logger: adapterLogger,
+    });
+    const chat = createMockChatInstance();
+    await adapter.initialize(chat);
+    const app = (
+      adapter as unknown as {
+        app: {
+          router: {
+            select: (activity: Record<string, unknown>) => InvokeHandler[];
+          };
+        };
+      }
+    ).app;
+    const click = async (activity: Record<string, unknown>) => {
+      const [handler] = app.router.select(activity);
+      if (!handler) {
+        throw new Error(`No route for ${String(activity.name)}`);
+      }
+      return handler({ activity });
+    };
+    return { chat, click };
+  }
+
+  it("dispatches a thumbs up through onAction and answers with an empty 200", async () => {
+    const { chat, click } = await setUp();
+
+    const response = await click(
+      feedbackInvoke({ reaction: "like", feedback: "" })
+    );
+
+    expect(response).toBeUndefined();
+    expect(chat.processAction).toHaveBeenCalledOnce();
+    expect(chat.processAction).toHaveBeenCalledWith(
+      expect.objectContaining({
+        actionId: "message_feedback",
+        messageId: "1700000000000",
+        user: expect.objectContaining({ userId: "29:user-1" }),
+        value: "positive",
+        values: undefined,
+      }),
+      undefined
+    );
+  });
+
+  it("dispatches a thumbs down with the comment the user typed", async () => {
+    const { chat, click } = await setUp();
+
+    await click(
+      feedbackInvoke({
+        reaction: "dislike",
+        feedback: JSON.stringify({ feedbackText: "The numbers were wrong." }),
+      })
+    );
+
+    expect(chat.processAction).toHaveBeenCalledWith(
+      expect.objectContaining({
+        actionId: "message_feedback",
+        value: "negative",
+        values: { feedback: "The numbers were wrong." },
+      }),
+      undefined
+    );
+  });
+
+  it("ignores a reaction Teams doesn't document, logging only the reaction", async () => {
+    const debug = vi.fn();
+    const spyLogger: Logger = {
+      child: () => spyLogger,
+      debug,
+      error: vi.fn(),
+      info: vi.fn(),
+      warn: vi.fn(),
+    };
+    const { chat, click } = await setUp(spyLogger);
+
+    const response = await click(
+      feedbackInvoke({
+        reaction: "laugh",
+        feedback: JSON.stringify({ feedbackText: "private comment" }),
+      })
+    );
+
+    expect(response).toBeUndefined();
+    expect(chat.processAction).not.toHaveBeenCalled();
+    expect(debug).toHaveBeenCalledWith(
+      "Teams feedback with an unknown reaction",
+      { reaction: "laugh" }
+    );
+    expect(JSON.stringify(debug.mock.calls)).not.toContain("private comment");
+  });
+
+  it("logs a long or non-string reaction without its full value", async () => {
+    const debug = vi.fn();
+    const spyLogger: Logger = {
+      child: () => spyLogger,
+      debug,
+      error: vi.fn(),
+      info: vi.fn(),
+      warn: vi.fn(),
+    };
+    const { click } = await setUp(spyLogger);
+
+    await click(feedbackInvoke({ reaction: "x".repeat(500), feedback: "" }));
+    await click(feedbackInvoke({ reaction: { nested: true }, feedback: "" }));
+
+    expect(debug).toHaveBeenCalledWith(
+      "Teams feedback with an unknown reaction",
+      { reaction: "x".repeat(32) }
+    );
+    expect(debug).toHaveBeenCalledWith(
+      "Teams feedback with an unknown reaction",
+      { reaction: "object" }
+    );
   });
 });
 

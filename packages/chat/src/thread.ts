@@ -117,11 +117,15 @@ function isAsyncIterable(
   );
 }
 
-function withAiGenerated(
+function withMessageFlags(
   postable: PostableMarkdown,
   options: StreamOptions | undefined
 ): PostableMarkdown {
-  return options?.aiGenerated ? { ...postable, aiGenerated: true } : postable;
+  return {
+    ...postable,
+    ...(options?.aiGenerated ? { aiGenerated: true } : {}),
+    ...(options?.feedbackButtons ? { feedbackButtons: true } : {}),
+  };
 }
 
 let neverAbortedSignal: AbortSignal | undefined;
@@ -522,6 +526,7 @@ export class ThreadImpl<TState = Record<string, unknown>>
           stream: AsyncIterable<string | StreamChunk | StreamEvent>;
           options: {
             aiGenerated?: boolean;
+            feedbackButtons?: boolean;
             groupTasks?: "plan" | "timeline";
             endWith?: unknown[];
             sessionStatus?: StreamOptions["sessionStatus"];
@@ -530,6 +535,7 @@ export class ThreadImpl<TState = Record<string, unknown>>
         };
         const streamOptions: StreamOptions = {
           ...(data.options.aiGenerated ? { aiGenerated: true } : {}),
+          ...(data.options.feedbackButtons ? { feedbackButtons: true } : {}),
           ...(data.options.updateIntervalMs !== undefined
             ? { updateIntervalMs: data.options.updateIntervalMs }
             : {}),
@@ -874,7 +880,7 @@ export class ThreadImpl<TState = Record<string, unknown>>
         this._typingStarted = false;
         const sent = this.createSentMessage(
           raw.id,
-          withAiGenerated({ markdown: accumulated }, options),
+          withMessageFlags({ markdown: accumulated }, options),
           raw.threadId
         );
 
@@ -1070,7 +1076,7 @@ export class ThreadImpl<TState = Record<string, unknown>>
           await this.adapter.editMessage(
             threadIdForEdits,
             msg.id,
-            withAiGenerated({ markdown: content }, options)
+            withMessageFlags({ markdown: content }, options)
           );
           lastEditContent = content;
         } catch (error) {
@@ -1096,7 +1102,7 @@ export class ThreadImpl<TState = Record<string, unknown>>
           if (content.trim()) {
             msg = await this.adapter.postMessage(
               this.id,
-              withAiGenerated({ markdown: content }, options)
+              withMessageFlags({ markdown: content }, options)
             );
             threadIdForEdits = msg.threadId || this.id;
             lastEditContent = content;
@@ -1123,7 +1129,7 @@ export class ThreadImpl<TState = Record<string, unknown>>
     if (!msg) {
       msg = await this.adapter.postMessage(
         this.id,
-        withAiGenerated(
+        withMessageFlags(
           { markdown: accumulated.trim() ? accumulated : " " },
           options
         )
@@ -1136,13 +1142,13 @@ export class ThreadImpl<TState = Record<string, unknown>>
       await this.adapter.editMessage(
         threadIdForEdits,
         msg.id,
-        withAiGenerated({ markdown: accumulated }, options)
+        withMessageFlags({ markdown: accumulated }, options)
       );
     }
 
     const sent = this.createSentMessage(
       msg.id,
-      withAiGenerated({ markdown: accumulated }, options),
+      withMessageFlags({ markdown: accumulated }, options),
       threadIdForEdits
     );
 

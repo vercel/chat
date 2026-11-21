@@ -451,6 +451,35 @@ Messages posted through the built-in [AI tools](/docs/ai/ai-sdk-tools) are label
 
 See Microsoft's [AI content labels documentation](https://learn.microsoft.com/en-us/microsoftteams/platform/agents-in-teams/integrate-ai/ai-content-labels).
 
+## Feedback buttons
+
+Set `feedbackButtons: true` on a message object to show Teams' native thumbs up and thumbs down buttons on the bot's message. After a click, Teams asks the user for an optional comment, then sends the feedback to your bot:
+
+```typescript title="lib/bot.ts"
+await thread.post({ markdown: answer, aiGenerated: true, feedbackButtons: true });
+
+bot.onAction("message_feedback", async (event) => {
+  // event.value is "positive" or "negative".
+  // event.values?.feedback holds the user's comment, when they typed one.
+  // event.messageId is the ID of the message that was rated.
+  await recordFeedback(event.messageId, event.value, event.values?.feedback);
+});
+```
+
+Clicks dispatch through the regular action flow with the action ID `"message_feedback"` and the values `"positive"` and `"negative"`. These match the defaults of the Slack adapter's [feedback buttons](/adapters/official/slack#feedback-buttons), so one handler serves both platforms.
+
+The flag follows the same rules as `aiGenerated`. It works with `markdown`, `raw`, `ast`, and `card` messages, and with raw Adaptive Cards. A plain string, a bare card element, or a JSX `<Card>` is sent without buttons. An edit replaces the whole Teams activity, so pass `feedbackButtons: true` again on every edit to keep the buttons.
+
+To add buttons to a streamed response, wrap the stream in a `StreamingPlan`:
+
+```typescript
+await thread.post(
+  new StreamingPlan(result.fullStream, { aiGenerated: true, feedbackButtons: true })
+);
+```
+
+In DMs, Teams shows the buttons once the stream finishes. If a native stream runs past Teams' two-minute streaming limit, the Teams SDK sends the final message without the buttons.
+
 ## Raw Adaptive Cards
 
 Chat SDK cards cover the elements that every platform can render. For Adaptive Card features they don't cover, such as `Badge` or container styles, pass the card as `adaptiveCard` to the Teams adapter's `postMessage`, `postChannelMessage`, `postEphemeral`, or `editMessage`. The adapter sends the card as is. `thread.post()` doesn't accept it, because other platforms can't render it.

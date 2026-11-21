@@ -687,6 +687,8 @@ export interface StreamOptions {
   aiGenerated?: boolean;
   /** Placeholder text when explicitly configured for fallback streaming. */
   fallbackStreamingPlaceholderText?: string | null;
+  /** Show native thumbs up/down feedback buttons on the streamed message. Adapters that support them per message (currently Teams) show them. */
+  feedbackButtons?: boolean;
   /** Slack: The team/workspace ID */
   recipientTeamId?: string;
   /** Slack: The user ID to stream to (for AI assistant context) */
@@ -1851,6 +1853,8 @@ export interface PostableRaw {
   aiGenerated?: boolean;
   /** File/image attachments */
   attachments?: Attachment[];
+  /** Show native thumbs up/down feedback buttons. Adapters that support them per message (currently Teams) show them; others ignore it. */
+  feedbackButtons?: boolean;
   /** Files to upload */
   files?: FileUpload[];
   /** Raw text passed through as-is to the platform */
@@ -1862,6 +1866,8 @@ export interface PostableMarkdown {
   aiGenerated?: boolean;
   /** File/image attachments */
   attachments?: Attachment[];
+  /** Show native thumbs up/down feedback buttons. Adapters that support them per message (currently Teams) show them; others ignore it. */
+  feedbackButtons?: boolean;
   /** Files to upload */
   files?: FileUpload[];
   /** Markdown text, converted to platform format */
@@ -1875,6 +1881,8 @@ export interface PostableAst {
   ast: Root;
   /** File/image attachments */
   attachments?: Attachment[];
+  /** Show native thumbs up/down feedback buttons. Adapters that support them per message (currently Teams) show them; others ignore it. */
+  feedbackButtons?: boolean;
   /** Files to upload */
   files?: FileUpload[];
 }
@@ -1886,6 +1894,8 @@ export interface PostableCard {
   card: CardElement;
   /** Fallback text for platforms/clients that can't render cards */
   fallbackText?: string;
+  /** Show native thumbs up/down feedback buttons. Adapters that support them per message (currently Teams) show them; others ignore it. */
+  feedbackButtons?: boolean;
   /** Files to upload */
   files?: FileUpload[];
 }

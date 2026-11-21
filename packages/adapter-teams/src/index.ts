@@ -14,6 +14,7 @@ import type {
   IConversationUpdateActivity,
   IMessageActivity,
   IMessageReactionActivity,
+  IMessageSubmitActionInvokeActivity,
   IMessageUpdateActivity,
   InstallUpdateActivity,
   ITaskFetchInvokeActivity,
@@ -82,6 +83,11 @@ import {
 } from "./cards";
 import { toAppOptions } from "./config";
 import { handleTeamsError } from "./errors";
+import {
+  applyFeedbackButtons,
+  FEEDBACK_ACTION_ID,
+  feedbackActionFromInvoke,
+} from "./feedback";
 import { TeamsGraphReader } from "./graph-api";
 import { isInstallAction, parseInstallationAction } from "./installation";
 import { TeamsFormatConverter } from "./markdown";
@@ -116,6 +122,9 @@ interface ActionSubmitData {
   actionId?: string;
   value?: string;
 }
+
+/** The reaction on a feedback invoke is untrusted, so only this much of it is logged. */
+const MAX_LOGGED_REACTION_LENGTH = 32;
 
 /**
  * Valid adaptiveCard/action invoke acknowledgement.
@@ -174,8 +183,34 @@ function createCardActivity(
   if (card.aiGenerated) {
     activity.addAiGenerated();
   }
+  if (card.feedbackButtons) {
+    activity.addFeedback();
+  }
   if (card.summary) {
     activity.withSummary(card.summary);
+  }
+  return activity;
+}
+
+/**
+ * A chunk for the native streamer. The streamer builds the final message from
+ * the last emitted chunk's entities and every chunk's `channelData`, so each
+ * chunk carries the label and the feedback buttons.
+ */
+function streamChunkActivity(
+  text: string,
+  aiGenerated: boolean | undefined,
+  feedbackButtons: boolean | undefined
+): string | MessageActivityInput {
+  if (!(aiGenerated || feedbackButtons)) {
+    return text;
+  }
+  const activity = new MessageActivityInput(text);
+  if (aiGenerated) {
+    activity.addAiGenerated();
+  }
+  if (feedbackButtons) {
+    activity.addFeedback();
   }
   return activity;
 }
@@ -284,6 +319,13 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
       this.cacheUserContext(ctx.activity);
       await this.handleAdaptiveCardAction(ctx);
       return CARD_ACTION_INVOKE_ACK;
+    });
+
+    // Teams expects an empty 200 for message/submitAction, which the SDK
+    // sends when the handler returns nothing.
+    this.app.on("message.submit.feedback", async (ctx) => {
+      this.cacheUserContext(ctx.activity);
+      this.handleFeedbackSubmit(ctx.activity);
     });
 
     this.app.on(
@@ -816,6 +858,56 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
     this.logger.debug("Processing Teams adaptive card action", {
       actionId: actionData.actionId,
       value: actionData.value,
+      messageId: actionEvent.messageId,
+      threadId,
+    });
+
+    this.chat.processAction(
+      actionEvent,
+      this.bridgeAdapter.getWebhookOptions()
+    );
+  }
+
+  /**
+   * Handle a click on Teams' native feedback buttons (message/submitAction).
+   * Dispatched through onAction with the same action ID and values as
+   * Slack's feedback buttons, so one handler serves both.
+   */
+  protected handleFeedbackSubmit(
+    activity: IMessageSubmitActionInvokeActivity
+  ): void {
+    if (!this.chat) {
+      return;
+    }
+
+    const feedback = feedbackActionFromInvoke(activity.value ?? {});
+    if (!feedback) {
+      const reaction: unknown = activity.value?.actionValue?.reaction;
+      this.logger.debug("Teams feedback with an unknown reaction", {
+        reaction:
+          typeof reaction === "string"
+            ? reaction.slice(0, MAX_LOGGED_REACTION_LENGTH)
+            : typeof reaction,
+      });
+      return;
+    }
+
+    const threadId = this.threadIdFromActivity(activity);
+    const actionEvent: Omit<ActionEvent, "thread" | "openModal"> & {
+      adapter: TeamsAdapter;
+    } = {
+      actionId: FEEDBACK_ACTION_ID,
+      value: feedback.value,
+      values: feedback.values,
+      user: this.authorFromActivity(activity),
+      messageId: activity.replyToId || "",
+      threadId,
+      adapter: this,
+      raw: activity,
+    };
+
+    this.logger.debug("Processing Teams feedback", {
+      value: feedback.value,
       messageId: actionEvent.messageId,
       threadId,
     });
@@ -1408,6 +1500,7 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
       activity.attachments = fileAttachments;
     }
     applyAiGeneratedLabel(activity, message);
+    applyFeedbackButtons(activity, message);
 
     this.logger.debug("Teams API: send (message)", {
       conversationId,
@@ -1500,6 +1593,7 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
       activity.attachments = fileAttachments;
     }
     applyAiGeneratedLabel(activity, message);
+    applyFeedbackButtons(activity, message);
 
     this.logger.debug("Teams API: send (targeted message)", {
       conversationId,
@@ -1687,6 +1781,7 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
     const activity = new MessageActivity(text);
     activity.textFormat = "markdown";
     applyAiGeneratedLabel(activity, message);
+    applyFeedbackButtons(activity, message);
 
     const targeted = await this.isTargetedActivity(conversationId, messageId);
 
@@ -1853,7 +1948,8 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
         textStream,
         activeStream,
         options?.fallbackStreamingPlaceholderText,
-        options?.aiGenerated
+        options?.aiGenerated,
+        options?.feedbackButtons
       );
     }
 
@@ -1880,6 +1976,7 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
     return this.postMessage(threadId, {
       markdown: accumulated,
       aiGenerated: options?.aiGenerated,
+      feedbackButtons: options?.feedbackButtons,
     });
   }
 
@@ -1896,7 +1993,8 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
     textStream: AsyncIterable<string | StreamChunk>,
     stream: IStreamer,
     placeholderText?: string | null,
-    aiGenerated?: boolean
+    aiGenerated?: boolean,
+    feedbackButtons?: boolean
   ): Promise<RawMessage<unknown>> {
     let accumulated = "";
     let messageId = "";
@@ -1928,11 +2026,7 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
           continue;
         }
 
-        // The streamer builds the final message from the last emitted
-        // activity's entities, so every chunk carries the label.
-        stream.emit(
-          aiGenerated ? new MessageActivityInput(text).addAiGenerated() : text
-        );
+        stream.emit(streamChunkActivity(text, aiGenerated, feedbackButtons));
         accumulated += text;
       }
     } catch (error) {
@@ -2122,6 +2216,7 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
       activity.attachments = fileAttachments;
     }
     applyAiGeneratedLabel(activity, message);
+    applyFeedbackButtons(activity, message);
 
     try {
       const sent = await this.app.sendTo(
