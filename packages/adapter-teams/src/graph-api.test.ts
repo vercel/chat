@@ -15,6 +15,7 @@ function createAttachmentFetchers() {
     createAnonymousFetchData: vi.fn(),
     fetchAuthenticated: vi.fn(),
     fetchGraphFile: vi.fn(),
+    fetchGraphHostedContent: vi.fn(),
   };
 }
 
@@ -282,6 +283,90 @@ describe("TeamsAdapter.fetchMessages Graph routing", () => {
       "sharedDriveItem-id": `u!${Buffer.from(fileUrl).toString("base64url")}`,
     });
     expect(createFetchDataFn).toHaveBeenCalledWith(downloadUrl);
+  });
+
+  it("downloads images pasted into a message through Microsoft Graph", async () => {
+    const imageUrl =
+      "https://graph.microsoft.com/v1.0/chats/19:group-chat@thread.v2/messages/1747634491000/hostedContents/aWQ9eF8w/$value";
+    const adapter = createTeamsAdapter({
+      appId: "bot-id",
+      appPassword: "test",
+      logger: new ConsoleLogger("error"),
+    });
+    const app = (adapter as unknown as { app: TeamsApp }).app;
+    vi.spyOn(app, "initialize").mockResolvedValue(undefined);
+    vi.spyOn(app.graph, "call").mockResolvedValueOnce({
+      value: [
+        {
+          id: "1747634491000",
+          body: {
+            content: `<p>these boxes should be the same size</p><p><img src="${imageUrl}" alt="image"><img src="https://example.com/hostedContents/x/$value"></p>`,
+            contentType: "html",
+          },
+          attachments: [],
+        },
+      ],
+    });
+    const get = vi
+      .spyOn(app.graph.http, "get")
+      .mockResolvedValue({ data: Buffer.from("png bytes") } as never);
+    await adapter.initialize(
+      createMockChatInstance({ state: createMockState() })
+    );
+
+    const result = await adapter.fetchMessages(
+      adapter.encodeThreadId({
+        conversationId: "19:group-chat@thread.v2",
+        conversationType: "groupChat",
+        serviceUrl: "https://smba.trafficmanager.net/teams/",
+      })
+    );
+    const [message] = result.messages;
+
+    expect(message?.text).toBe("these boxes should be the same size");
+    expect(message?.attachments).toHaveLength(1);
+    const [image] = message?.attachments ?? [];
+    expect(image).toMatchObject({
+      type: "image",
+      url: imageUrl,
+      fetchMetadata: { url: imageUrl, auth: "graph-hosted-content" },
+    });
+    await expect(image?.fetchData?.()).resolves.toEqual(
+      Buffer.from("png bytes")
+    );
+
+    const { fetchData: _fetchData, ...serialized } = image ?? { type: "image" };
+    const rehydrated = adapter.rehydrateAttachment(
+      JSON.parse(JSON.stringify(serialized)) as typeof serialized
+    );
+    await expect(rehydrated.fetchData?.()).resolves.toEqual(
+      Buffer.from("png bytes")
+    );
+    expect(get).toHaveBeenCalledWith(imageUrl, {
+      responseType: "arraybuffer",
+    });
+  });
+
+  it("does not send the Graph token to a rehydrated image outside Graph", async () => {
+    const adapter = createTeamsAdapter({
+      appId: "bot-id",
+      appPassword: "test",
+      logger: new ConsoleLogger("error"),
+    });
+    const app = (adapter as unknown as { app: TeamsApp }).app;
+    const get = vi.spyOn(app.graph.http, "get");
+    const url = "https://example.com/hostedContents/x/$value";
+
+    const rehydrated = adapter.rehydrateAttachment({
+      type: "image",
+      url,
+      fetchMetadata: { url, auth: "graph-hosted-content" },
+    });
+
+    await expect(rehydrated.fetchData?.()).rejects.toThrow(
+      "Refusing to send a Graph token"
+    );
+    expect(get).not.toHaveBeenCalled();
   });
 
   it("maps Graph permission failures when resolving a file reference", async () => {
