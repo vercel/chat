@@ -54,6 +54,43 @@ describe("TwitchFormatConverter", () => {
   });
 });
 
+describe("TwitchFormatConverter block quotes", () => {
+  it("separates quoted paragraphs with a space", () => {
+    expect(converter.fromMarkdown("> First.\n>\n> Second.")).toBe(
+      "First. Second."
+    );
+  });
+
+  it("separates a quoted list from the text before it", () => {
+    expect(converter.fromMarkdown("> Intro:\n>\n> - one\n> - two")).toBe(
+      "Intro: • one • two"
+    );
+  });
+
+  it("keeps a quote apart from the text around it", () => {
+    expect(converter.fromMarkdown("Before\n\n> a\n>\n> b\n\nAfter")).toBe(
+      "Before a b After"
+    );
+  });
+
+  it("flattens nested quotes and quoted code blocks", () => {
+    expect(
+      converter.fromMarkdown("> Outer.\n>\n> > Inner.\n>\n> ```\n> a\n> ```")
+    ).toBe("Outer. Inner. a");
+  });
+
+  it("keeps a single paragraph quote as is", () => {
+    expect(converter.fromMarkdown("> Just one.")).toBe("Just one.");
+  });
+
+  it("drops empty quotes and quote children that render to nothing", () => {
+    expect(converter.fromMarkdown(">")).toBe("");
+    expect(
+      converter.fromMarkdown("> [a]: https://chat-sdk.dev\n>\n> Text.")
+    ).toBe("Text.");
+  });
+});
+
 describe("TwitchFormatConverter tables", () => {
   it("flattens markdown tables to header: value pairs on one line", () => {
     expect(
