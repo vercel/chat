@@ -9659,6 +9659,79 @@ describe("resolveInlineMentions", () => {
     expect(message.text).toContain("#general");
   });
 
+  it("resolves rich-text user group mentions in incoming messages", async () => {
+    const state = createMockState();
+    const chatInstance = createMockChatInstance({ state });
+    chatInstance.processMessage = vi.fn();
+
+    const adapter = createSlackAdapter({
+      botToken: "xoxb-test-token",
+      signingSecret: secret,
+      logger: mockLogger,
+      botUserId: "U_BOT",
+    });
+    mockClientMethod(
+      adapter,
+      "auth.test",
+      vi.fn().mockResolvedValue({
+        ok: true,
+        user_id: "U_BOT",
+        bot_id: "B_BOT",
+      })
+    );
+    await adapter.initialize(chatInstance);
+    mockClientMethod(
+      adapter,
+      "users.info",
+      vi.fn().mockResolvedValue({
+        ok: true,
+        user: { name: "sender", profile: { display_name: "Sender" } },
+      })
+    );
+    mockClientMethod(
+      adapter,
+      "usergroups.list",
+      vi.fn().mockResolvedValue({
+        ok: true,
+        usergroups: [{ id: "S0123456789", handle: "some-team" }],
+      })
+    );
+
+    const body = JSON.stringify({
+      type: "event_callback",
+      team_id: "T123",
+      event: {
+        type: "message",
+        user: "U_SENDER",
+        channel: "C456",
+        text: "hey <!subteam^S0123456789> look",
+        ts: "1234567890.999999",
+        blocks: [
+          {
+            type: "rich_text",
+            elements: [
+              {
+                type: "rich_text_section",
+                elements: [
+                  { type: "text", text: "hey " },
+                  { type: "usergroup", usergroup_id: "S0123456789" },
+                  { type: "text", text: " look" },
+                ],
+              },
+            ],
+          },
+        ],
+      },
+    });
+    await adapter.handleWebhook(createWebhookRequest(body, secret));
+
+    const factory = (chatInstance.processMessage as ReturnType<typeof vi.fn>)
+      .mock.calls[0][2];
+    const message = await factory();
+
+    expect(message.text).toBe("hey @some-team look");
+  });
+
   it("leaves channel mentions with existing labels unchanged", async () => {
     const state = createMockState();
     const chatInstance = createMockChatInstance({ state });
@@ -16795,5 +16868,151 @@ describe("inbound markdown budget", { timeout: 20_000 }, () => {
         ]);
       }
     });
+  });
+});
+
+// ============================================================================
+// User group mention resolution
+// ============================================================================
+
+describe("user group mention resolution", () => {
+  interface UsergroupTestAdapter {
+    _client: {
+      conversations: { info: unknown };
+      usergroups: { list: unknown };
+      users: { info: unknown };
+    };
+    requestContext: {
+      run<T>(ctx: { token: string; installationId?: string }, fn: () => T): T;
+    };
+    resolveInlineMentions(text: string): Promise<string>;
+  }
+
+  async function createUsergroupAdapter() {
+    const state = createMockState();
+    const chatInstance = createMockChatInstance({ state });
+    const adapter = createSlackAdapter({
+      botToken: "xoxb-test-token",
+      signingSecret: "test-signing-secret",
+      logger: mockLogger,
+      botUserId: "U_BOT",
+    });
+    await adapter.initialize(chatInstance);
+    const internals = adapter as unknown as UsergroupTestAdapter;
+    const listMock = vi.fn().mockResolvedValue({
+      ok: true,
+      usergroups: [
+        { id: "S111", handle: "composer-dev" },
+        { id: "S222", handle: "oncall" },
+      ],
+    });
+    internals._client.usergroups.list = listMock;
+    return { internals, listMock, state };
+  }
+
+  it("labels a bare user group token with its handle and keeps the ID", async () => {
+    const { internals, listMock } = await createUsergroupAdapter();
+
+    await expect(
+      internals.resolveInlineMentions("ping <!subteam^S111>")
+    ).resolves.toBe("ping <!subteam^S111|@composer-dev>");
+    expect(listMock).toHaveBeenCalledWith(
+      expect.objectContaining({ include_users: false })
+    );
+  });
+
+  it("resolves several groups in one message", async () => {
+    const { internals } = await createUsergroupAdapter();
+
+    await expect(
+      internals.resolveInlineMentions("<!subteam^S111> and <!subteam^S222>")
+    ).resolves.toBe(
+      "<!subteam^S111|@composer-dev> and <!subteam^S222|@oncall>"
+    );
+  });
+
+  it("reuses the cached handle on later messages", async () => {
+    const { internals, listMock } = await createUsergroupAdapter();
+
+    await internals.resolveInlineMentions("<!subteam^S111>");
+    await internals.resolveInlineMentions("<!subteam^S111>");
+
+    expect(listMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("caches every listed group from one usergroups.list call", async () => {
+    const { internals, listMock, state } = await createUsergroupAdapter();
+
+    await internals.resolveInlineMentions("<!subteam^S111>");
+    await expect(
+      internals.resolveInlineMentions("<!subteam^S222>")
+    ).resolves.toBe("<!subteam^S222|@oncall>");
+
+    expect(listMock).toHaveBeenCalledTimes(1);
+    expect(await state.get("slack:usergroup:S222")).toEqual({
+      handle: "oncall",
+    });
+  });
+
+  it("scopes the user group cache by installation", async () => {
+    const { internals, listMock, state } = await createUsergroupAdapter();
+
+    await internals.requestContext.run(
+      { token: "xoxb-team-a", installationId: "T_A" },
+      () => internals.resolveInlineMentions("<!subteam^S111>")
+    );
+    await internals.requestContext.run(
+      { token: "xoxb-team-b", installationId: "T_B" },
+      () => internals.resolveInlineMentions("<!subteam^S111>")
+    );
+
+    expect(listMock).toHaveBeenCalledTimes(2);
+    expect(await state.get("slack:usergroup:T_A:S111")).toEqual({
+      handle: "composer-dev",
+    });
+    expect(await state.get("slack:usergroup:T_B:S111")).toEqual({
+      handle: "composer-dev",
+    });
+    expect(await state.get("slack:usergroup:S111")).toBeNull();
+  });
+
+  it("leaves labeled group tokens untouched", async () => {
+    const { internals, listMock } = await createUsergroupAdapter();
+
+    await expect(
+      internals.resolveInlineMentions("<!subteam^S111|@custom> <!here>")
+    ).resolves.toBe("<!subteam^S111|@custom> <!here>");
+    expect(listMock).not.toHaveBeenCalled();
+  });
+
+  it("falls back to the group ID when the group is unknown", async () => {
+    const { internals } = await createUsergroupAdapter();
+
+    await expect(
+      internals.resolveInlineMentions("<!subteam^S999>")
+    ).resolves.toBe("<!subteam^S999|@S999>");
+  });
+
+  it("falls back to the group ID when usergroups.list fails", async () => {
+    const { internals, listMock } = await createUsergroupAdapter();
+    listMock.mockRejectedValue(new Error("missing_scope"));
+
+    await expect(
+      internals.resolveInlineMentions("<!subteam^S111>")
+    ).resolves.toBe("<!subteam^S111|@S111>");
+  });
+
+  it("resolves users, channels, and groups in the same message", async () => {
+    const { internals } = await createUsergroupAdapter();
+    internals._client.users.info = vi.fn().mockResolvedValue({
+      user: { name: "alice", profile: { display_name: "Alice" } },
+    });
+    internals._client.conversations.info = vi
+      .fn()
+      .mockResolvedValue({ channel: { name: "general" } });
+
+    await expect(
+      internals.resolveInlineMentions("<@U1> in <#C1> cc <!subteam^S222>")
+    ).resolves.toBe("<@U1|Alice> in <#C1|general> cc <!subteam^S222|@oncall>");
   });
 });

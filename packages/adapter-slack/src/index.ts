@@ -93,6 +93,7 @@ import {
   type SlackEvent,
   type SlackMessageBlock,
   type SlackTableData,
+  SUBTEAM_PREFIX,
   TABLE_BLOCK_TYPES,
   tableData,
 } from "./event";
@@ -196,32 +197,37 @@ function enrichInvalidBlocksError(
   return enriched;
 }
 
-/** Find the next `<@` or `<#` mention in text. */
+/** Find the next `<@`, `<#`, or `<!` mention in text. */
 function findNextMention(text: string): number {
-  const atIdx = text.indexOf("<@");
-  const hashIdx = text.indexOf("<#");
-  if (atIdx === -1) {
-    return hashIdx;
+  let next = -1;
+  for (const opener of ["<@", "<#", "<!"]) {
+    const idx = text.indexOf(opener);
+    if (idx !== -1 && (next === -1 || idx < next)) {
+      next = idx;
+    }
   }
-  if (hashIdx === -1) {
-    return atIdx;
-  }
-  return Math.min(atIdx, hashIdx);
+  return next;
 }
 
-/** Resolved display names for mention tokens, keyed by user/channel ID. */
+/** Resolved display names for mention tokens, keyed by user/channel/group ID. */
 interface SlackMentionNames {
   channels: Map<string, string>;
+  usergroups: Map<string, string>;
   users: Map<string, string>;
 }
 
 /**
- * Replace `<@U123>`, `<@U123|old>`, and `<#C123>` with resolved names.
+ * Replace `<@U123>`, `<@U123|old>`, `<#C123>`, and `<!subteam^S123>` with
+ * resolved names.
  * Tokens without a resolved name are left untouched. Uses a split-based
  * approach to avoid ReDoS on user-controlled input.
  */
 function applyMentionNames(text: string, names: SlackMentionNames): string {
-  if (names.users.size === 0 && names.channels.size === 0) {
+  if (
+    names.users.size === 0 &&
+    names.channels.size === 0 &&
+    names.usergroups.size === 0
+  ) {
     return text;
   }
 
@@ -235,11 +241,21 @@ function applyMentionNames(text: string, names: SlackMentionNames): string {
     if (endIdx === -1) {
       break;
     }
-    const prefix = remaining[1]; // '@' or '#'
-    const inner = remaining.slice(2, endIdx); // after "<@" or "<#"
+    const prefix = remaining[1]; // '@', '#', or '!'
+    const inner = remaining.slice(2, endIdx); // after "<@", "<#", or "<!"
     const pipeIdx = inner.indexOf("|");
     const id = pipeIdx >= 0 ? inner.slice(0, pipeIdx) : inner;
-    if (prefix === "@" && SLACK_USER_ID_PATTERN.test(id)) {
+    if (prefix === "!") {
+      // Only bare user group tokens; a supplied label is kept as is.
+      const token = remaining.slice(1, endIdx);
+      const groupId = token.startsWith(SUBTEAM_PREFIX)
+        ? token.slice(SUBTEAM_PREFIX.length)
+        : "";
+      const name = names.usergroups.get(groupId);
+      result += name
+        ? `<${SUBTEAM_PREFIX}${groupId}|@${name}>`
+        : remaining.slice(0, endIdx + 1);
+    } else if (prefix === "@" && SLACK_USER_ID_PATTERN.test(id)) {
       const name = names.users.get(id);
       result += name ? `<@${id}|${name}>` : remaining.slice(0, endIdx + 1);
     } else if (prefix === "#" && pipeIdx === -1 && names.channels.has(id)) {
@@ -714,13 +730,18 @@ function layoutBlockBody(event: SlackEvent): SlackBodyItem[] | null {
 function mentionIds(
   tables: SlackTableData[],
   parts: SlackAttachmentPart[]
-): { channelIds: Set<string>; userIds: Set<string> } {
+): {
+  channelIds: Set<string>;
+  usergroupIds: Set<string>;
+  userIds: Set<string>;
+} {
   const userIds = new Set<string>();
   const channelIds = new Set<string>();
+  const usergroupIds = new Set<string>();
   for (const data of tables) {
     for (const row of data.rows) {
       for (const cell of row) {
-        collectMentionIds(cell, userIds, channelIds);
+        collectMentionIds(cell, userIds, channelIds, usergroupIds);
       }
     }
   }
@@ -728,10 +749,11 @@ function mentionIds(
     collectMentionIds(
       "mrkdwn" in part ? part.mrkdwn : part.literal,
       userIds,
-      channelIds
+      channelIds,
+      usergroupIds
     );
   }
-  return { channelIds, userIds };
+  return { channelIds, usergroupIds, userIds };
 }
 
 /**
@@ -1071,6 +1093,11 @@ interface CachedChannel {
   name: string;
 }
 
+/** Cached user group info */
+interface CachedUsergroup {
+  handle: string;
+}
+
 export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
   readonly name = "slack";
   readonly userName: string;
@@ -1096,6 +1123,7 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
   protected readonly formatConverter = new SlackFormatConverter();
   protected static readonly USER_CACHE_TTL_MS = 8 * 24 * 60 * 60 * 1000; // 8 days
   protected static readonly CHANNEL_CACHE_TTL_MS = 8 * 24 * 60 * 60 * 1000; // 8 days
+  protected static readonly USERGROUP_CACHE_TTL_MS = 8 * 24 * 60 * 60 * 1000; // 8 days
   protected static readonly REVERSE_INDEX_TTL_MS = 8 * 24 * 60 * 60 * 1000; // 8 days
   /** How long delivered event IDs are remembered for retry deduplication. Slack retries at ~1 min and ~5 min, and the opt-in Delayed Events feature redelivers hourly for up to 24 hours. */
   protected static readonly EVENT_DEDUPE_TTL_MS = 24 * 60 * 60 * 1000; // 24 hours
@@ -1990,6 +2018,63 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
       this.logger.warn("Could not fetch channel info", { channelId, error });
       // Fall back to channel ID
       return channelId;
+    }
+  }
+
+  /**
+   * Look up user group handle from Slack API with caching via state adapter.
+   * Slack has no single-group lookup, so one `usergroups.list` call caches
+   * every group it returns. Returns the group handle, or falls back to the
+   * group ID.
+   */
+  protected async lookupUsergroup(usergroupId: string): Promise<string> {
+    const scope = this.installationCacheScope();
+    const cacheKey = `slack:usergroup:${scope}${usergroupId}`;
+
+    // Check cache first (via state adapter for serverless compatibility)
+    if (this.chat) {
+      const cached = await this.chat.getState().get<CachedUsergroup>(cacheKey);
+      if (cached) {
+        return cached.handle;
+      }
+    }
+
+    try {
+      const result = await this._client.usergroups.list(
+        await this.withToken({ include_users: false })
+      );
+      const handles = new Map<string, string>();
+      for (const group of result.usergroups ?? []) {
+        if (group.id && group.handle) {
+          handles.set(group.id, group.handle);
+        }
+      }
+      const handle = handles.get(usergroupId) || usergroupId;
+      handles.set(usergroupId, handle);
+
+      // Cache every listed group via state adapter
+      if (this.chat) {
+        const state = this.chat.getState();
+        await Promise.all(
+          [...handles].map(([id, groupHandle]) =>
+            state.set<CachedUsergroup>(
+              `slack:usergroup:${scope}${id}`,
+              { handle: groupHandle },
+              SlackAdapter.USERGROUP_CACHE_TTL_MS
+            )
+          )
+        );
+      }
+
+      this.logger.debug("Fetched user group info", { usergroupId, handle });
+      return handle;
+    } catch (error) {
+      this.logger.warn("Could not fetch user group info", {
+        usergroupId,
+        error,
+      });
+      // Fall back to user group ID
+      return usergroupId;
     }
   }
 
@@ -4169,8 +4254,13 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
   protected async resolveInlineMentions(text: string): Promise<string> {
     const userIds = new Set<string>();
     const channelIds = new Set<string>();
-    collectMentionIds(text, userIds, channelIds);
-    const names = await this.lookupMentionNames(userIds, channelIds);
+    const usergroupIds = new Set<string>();
+    collectMentionIds(text, userIds, channelIds, usergroupIds);
+    const names = await this.lookupMentionNames(
+      userIds,
+      channelIds,
+      usergroupIds
+    );
     return applyMentionNames(text, names);
   }
 
@@ -4179,13 +4269,18 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
    */
   private async lookupMentionNames(
     userIds: Set<string>,
-    channelIds: Set<string>
+    channelIds: Set<string>,
+    usergroupIds: Set<string>
   ): Promise<SlackMentionNames> {
-    if (userIds.size === 0 && channelIds.size === 0) {
-      return { channels: new Map(), users: new Map() };
+    if (
+      userIds.size === 0 &&
+      channelIds.size === 0 &&
+      usergroupIds.size === 0
+    ) {
+      return { channels: new Map(), usergroups: new Map(), users: new Map() };
     }
 
-    const [userLookups, channelLookups] = await Promise.all([
+    const [userLookups, channelLookups, usergroupLookups] = await Promise.all([
       Promise.all(
         [...userIds].map(async (uid) => {
           const info = await this.lookupUser(uid);
@@ -4198,9 +4293,19 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
           return [cid, name] as const;
         })
       ),
+      Promise.all(
+        [...usergroupIds].map(async (sid) => {
+          const handle = await this.lookupUsergroup(sid);
+          return [sid, handle] as const;
+        })
+      ),
     ]);
     const userNameMap = new Map(userLookups);
-    return { channels: new Map(channelLookups), users: userNameMap };
+    return {
+      channels: new Map(channelLookups),
+      usergroups: new Map(usergroupLookups),
+      users: userNameMap,
+    };
   }
 
   /**
@@ -6828,8 +6933,12 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
       tables.push(...attachment.tables);
       parts.push(...attachment.parts);
     }
-    const { channelIds, userIds } = mentionIds(tables, parts);
-    const names = await this.lookupMentionNames(userIds, channelIds);
+    const { channelIds, usergroupIds, userIds } = mentionIds(tables, parts);
+    const names = await this.lookupMentionNames(
+      userIds,
+      channelIds,
+      usergroupIds
+    );
 
     const resolveTable = (data: SlackTableData): SlackTableData => ({
       ...data,
