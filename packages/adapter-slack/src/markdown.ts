@@ -28,9 +28,11 @@ import {
   isStrongNode,
   isTableNode,
   isTextNode,
+  type Link,
   parseMarkdown,
   type Root,
   stringifyMarkdown,
+  type Text,
   tableToAscii,
 } from "chat";
 import { slackMrkdwnToMarkdown, unescapeSlackText } from "./format";
@@ -96,12 +98,17 @@ function controlTokenText(token: string): string | undefined {
 }
 
 /**
- * Render mrkdwn as plain text without parsing it as markdown: control tokens
+ * Render mrkdwn as text and explicit links without parsing markdown: control tokens
  * become the text `toAst` renders for them and entities are decoded, while
  * formatting characters stay as typed. Runs in linear time.
  */
-function slackMrkdwnToPlainText(mrkdwn: string): string {
-  let result = "";
+function slackMrkdwnFallback(mrkdwn: string): {
+  formatted: Root;
+  text: string;
+} {
+  const children: (Text | Link)[] = [];
+  const values: string[] = [];
+  let pending = "";
   let start = 0;
   let cursor = mrkdwn.indexOf("<");
   while (cursor !== -1) {
@@ -112,12 +119,37 @@ function slackMrkdwnToPlainText(mrkdwn: string): string {
     }
     const text = controlTokenText(mrkdwn.slice(cursor + 1, end - 1));
     if (text !== undefined) {
-      result += mrkdwn.slice(start, cursor) + text;
+      const token = mrkdwn.slice(cursor + 1, end - 1);
+      const pipe = token.indexOf("|");
+      const target = pipe === -1 ? token : token.slice(0, pipe);
+      pending += mrkdwn.slice(start, cursor);
+      if (LINK_TARGET_PATTERN.test(target)) {
+        if (pending) {
+          children.push({ type: "text", value: unescapeSlackText(pending) });
+          pending = "";
+        }
+        children.push({
+          type: "link",
+          url: unescapeSlackText(target),
+          children: [{ type: "text", value: unescapeSlackText(text) }],
+        });
+      } else {
+        pending += text;
+      }
+      values.push(mrkdwn.slice(start, cursor), text);
       start = end;
     }
     cursor = mrkdwn.indexOf("<", end);
   }
-  return unescapeSlackText(result + mrkdwn.slice(start));
+  pending += mrkdwn.slice(start);
+  if (pending || children.length === 0) {
+    children.push({ type: "text", value: unescapeSlackText(pending) });
+  }
+  values.push(mrkdwn.slice(start));
+  return {
+    text: unescapeSlackText(values.join("")),
+    formatted: { type: "root", children: [{ type: "paragraph", children }] },
+  };
 }
 
 export class SlackFormatConverter extends BaseFormatConverter {
@@ -140,7 +172,7 @@ export class SlackFormatConverter extends BaseFormatConverter {
    * Return a parser for the mrkdwn parts of one message, such as its text,
    * layout block text, attachment text, and table cells. The parse budget
    * applies to all parts together: when they exceed it, no part is parsed and
-   * each becomes a single text node. Otherwise each part goes through
+   * each retains only text and explicit link nodes. Otherwise each part goes through
    * `parseIncoming`.
    *
    * @internal Used by SlackAdapter to parse inbound messages.
@@ -168,8 +200,11 @@ export class SlackFormatConverter extends BaseFormatConverter {
     );
   }
 
-  protected override incomingFallbackText(mrkdwn: string): string {
-    return slackMrkdwnToPlainText(mrkdwn);
+  protected override unparsedIncoming(mrkdwn: string): {
+    formatted: Root;
+    text: string;
+  } {
+    return slackMrkdwnFallback(mrkdwn);
   }
 
   /**
