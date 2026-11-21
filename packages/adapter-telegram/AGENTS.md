@@ -233,6 +233,30 @@ A single message can carry one attachment plus a caption. Multiple
 - **`secret_token`** is the only line of defence for HTTP webhooks
   — do not skip configuring it in production.
 
+## Polling checkpoint and message cache
+
+- Polling saves only real failures. `processPollingUpdates` treats
+  a core `LockError` (the `drop` concurrency strategy) as a dropped
+  update and never writes it to the checkpoint. Any other rejection
+  is saved and retried with backoff.
+- The checkpoint is bounded. `prunePollingEntries` discards an
+  entry after `TELEGRAM_POLLING_MAX_ATTEMPTS` or
+  `TELEGRAM_POLLING_MAX_ENTRY_AGE_MS`, and keeps at most
+  `TELEGRAM_POLLING_MAX_PENDING` entries. It runs on every save and
+  when a checkpoint is loaded, and it keeps or discards an album's
+  parts together.
+- Drain passes are bounded. `selectPollingDrain` dispatches at
+  most `TELEGRAM_POLLING_DRAIN_BATCH` saved groups per pass, oldest
+  first. A group that has failed before never shares a pass with
+  another group for its chat, so a retry never loses the thread
+  lock to other saved work. Albums awaiting their first delivery
+  may share a pass, as same-chat updates in a fresh batch do.
+- The message cache is a `MessageStore` from
+  `@chat-adapter/shared`: the newest 100 messages per thread, within
+  a size budget across all threads. A message is not guaranteed to
+  be readable after `cacheMessage`, so do not depend on
+  `findCachedMessage` returning one that was just cached.
+
 ## Testing approach
 
 - **Unit tests** colocated with each module (`*.test.ts`). The

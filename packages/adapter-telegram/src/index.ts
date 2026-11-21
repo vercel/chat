@@ -6,6 +6,7 @@ import {
   extractCard,
   extractFiles,
   extractPostableAttachments,
+  MessageStore,
   NetworkError,
   PermissionError,
   ResourceNotFoundError,
@@ -25,6 +26,7 @@ import type {
   Logger,
   RawMessage,
   Root,
+  StateAdapter,
   StreamChunk,
   StreamOptions,
   ThreadInfo,
@@ -36,6 +38,7 @@ import {
   convertEmojiPlaceholders,
   defaultEmojiResolver,
   getEmoji,
+  LockError,
   Message,
   markdownToPlainText,
   NotImplementedError,
@@ -194,6 +197,10 @@ const TELEGRAM_DEFAULT_POLLING_TIMEOUT_SECONDS = 30;
 const TELEGRAM_DEFAULT_POLLING_LIMIT = 100;
 const TELEGRAM_DEFAULT_POLLING_RETRY_DELAY_MS = 1000;
 const TELEGRAM_POLLING_DEADLINE_GRACE_MS = 30_000;
+const TELEGRAM_POLLING_MAX_ATTEMPTS = 10;
+const TELEGRAM_POLLING_MAX_ENTRY_AGE_MS = 60 * 60 * 1000;
+const TELEGRAM_POLLING_MAX_PENDING = 1000;
+const TELEGRAM_POLLING_DRAIN_BATCH = 100;
 const TELEGRAM_SETUP_REQUEST_TIMEOUT_MS = 30_000;
 const TELEGRAM_DEFAULT_STREAM_UPDATE_INTERVAL_MS = 250;
 const TELEGRAM_DEFAULT_PRIVATE_STREAMING_EDIT_INTERVAL_MS = 1100;
@@ -305,6 +312,32 @@ type TelegramPollingResult =
   | { update: TelegramUpdate; error: unknown };
 
 type TelegramRuntimeMode = "webhook" | "polling";
+
+function pollingChatKey(update: TelegramUpdate): string {
+  const chat = (
+    update.message ??
+    update.edited_message ??
+    update.channel_post ??
+    update.edited_channel_post ??
+    update.business_message ??
+    update.edited_business_message ??
+    update.callback_query?.message ??
+    update.message_reaction
+  )?.chat;
+  return chat ? `chat:${chat.id}` : `update:${update.update_id}`;
+}
+
+function comparePollingGroupAge(
+  left: TelegramPollingEntry[],
+  right: TelegramPollingEntry[]
+): number {
+  return (
+    Math.min(...left.map((entry) => entry.receivedAt)) -
+      Math.min(...right.map((entry) => entry.receivedAt)) ||
+    Math.min(...left.map((entry) => entry.update.update_id)) -
+      Math.min(...right.map((entry) => entry.update.update_id))
+  );
+}
 
 /**
  * Escape standard-markdown special characters inside inbound entity text.
@@ -524,10 +557,9 @@ export class TelegramAdapter
   private warnedNoVerification = false;
   protected readonly logger: Logger;
   protected readonly formatConverter = new TelegramFormatConverter();
-  private readonly messageCache = new Map<
-    string,
-    Message<TelegramRawMessage>[]
-  >();
+  private readonly messageCache = new MessageStore<TelegramRawMessage>({
+    compare: (a, b) => this.compareMessages(a, b),
+  });
 
   protected chat: ChatInstance | null = null;
   protected _botUserId?: string;
@@ -2577,11 +2609,7 @@ export class TelegramAdapter
     threadId: string,
     options: FetchOptions = {}
   ): Promise<FetchResult<TelegramRawMessage>> {
-    const messages = [...(this.messageCache.get(threadId) ?? [])].sort((a, b) =>
-      this.compareMessages(a, b)
-    );
-
-    return this.paginateMessages(messages, options);
+    return this.paginateMessages(this.messageCache.messages(threadId), options);
   }
 
   async fetchChannelMessages(
@@ -2590,7 +2618,7 @@ export class TelegramAdapter
   ): Promise<FetchResult<TelegramRawMessage>> {
     const byId = new Map<string, Message<TelegramRawMessage>>();
 
-    for (const [threadId, messages] of this.messageCache.entries()) {
+    for (const [threadId, messages] of this.messageCache.threads()) {
       let decoded: TelegramThreadId;
       try {
         decoded = this.decodeThreadId(threadId);
@@ -2661,7 +2689,7 @@ export class TelegramAdapter
     thread: TelegramThreadId,
     threadId: string
   ): Promise<TelegramChat | undefined> {
-    const cachedChat = this.messageCache.get(threadId)?.at(-1)?.raw.chat;
+    const cachedChat = this.messageCache.latest(threadId)?.raw.chat;
     try {
       return await this.telegramFetch<TelegramChat>("getChat", {
         chat_id: thread.chatId,
@@ -3580,41 +3608,17 @@ export class TelegramAdapter
   }
 
   protected cacheMessage(message: Message<TelegramRawMessage>): void {
-    const existing = this.messageCache.get(message.threadId) ?? [];
-    const index = existing.findIndex((item) => item.id === message.id);
-
-    if (index >= 0) {
-      existing[index] = message;
-    } else {
-      existing.push(message);
-    }
-
-    existing.sort((a, b) => this.compareMessages(a, b));
-    this.messageCache.set(message.threadId, existing);
+    this.messageCache.upsert(message);
   }
 
   protected findCachedMessage(
     messageId: string
   ): Message<TelegramRawMessage> | undefined {
-    for (const messages of this.messageCache.values()) {
-      const found = messages.find((message) => message.id === messageId);
-      if (found) {
-        return found;
-      }
-    }
-
-    return undefined;
+    return this.messageCache.find(messageId);
   }
 
   protected deleteCachedMessage(messageId: string): void {
-    for (const [threadId, messages] of this.messageCache.entries()) {
-      const filtered = messages.filter((message) => message.id !== messageId);
-      if (filtered.length === 0) {
-        this.messageCache.delete(threadId);
-      } else if (filtered.length !== messages.length) {
-        this.messageCache.set(threadId, filtered);
-      }
-    }
+    this.messageCache.delete(messageId);
   }
 
   protected compareMessages(
@@ -4326,37 +4330,161 @@ export class TelegramAdapter
       groups.set(key, group);
     }
     const pending = [...groups.values()].map(async (group) => {
-      try {
-        const results = await Promise.allSettled(
-          group.map(async (update) => {
-            if (!completed.has(update.update_id)) {
-              const tasks = await Promise.allSettled(
-                this.processUpdate(update, { deduplicate: false }) ?? []
-              );
-              for (const task of tasks) {
-                if (task.status === "rejected") {
-                  throw task.reason;
-                }
+      const results = await Promise.allSettled(
+        group.map(async (update) => {
+          if (!completed.has(update.update_id)) {
+            const tasks = await Promise.allSettled(
+              this.processUpdate(update, { deduplicate: false }) ?? []
+            );
+            for (const task of tasks) {
+              if (task.status === "rejected") {
+                throw task.reason;
               }
             }
-          })
-        );
-        for (const result of results) {
-          if (result.status === "rejected") {
-            throw result.reason;
           }
-        }
-        return group.map((update) => {
-          completed.add(update.update_id);
-          return { update };
-        });
-      } catch (error) {
-        return group.map((update) => ({ error, update }));
+        })
+      );
+      const errors = results.flatMap((result) =>
+        result.status === "rejected" ? [result.reason as unknown] : []
+      );
+      const failures = errors.filter((error) => !(error instanceof LockError));
+      if (failures.length > 0) {
+        return group.map((update) => ({ error: failures[0], update }));
       }
+      // A LockError means the concurrency strategy discarded the message, so
+      // the update counts as done. Updates for one chat that arrive in the same
+      // batch are dispatched together, so under `drop` one is handled and the
+      // rest are discarded here even if they were sent at different times.
+      if (errors.length > 0) {
+        this.logger.debug(
+          "Telegram polling update dropped by the concurrency strategy",
+          { error: String(errors[0]), updateId: group[0].update_id }
+        );
+      }
+      return group.map((update) => {
+        completed.add(update.update_id);
+        return { update };
+      });
     });
     return (await Promise.all(pending))
       .flat()
       .sort((left, right) => left.update.update_id - right.update.update_id);
+  }
+
+  private groupPollingEntries(
+    entries: TelegramPollingEntry[]
+  ): TelegramPollingEntry[][] {
+    const groups = new Map<string, TelegramPollingEntry[]>();
+    for (const entry of entries) {
+      const key =
+        this.pollingGroup(entry.update) ?? String(entry.update.update_id);
+      const group = groups.get(key) ?? [];
+      group.push(entry);
+      groups.set(key, group);
+    }
+    return [...groups.values()];
+  }
+
+  /**
+   * Apply the attempts, age, and size caps to saved polling entries. A media
+   * group is kept or discarded as a whole.
+   */
+  private prunePollingEntries(
+    entries: TelegramPollingEntry[]
+  ): TelegramPollingEntry[] {
+    const now = Date.now();
+    const discarded = new Set<TelegramPollingEntry>();
+    const kept = this.groupPollingEntries(entries).filter((group) => {
+      const attempts = Math.max(...group.map((entry) => entry.attempts ?? 0));
+      const receivedAt = Math.min(...group.map((entry) => entry.receivedAt));
+      let reason: string | undefined;
+      if (attempts >= TELEGRAM_POLLING_MAX_ATTEMPTS) {
+        reason = "max attempts reached";
+      } else if (now - receivedAt > TELEGRAM_POLLING_MAX_ENTRY_AGE_MS) {
+        reason = "max age exceeded";
+      }
+      if (!reason) {
+        return true;
+      }
+      this.logger.warn("Discarding Telegram polling update", {
+        attempts,
+        reason,
+        updateId: group[0].update.update_id,
+      });
+      for (const entry of group) {
+        discarded.add(entry);
+      }
+      return false;
+    });
+
+    const total = entries.length - discarded.size;
+    if (total > TELEGRAM_POLLING_MAX_PENDING) {
+      let count = total;
+      for (const group of kept.sort(comparePollingGroupAge)) {
+        if (count <= TELEGRAM_POLLING_MAX_PENDING) {
+          break;
+        }
+        count -= group.length;
+        for (const entry of group) {
+          discarded.add(entry);
+        }
+      }
+      this.logger.warn("Discarding oldest Telegram polling updates", {
+        discarded: total - count,
+        limit: TELEGRAM_POLLING_MAX_PENDING,
+      });
+    }
+
+    return discarded.size > 0
+      ? entries.filter((entry) => !discarded.has(entry))
+      : entries;
+  }
+
+  private async loadPollingCheckpoint(
+    state: StateAdapter,
+    key: string
+  ): Promise<TelegramPollingCheckpoint> {
+    const saved = (await state.get<TelegramPollingCheckpoint>(key)) ?? {
+      pending: [],
+    };
+    const pending = this.prunePollingEntries(saved.pending);
+    if (pending.length === saved.pending.length) {
+      return saved;
+    }
+    const trimmed = { ...saved, pending };
+    if (pending.length > 0) {
+      await state.set(key, trimmed);
+    } else {
+      await state.delete(key);
+    }
+    return trimmed;
+  }
+
+  /**
+   * Pick the saved groups one drain pass dispatches: oldest first, up to the
+   * batch size. A group being retried never shares a pass with another group
+   * for its chat, so retries cannot contend for the same thread lock. Media
+   * groups awaiting their first delivery may share a chat, as the updates of a
+   * fresh batch do.
+   */
+  private selectPollingDrain(
+    ready: TelegramPollingEntry[][]
+  ): TelegramPollingEntry[][] {
+    const chats = new Map<string, boolean>();
+    const selected: TelegramPollingEntry[][] = [];
+    for (const group of [...ready].sort(comparePollingGroupAge)) {
+      if (selected.length >= TELEGRAM_POLLING_DRAIN_BATCH) {
+        break;
+      }
+      const chat = pollingChatKey(group[0].update);
+      const retried = group.some((entry) => entry.attempts !== undefined);
+      if (chats.has(chat) && (retried || chats.get(chat))) {
+        continue;
+      }
+      chats.set(chat, retried);
+      selected.push(group);
+    }
+    return selected;
   }
 
   protected async pollingLoop(
@@ -4388,12 +4516,14 @@ export class TelegramAdapter
           : 0
       );
       const retryAt = Date.now() + delay;
-      this.logger.warn("Telegram polling update processing failed", {
-        error: String(error),
-        updateId: entries[0].update.update_id,
-        attempts,
-        retryAt,
-      });
+      if (attempts < TELEGRAM_POLLING_MAX_ATTEMPTS) {
+        this.logger.warn("Telegram polling update processing failed", {
+          error: String(error),
+          updateId: entries[0].update.update_id,
+          attempts,
+          retryAt,
+        });
+      }
       return { attempts, retryAt };
     };
 
@@ -4404,22 +4534,13 @@ export class TelegramAdapter
       try {
         await this.ensureBotIdentity();
         const key = `${this.name}:polling:${this.webhookScope}`;
-        checkpoint ??= (await state.get<TelegramPollingCheckpoint>(key)) ?? {
-          pending: [],
-        };
+        checkpoint ??= await this.loadPollingCheckpoint(state, key);
 
-        const groups = new Map<string, TelegramPollingEntry[]>();
-        for (const entry of checkpoint.pending) {
-          const group =
-            this.pollingGroup(entry.update) ?? String(entry.update.update_id);
-          const entries = groups.get(group) ?? [];
-          entries.push(entry);
-          groups.set(group, entries);
-        }
-        const eligible = [...groups.values()].filter((entries) =>
-          entries.every(
-            (entry) => entry.update.update_id < (checkpoint?.offset ?? 0)
-          )
+        const eligible = this.groupPollingEntries(checkpoint.pending).filter(
+          (entries) =>
+            entries.every(
+              (entry) => entry.update.update_id < (checkpoint?.offset ?? 0)
+            )
         );
         const deadline = (entries: TelegramPollingEntry[]) =>
           Math.max(
@@ -4437,8 +4558,11 @@ export class TelegramAdapter
           (entries) => deadline(entries) <= Date.now()
         );
         if (ready.length > 0 && !drained) {
+          const dispatched = this.selectPollingDrain(ready);
           const results = await this.processPollingUpdates(
-            ready.flatMap((entries) => entries.map((entry) => entry.update)),
+            dispatched.flatMap((entries) =>
+              entries.map((entry) => entry.update)
+            ),
             completed
           );
           const failures = new Map(
@@ -4452,7 +4576,7 @@ export class TelegramAdapter
             number,
             { attempts: number; retryAt: number }
           >();
-          for (const entries of ready) {
+          for (const entries of dispatched) {
             const failed = entries.find((entry) =>
               failures.has(entry.update.update_id)
             );
@@ -4467,12 +4591,14 @@ export class TelegramAdapter
               retries.set(entry.update.update_id, scheduled);
             }
           }
-          const pending = checkpoint.pending
-            .filter((entry) => !completed.has(entry.update.update_id))
-            .map((entry) => ({
-              ...entry,
-              ...retries.get(entry.update.update_id),
-            }));
+          const pending = this.prunePollingEntries(
+            checkpoint.pending
+              .filter((entry) => !completed.has(entry.update.update_id))
+              .map((entry) => ({
+                ...entry,
+                ...retries.get(entry.update.update_id),
+              }))
+          );
           const next = { ...checkpoint, pending };
           if (pending.length > 0) {
             await state.set(key, next);
@@ -4558,7 +4684,10 @@ export class TelegramAdapter
         for (const update of updates) {
           offset = update.update_id + 1;
         }
-        const next = { offset, pending: [...pending.values()] };
+        const next = {
+          offset,
+          pending: this.prunePollingEntries([...pending.values()]),
+        };
         if (next.pending.length > 0 || checkpoint.pending.length > 0) {
           await state.set(key, next);
         }
