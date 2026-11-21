@@ -1455,3 +1455,78 @@ describe("cardToBlockKit with charts", () => {
     expect(text).toContain("Kit Kat");
   });
 });
+
+describe("portable Section layouts", () => {
+  it("renders column hints in the runtime converter", () => {
+    const blocks = cardToBlockKit(
+      Card({
+        children: [
+          Section([Section([CardText("One")]), Section([CardText("Two")])], {
+            layout: "columns",
+          }),
+        ],
+      })
+    );
+    expect(blocks).toMatchObject([
+      {
+        type: "layout",
+        rows: [
+          {
+            items: [
+              { block: { type: "section", text: { text: "One" } } },
+              { block: { type: "section", text: { text: "Two" } } },
+            ],
+          },
+        ],
+      },
+    ]);
+  });
+
+  it("retains carousel buttons and falls back for radio controls", () => {
+    const item = Section([
+      CardText("Item", { style: "bold" }),
+      Actions([
+        Button({
+          id: "approve",
+          label: "Approve",
+          value: "item-1",
+          visibleTo: ["U123"],
+        }),
+      ]),
+    ]);
+    const blocks = cardToBlockKit(
+      Card({ children: [Section([item], { layout: "carousel" })] })
+    );
+    expect(blocks).toMatchObject([
+      {
+        type: "carousel",
+        elements: [
+          {
+            type: "card",
+            actions: [
+              {
+                action_id: "approve",
+                value: "item-1",
+                visible_to_user_ids: ["U123"],
+              },
+            ],
+          },
+        ],
+      },
+    ]);
+    const selection = Section([
+      Actions([
+        RadioSelect({
+          id: "priority",
+          label: "Priority",
+          options: [{ label: "High", value: "high" }],
+        }),
+      ]),
+    ]);
+    expect(
+      cardToBlockKit(
+        Card({ children: [Section([selection], { layout: "carousel" })] })
+      )
+    ).toEqual(cardToBlockKit(Card({ children: [selection] })));
+  });
+});

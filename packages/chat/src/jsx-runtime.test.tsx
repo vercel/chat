@@ -211,6 +211,25 @@ describe("chat-sdk JSX runtime with actual JSX syntax", () => {
   });
 
   describe("Section", () => {
+    it("preserves portable layout hints in JSX", () => {
+      const result = toCardElement(
+        <Card>
+          <Section layout="columns">
+            <Section>
+              <Text>One</Text>
+            </Section>
+            <Section>
+              <Text>Two</Text>
+            </Section>
+          </Section>
+        </Card>
+      );
+      expect(result?.children[0]).toMatchObject({
+        type: "section",
+        layout: "columns",
+        children: [{ type: "section" }, { type: "section" }],
+      });
+    });
     it("creates Section with children", () => {
       const element = (
         <Card>

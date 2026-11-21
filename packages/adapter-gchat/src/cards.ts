@@ -55,6 +55,13 @@ export interface GoogleChatCardSection {
 
 export interface GoogleChatWidget {
   buttonList?: { buttons: (GoogleChatButton | GoogleChatLinkButton)[] };
+  carousel?: { carouselCards: { widgets: GoogleChatCarouselWidget[] }[] };
+  columns?: {
+    columnItems: {
+      horizontalSizeStyle: "FILL_AVAILABLE_SPACE";
+      widgets: GoogleChatColumnWidget[];
+    }[];
+  };
   decoratedText?: {
     topLabel?: string;
     text: string;
@@ -66,6 +73,15 @@ export interface GoogleChatWidget {
   selectionInput?: GoogleChatSelectionInput;
   textParagraph?: { text: string };
 }
+
+type GoogleChatColumnWidget = Pick<
+  GoogleChatWidget,
+  "buttonList" | "decoratedText" | "image" | "selectionInput" | "textParagraph"
+>;
+type GoogleChatCarouselWidget = Pick<
+  GoogleChatWidget,
+  "buttonList" | "image" | "textParagraph"
+>;
 
 export interface GoogleChatSelectionInput {
   items: GoogleChatSelectionItem[];
@@ -202,7 +218,8 @@ export function cardToGoogleCard(
  */
 function convertChildToWidgets(
   child: CardChild,
-  endpointUrl?: string
+  endpointUrl?: string,
+  allowLayouts = true
 ): GoogleChatWidget[] {
   switch (child.type) {
     case "text":
@@ -214,7 +231,7 @@ function convertChildToWidgets(
     case "actions":
       return convertActionsToWidgets(child, endpointUrl);
     case "section":
-      return convertSectionToWidgets(child, endpointUrl);
+      return convertSectionToWidgets(child, endpointUrl, allowLayouts);
     case "fields":
       return convertFieldsToWidgets(child);
     case "link":
@@ -409,13 +426,76 @@ function convertLinkButtonToGoogleButton(
 
 function convertSectionToWidgets(
   element: SectionElement,
-  endpointUrl?: string
+  endpointUrl?: string,
+  allowLayouts = true
 ): GoogleChatWidget[] {
+  if (
+    allowLayouts &&
+    (element.layout === "columns" || element.layout === "carousel") &&
+    element.children.length > 0 &&
+    element.children.every((child) => child.type === "section")
+  ) {
+    const groups = element.children.map((child) =>
+      convertSectionToWidgets(child, endpointUrl, false)
+    );
+    if (
+      element.layout === "columns" &&
+      groups.length <= 2 &&
+      groups.every(
+        (widgets) => widgets.length > 0 && widgets.every(isColumnWidget)
+      )
+    ) {
+      return [
+        {
+          columns: {
+            columnItems: groups.map((widgets) => ({
+              horizontalSizeStyle: "FILL_AVAILABLE_SPACE",
+              widgets: widgets as GoogleChatColumnWidget[],
+            })),
+          },
+        },
+      ];
+    }
+    if (
+      element.layout === "carousel" &&
+      groups.every(
+        (widgets) => widgets.length > 0 && widgets.every(isCarouselWidget)
+      )
+    ) {
+      return [
+        {
+          carousel: {
+            carouselCards: groups.map((widgets) => ({
+              widgets: widgets as GoogleChatCarouselWidget[],
+            })),
+          },
+        },
+      ];
+    }
+  }
   const widgets: GoogleChatWidget[] = [];
   for (const child of element.children) {
-    widgets.push(...convertChildToWidgets(child, endpointUrl));
+    widgets.push(...convertChildToWidgets(child, endpointUrl, allowLayouts));
   }
   return widgets;
+}
+
+function isColumnWidget(
+  widget: GoogleChatWidget
+): widget is GoogleChatColumnWidget {
+  return Boolean(
+    widget.buttonList ||
+      widget.decoratedText ||
+      widget.image ||
+      widget.selectionInput ||
+      widget.textParagraph
+  );
+}
+
+function isCarouselWidget(
+  widget: GoogleChatWidget
+): widget is GoogleChatCarouselWidget {
+  return Boolean(widget.buttonList || widget.image || widget.textParagraph);
 }
 
 function convertTableToWidget(element: TableElement): GoogleChatWidget {

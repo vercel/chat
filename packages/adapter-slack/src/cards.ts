@@ -32,6 +32,10 @@ import {
   chartElementToFallbackText,
   tableElementToAscii,
 } from "chat";
+import {
+  flattenOverBudgetLayouts,
+  sectionToNativeLayout,
+} from "./blocks/layouts";
 import type { SlackBlock } from "./event";
 import { escapeSlackText, markdownBoldToSlackMrkdwn } from "./format";
 
@@ -141,7 +145,7 @@ export function cardToBlockKit(card: CardElement): SlackBlock[] {
     blocks.push(...childBlocks);
   }
 
-  return blocks;
+  return flattenOverBudgetLayouts(blocks, 50);
 }
 
 /** Per-message rendering state for Slack's native block usage limits. */
@@ -167,7 +171,11 @@ function convertChildToBlocks(
     case "actions":
       return [convertActionsToBlock(child)];
     case "section":
-      return convertSectionToBlocks(child, state);
+      return (
+        sectionToNativeLayout(child, (nested) =>
+          convertChildToBlocks(nested, state)
+        ) ?? convertSectionToBlocks(child, state)
+      );
     case "fields":
       return [convertFieldsToBlock(child)];
     case "link":

@@ -1,5 +1,6 @@
 import { markdownBoldToSlackMrkdwn } from "../format";
 import { SlackBlockError } from "./errors";
+import { flattenOverBudgetLayouts, sectionToNativeLayout } from "./layouts";
 import { LIMITS } from "./limits";
 import type {
   SlackActionsElement,
@@ -96,7 +97,10 @@ export function cardToSlackBlocks(
   for (const child of card.children) {
     blocks.push(...cardChildToSlackBlocks(child, state));
   }
-  return blocks.slice(0, state.maxBlocks);
+  return flattenOverBudgetLayouts(blocks, state.maxBlocks).slice(
+    0,
+    state.maxBlocks
+  );
 }
 
 export const cardToBlockKit = cardToSlackBlocks;
@@ -151,8 +155,13 @@ function cardChildToSlackBlocks(
     case "link":
       return [linkToBlock(child, state.convertEmoji)];
     case "section":
-      return child.children.flatMap((nested) =>
-        cardChildToSlackBlocks(nested, state)
+      return (
+        sectionToNativeLayout(child, (nested) =>
+          cardChildToSlackBlocks(nested, state)
+        ) ??
+        child.children.flatMap((nested) =>
+          cardChildToSlackBlocks(nested, state)
+        )
       );
     case "table":
       return tableToBlocks(child, state);
