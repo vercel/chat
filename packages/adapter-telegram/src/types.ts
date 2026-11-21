@@ -586,6 +586,7 @@ export interface TelegramMessage {
  */
 export interface TelegramInlineKeyboardButton {
   callback_data?: string;
+  style?: "danger" | "primary" | "success";
   text: string;
   url?: string;
 }
