@@ -166,6 +166,37 @@ async function* withoutReasoning(
   }
 }
 
+function chunkText(chunk: string | StreamChunk): string | undefined {
+  if (typeof chunk === "string") {
+    return chunk;
+  }
+  if (chunk.type === "markdown_text") {
+    return chunk.text;
+  }
+  return undefined;
+}
+
+async function* tapText(
+  source: AsyncIterable<string | StreamChunk>,
+  onText: (text: string) => void
+): AsyncIterable<string | StreamChunk> {
+  for await (const chunk of source) {
+    onText(chunkText(chunk) ?? "");
+    yield chunk;
+  }
+}
+
+async function* textOnly(
+  source: AsyncIterable<string | StreamChunk>
+): AsyncIterable<string> {
+  for await (const chunk of source) {
+    const text = chunkText(chunk);
+    if (text !== undefined) {
+      yield text;
+    }
+  }
+}
+
 async function* takeUntilAborted<T>(
   source: AsyncIterable<T>,
   signal: AbortSignal
@@ -839,29 +870,10 @@ export class ThreadImpl<TState = Record<string, unknown>>
 
     // Use adapter-provided streaming if available.
     if (adapter.stream) {
-      // Wrap stream to collect accumulated text while passing through to adapter.
-      // StreamChunk objects are passed through; only plain strings are accumulated.
       let accumulated = "";
-      const wrappedStream: AsyncIterable<string | StreamChunk> = {
-        [Symbol.asyncIterator]: () => {
-          const iterator = textStream[Symbol.asyncIterator]();
-          return {
-            async next() {
-              const result = await iterator.next();
-              if (!result.done) {
-                const value = result.value;
-                if (typeof value === "string") {
-                  accumulated += value;
-                } else if (value.type === "markdown_text") {
-                  accumulated += value.text;
-                }
-                // task_update, plan_update, and reasoning chunks don't contribute to accumulated text
-              }
-              return result;
-            },
-          };
-        },
-      };
+      const wrappedStream = tapText(textStream, (text) => {
+        accumulated += text;
+      });
 
       let raw: RawMessage<unknown> | null;
       try {
@@ -886,32 +898,7 @@ export class ThreadImpl<TState = Record<string, unknown>>
       }
     }
 
-    // Fallback: post + edit with throttling.
-    // Extract only text content from the mixed stream for adapters without native streaming.
-    const textOnlyStream: AsyncIterable<string> = {
-      [Symbol.asyncIterator]: () => {
-        const iterator = textStream[Symbol.asyncIterator]();
-        return {
-          async next(): Promise<IteratorResult<string>> {
-            while (true) {
-              const result = await iterator.next();
-              if (result.done) {
-                return { value: undefined as unknown as string, done: true };
-              }
-              const value = result.value;
-              if (typeof value === "string") {
-                return { value, done: false };
-              }
-              if (value.type === "markdown_text") {
-                return { value: value.text, done: false };
-              }
-              // Skip non-text chunks (task_update, plan_update, reasoning) in fallback mode
-            }
-          },
-        };
-      },
-    };
-    return this.fallbackStream(textOnlyStream, options);
+    return this.fallbackStream(textOnly(textStream), options);
   }
 
   /**
