@@ -7310,6 +7310,69 @@ describe("polling checkpoint bounds", () => {
     }
   });
 
+  it("discards a saved update that passes the maximum age while it waits out a retry backoff", async () => {
+    vi.useFakeTimers();
+    const events: string[] = [];
+    // getUpdates keeps failing, so no poll result prunes the checkpoint
+    // between loading it and the drain pass.
+    mockFetch.mockImplementation((input) => {
+      const url = String(input);
+      if (url.includes("/getMe")) {
+        return Promise.resolve(telegramOk(BOT_IDENTITY));
+      }
+      if (url.includes("/getUpdates")) {
+        events.push("poll");
+        return Promise.reject(new Error("network down"));
+      }
+      return Promise.resolve(telegramOk(true));
+    });
+    const adapter = createAdapter();
+    const { chat, processMessage } = createRecordingChat(events);
+    await adapter.initialize(chat);
+    const now = Date.now();
+    await chat.getState().set(CHECKPOINT_KEY, {
+      offset: 30,
+      pending: [
+        {
+          attempts: 2,
+          receivedAt: now - HOUR_MS + 10_000,
+          retryAt: now + 20_000,
+          update: textUpdate(20, 501),
+        },
+        {
+          attempts: 2,
+          receivedAt: now - 60_000,
+          retryAt: now + 20_000,
+          update: textUpdate(21, 502),
+        },
+      ],
+    } satisfies SeededCheckpoint);
+    vi.mocked(mockLogger.warn).mockClear();
+
+    await adapter.startPolling({ limit: 10, retryDelayMs: 1000, timeout: 1 });
+
+    try {
+      await vi.advanceTimersByTimeAsync(5000);
+      // Both entries are within the age limit when the checkpoint loads.
+      expect(events).toContain("poll");
+      expect(warnings(DISCARD_MESSAGE)).toEqual([]);
+      expect(processMessage).not.toHaveBeenCalled();
+
+      await vi.advanceTimersByTimeAsync(60_000);
+
+      expect(events.filter((event) => event.startsWith("handle:"))).toEqual([
+        "handle:21",
+      ]);
+      expect(processMessage.mock.calls[0]?.[1]).toBe("telegram:502");
+      expect(warnings(DISCARD_MESSAGE)).toEqual([
+        { attempts: 2, reason: "max age exceeded", updateId: 20 },
+      ]);
+      expect(await chat.getState().get(CHECKPOINT_KEY)).toBeNull();
+    } finally {
+      await adapter.stopPolling();
+    }
+  });
+
   it("discards a media group whole when only one of its parts is past the maximum age", async () => {
     const events: string[] = [];
     routeFetch([], events);

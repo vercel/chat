@@ -242,9 +242,9 @@ A single message can carry one attachment plus a caption. Multiple
 - The checkpoint is bounded. `prunePollingEntries` discards an
   entry after `TELEGRAM_POLLING_MAX_ATTEMPTS` or
   `TELEGRAM_POLLING_MAX_ENTRY_AGE_MS`, and keeps at most
-  `TELEGRAM_POLLING_MAX_PENDING` entries. It runs on every save and
-  when a checkpoint is loaded, and it keeps or discards an album's
-  parts together.
+  `TELEGRAM_POLLING_MAX_PENDING` entries. It runs before every pass
+  and on every save, and it keeps or discards an album's parts
+  together.
 - Drain passes are bounded. `selectPollingDrain` dispatches at
   most `TELEGRAM_POLLING_DRAIN_BATCH` saved groups per pass, oldest
   first. A group that has failed before never shares a pass with

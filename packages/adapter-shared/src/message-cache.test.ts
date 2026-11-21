@@ -1064,10 +1064,10 @@ describe("MessageStore", () => {
   it("stays consistent and within both limits over a seeded sequence", () => {
     const random = createRandom(7_031_977);
     const bodies = [LIGHT, "plain prose ".repeat(20), DENSE, DENSE.repeat(3)];
-    const weights = bodies.map((body) =>
-      estimateMessageWeight(realMessage("x", 0, body))
-    );
-    const maxWeight = 12 * weights[2];
+    // Parsed once: the sequence runs thousands of steps and the store only
+    // reads the tree, so every message of a body can share it.
+    const templates = bodies.map((body) => realMessage("x", 0, body));
+    const maxWeight = 12 * estimateMessageWeight(templates[2]);
     const maxMessagesPerThread = 5;
     const store = new MessageStore<unknown>({
       maxMessagesPerThread,
@@ -1087,8 +1087,13 @@ describe("MessageStore", () => {
         expect(store.find(id)).toBeUndefined();
       } else {
         const threadId = `t:${random(4)}`;
-        const item = realMessage(id, random(50) * 1000, bodies[random(4)], {
+        const time = random(50) * 1000;
+        const template = templates[random(4)];
+        const item = new Message<unknown>({
+          ...template,
+          id,
           threadId,
+          metadata: { ...template.metadata, dateSent: new Date(time) },
         });
         const threadBefore = store.messages(threadId);
         const isReplace = threadBefore.some((existing) => existing.id === id);

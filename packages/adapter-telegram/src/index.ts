@@ -4440,13 +4440,16 @@ export class TelegramAdapter
       : entries;
   }
 
-  private async loadPollingCheckpoint(
+  /**
+   * Apply the caps to a checkpoint and save it when they discard anything.
+   * Runs before every pass, not only on load: an entry can pass the age cap
+   * while it waits out a retry backoff.
+   */
+  private async prunePollingCheckpoint(
     state: StateAdapter,
-    key: string
+    key: string,
+    saved: TelegramPollingCheckpoint
   ): Promise<TelegramPollingCheckpoint> {
-    const saved = (await state.get<TelegramPollingCheckpoint>(key)) ?? {
-      pending: [],
-    };
     const pending = this.prunePollingEntries(saved.pending);
     if (pending.length === saved.pending.length) {
       return saved;
@@ -4534,7 +4537,12 @@ export class TelegramAdapter
       try {
         await this.ensureBotIdentity();
         const key = `${this.name}:polling:${this.webhookScope}`;
-        checkpoint ??= await this.loadPollingCheckpoint(state, key);
+        checkpoint = await this.prunePollingCheckpoint(
+          state,
+          key,
+          checkpoint ??
+            (await state.get<TelegramPollingCheckpoint>(key)) ?? { pending: [] }
+        );
 
         const eligible = this.groupPollingEntries(checkpoint.pending).filter(
           (entries) =>
