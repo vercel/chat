@@ -363,7 +363,8 @@ When adding a feature, prefer extending an existing fixture in
 
 This package ships with the rest of the monorepo on a fixed Changesets
 schedule. Behavioural changes need a changeset (`pnpm changeset`,
-choose `@chat-adapter/slack` plus `chat` if a public type changed).
+choose `@chat-adapter/slack`, plus `chat` if a public type exported from
+`chat` changed).
 README updates, sample-message additions, and AGENTS.md edits are
 docs-only — no changeset required.
 
