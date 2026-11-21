@@ -1,5 +1,17 @@
 # @chat-adapter/telegram
 
+## 4.46.0
+
+### Patch Changes
+
+- 859d012: Add `MessageStore` to `@chat-adapter/shared`, an in-memory message store that keeps the newest 100 messages of each thread and stays within a size budget of about 64 MB across all threads. The Telegram, Messenger, and Instagram adapters now use it for the messages `fetchMessages` returns, so the cache no longer grows with every message the process sees. Older messages beyond those limits are no longer returned.
+- 3527c72: Pass `Button` and `LinkButton` `style` to Telegram inline keyboard buttons. `"primary"` and `"danger"` are sent as Telegram's `style` field and shown in blue and red. For `"default"`, no `style` is sent.
+- 859d012: Polling mode now discards a message that the `drop` concurrency strategy rejects instead of saving it and retrying it. Messages for one chat that are fetched in the same `getUpdates` response count as arriving together, so one is handled and the rest are discarded; use the `queue` strategy to keep messages that arrive while a handler is running. Saved failed updates are now bounded: the adapter discards one after 10 failed attempts or one hour, keeps at most 1,000, and dispatches up to 100 per pass, with a retried update never sharing a pass with other saved work for its chat. The same limits apply to a checkpoint loaded when polling starts.
+- Updated dependencies [859d012]
+- Updated dependencies [4ff668d]
+  - @chat-adapter/shared@4.46.0
+  - chat@4.46.0
+
 ## 4.45.0
 
 ### Minor Changes
