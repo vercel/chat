@@ -9,6 +9,7 @@ import { mysql } from "./community/mysql";
 import { qq } from "./community/qq";
 import { rocketchat } from "./community/rocketchat";
 import { signal } from "./community/signal";
+import { supergreen } from "./community/supergreen";
 import { webex } from "./community/webex";
 import { wecom } from "./community/wecom";
 import { weixin } from "./community/weixin";
@@ -121,4 +122,5 @@ export const COMMUNITY_ADAPTERS = {
   zoom,
   wwebjs,
   chatwoot,
+  supergreen,
 } as const satisfies Record<string, CommunityAdapter>;
