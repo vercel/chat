@@ -342,6 +342,8 @@ The adapter waits about 1 second between messages in private chats and about 3 s
 - `mode: "auto"` checks `getWebhookInfo`: if a webhook URL exists it uses webhook mode; if it is empty it falls back to polling on non-serverless runtimes without deleting webhook.
 - If `getWebhookInfo` fails in `mode: "auto"`, the adapter stays in webhook mode (safe fallback).
 - `Button` and `LinkButton` in card `Actions` render as inline keyboard buttons. An `Actions` block with more than 8 buttons wraps into evenly sized rows of at most 8, because Telegram keeps only the first 8 buttons of a row and drops the rest.
+- `Button` and `LinkButton` styles need Bot API 9.4 or newer. `style="primary"` renders blue, `style="danger"` renders red, and `style="default"` sends no `style` field. A self-hosted Bot API server older than 9.4 ignores the field, so buttons keep Telegram's default look.
+- Telegram inline keyboards have no disabled state. A `Button` with `disabled` renders as a normal button, and tapping it still runs your `onAction` handler.
 - Telegram callback data is limited to 64 bytes. Keep button `id`/`value` payloads short.
 - Incoming attachments preserve Telegram's downloadable `file_id` and stable `file_unique_id` as `fetchMetadata.fileId` and `fetchMetadata.fileUniqueId`. Photo attachments use the `image/jpeg` MIME type.
 - `files` upload as Telegram documents. Multiple `files` are sent as Telegram media groups. `attachments` preserve image, audio, video, or file media type and also use media groups when multiple compatible attachments are posted. Use `data` or `fetchData` for private/authenticated files; URL-only attachments must be public URLs Telegram can fetch directly.

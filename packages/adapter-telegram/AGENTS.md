@@ -186,6 +186,14 @@ shared `cardToFallbackText` and the keyboard from
   An `Actions` block with more than 8 buttons wraps into evenly sized
   rows of at most 8 (11 → 6 + 5): Telegram keeps only the first 8
   buttons of a row and drops the rest.
+- Button styles → `toButtonStyle` copies `primary` (blue) and `danger`
+  (red) to the button's `style` field, for both `<Button>` and
+  `<LinkButton>`. `default` and unset send no `style`. The field needs
+  Bot API 9.4; an older self-hosted server reads button fields by name
+  and ignores it, so there is no fallback request.
+- Disabled buttons → rendered as normal buttons. Inline keyboards have
+  no disabled state and `toInlineKeyboardRow` does not read `disabled`,
+  so the tap still arrives as a `callback_query`.
 - LinkButton → `url` button.
 - Select / RadioSelect → not rendered. Telegram has no native select
   widget, so `toInlineKeyboardRow` skips them and they add no buttons.

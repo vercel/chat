@@ -5502,11 +5502,13 @@ describe("TelegramAdapter", () => {
               id: "approve",
               label: "Approve",
               value: "request-123",
+              style: "primary",
             },
             {
               type: "link-button",
               label: "View",
               url: "https://example.com",
+              style: "default",
             },
           ],
         },
@@ -5518,7 +5520,12 @@ describe("TelegramAdapter", () => {
     ) as {
       reply_markup?: {
         inline_keyboard: Array<
-          Array<{ text: string; callback_data?: string; url?: string }>
+          Array<{
+            text: string;
+            callback_data?: string;
+            style?: string;
+            url?: string;
+          }>
         >;
       };
     };
@@ -5529,6 +5536,7 @@ describe("TelegramAdapter", () => {
     expect(row?.[0]).toEqual({
       text: "Approve",
       callback_data: encodeTelegramCallbackData("approve", "request-123"),
+      style: "primary",
     });
     expect(row?.[1]).toEqual({
       text: "View",
