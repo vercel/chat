@@ -71,7 +71,7 @@ You can call `createSlackAdapter()` with no arguments when the required environm
 | `fileTransport` | No | Guarded file download transport; custom transports own connection/DNS policy |
 | `webClientOptions` | No | Options forwarded to Slack `WebClient` instances, excluding `slackApiUrl`. Supports `retryConfig`, per-request `timeout`, and `rejectRateLimitedCalls`; `agent` also configures Socket Mode, `tls` only its HTTP calls |
 | `logger` | No | Logger instance (defaults to `ConsoleLogger("info")`) |
-| `unfurlWaitMs` | No | Polling budget for missing link previews, in milliseconds (default `2000`). Set `0` to read cached previews once without polling. Must be finite and nonnegative |
+| `unfurlWaitMs` | No | Polling budget for missing link previews, in milliseconds (default `2000`). Set `0` to read cached previews once without polling. Must be finite and nonnegative, and should stay well below the time your host allows `waitUntil` tasks |
 
 *`signingSecret` is required for webhook mode — either via config, `SLACK_SIGNING_SECRET` env var, or a `webhookVerifier`.
 **`appToken` is required for socket mode — either via config or `SLACK_APP_TOKEN` env var.

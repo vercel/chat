@@ -14,6 +14,8 @@ const MESSAGE_TS = "1234567890.123456";
 const URL = "https://example.com/article";
 const PREVIOUS_URL = "https://example.com/previous";
 const UNFURL_KEY = `slack:unfurls:${CHANNEL}:${MESSAGE_TS}`;
+// A 2000 ms default wait polled every 150 ms: reads at 0, 150, ..., 1950, 2000.
+const DEFAULT_WAIT_READS = 15;
 const BASE_CONFIG: SlackAdapterConfig = {
   botToken: "xoxb-test-token",
   botUserId: "U_BOT",
@@ -31,6 +33,10 @@ function messageEvent(text = `<${URL}>`) {
     username: "testuser",
     text,
   };
+}
+
+function selfMessageEvent() {
+  return { ...messageEvent(), user: BASE_CONFIG.botUserId };
 }
 
 function editEvent() {
@@ -66,6 +72,19 @@ function webhookRequest(event: Record<string, unknown>): Request {
       "x-slack-signature": `v0=${signature}`,
     },
     body,
+  });
+}
+
+type MockState = ReturnType<typeof createMockState>;
+
+function moveClockBackOnFirstUnfurlRead(state: MockState) {
+  let clockMoved = false;
+  vi.mocked(state.get).mockImplementation(async (key) => {
+    if (key === UNFURL_KEY && !clockMoved) {
+      vi.setSystemTime(Date.now() - 60_000);
+      clockMoved = true;
+    }
+    return state.cache.get(key) ?? null;
   });
 }
 
@@ -124,8 +143,13 @@ describe("unfurlWaitMs", () => {
     Number.NEGATIVE_INFINITY,
   ])("rejects an invalid wait of %s through the factory and constructor", (unfurlWaitMs) => {
     const config = { ...BASE_CONFIG, unfurlWaitMs };
-    expect(() => createSlackAdapter(config)).toThrow(ValidationError);
-    expect(() => new SlackAdapter(config)).toThrow(ValidationError);
+    for (const create of [
+      () => createSlackAdapter(config),
+      () => new SlackAdapter(config),
+    ]) {
+      expect(create).toThrow(ValidationError);
+      expect(create).toThrow("unfurlWaitMs must be a finite, nonnegative");
+    }
   });
 
   it.each([null, "0"])("rejects a nonnumeric wait of %s", (unfurlWaitMs) => {
@@ -133,8 +157,13 @@ describe("unfurlWaitMs", () => {
       ...BASE_CONFIG,
       unfurlWaitMs: unfurlWaitMs as unknown as number,
     };
-    expect(() => createSlackAdapter(config)).toThrow(ValidationError);
-    expect(() => new SlackAdapter(config)).toThrow(ValidationError);
+    for (const create of [
+      () => createSlackAdapter(config),
+      () => new SlackAdapter(config),
+    ]) {
+      expect(create).toThrow(ValidationError);
+      expect(create).toThrow("unfurlWaitMs must be a finite, nonnegative");
+    }
   });
 
   it("acknowledges the webhook before the default wait and waits once for multiple links", async () => {
@@ -171,21 +200,121 @@ describe("unfurlWaitMs", () => {
 
   it("does not poll when the clock moves backward during a cache-only read", async () => {
     const bot = await createBot({ unfurlWaitMs: 0 });
-    let clockMoved = false;
-    vi.mocked(bot.state.get).mockImplementation(async (key) => {
-      if (key === UNFURL_KEY && !clockMoved) {
-        vi.setSystemTime(Date.now() - 60_000);
-        clockMoved = true;
-        return null;
-      }
-      return bot.state.cache.get(key) ?? null;
-    });
+    moveClockBackOnFirstUnfurlRead(bot.state);
     await bot.deliver(messageEvent());
     await vi.advanceTimersByTimeAsync(0);
 
+    expect(bot.unfurlReads()).toHaveLength(1);
+    expect(vi.getTimerCount()).toBe(0);
     expect(bot.onMessage).toHaveBeenCalledOnce();
     expect(bot.onMessage.mock.calls[0][1].links).toEqual([{ url: URL }]);
+    await Promise.all(bot.pending);
+  });
+
+  it("keeps a configured deadline when the clock moves backward mid-poll", async () => {
+    const bot = await createBot({ unfurlWaitMs: 25 });
+    moveClockBackOnFirstUnfurlRead(bot.state);
+    await bot.deliver(messageEvent());
+    await vi.advanceTimersByTimeAsync(24);
+
     expect(bot.unfurlReads()).toHaveLength(1);
+    expect(bot.onMessage).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(1);
+    expect(bot.unfurlReads()).toHaveLength(2);
+    expect(vi.getTimerCount()).toBe(0);
+    expect(bot.onMessage).toHaveBeenCalledOnce();
+    expect(bot.onMessage.mock.calls[0][1].links).toEqual([{ url: URL }]);
+    await Promise.all(bot.pending);
+  });
+
+  it("skips the preview lookup for the bot's own message", async () => {
+    const bot = await createBot();
+    const response = await bot.deliver(selfMessageEvent());
+    await vi.advanceTimersByTimeAsync(0);
+
+    expect(response.status).toBe(200);
+    expect(bot.pending).toHaveLength(1);
+    expect(vi.getTimerCount()).toBe(0);
+    await Promise.all(bot.pending);
+    expect(bot.unfurlReads()).toHaveLength(0);
+  });
+
+  it("skips the cache when the event attachment has a description but no title", async () => {
+    const bot = await createBot();
+    await bot.deliver({
+      ...messageEvent(),
+      attachments: [{ from_url: URL, text: "Event description" }],
+    });
+    await vi.advanceTimersByTimeAsync(0);
+
+    expect(bot.unfurlReads()).toHaveLength(0);
+    expect(vi.getTimerCount()).toBe(0);
+    expect(bot.onMessage).toHaveBeenCalledOnce();
+    expect(bot.onMessage.mock.calls[0][1].links).toEqual([
+      { url: URL, description: "Event description" },
+    ]);
+    await Promise.all(bot.pending);
+  });
+
+  it("keeps event metadata and fills only bare links from the cache", async () => {
+    const bot = await createBot();
+    bot.state.cache.set(UNFURL_KEY, {
+      [URL]: { title: "Cached title", description: "Cached description" },
+      [PREVIOUS_URL]: {
+        title: "Cached previous title",
+        description: "Cached previous description",
+        siteName: "Example",
+      },
+    });
+    await bot.deliver({
+      ...messageEvent(`<${URL}> <${PREVIOUS_URL}>`),
+      attachments: [{ from_url: URL, text: "Event description" }],
+    });
+    await vi.advanceTimersByTimeAsync(0);
+
+    expect(bot.unfurlReads()).toHaveLength(1);
+    expect(vi.getTimerCount()).toBe(0);
+    expect(bot.onMessage).toHaveBeenCalledOnce();
+    expect(bot.onMessage.mock.calls[0][1].links).toEqual([
+      { url: URL, description: "Event description" },
+      {
+        url: PREVIOUS_URL,
+        title: "Cached previous title",
+        description: "Cached previous description",
+        siteName: "Example",
+      },
+    ]);
+    await Promise.all(bot.pending);
+  });
+
+  it("returns bare links and logs a warning when the cache read fails", async () => {
+    const bot = await createBot();
+    const error = new Error("state unavailable");
+    vi.mocked(bot.state.get).mockImplementation(async (key) => {
+      if (key === UNFURL_KEY) {
+        throw error;
+      }
+      return bot.state.cache.get(key) ?? null;
+    });
+    const warn = vi.mocked(mockLogger.warn);
+    warn.mockClear();
+    await bot.deliver(messageEvent());
+    await vi.advanceTimersByTimeAsync(0);
+
+    expect(bot.unfurlReads()).toHaveLength(1);
+    expect(vi.getTimerCount()).toBe(0);
+    expect(bot.onMessage).toHaveBeenCalledOnce();
+    expect(bot.onMessage.mock.calls[0][1].links).toEqual([{ url: URL }]);
+    const failures = warn.mock.calls.filter(
+      ([message]) => message === "Failed to read cached link previews"
+    );
+    expect(failures).toHaveLength(1);
+    expect(failures[0][1]).toEqual({
+      channelId: CHANNEL,
+      messageTs: MESSAGE_TS,
+      error,
+    });
+    expect((failures[0][1] as { error: unknown }).error).toBe(error);
     await Promise.all(bot.pending);
   });
 
@@ -235,17 +364,44 @@ describe("unfurlWaitMs", () => {
     await Promise.all(bot.pending);
   });
 
-  it("preserves the default wait for both edit snapshots", async () => {
+  it("waits once for an edit and reads the previous snapshot without polling", async () => {
     const bot = await createBot();
     const response = await bot.deliver(editEvent());
 
     expect(response.status).toBe(200);
-    await vi.advanceTimersByTimeAsync(3999);
+    await vi.advanceTimersByTimeAsync(1999);
     expect(bot.onEdit).not.toHaveBeenCalled();
     await vi.advanceTimersByTimeAsync(1);
+    expect(vi.getTimerCount()).toBe(0);
     expect(bot.onEdit).toHaveBeenCalledOnce();
     expect(bot.onEdit.mock.calls[0][1].links).toEqual([{ url: URL }]);
     expect(bot.onEdit.mock.calls[0][2].links).toEqual([{ url: PREVIOUS_URL }]);
+    expect(bot.unfurlReads()).toHaveLength(DEFAULT_WAIT_READS + 1);
+    await Promise.all(bot.pending);
+  });
+
+  it("enriches the previous snapshot from a cached preview", async () => {
+    const bot = await createBot();
+    bot.state.cache.set(UNFURL_KEY, {
+      [PREVIOUS_URL]: {
+        title: "Previous title",
+        description: "Previous description",
+      },
+    });
+    await bot.deliver(editEvent());
+    await vi.advanceTimersByTimeAsync(0);
+
+    expect(bot.unfurlReads()).toHaveLength(2);
+    expect(vi.getTimerCount()).toBe(0);
+    expect(bot.onEdit).toHaveBeenCalledOnce();
+    expect(bot.onEdit.mock.calls[0][1].links).toEqual([{ url: URL }]);
+    expect(bot.onEdit.mock.calls[0][2].links).toEqual([
+      {
+        url: PREVIOUS_URL,
+        title: "Previous title",
+        description: "Previous description",
+      },
+    ]);
     await Promise.all(bot.pending);
   });
 });

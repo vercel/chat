@@ -241,7 +241,9 @@ export interface SlackAdapterConfig {
   /**
    * Polling budget in milliseconds for missing link previews. Defaults to 2000.
    * Set 0 to read cached previews once without polling. Must be finite and
-   * nonnegative. Cache reads are still awaited and have no timeout here.
+   * nonnegative. The handler runs after polling ends, so keep the value well
+   * below the time your host allows `waitUntil` tasks. Cache reads are still
+   * awaited and have no timeout here.
    */
   unfurlWaitMs?: number;
   /** Override bot username (optional) */

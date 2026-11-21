@@ -270,6 +270,11 @@ interface SlackUnfurl {
   siteName?: string;
   title?: string;
 }
+
+/** Slack previews are kept when the attachment has a title or text. */
+function hasUnfurlMetadata(link: LinkPreview): boolean {
+  return Boolean(link.title || link.description);
+}
 const SLACK_MESSAGE_URL_PATTERN =
   /^https?:\/\/[^/]+\.slack\.com\/archives\/([A-Z0-9]+)\/p(\d+)(?:\?.*)?$/;
 // Bracketed URL in message text; length-bounded to keep the scan linear.
@@ -3443,7 +3448,9 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
             type: before.type ?? "message",
           };
           try {
-            return await this.parseSlackMessage(snapshot, threadId);
+            // The snapshot shares its preview cache entry with the edited
+            // message, which already waits for it, so read it once here.
+            return await this.parseSlackMessage(snapshot, threadId, 0);
           } catch (error) {
             // Never let a lookup failure on the old snapshot drop the edit
             this.logger.warn(
@@ -4376,7 +4383,8 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
 
   protected async parseSlackMessage(
     event: SlackEvent,
-    threadId: string
+    threadId: string,
+    unfurlWaitMs = this.unfurlWaitMs
   ): Promise<Message<unknown>> {
     const isMe = this.isMessageFromSelf(event);
 
@@ -4452,11 +4460,16 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
       attachments: (event.files || []).map((file) =>
         this.createAttachment(file, event.team_id ?? event.team)
       ),
-      links: await this.enrichLinks(
-        this.extractLinks(event),
-        event.channel,
-        event.ts
-      ),
+      // Chat never passes the bot's own messages to handlers, so they skip
+      // the preview lookup.
+      links: isMe
+        ? this.extractLinks(event)
+        : await this.enrichLinks(
+            this.extractLinks(event),
+            event.channel,
+            event.ts,
+            unfurlWaitMs
+          ),
     });
   }
 
@@ -4474,13 +4487,16 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
   protected async enrichLinks(
     links: LinkPreview[],
     channelId?: string,
-    messageTs?: string
+    messageTs?: string,
+    waitMs = this.unfurlWaitMs
   ): Promise<LinkPreview[]> {
     if (!(this.chat && channelId && messageTs) || links.length === 0) {
       return links;
     }
 
-    const allHaveMetadata = links.every((l) => l.title || l.fetchMessage);
+    const allHaveMetadata = links.every(
+      (link) => hasUnfurlMetadata(link) || link.fetchMessage
+    );
     if (allHaveMetadata) {
       return links;
     }
@@ -4488,7 +4504,9 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
     // slack delivers unfurled attachments via a separate message_changed event
     // that lands ~100-2000ms after the original event. poll briefly so the
     // handler sees enriched links instead of bare urls.
-    const deadline = Date.now() + this.unfurlWaitMs;
+    // performance.now() is monotonic, so a system clock change can't extend
+    // the wait.
+    const deadline = performance.now() + waitMs;
     const state = this.chat.getState();
     let stored: Record<string, SlackUnfurl> | null = null;
     while (true) {
@@ -4496,13 +4514,16 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
         stored = await state.get<Record<string, SlackUnfurl>>(
           this.unfurlCacheKey(channelId, messageTs)
         );
-      } catch {
+      } catch (error) {
+        this.logger.warn("Failed to read cached link previews", {
+          channelId,
+          messageTs,
+          error,
+        });
         return links;
       }
-      const remaining = deadline - Date.now();
-      // Check 0 explicitly: Date.now() can move backward, which would make
-      // `remaining` positive and start polling even though waiting is disabled.
-      if (stored || this.unfurlWaitMs === 0 || remaining <= 0) {
+      const remaining = deadline - performance.now();
+      if (stored || remaining <= 0) {
         break;
       }
       await new Promise((resolve) =>
@@ -4514,7 +4535,7 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
     }
 
     return links.map((link) => {
-      if (link.title) {
+      if (hasUnfurlMetadata(link)) {
         return link;
       }
       const unfurl =
