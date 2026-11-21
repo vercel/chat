@@ -5840,6 +5840,110 @@ describe("TelegramAdapter", () => {
     expect(forward.nextCursor).toBe("123:2");
   });
 
+  it("keeps only the newest 100 cached messages of a thread", async () => {
+    const adapter = createTelegramAdapter({
+      botToken: "token",
+      mode: "webhook",
+      logger: mockLogger,
+      userName: "mybot",
+    });
+    const otherChat = {
+      id: 777,
+      type: "private",
+      first_name: "Other",
+    } as const;
+
+    adapter.parseMessage(
+      sampleMessage({ message_id: 1, text: "other", date: 1, chat: otherChat })
+    );
+    for (let id = 1; id <= 103; id++) {
+      adapter.parseMessage(
+        sampleMessage({ message_id: id, text: `m${id}`, date: id })
+      );
+    }
+
+    for (const id of [1, 2, 3]) {
+      expect(
+        await adapter.fetchMessage("telegram:123", `123:${id}`)
+      ).toBeNull();
+    }
+    const ids: string[] = [];
+    let cursor: string | undefined;
+    do {
+      const page = await adapter.fetchMessages("telegram:123", {
+        cursor,
+        direction: "forward",
+        limit: 40,
+      });
+      ids.push(...page.messages.map((message) => message.id));
+      cursor = page.nextCursor;
+    } while (cursor);
+    expect(ids).toEqual(
+      Array.from({ length: 100 }, (_, index) => `123:${index + 4}`)
+    );
+
+    const other = await adapter.fetchMessages("telegram:777");
+    expect(other.messages.map((message) => message.text)).toEqual(["other"]);
+  });
+
+  it("evicts the oldest messages of the largest threads once cached messages outgrow the size budget", async () => {
+    const adapter = createTelegramAdapter({
+      botToken: "token",
+      mode: "webhook",
+      logger: mockLogger,
+      userName: "mybot",
+    });
+    // Text this long skips markdown parsing, so each message is cheap to
+    // build and still weighs about 4 MB against the 64 MB budget.
+    const large = "x".repeat(1_000_000);
+    const chats = [201, 202];
+    const perChat = 12;
+
+    adapter.parseMessage(
+      sampleMessage({
+        message_id: 1,
+        text: "light",
+        date: 1,
+        chat: { id: 900, type: "private", first_name: "Light" },
+      })
+    );
+    for (let id = 1; id <= perChat; id++) {
+      for (const chatId of chats) {
+        adapter.parseMessage(
+          sampleMessage({
+            message_id: id,
+            text: large,
+            date: 10 + id,
+            chat: { id: chatId, type: "private", first_name: "Heavy" },
+          })
+        );
+      }
+    }
+
+    let kept = 0;
+    for (const chatId of chats) {
+      const page = await adapter.fetchMessages(`telegram:${chatId}`, {
+        limit: 100,
+      });
+      const ids = page.messages.map((message) => message.id);
+      kept += ids.length;
+      // Whatever survives is the newest run of the thread, ending at the
+      // last message sent.
+      expect(ids).toEqual(
+        Array.from(
+          { length: ids.length },
+          (_, index) => `${chatId}:${perChat - ids.length + 1 + index}`
+        )
+      );
+      expect(ids.length).toBeGreaterThan(0);
+      expect(await adapter.fetchMessage("", `${chatId}:1`)).toBeNull();
+    }
+    expect(kept).toBeLessThan(chats.length * perChat);
+
+    const light = await adapter.fetchMessages("telegram:900");
+    expect(light.messages.map((message) => message.text)).toEqual(["light"]);
+  }, 30_000);
+
   it("parses replied-to message context", () => {
     const adapter = createTelegramAdapter({
       botToken: "token",
@@ -6743,6 +6847,779 @@ describe("TelegramAdapter", () => {
     expect(sendMessageBody.chat_id).toBe("-1001234");
     expect(sendMessageBody.message_thread_id).toBe(42);
     expect(sendMessageBody.rich_message.markdown).toBe("forum topic message");
+  });
+});
+
+describe("polling checkpoint bounds", () => {
+  const CHECKPOINT_KEY = `telegram:polling:${createHash("sha256").update("999").digest("hex")}`;
+  const DISCARD_MESSAGE = "Discarding Telegram polling update";
+  const TRIM_MESSAGE = "Discarding oldest Telegram polling updates";
+  const RETRY_MESSAGE = "Telegram polling update processing failed";
+  const HOUR_MS = 60 * 60 * 1000;
+
+  interface SeededEntry {
+    attempts?: number;
+    receivedAt: number;
+    retryAt?: number;
+    update: TelegramUpdate;
+  }
+
+  interface SeededCheckpoint {
+    offset?: number;
+    pending: SeededEntry[];
+  }
+
+  function textUpdate(updateId: number, chatId: number): TelegramUpdate {
+    return {
+      update_id: updateId,
+      message: sampleMessage({
+        chat: { id: chatId, type: "private", first_name: "User" },
+        message_id: updateId,
+        text: `text ${updateId}`,
+      }),
+    };
+  }
+
+  function albumUpdate(
+    updateId: number,
+    chatId: number,
+    group: string
+  ): TelegramUpdate {
+    return {
+      update_id: updateId,
+      message: sampleMessage({
+        chat: { id: chatId, type: "private", first_name: "User" },
+        message_id: updateId,
+        media_group_id: group,
+        photo: [
+          {
+            file_id: `photo-${updateId}`,
+            file_unique_id: `photo-unique-${updateId}`,
+            width: 800,
+            height: 600,
+          },
+        ],
+        text: undefined,
+      }),
+    };
+  }
+
+  /**
+   * Routes Bot API calls by method. `getUpdates` serves `batches` in order,
+   * then answers a zero-timeout poll with an empty batch and stalls a long
+   * poll until it is aborted. `events` records each poll's timeout.
+   */
+  function routeFetch(batches: TelegramUpdate[][], events: string[] = []) {
+    mockFetch.mockImplementation((input, init) => {
+      const url = String(input);
+      if (url.includes("/getMe")) {
+        return Promise.resolve(telegramOk(BOT_IDENTITY));
+      }
+      if (!url.includes("/getUpdates")) {
+        return Promise.resolve(telegramOk(true));
+      }
+      const { timeout } = JSON.parse(String(init?.body)) as {
+        timeout: number;
+      };
+      events.push(`poll:${timeout}`);
+      const batch = batches.shift();
+      if (batch) {
+        return Promise.resolve(telegramOk(batch));
+      }
+      return timeout === 0
+        ? Promise.resolve(telegramOk([]))
+        : stallBeforeHeaders(init);
+    });
+  }
+
+  function createAdapter(): TelegramAdapter {
+    return createTelegramAdapter({
+      botToken: "token",
+      mode: "webhook",
+      logger: mockLogger,
+      userName: "mybot",
+    });
+  }
+
+  async function createRealChat() {
+    const adapter = createAdapter();
+    const state = createMockState();
+    const chat = new Chat({
+      adapters: { telegram: adapter },
+      logger: mockLogger,
+      state,
+      userName: "mybot",
+    });
+    await chat.initialize();
+    return { adapter, chat, state };
+  }
+
+  /**
+   * A mocked chat whose `processMessage` records `handle:{updateId}` in
+   * `events` and then defers to `respond`.
+   */
+  function createRecordingChat(
+    events: string[],
+    respond: (threadId: string) => Promise<void> = () => Promise.resolve()
+  ) {
+    const processMessage = vi.fn(
+      (_adapter: unknown, threadId: string, message: Message) => {
+        events.push(`handle:${message.id.split(":")[1]}`);
+        return respond(threadId);
+      }
+    );
+    const chat = createMockChatInstance({
+      logger: mockLogger,
+      userName: "mybot",
+      overrides: { processMessage } as Partial<ChatInstance>,
+    });
+    return { chat, processMessage };
+  }
+
+  function warnings(message: string): unknown[] {
+    return vi
+      .mocked(mockLogger.warn)
+      .mock.calls.filter(([logged]) => logged === message)
+      .map(([, data]) => data);
+  }
+
+  function pendingIds(checkpoint: SeededCheckpoint | null): number[] {
+    return (checkpoint?.pending ?? []).map((entry) => entry.update.update_id);
+  }
+
+  it("drops a polled update the concurrency strategy rejected instead of saving it", async () => {
+    const events: string[] = [];
+    routeFetch(
+      [[textUpdate(10, 123), textUpdate(11, 123), textUpdate(12, 789)]],
+      events
+    );
+    const { adapter, chat, state } = await createRealChat();
+    const handled: string[] = [];
+    let release: () => void = () => {};
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    chat.onNewMention(async (thread) => {
+      handled.push(thread.id);
+      if (thread.id === "telegram:789") {
+        throw new Error("handler failed");
+      }
+      await gate;
+    });
+    vi.mocked(mockLogger.warn).mockClear();
+    vi.mocked(mockLogger.debug).mockClear();
+
+    await adapter.startPolling({ limit: 10, retryDelayMs: 0, timeout: 1 });
+
+    try {
+      await waitForCondition(
+        () =>
+          handled.includes("telegram:123") && handled.includes("telegram:789")
+      );
+      release();
+      await waitForCondition(
+        () => events.filter((event) => event.startsWith("poll")).length >= 2
+      );
+
+      const checkpoint = await state.get<SeededCheckpoint>(CHECKPOINT_KEY);
+      expect(checkpoint).toMatchObject({
+        offset: 13,
+        pending: [{ attempts: 1, update: { update_id: 12 } }],
+      });
+      expect(pendingIds(checkpoint)).toEqual([12]);
+      expect(
+        handled.filter((threadId) => threadId === "telegram:123")
+      ).toHaveLength(1);
+      expect(warnings(RETRY_MESSAGE)).toEqual([
+        expect.objectContaining({ updateId: 12 }),
+      ]);
+      expect(mockLogger.debug).toHaveBeenCalledWith(
+        "Telegram polling update dropped by the concurrency strategy",
+        expect.objectContaining({ updateId: 11 })
+      );
+    } finally {
+      release();
+      await adapter.stopPolling();
+    }
+  });
+
+  it("handles one of two media groups that settle together for one chat and discards the other", async () => {
+    vi.useFakeTimers();
+    routeFetch([
+      [
+        albumUpdate(10, 123, "first-album"),
+        albumUpdate(11, 123, "first-album"),
+        albumUpdate(12, 123, "second-album"),
+        albumUpdate(13, 123, "second-album"),
+        albumUpdate(14, 789, "failing-album"),
+        albumUpdate(15, 789, "failing-album"),
+      ],
+    ]);
+    const { adapter, chat, state } = await createRealChat();
+    const handled: string[] = [];
+    let release: () => void = () => {};
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    chat.onNewMention(async (thread, message) => {
+      const parts = message.attachments.map(
+        (attachment) => (attachment.fetchMetadata as { fileId?: string }).fileId
+      );
+      handled.push(`${thread.id}:${parts.join("+")}`);
+      if (thread.id === "telegram:789") {
+        throw new Error("handler failed");
+      }
+      await gate;
+    });
+    vi.mocked(mockLogger.debug).mockClear();
+
+    await adapter.startPolling({ limit: 10, retryDelayMs: 0, timeout: 1 });
+
+    try {
+      await vi.advanceTimersByTimeAsync(2500);
+      expect([...handled].sort()).toEqual([
+        "telegram:123:photo-10+photo-11",
+        "telegram:789:photo-14+photo-15",
+      ]);
+
+      release();
+      await vi.advanceTimersByTimeAsync(100);
+
+      const checkpoint = await state.get<SeededCheckpoint>(CHECKPOINT_KEY);
+      expect(pendingIds(checkpoint)).toEqual([14, 15]);
+      expect(checkpoint?.pending.map((entry) => entry.attempts)).toEqual([
+        1, 1,
+      ]);
+      expect(handled).toHaveLength(2);
+      expect(mockLogger.debug).toHaveBeenCalledWith(
+        "Telegram polling update dropped by the concurrency strategy",
+        expect.objectContaining({ updateId: 12 })
+      );
+    } finally {
+      release();
+      await adapter.stopPolling();
+    }
+  });
+
+  it("saves nothing for a same-chat update the queue strategy accepted", async () => {
+    const events: string[] = [];
+    routeFetch(
+      [[textUpdate(10, 123), textUpdate(11, 123), textUpdate(12, 789)]],
+      events
+    );
+    const adapter = createAdapter();
+    const state = createMockState();
+    const chat = new Chat({
+      adapters: { telegram: adapter },
+      concurrency: "queue",
+      logger: mockLogger,
+      state,
+      userName: "mybot",
+    });
+    await chat.initialize();
+    const handled: string[] = [];
+    let release: () => void = () => {};
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    chat.onNewMention(async (thread, message, context) => {
+      handled.push(`${message.id}:${context?.skipped.length ?? 0}`);
+      if (thread.id === "telegram:789") {
+        throw new Error("handler failed");
+      }
+      await gate;
+    });
+
+    await adapter.startPolling({ limit: 10, retryDelayMs: 0, timeout: 1 });
+
+    try {
+      await waitForCondition(() => handled.length >= 2);
+      expect([...handled].sort()).toEqual(["123:10:0", "789:12:0"]);
+      release();
+      await waitForCondition(
+        () => events.filter((event) => event.startsWith("poll")).length >= 2
+      );
+
+      expect([...handled].sort()).toEqual(["123:10:0", "123:11:0", "789:12:0"]);
+      const checkpoint = await state.get<SeededCheckpoint>(CHECKPOINT_KEY);
+      expect(pendingIds(checkpoint)).toEqual([12]);
+      expect(checkpoint?.pending[0]?.attempts).toBe(1);
+    } finally {
+      release();
+      await adapter.stopPolling();
+    }
+  });
+
+  it("drops a media group the concurrency strategy rejected and keeps a failed one pending", async () => {
+    vi.useFakeTimers();
+    routeFetch([
+      [
+        albumUpdate(10, 123, "locked-album"),
+        albumUpdate(11, 123, "locked-album"),
+        albumUpdate(12, 789, "failing-album"),
+        albumUpdate(13, 789, "failing-album"),
+      ],
+    ]);
+    const { adapter, chat, state } = await createRealChat();
+    const handled: string[] = [];
+    let release: () => void = () => {};
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    chat.onNewMention(async (thread, message) => {
+      handled.push(`${thread.id}:${message.attachments.length}`);
+      if (thread.id === "telegram:789") {
+        throw new Error("handler failed");
+      }
+      await gate;
+    });
+    const running = chat.handleIncomingMessage(
+      adapter,
+      "telegram:123",
+      adapter.parseMessage(sampleMessage({ message_id: 5 }))
+    );
+    await vi.advanceTimersByTimeAsync(0);
+    expect(handled).toEqual(["telegram:123:0"]);
+
+    await adapter.startPolling({ limit: 10, retryDelayMs: 0, timeout: 1 });
+
+    try {
+      await vi.advanceTimersByTimeAsync(2500);
+
+      expect(handled).toEqual(["telegram:123:0", "telegram:789:2"]);
+      const checkpoint = await state.get<SeededCheckpoint>(CHECKPOINT_KEY);
+      expect(pendingIds(checkpoint)).toEqual([12, 13]);
+      expect(checkpoint?.pending.map((entry) => entry.attempts)).toEqual([
+        1, 1,
+      ]);
+    } finally {
+      release();
+      await running;
+      await adapter.stopPolling();
+    }
+  });
+
+  it("discards an update whose handler keeps failing after 10 attempts", async () => {
+    vi.useFakeTimers();
+    const events: string[] = [];
+    routeFetch([[textUpdate(10, 123)]], events);
+    const adapter = createAdapter();
+    const { chat, processMessage } = createRecordingChat(events, () =>
+      Promise.reject(new Error("always fails"))
+    );
+    await adapter.initialize(chat);
+    vi.mocked(mockLogger.warn).mockClear();
+
+    await adapter.startPolling({ limit: 10, retryDelayMs: 0, timeout: 1 });
+
+    try {
+      // Backoff doubles from 1s to the 30s cap: the nine waits total 151s.
+      await vi.advanceTimersByTimeAsync(120_000);
+      expect(processMessage.mock.calls.length).toBeLessThan(10);
+      expect(
+        pendingIds(await chat.getState().get<SeededCheckpoint>(CHECKPOINT_KEY))
+      ).toEqual([10]);
+
+      await vi.advanceTimersByTimeAsync(480_000);
+      expect(processMessage).toHaveBeenCalledTimes(10);
+      expect(await chat.getState().get(CHECKPOINT_KEY)).toBeNull();
+      expect(warnings(DISCARD_MESSAGE)).toEqual([
+        { attempts: 10, reason: "max attempts reached", updateId: 10 },
+      ]);
+      expect(warnings(RETRY_MESSAGE)).toEqual(
+        Array.from({ length: 9 }, (_, index) =>
+          expect.objectContaining({
+            attempts: index + 1,
+            retryAt: expect.any(Number),
+            updateId: 10,
+          })
+        )
+      );
+    } finally {
+      await adapter.stopPolling();
+    }
+  });
+
+  it("discards a saved update older than the maximum age when the checkpoint loads", async () => {
+    const events: string[] = [];
+    routeFetch([], events);
+    const adapter = createAdapter();
+    const { chat, processMessage } = createRecordingChat(events);
+    await adapter.initialize(chat);
+    const now = Date.now();
+    await chat.getState().set(CHECKPOINT_KEY, {
+      offset: 30,
+      pending: [
+        {
+          attempts: 2,
+          receivedAt: now - HOUR_MS - 60_000,
+          update: textUpdate(20, 501),
+        },
+        { attempts: 2, receivedAt: now - 60_000, update: textUpdate(21, 502) },
+      ],
+    } satisfies SeededCheckpoint);
+    vi.mocked(mockLogger.warn).mockClear();
+
+    await adapter.startPolling({ limit: 10, retryDelayMs: 0, timeout: 1 });
+
+    try {
+      await waitForCondition(() => events.includes("poll:1"));
+
+      expect(events).toEqual(["handle:21", "poll:1"]);
+      expect(processMessage).toHaveBeenCalledTimes(1);
+      expect(processMessage.mock.calls[0]?.[1]).toBe("telegram:502");
+      expect(warnings(DISCARD_MESSAGE)).toEqual([
+        { attempts: 2, reason: "max age exceeded", updateId: 20 },
+      ]);
+      expect(await chat.getState().get(CHECKPOINT_KEY)).toBeNull();
+    } finally {
+      await adapter.stopPolling();
+    }
+  });
+
+  it("discards a stale media group part on load and still delivers a fresh one", async () => {
+    vi.useFakeTimers();
+    const events: string[] = [];
+    routeFetch([], events);
+    const adapter = createAdapter();
+    const { chat, processMessage } = createRecordingChat(events);
+    await adapter.initialize(chat);
+    const now = Date.now();
+    await chat.getState().set(CHECKPOINT_KEY, {
+      offset: 30,
+      pending: [
+        {
+          receivedAt: now - HOUR_MS - 60_000,
+          update: albumUpdate(20, 501, "stale-album"),
+        },
+        { receivedAt: now - 60_000, update: albumUpdate(21, 502, "album") },
+      ],
+    } satisfies SeededCheckpoint);
+    vi.mocked(mockLogger.warn).mockClear();
+
+    await adapter.startPolling({ limit: 10, retryDelayMs: 0, timeout: 1 });
+
+    try {
+      await vi.advanceTimersByTimeAsync(2500);
+
+      expect(processMessage).toHaveBeenCalledTimes(1);
+      expect(processMessage.mock.calls[0]?.[1]).toBe("telegram:502");
+      expect(warnings(DISCARD_MESSAGE)).toEqual([
+        { attempts: 0, reason: "max age exceeded", updateId: 20 },
+      ]);
+    } finally {
+      await adapter.stopPolling();
+    }
+  });
+
+  it("discards a saved update that passes the maximum age while it waits out a retry backoff", async () => {
+    vi.useFakeTimers();
+    const events: string[] = [];
+    // getUpdates keeps failing, so no poll result prunes the checkpoint
+    // between loading it and the drain pass.
+    mockFetch.mockImplementation((input) => {
+      const url = String(input);
+      if (url.includes("/getMe")) {
+        return Promise.resolve(telegramOk(BOT_IDENTITY));
+      }
+      if (url.includes("/getUpdates")) {
+        events.push("poll");
+        return Promise.reject(new Error("network down"));
+      }
+      return Promise.resolve(telegramOk(true));
+    });
+    const adapter = createAdapter();
+    const { chat, processMessage } = createRecordingChat(events);
+    await adapter.initialize(chat);
+    const now = Date.now();
+    await chat.getState().set(CHECKPOINT_KEY, {
+      offset: 30,
+      pending: [
+        {
+          attempts: 2,
+          receivedAt: now - HOUR_MS + 10_000,
+          retryAt: now + 20_000,
+          update: textUpdate(20, 501),
+        },
+        {
+          attempts: 2,
+          receivedAt: now - 60_000,
+          retryAt: now + 20_000,
+          update: textUpdate(21, 502),
+        },
+      ],
+    } satisfies SeededCheckpoint);
+    vi.mocked(mockLogger.warn).mockClear();
+
+    await adapter.startPolling({ limit: 10, retryDelayMs: 1000, timeout: 1 });
+
+    try {
+      await vi.advanceTimersByTimeAsync(5000);
+      // Both entries are within the age limit when the checkpoint loads.
+      expect(events).toContain("poll");
+      expect(warnings(DISCARD_MESSAGE)).toEqual([]);
+      expect(processMessage).not.toHaveBeenCalled();
+
+      await vi.advanceTimersByTimeAsync(60_000);
+
+      expect(events.filter((event) => event.startsWith("handle:"))).toEqual([
+        "handle:21",
+      ]);
+      expect(processMessage.mock.calls[0]?.[1]).toBe("telegram:502");
+      expect(warnings(DISCARD_MESSAGE)).toEqual([
+        { attempts: 2, reason: "max age exceeded", updateId: 20 },
+      ]);
+      expect(await chat.getState().get(CHECKPOINT_KEY)).toBeNull();
+    } finally {
+      await adapter.stopPolling();
+    }
+  });
+
+  it("discards a media group whole when only one of its parts is past the maximum age", async () => {
+    const events: string[] = [];
+    routeFetch([], events);
+    const adapter = createAdapter();
+    const persisted: Promise<SeededCheckpoint | null>[] = [];
+    const { chat, processMessage } = createRecordingChat(events, () => {
+      if (persisted.length === 0) {
+        persisted.push(chat.getState().get<SeededCheckpoint>(CHECKPOINT_KEY));
+      }
+      return Promise.resolve();
+    });
+    await adapter.initialize(chat);
+    const now = Date.now();
+    await chat.getState().set(CHECKPOINT_KEY, {
+      offset: 30,
+      pending: [
+        {
+          receivedAt: now - HOUR_MS - 60_000,
+          update: albumUpdate(20, 501, "split-age"),
+        },
+        { receivedAt: now - 60_000, update: albumUpdate(21, 501, "split-age") },
+        { receivedAt: now - 60_000, update: textUpdate(22, 502) },
+      ],
+    } satisfies SeededCheckpoint);
+    vi.mocked(mockLogger.warn).mockClear();
+
+    await adapter.startPolling({ limit: 10, retryDelayMs: 0, timeout: 1 });
+
+    try {
+      await waitForCondition(() => events.includes("poll:1"), 5000);
+
+      expect(events).toEqual(["handle:22", "poll:1"]);
+      expect(processMessage.mock.calls[0]?.[1]).toBe("telegram:502");
+      expect(pendingIds(await persisted[0])).toEqual([22]);
+      expect(warnings(DISCARD_MESSAGE)).toEqual([
+        { attempts: 0, reason: "max age exceeded", updateId: 20 },
+      ]);
+    } finally {
+      await adapter.stopPolling();
+    }
+  });
+
+  it("trims an oversized checkpoint to the newest entries before dispatching anything", async () => {
+    const events: string[] = [];
+    routeFetch([], events);
+    const adapter = createAdapter();
+    const persisted: Promise<SeededCheckpoint | null>[] = [];
+    const { chat, processMessage } = createRecordingChat(events, () => {
+      if (persisted.length === 0) {
+        persisted.push(chat.getState().get<SeededCheckpoint>(CHECKPOINT_KEY));
+      }
+      return Promise.resolve();
+    });
+    await adapter.initialize(chat);
+    const now = Date.now();
+    // Album parts 1 and 2 straddle the cut: keeping the newest 1,000 entries
+    // one by one would keep part 2 alone.
+    const pending: SeededEntry[] = [
+      { receivedAt: now - 60_000, update: albumUpdate(1, 9001, "split") },
+      { receivedAt: now - 60_000, update: albumUpdate(2, 9001, "split") },
+    ];
+    for (let id = 3; id <= 1001; id++) {
+      pending.push({
+        receivedAt: now - 50_000 + id,
+        update: textUpdate(id, 9000 + id),
+      });
+    }
+    await chat.getState().set(CHECKPOINT_KEY, { offset: 2000, pending });
+    vi.mocked(mockLogger.warn).mockClear();
+
+    await adapter.startPolling({ limit: 10, retryDelayMs: 0, timeout: 1 });
+
+    try {
+      await waitForCondition(() => events.includes("poll:1"), 10_000);
+
+      const trimmed = pendingIds(await persisted[0]);
+      expect(trimmed).toHaveLength(999);
+      expect(trimmed.slice(0, 2)).toEqual([3, 4]);
+      expect(trimmed.at(-1)).toBe(1001);
+      expect(warnings(TRIM_MESSAGE)).toEqual([{ discarded: 2, limit: 1000 }]);
+      expect(events[0]).toBe("handle:3");
+      expect(events).not.toContain("handle:1");
+      expect(events).not.toContain("handle:2");
+      expect(processMessage).toHaveBeenCalledTimes(999);
+      expect(events).toContain("poll:1");
+    } finally {
+      await adapter.stopPolling();
+    }
+  }, 20_000);
+
+  it("evicts the oldest saved update when a new failure exceeds the pending limit", async () => {
+    const events: string[] = [];
+    routeFetch([[textUpdate(2000, 7)]], events);
+    const adapter = createAdapter();
+    const { chat, processMessage } = createRecordingChat(events, () =>
+      Promise.reject(new Error("handler failed"))
+    );
+    await adapter.initialize(chat);
+    const now = Date.now();
+    const pending: SeededEntry[] = [];
+    for (let id = 1; id <= 1000; id++) {
+      pending.push({
+        attempts: 1,
+        receivedAt: now - 60_000 + id,
+        retryAt: now + 60_000,
+        update: textUpdate(id, 9000 + id),
+      });
+    }
+    await chat.getState().set(CHECKPOINT_KEY, { offset: 1500, pending });
+
+    await adapter.startPolling({ limit: 10, retryDelayMs: 0, timeout: 1 });
+
+    try {
+      await waitForCondition(
+        () => events.filter((event) => event.startsWith("poll")).length >= 2
+      );
+
+      const saved = pendingIds(
+        await chat.getState().get<SeededCheckpoint>(CHECKPOINT_KEY)
+      );
+      expect(processMessage).toHaveBeenCalledTimes(1);
+      expect(saved).toHaveLength(1000);
+      expect(saved[0]).toBe(2);
+      expect(saved.at(-1)).toBe(2000);
+    } finally {
+      await adapter.stopPolling();
+    }
+  });
+
+  it("dispatches at most 100 saved updates per drain pass and polls between passes", async () => {
+    const events: string[] = [];
+    routeFetch([], events);
+    const adapter = createAdapter();
+    const { chat } = createRecordingChat(events);
+    await adapter.initialize(chat);
+    const now = Date.now();
+    const pending: SeededEntry[] = [];
+    // Seeded newest first so the oldest-first order comes from the adapter.
+    for (let id = 130; id >= 1; id--) {
+      pending.push({
+        receivedAt: now - 60_000 + id,
+        update: textUpdate(id, 9000 + id),
+      });
+    }
+    await chat.getState().set(CHECKPOINT_KEY, { offset: 2000, pending });
+
+    await adapter.startPolling({ limit: 10, retryDelayMs: 0, timeout: 1 });
+
+    try {
+      await waitForCondition(() => events.includes("poll:1"), 10_000);
+
+      const handles = (from: number, to: number) =>
+        Array.from({ length: to - from + 1 }, (_, i) => `handle:${from + i}`);
+      expect(events).toEqual([
+        ...handles(1, 100),
+        "poll:0",
+        ...handles(101, 130),
+        "poll:1",
+      ]);
+      expect(await chat.getState().get(CHECKPOINT_KEY)).toBeNull();
+    } finally {
+      await adapter.stopPolling();
+    }
+  }, 20_000);
+
+  it("delivers buffered media groups for one chat in the same drain pass and keeps retries apart", async () => {
+    vi.useFakeTimers();
+    const events: string[] = [];
+    routeFetch([], events);
+    const adapter = createAdapter();
+    const { chat } = createRecordingChat(events);
+    await adapter.initialize(chat);
+    const now = Date.now();
+    await chat.getState().set(CHECKPOINT_KEY, {
+      offset: 30,
+      pending: [
+        { receivedAt: now - 5000, update: albumUpdate(1, 123, "first") },
+        { receivedAt: now - 4000, update: albumUpdate(2, 123, "second") },
+        { attempts: 1, receivedAt: now - 3000, update: textUpdate(3, 123) },
+        { receivedAt: now - 2000, update: albumUpdate(4, 123, "third") },
+        { attempts: 1, receivedAt: now - 1500, update: textUpdate(5, 501) },
+        { receivedAt: now - 1000, update: albumUpdate(6, 501, "later") },
+      ],
+    } satisfies SeededCheckpoint);
+
+    await adapter.startPolling({ limit: 10, retryDelayMs: 0, timeout: 1 });
+
+    try {
+      await vi.advanceTimersByTimeAsync(3000);
+
+      expect(events.slice(0, 4).sort()).toEqual([
+        "handle:1",
+        "handle:2",
+        "handle:4",
+        "handle:5",
+      ]);
+      expect(events.slice(4)).toEqual([
+        "poll:0",
+        "handle:3",
+        "handle:6",
+        "poll:1",
+      ]);
+    } finally {
+      await adapter.stopPolling();
+    }
+  });
+
+  it("dispatches one retried update per chat in each drain pass", async () => {
+    const events: string[] = [];
+    routeFetch([], events);
+    const { adapter, chat, state } = await createRealChat();
+    chat.onNewMention((_thread, message) => {
+      events.push(`handle:${message.id.split(":")[1]}`);
+    });
+    const now = Date.now();
+    await state.set(CHECKPOINT_KEY, {
+      offset: 30,
+      pending: [
+        { attempts: 1, receivedAt: now - 5000, update: textUpdate(1, 123) },
+        { attempts: 1, receivedAt: now - 4000, update: textUpdate(2, 123) },
+        { attempts: 1, receivedAt: now - 3000, update: textUpdate(3, 123) },
+        { attempts: 1, receivedAt: now - 2000, update: textUpdate(4, 501) },
+        { attempts: 1, receivedAt: now - 1000, update: textUpdate(5, 502) },
+      ],
+    } satisfies SeededCheckpoint);
+
+    await adapter.startPolling({ limit: 10, retryDelayMs: 0, timeout: 1 });
+
+    try {
+      await waitForCondition(() => events.includes("poll:1"));
+
+      expect(events).toEqual([
+        "handle:1",
+        "handle:4",
+        "handle:5",
+        "poll:0",
+        "handle:2",
+        "poll:0",
+        "handle:3",
+        "poll:1",
+      ]);
+      expect(await state.get(CHECKPOINT_KEY)).toBeNull();
+    } finally {
+      await adapter.stopPolling();
+    }
   });
 });
 

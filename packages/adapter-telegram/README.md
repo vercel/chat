@@ -197,6 +197,8 @@ const bot = new Chat({
 
 Each `getUpdates` request has a deadline of the long polling `timeout` plus 30 seconds, and the `getMe` and `deleteWebhook` requests have a 30 second deadline. If a connection drops without a reset, the request fails at the deadline, the adapter logs a `Telegram polling request failed` warning with `Telegram getUpdates request timed out` in its `error` field, and polling resumes on a new connection after a backoff.
 
+A failed update is saved in state and retried with backoff. The adapter discards a saved update after 10 failed attempts or one hour, and keeps at most 1,000 saved updates. A message that the default `drop` concurrency strategy discards is not saved or retried. Messages for one chat that are fetched in the same `getUpdates` response count as arriving together, so the adapter handles one and discards the rest. Use the `queue` strategy to keep messages that arrive while a handler is running.
+
 ### Auto mode
 
 With `mode: "auto"` (the default), the adapter picks the right strategy for you. When deployed to a serverless environment like Vercel it uses webhooks; everywhere else (e.g. local dev) it falls back to polling automatically.
@@ -335,7 +337,7 @@ The adapter waits about 1 second between messages in private chats and about 3 s
 
 - Accepted webhook updates with an integer `update_id` are deduplicated for 24 hours through the configured state adapter. Use shared durable state across serverless instances. If state is unavailable, the adapter returns 503 so Telegram retries without dispatching.
 - Webhook mode requires `secretToken` unless `allowUnverifiedWebhooks` is explicitly enabled. Polling mode does not require webhook verification.
-- Telegram does not expose full historical message APIs to bots. `fetchMessages` / `fetchChannelMessages` return adapter-cached messages from the current process.
+- Telegram does not expose full historical message APIs to bots. `fetchMessages` / `fetchChannelMessages` return adapter-cached messages from the current process. The cache keeps the newest 100 messages of each thread and stays within an overall size budget of about 64 MB, removing the oldest messages of the largest threads first.
 - `listThreads` is not available for Telegram chats.
 - Polling and webhooks are mutually exclusive in Telegram.
 - `mode: "polling"` deletes webhook by default before calling `getUpdates`.
