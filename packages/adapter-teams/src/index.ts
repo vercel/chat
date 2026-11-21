@@ -2,6 +2,7 @@ import { AsyncLocalStorage } from "node:async_hooks";
 
 import {
   bufferToDataUri,
+  extractPostableAttachments,
   NetworkError,
   toBuffer,
   ValidationError,
@@ -1368,10 +1369,7 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
     const target = this.decodeThreadId(threadId);
     const { conversationId } = target;
 
-    const fileAttachments =
-      prepared.files.length > 0
-        ? await this.filesToAttachments(prepared.files)
-        : [];
+    const fileAttachments = await this.outboundAttachments(prepared);
 
     if (prepared.adaptiveCard) {
       const activity = createCardActivity(prepared, fileAttachments);
@@ -1451,10 +1449,7 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
     const recipient = this.createTargetedRecipient(userId);
 
     const prepared = prepareTeamsMessage(input);
-    const fileAttachments =
-      prepared.files.length > 0
-        ? await this.filesToAttachments(prepared.files)
-        : [];
+    const fileAttachments = await this.outboundAttachments(prepared);
 
     if (prepared.adaptiveCard) {
       const activity = createCardActivity(
@@ -1606,6 +1601,36 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
       name: userId,
       role: "user",
     };
+  }
+
+  /** `files` go inline as data URIs; `attachments` with an HTTPS `url` go by reference. */
+  protected async outboundAttachments(
+    prepared: PreparedTeamsMessage
+  ): Promise<NonNullable<MessageActivity["attachments"]>> {
+    const files =
+      prepared.files.length > 0
+        ? await this.filesToAttachments(prepared.files)
+        : [];
+    if (prepared.adaptiveCard) {
+      return files;
+    }
+    const linked = extractPostableAttachments(prepared.message).flatMap(
+      (attachment) =>
+        attachment.url?.startsWith("https://")
+          ? [
+              {
+                contentType:
+                  attachment.mimeType ||
+                  (attachment.type === "image"
+                    ? "image/png"
+                    : "application/octet-stream"),
+                contentUrl: attachment.url,
+                name: attachment.name,
+              },
+            ]
+          : []
+    );
+    return [...files, ...linked];
   }
 
   protected async filesToAttachments(
@@ -2084,10 +2109,7 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
           })
         : channelId;
 
-    const fileAttachments =
-      prepared.files.length > 0
-        ? await this.filesToAttachments(prepared.files)
-        : [];
+    const fileAttachments = await this.outboundAttachments(prepared);
 
     if (prepared.adaptiveCard) {
       const activity = createCardActivity(prepared, fileAttachments);

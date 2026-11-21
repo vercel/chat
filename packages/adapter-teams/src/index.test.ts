@@ -2119,6 +2119,38 @@ describe("TeamsAdapter", () => {
       });
     });
 
+    it.each([
+      "postMessage",
+      "postChannelMessage",
+      "postEphemeral",
+    ] as const)("sends a markdown message's HTTPS attachments by URL with %s", async (method) => {
+      const { adapter, sent, threadId } = createAdapterWithMocks();
+      const message = {
+        markdown: "Screenshot attached",
+        attachments: [
+          {
+            type: "image" as const,
+            url: "https://example.com/screenshot.png",
+            mimeType: "image/png",
+            name: "screenshot.png",
+          },
+          { type: "image" as const, url: "http://example.com/insecure.png" },
+        ],
+      };
+
+      await (method === "postEphemeral"
+        ? adapter.postEphemeral(threadId, "29:target-user", message)
+        : adapter[method](threadId, message));
+
+      expect(sent().attachments).toEqual([
+        {
+          contentType: "image/png",
+          contentUrl: "https://example.com/screenshot.png",
+          name: "screenshot.png",
+        },
+      ]);
+    });
+
     it("doesn't upload files when editing, as with any other message", async () => {
       const { adapter, threadId, updated } = createAdapterWithMocks();
 

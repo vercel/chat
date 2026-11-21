@@ -474,6 +474,19 @@ Teams shows `fallbackText` as the activity summary, in notifications and in clie
 
 A raw card message also accepts `files` and `aiGenerated`. `editMessage` updates the card and doesn't upload `files`, as with any other edit.
 
+## Outgoing attachments
+
+`files` are sent inline as base64 data URIs. An entry in `attachments` with an HTTPS `url` is sent by reference instead, so a large image doesn't count toward the message size. Teams loads the URL itself, so it has to be publicly reachable.
+
+```typescript title="lib/bot.ts"
+await thread.post({
+  markdown: "Screenshot from the report",
+  attachments: [
+    { type: "image", url: "https://example.com/screenshot.png", mimeType: "image/png" },
+  ],
+});
+```
+
 ## User lookup
 
 `bot.getUser()` looks up user profiles through the Microsoft Graph API. To enable it:
