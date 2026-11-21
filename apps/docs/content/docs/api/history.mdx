@@ -23,8 +23,8 @@ History scopes are configured under the `history` key on `ChatConfig`.
       type: 'UserHistoryConfig | undefined',
     },
     thread: {
-      description: 'Per-thread message history backfill. Used by adapters that set `persistThreadHistory: true` (e.g. WhatsApp, and Telegram by default). Replaces the legacy `threadHistory` / `messageHistory` fields.',
-      type: '{ maxMessages?: number; ttlMs?: number } | undefined',
+      description: 'Per-thread message history backfill. Used by adapters that set `persistThreadHistory: true` (e.g. WhatsApp, and Telegram by default). Set `storeFormatted: false` to store the `text` of each message without its `formatted` tree. Replaces the legacy `threadHistory` / `messageHistory` fields.',
+      type: '{ maxMessages?: number; ttlMs?: number; storeFormatted?: boolean } | undefined',
     },
   }}
 />
