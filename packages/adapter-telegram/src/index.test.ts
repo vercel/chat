@@ -5893,9 +5893,11 @@ describe("TelegramAdapter", () => {
       logger: mockLogger,
       userName: "mybot",
     });
-    const dense = "**a** _b_ `c` ".repeat(290);
+    // Text this long skips markdown parsing, so each message is cheap to
+    // build and still weighs about 4 MB against the 64 MB budget.
+    const large = "x".repeat(1_000_000);
     const chats = [201, 202];
-    const perChat = 40;
+    const perChat = 12;
 
     adapter.parseMessage(
       sampleMessage({
@@ -5910,7 +5912,7 @@ describe("TelegramAdapter", () => {
         adapter.parseMessage(
           sampleMessage({
             message_id: id,
-            text: dense,
+            text: large,
             date: 10 + id,
             chat: { id: chatId, type: "private", first_name: "Heavy" },
           })
