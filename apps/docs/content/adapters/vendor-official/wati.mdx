@@ -1,0 +1,201 @@
+---
+title: Wati
+description: WhatsApp adapter for Chat SDK built on Wati. Receive Wati webhooks, reply through Chat SDK threads, send reply buttons, list menus, media and templates, and fetch conversation history.
+packageName: "@wati-io/chat-sdk-adapter"
+slug: wati
+type: platform
+tagline: WhatsApp adapter for Chat SDK built on the Wati API, with reply buttons, list menus, media, templates, typing indicators and conversation history.
+community: true
+vendorOfficial: true
+author: Wati
+mdxBody: true
+---
+
+## Create a new bot
+
+Scaffold a Next.js bot with the Wati adapter using [`create-chat-sdk`](/docs/create-chat-sdk):
+
+<CreateChatSdk adapters="wati memory" />
+
+The generated app uses the [Memory state adapter](/adapters/official/memory) for local development. To add the adapter to an existing app, start at [Install](#install).
+
+## Install
+
+<PackageInstall package="@wati-io/chat-sdk-adapter chat @chat-adapter/state-memory" />
+
+The examples below use `@chat-adapter/state-memory` for local development. Use a durable state adapter in production: the adapter stores button mappings in Chat state.
+
+## Quick start
+
+```typescript title="lib/bot.ts" lineNumbers
+import { Chat } from "chat";
+import { createMemoryState } from "@chat-adapter/state-memory";
+import { createWatiAdapter } from "@wati-io/chat-sdk-adapter";
+
+export const bot = new Chat({
+  userName: "support",
+  state: createMemoryState(),
+  adapters: {
+    wati: createWatiAdapter({
+      apiEndpoint: process.env.WATI_API_ENDPOINT,
+      accessToken: process.env.WATI_ACCESS_TOKEN,
+      webhookSecret: process.env.WATI_WEBHOOK_SECRET,
+    }),
+  },
+});
+
+bot.onDirectMessage(async (thread, message) => {
+  await thread.startTyping();
+  await thread.post(`You said: ${message.text}`);
+});
+```
+
+WhatsApp conversations are one-to-one, which is why the example uses `onDirectMessage`.
+
+## Platform setup
+
+You need a Wati plan that includes webhooks and the messaging API (Pro or Business on current [pricing](https://www.wati.io/pricing-comparison/)). Without webhooks, the adapter can still send messages and templates but can't receive. The [7-day Wati free trial](https://www.wati.io/signup/) includes the API and webhooks once your WhatsApp number is connected.
+
+1. In Wati, open **API Docs** and copy the **API endpoint** host and an **access token**. Use the host for your workspace's region.
+2. Generate a long random webhook secret, for example with `openssl rand -hex 32`.
+3. In Wati, open **Webhooks** and add the public URL that forwards to `bot.webhooks.wati`, with the secret as a `token` query parameter: `https://your-app.com/api/webhooks/wati?token=<secret>`.
+4. Subscribe to the **Message Received** (`message`) event.
+
+## Configuration
+
+<TypeTable
+  type={{
+    apiEndpoint: {
+      type: "string",
+      description: "Wati REST API host, without the tenant ID. Falls back to `WATI_API_ENDPOINT`.",
+    },
+    accessToken: {
+      type: "string | (() => string | Promise<string>)",
+      description: "Wati access token, resolved on every request. Falls back to `WATI_ACCESS_TOKEN`.",
+    },
+    webhookSecret: {
+      type: "string | (() => string | Promise<string>)",
+      description: "Secret that each webhook must carry in the `token` query parameter or `x-wati-webhook-secret` header. Falls back to `WATI_WEBHOOK_SECRET`.",
+    },
+    verifyWebhooks: {
+      type: "boolean",
+      default: "true",
+      description: "Reject webhooks without the secret. Disable only for local development.",
+    },
+    channelPhoneNumber: {
+      type: "string",
+      description: "WhatsApp Business number used by `openDM()` and `sendTemplate()`. Falls back to `WATI_CHANNEL_PHONE_NUMBER`.",
+    },
+    userName: {
+      type: "string",
+      description: "Bot display name. Falls back to `WATI_BOT_USERNAME`, then the Chat SDK `userName`.",
+    },
+    actionMappingTtlMs: {
+      type: "number",
+      default: "2592000000",
+      description: "How long button and list replies stay routable to `onAction` (30 days).",
+    },
+    logger: {
+      type: "Logger",
+      description: "Chat SDK-compatible logger.",
+    },
+  }}
+/>
+
+### Environment variables
+
+| Variable | Required | Description |
+| --- | --- | --- |
+| `WATI_API_ENDPOINT` | Yes | Wati REST API host for your workspace, for example `https://live-mt-server.wati.io`. |
+| `WATI_ACCESS_TOKEN` | Yes | Wati API access token. |
+| `WATI_WEBHOOK_SECRET` | Yes | Secret that webhook deliveries must carry. |
+| `WATI_CHANNEL_PHONE_NUMBER` | No | Sending WhatsApp number, when the workspace has several. |
+| `WATI_BOT_USERNAME` | No | Bot display name. |
+
+### Rotating credentials
+
+`accessToken` and `webhookSecret` each accept a function instead of a string. The adapter calls `accessToken` before every Wati API request and `webhookSecret` on every webhook, and never caches the result, so a rotated credential takes effect on the next call:
+
+```typescript
+createWatiAdapter({
+  accessToken: async () => (await secrets.get("wati-access-token")).value,
+  webhookSecret: () => process.env.WATI_WEBHOOK_SECRET!,
+});
+```
+
+## Webhooks
+
+```typescript title="app/api/webhooks/wati/route.ts" lineNumbers
+import { after } from "next/server";
+import { bot } from "@/lib/bot";
+
+export async function POST(request: Request): Promise<Response> {
+  return bot.webhooks.wati(request, {
+    waitUntil: (task) => after(() => task),
+  });
+}
+```
+
+Wati doesn't sign webhooks, so the adapter checks the shared secret in the URL's `token` parameter, like the Telegram adapter's secret token, and returns `401` without it. Keep the full webhook URL private. Messages sent by your team or by Wati chatbots are ignored, so the bot doesn't answer itself or your agents.
+
+## Buttons and lists
+
+```tsx
+import { Actions, Button, Card, CardText } from "chat";
+
+await thread.post(
+  Card({
+    title: "Order #42",
+    children: [
+      CardText("Ship it now?"),
+      Actions([
+        Button({ id: "ship", label: "Ship", value: "42" }),
+        Button({ id: "hold", label: "Hold", value: "42" }),
+      ]),
+    ],
+  })
+);
+```
+
+Up to 3 buttons send as WhatsApp reply buttons. 4 to 10 buttons, and `Select` menus, send as a WhatsApp list message. WhatsApp returns only the tapped label, so labels in one message must be unique and buttons must be 20 characters or fewer; the adapter throws a validation error rather than truncating them.
+
+## Templates
+
+WhatsApp allows free-form messages only within 24 hours of the customer's last message. Start a conversation, or reply after the window, with an approved template:
+
+```typescript
+import type { WatiAdapter } from "@wati-io/chat-sdk-adapter";
+
+const wati = bot.getAdapter("wati") as WatiAdapter;
+const { threadId } = await wati.sendTemplate("+15551234567", {
+  templateName: "order_update",
+  parameters: [{ name: "order_id", value: "42" }],
+});
+```
+
+## Media and history
+
+Files and URL attachments send as WhatsApp media, with the message text as the caption. Inbound images, video, audio, voice notes, documents and stickers arrive as attachments with a lazy `fetchData()`. `fetchMessages()` reads conversation history from Wati.
+
+## Thread IDs
+
+```text
+wati:<business number>:<customer waId>
+```
+
+## Limitations
+
+- WhatsApp doesn't support editing or deleting sent messages.
+- The Wati API doesn't support sending reactions. Incoming reactions are delivered to `onReaction`.
+- Streamed responses are collected and sent as one message.
+- Link buttons are sent as text.
+
+## Feature support
+
+<FeatureSupport />
+
+## Resources
+
+- [Wati API docs](https://docs.wati.io/)
+- [GitHub](https://github.com/wati-io/chat-sdk-adapter)
+- [npm](https://www.npmjs.com/package/@wati-io/chat-sdk-adapter)
