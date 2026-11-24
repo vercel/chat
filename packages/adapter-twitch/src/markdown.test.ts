@@ -88,6 +88,7 @@ describe("TwitchFormatConverter block quotes", () => {
     expect(
       converter.fromMarkdown("> [a]: https://chat-sdk.dev\n>\n> Text.")
     ).toBe("Text.");
+    expect(converter.fromMarkdown("> [a]: https://chat-sdk.dev")).toBe("");
   });
 });
 

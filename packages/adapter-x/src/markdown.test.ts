@@ -132,6 +132,9 @@ describe("XFormatConverter", () => {
       expect(converter.fromAst(parseMarkdown(">"))).toBe("");
       const ast = parseMarkdown("> [a]: https://chat-sdk.dev\n>\n> Text.");
       expect(converter.fromAst(ast)).toBe("Text.");
+      expect(
+        converter.fromAst(parseMarkdown("> [a]: https://chat-sdk.dev"))
+      ).toBe("");
     });
   });
 

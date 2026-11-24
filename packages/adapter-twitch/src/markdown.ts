@@ -67,7 +67,6 @@ export class TwitchFormatConverter extends BaseFormatConverter {
     if (isBlockquoteNode(node)) {
       return getNodeChildren(node)
         .map((child) => this.nodeToText(child))
-        .filter((block) => block.trim())
         .join("\n\n");
     }
     if (isTableNode(node)) {
