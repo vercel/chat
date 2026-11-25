@@ -232,6 +232,12 @@ async function* takeUntilAborted<T>(
   }
 }
 
+function closeSource(open: () => AsyncIterator<unknown>): void {
+  Promise.resolve()
+    .then(() => open().return?.())
+    .catch(() => undefined);
+}
+
 export class ThreadImpl<TState = Record<string, unknown>>
   implements Thread<TState>
 {
@@ -820,12 +826,28 @@ export class ThreadImpl<TState = Record<string, unknown>>
     return this.adapter.scheduleMessage(this.id, postable, options);
   }
 
+  private async handleStream(
+    rawStream: AsyncIterable<string | StreamChunk | StreamEvent>,
+    callerOptions?: StreamOptions
+  ): Promise<SentMessage> {
+    let iterator: AsyncIterator<string | StreamChunk | StreamEvent> | undefined;
+    const source = {
+      [Symbol.asyncIterator]: () =>
+        (iterator ??= rawStream[Symbol.asyncIterator]()),
+    };
+    try {
+      return await this.streamToThread(source, callerOptions);
+    } finally {
+      closeSource(() => iterator ?? rawStream[Symbol.asyncIterator]());
+    }
+  }
+
   /**
    * Handle streaming from an AsyncIterable.
    * Normalizes the stream (supports both textStream and fullStream from AI SDK),
    * then uses the adapter's stream implementation if available, otherwise falls back to post+edit.
    */
-  private async handleStream(
+  private async streamToThread(
     rawStream: AsyncIterable<string | StreamChunk | StreamEvent>,
     callerOptions?: StreamOptions
   ): Promise<SentMessage> {

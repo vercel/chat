@@ -685,11 +685,18 @@ describe("ThreadImpl", () => {
     });
 
     it("should forward structured stream chunks to adapter.stream from an action-created thread", async () => {
-      const mockStream = vi.fn().mockResolvedValue({
-        id: "msg-stream",
-        threadId: "t1",
-        raw: "Hello",
-      });
+      const collected: Array<string | StreamChunk> = [];
+      const mockStream = vi.fn(
+        async (
+          _threadId: string,
+          textStream: AsyncIterable<string | StreamChunk>
+        ) => {
+          for await (const chunk of textStream) {
+            collected.push(chunk);
+          }
+          return { id: "msg-stream", threadId: "t1", raw: "Hello" };
+        }
+      );
       mockAdapter.stream = mockStream;
 
       const threadWithActionContext = new ThreadImpl({
@@ -728,13 +735,6 @@ describe("ThreadImpl", () => {
       );
 
       expect(mockStream).toHaveBeenCalledTimes(1);
-      const [, passedStream] = mockStream.mock.calls[0];
-      const collected: Array<string | StreamChunk> = [];
-      for await (const chunk of passedStream as AsyncIterable<
-        string | StreamChunk
-      >) {
-        collected.push(chunk);
-      }
       expect(collected).toContain("Picking option...");
       expect(collected).toContainEqual(taskChunk);
     });
@@ -1152,6 +1152,67 @@ describe("ThreadImpl", () => {
       await createThread(adapter, controller.signal).post(endless());
 
       expect(closed).toBe(true);
+    });
+
+    function pending(): ReadableStream<string> {
+      return new ReadableStream({
+        cancel() {
+          closed = true;
+        },
+      });
+    }
+
+    it("closes an unread source when the adapter stream throws first", async () => {
+      const adapter = createMockAdapter();
+      adapter.stream = async () => {
+        throw new Error("aborted");
+      };
+
+      await expect(createThread(adapter).post(pending())).rejects.toThrow(
+        "aborted"
+      );
+      await vi.waitFor(() => expect(closed).toBe(true));
+    });
+
+    it("closes an unread source when the placeholder post fails", async () => {
+      const adapter = createMockAdapter();
+      adapter.stream = undefined;
+      vi.mocked(adapter.postMessage).mockRejectedValueOnce(
+        new Error("post failed")
+      );
+      const thread = new ThreadImpl({
+        id: "slack:C123:1234.5678",
+        adapter,
+        channelId: "C123",
+        stateAdapter: createMockState(),
+      });
+
+      await expect(thread.post(pending())).rejects.toThrow("post failed");
+      await vi.waitFor(() => expect(closed).toBe(true));
+    });
+
+    it("closes an unread source when the thread is already aborted", async () => {
+      const controller = new AbortController();
+      controller.abort();
+      const adapter = createMockAdapter();
+      adapter.stream = undefined;
+
+      await createThread(adapter, controller.signal).post(pending());
+
+      await vi.waitFor(() => expect(closed).toBe(true));
+    });
+
+    it("closes a source the adapter never reads", async () => {
+      const adapter = createMockAdapter();
+      adapter.stream = async () => ({
+        id: "msg-stream",
+        threadId: "t1",
+        raw: null,
+      });
+
+      await createThread(adapter).post(pending());
+
+      await vi.waitFor(() => expect(closed).toBe(true));
     });
 
     it("stops early on a source iterator without return", async () => {
