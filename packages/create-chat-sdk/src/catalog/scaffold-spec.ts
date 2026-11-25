@@ -375,6 +375,9 @@ export const CLI_SCAFFOLD_SPEC = {
       ],
     },
   },
+  wati: {
+    invocation: { kind: "zero-arg" },
+  },
   wayza: {
     invocation: { kind: "zero-arg" },
   },
