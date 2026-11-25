@@ -31,6 +31,8 @@ const BLOCK_SEPARATOR = /\n{2,}/;
  * plain text.
  */
 export class XFormatConverter extends BaseFormatConverter {
+  protected override indentListContinuationLines = true;
+
   toAst(platformText: string): Root {
     const blocks = platformText.split(BLOCK_SEPARATOR);
     const paragraphs = blocks

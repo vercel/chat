@@ -136,6 +136,46 @@ describe("XFormatConverter", () => {
         converter.fromAst(parseMarkdown("> [a]: https://chat-sdk.dev"))
       ).toBe("");
     });
+
+    it("indents every quoted paragraph inside a list item", () => {
+      const ast = parseMarkdown("- item\n\n  > q1\n  >\n  > q2\n- next");
+      expect(converter.fromAst(ast)).toBe("• item\n\n  q1\n\n  q2\n• next");
+    });
+
+    it("indents a quote that opens a list item", () => {
+      const ast = parseMarkdown("1. > q1\n   >\n   > q2\n2. next");
+      expect(converter.fromAst(ast)).toBe("1. q1\n\n   q2\n2. next");
+    });
+
+    it("indents a quoted list and quoted code inside a list item", () => {
+      const ast = parseMarkdown(
+        "- item\n\n  > Steps:\n  >\n  > - a\n  >   - b\n  >\n  > ```\n  > x\n  >\n  > y\n  > ```\n- next"
+      );
+      expect(converter.fromAst(ast)).toBe(
+        "• item\n\n  Steps:\n\n  • a\n    • b\n\n  x\n\n  y\n• next"
+      );
+    });
+
+    it("indents quotes inside nested list items to their own column", () => {
+      const ast = parseMarkdown(
+        "- outer\n  - inner\n\n    > q1\n    >\n    > q2"
+      );
+      expect(converter.fromAst(ast)).toBe(
+        "• outer\n  • inner\n\n    q1\n\n    q2"
+      );
+    });
+  });
+
+  describe("lists", () => {
+    it("indents every line of a code block inside a list item", () => {
+      const ast = parseMarkdown("- item\n\n  ```\n  a\n\n  b\n  ```\n- next");
+      expect(converter.fromAst(ast)).toBe("• item\n\n  a\n\n  b\n• next");
+    });
+
+    it("indents line breaks inside a list item", () => {
+      const ast = parseMarkdown("- one\\\n  two\n- next");
+      expect(converter.fromAst(ast)).toBe("• one\n  two\n• next");
+    });
   });
 
   describe("renderPostable", () => {
