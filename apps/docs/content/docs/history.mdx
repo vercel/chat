@@ -71,6 +71,21 @@ const bot = new Chat({
 });
 ```
 
+The thread cache stores each message's `formatted` tree without the parser's source positions, which make up most of a parsed tree's size. Messages read back from the cache therefore have no `position` on their nodes. A message with dense formatting, such as a long list of short bullets, can still store a tree more than ten times the size of its text. Set `storeFormatted: false` to store only the text:
+
+```typescript
+const bot = new Chat({
+  // ...
+  history: {
+    thread: {
+      storeFormatted: false,
+    },
+  },
+});
+```
+
+Messages read back from the cache then have a `formatted` tree with a single text node that holds `message.text`. The message your handler receives is not affected.
+
 ## User history
 
 `bot.history.user` stores a per-user transcript keyed by a stable cross-platform identifier. The same user can talk to your bot on Slack and Discord and see the same accumulated history.

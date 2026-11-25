@@ -816,6 +816,34 @@ export abstract class BaseFormatConverter implements FormatConverter {
   }
 
   /**
+   * Render a block quote with a `> ` prefix on every line and a quoted blank
+   * line between blocks. Children that render to nothing are skipped.
+   *
+   * @param blankLine - The quoted blank line. Pass `"> "` for platforms that
+   * only quote a line when a space follows the marker.
+   */
+  protected renderBlockquote(
+    node: Blockquote,
+    nodeConverter: (node: Content) => string,
+    blankLine = ">"
+  ): string {
+    const lines: string[] = [];
+    for (const child of getNodeChildren(node)) {
+      const text = nodeConverter(child);
+      if (!text.trim()) {
+        continue;
+      }
+      if (lines.length > 0) {
+        lines.push(blankLine);
+      }
+      for (const line of text.split(LINE_BREAK_REGEX)) {
+        lines.push(line ? `> ${line}` : blankLine);
+      }
+    }
+    return lines.join("\n");
+  }
+
+  /**
    * Default fallback for converting an unknown mdast node to text.
    * Recursively converts children if present, otherwise extracts the node value.
    * Adapters should call this in their nodeToX() default case.

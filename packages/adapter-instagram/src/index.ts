@@ -4,12 +4,12 @@ import {
   extractCard,
   extractFiles,
   extractPostableAttachments,
+  MessageStore,
   type MetaGraphError,
   NetworkError,
   paginateMessages as paginateCachedMessages,
   parseRetryAfter,
   throwMetaGraphApiError,
-  upsertMessage,
   ValidationError,
   verifyMetaSignature,
   verifyMetaWebhookChallenge,
@@ -88,10 +88,9 @@ export class InstagramAdapter
   protected _userName: string;
   protected readonly hasExplicitUserName: boolean;
 
-  private readonly messageCache = new Map<
-    string,
-    Message<InstagramRawMessage>[]
-  >();
+  private readonly messageCache = new MessageStore<InstagramRawMessage>({
+    compare: (a, b) => this.compareMessages(a, b),
+  });
   private readonly userProfileCache = new Map<string, InstagramUserProfile>();
 
   constructor(
@@ -595,9 +594,7 @@ export class InstagramAdapter
     threadId: string,
     options: FetchOptions = {}
   ): Promise<FetchResult<InstagramRawMessage>> {
-    const messages = [...(this.messageCache.get(threadId) ?? [])].sort((a, b) =>
-      this.compareMessages(a, b)
-    );
+    const messages = this.messageCache.messages(threadId);
     return this.paginateMessages(messages, options);
   }
 
@@ -605,13 +602,7 @@ export class InstagramAdapter
     _threadId: string,
     messageId: string
   ): Promise<Message<InstagramRawMessage> | null> {
-    for (const messages of this.messageCache.values()) {
-      const found = messages.find((message) => message.id === messageId);
-      if (found) {
-        return found;
-      }
-    }
-    return null;
+    return this.messageCache.find(messageId) ?? null;
   }
 
   async fetchThread(threadId: string): Promise<ThreadInfo> {
@@ -1002,9 +993,7 @@ export class InstagramAdapter
   }
 
   protected cacheMessage(message: Message<InstagramRawMessage>): void {
-    const messages = this.messageCache.get(message.threadId) ?? [];
-    upsertMessage(messages, message, (a, b) => this.compareMessages(a, b));
-    this.messageCache.set(message.threadId, messages);
+    this.messageCache.upsert(message);
   }
 
   protected compareMessages(

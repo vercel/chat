@@ -293,6 +293,26 @@ asynchronous work. For team installs, associate the destination with
 See the [installation lifecycle guide](https://chat-sdk.dev/adapters/official/teams#installation-lifecycle)
 for persistence, upgrade cleanup, and proactive examples.
 
+## Outgoing attachments
+
+The adapter sends image entries in `attachments` on `{ markdown }`, `{ ast }`, and `{ raw }` messages. An entry is treated as an image when its `mimeType` starts with `image/`, or when `mimeType` isn't set and `type` is `"image"`. Teams supports only images as inline attachments from a bot, so other types are skipped.
+
+```typescript
+await thread.post({
+  markdown: "Screenshot from the report",
+  attachments: [
+    { type: "image", url: "https://example.com/screenshot.png", mimeType: "image/png" },
+  ],
+});
+```
+
+- An attachment with `data` or `fetchData` is sent inline as a base64 data URI, and its `url` is ignored. Images over 1 MB are skipped. This is how `attachments: message.attachments` forwards an inline image from an incoming message, whose URL needs the bot's credentials.
+- An attachment with only a `url` is sent by reference when the URL is HTTPS, which keeps a large image out of the message payload. Teams loads the URL directly, so it has to be reachable without credentials. Other URLs are skipped.
+
+A skipped attachment doesn't fail the post: the rest of the message is sent and the adapter logs a warning. Card messages don't send `attachments`, so use `files` there. `files` are sent inline as base64 data URIs whatever their type. An edit doesn't upload bytes, so `files` and attachments with `data` or `fetchData` aren't sent. Image attachments with only a `url` are sent again, so include them in the edited message to keep them.
+
+See the [Teams adapter docs](https://chat-sdk.dev/adapters/official/teams#outgoing-attachments) for content type detection and the image limits Microsoft documents.
+
 ## Incoming attachments
 
 Incoming inline images and files are exposed through `message.attachments` with a lazy `fetchData()` method. The adapter authenticates connector-hosted inline attachments through the configured Teams bot client, while [Teams file download cards](https://learn.microsoft.com/en-us/microsoftteams/platform/bots/how-to/bots-filesv4) use their direct download URL without the bot token.
@@ -327,6 +347,25 @@ await thread.postEphemeral(message.author, "Only you can see this.", {
 ```
 
 The adapter sends these natively with Teams targeted message metadata. `usedFallback` is `false` when the Teams API accepts the message.
+
+## Raw Adaptive Cards
+
+For Adaptive Card features that Chat SDK cards don't cover, such as `Badge`, pass the card as `adaptiveCard` to the adapter's `postMessage`, `postChannelMessage`, `postEphemeral`, or `editMessage`. The adapter sends the card as is and uses `fallbackText` as the activity summary:
+
+```typescript
+const teams = bot.getAdapter("teams");
+
+await teams.postMessage(thread.id, {
+  adaptiveCard: {
+    type: "AdaptiveCard",
+    version: "1.5",
+    body: [{ type: "Badge", text: "Bug", style: "Attention" }],
+  },
+  fallbackText: "Bug: checkout fails on Safari",
+});
+```
+
+`adaptiveCard` takes the card's JSON or a card object built with `@microsoft/teams.cards`. See the [Teams adapter docs](https://chat-sdk.dev/adapters/official/teams#raw-adaptive-cards) for details.
 
 ## Message history (`fetchMessages`)
 

@@ -101,6 +101,12 @@ The package's main exports (see `src/index.ts`):
   `fetchSingleMessage`, `fetchChannelInfo`, `postChannelMessage`,
   `openDM`.
 - Configuration types: `TeamsAdapterConfig`, `TeamsThreadId`.
+- Message types: `TeamsPostableMessage`, `TeamsPostableAdaptiveCard`.
+  `postMessage`, `postChannelMessage`, `postEphemeral`, and `editMessage`
+  take a Chat SDK postable or a raw Adaptive Card as
+  `{ adaptiveCard, fallbackText }`. All four resolve the card through
+  `prepareTeamsMessage` and build the activity with `createCardActivity`, so
+  a change to card sending belongs in those two functions.
 - Helpers re-exported from sub-modules:
   `cardToAdaptiveCard`, `cardToFallbackText`, `TeamsFormatConverter`,
   `decodeThreadId`, `encodeThreadId`, `isDM`.
@@ -162,6 +168,9 @@ It performs:
    - `messageUpdate` / `messageDelete` → optional update/delete hooks.
    - `invoke` (`task/fetch`, `task/submit`, `adaptiveCard/action`) →
      modal lifecycle and action callbacks.
+   - `invoke` (`message/submitAction`, a click on the native feedback
+     buttons) → `chat.processAction` with the action ID
+     `"message_feedback"`, matching the Slack adapter.
 3. **Outbound `Activity`** — `postMessage` constructs an Activity with
    the Adaptive Card payload + fallback text, then sends it through
    the connector client. Sub-second roundtrips matter; long-running
@@ -296,7 +305,12 @@ When you add support for a new Activity type, capture a fresh fixture
 in `sample-messages.md` so the parser tests stay grounded. The
 `installationUpdate` tests use a synthetic payload modeled on Microsoft's
 documented schema because no captured traffic exists yet; replace it with
-a real capture when one is available. The `messageUpdate` tests in
+a real capture when one is available. The `message/submitAction`
+feedback tests also use a synthetic activity, because Microsoft documents
+only the invoke's `value` (recorded in `sample-messages.md`). Add captures
+from a personal chat, a channel thread, and a streamed reply when they are
+available, and check that `replyToId` is the rated message's ID and that a
+channel invoke's `conversation.id` carries `;messageid=<root>`. The `messageUpdate` tests in
 `edits.test.ts` read Microsoft's documented personal-chat edit from
 `sample-messages.md` and derive channel edits from the captured channel
 post. Add a captured channel edit (a top-level post and a thread reply)

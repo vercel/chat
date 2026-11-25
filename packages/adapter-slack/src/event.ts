@@ -14,14 +14,20 @@ export interface SlackBlock {
 
 export const SLACK_USER_ID_PATTERN = /^[A-Z0-9_]+$/;
 
+/** Token body prefix of a user group mention: `<!subteam^S…>`. */
+export const SUBTEAM_PREFIX = "!subteam^";
+
 /**
  * Collect the user and channel IDs referenced by `<@U…>` / `<#C…>` tokens.
- * Parses by splitting on angle brackets to avoid ReDoS.
+ * Bare `<!subteam^S…>` user group IDs (no label already present) go in
+ * `usergroupIds`. Parses by splitting on angle brackets to avoid
+ * ReDoS.
  */
 export function collectMentionIds(
   text: string,
   userIds: Set<string>,
-  channelIds: Set<string>
+  channelIds: Set<string>,
+  usergroupIds: Set<string>
 ): void {
   for (const segment of text.split("<")) {
     const end = segment.indexOf(">");
@@ -42,6 +48,11 @@ export function collectMentionIds(
       // Only collect bare channel IDs (no label already present)
       if (pipeIdx === -1 && SLACK_USER_ID_PATTERN.test(rest)) {
         channelIds.add(rest);
+      }
+    } else if (inner.startsWith(SUBTEAM_PREFIX)) {
+      const id = inner.slice(SUBTEAM_PREFIX.length);
+      if (SLACK_USER_ID_PATTERN.test(id)) {
+        usergroupIds.add(id);
       }
     }
   }
@@ -358,8 +369,8 @@ export function attachmentContent(
       // link node and the URL survives into the normalized message.
       push(
         title
-          ? `<${attachment.title_link}|${escapeSlackText(title)}>`
-          : `<${attachment.title_link}>`,
+          ? `<${escapeSlackText(attachment.title_link)}|${escapeSlackText(title)}>`
+          : `<${escapeSlackText(attachment.title_link)}>`,
         false
       );
     } else {

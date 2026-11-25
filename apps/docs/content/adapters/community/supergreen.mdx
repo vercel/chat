@@ -1,0 +1,226 @@
+---
+title: Supergreen (WhatsApp & Telegram)
+description: Community Supergreen adapter for Chat SDK. Connect serverless bots to personal WhatsApp accounts, WhatsApp group chats, and Telegram over signed HTTP webhooks.
+packageName: chat-adapter-supergreen
+slug: supergreen
+type: platform
+tagline: Serverless WhatsApp (personal lines & group chats) and Telegram adapter for Chat SDK backed by Supergreen's signed HTTP webhooks and REST API.
+community: true
+mdxBody: true
+---
+
+<Callout type="warn">
+Supergreen automates WhatsApp Web and Telegram MTProto sessions rather than Meta's official WhatsApp Business Cloud API. It may break when WhatsApp or Telegram changes its protocols, and WhatsApp may suspend or ban numbers that use unofficial automation. Evaluate your compliance requirements before using it in production. For official APIs, use the [WhatsApp adapter](/adapters/official/whatsapp) or the [Telegram adapter](/adapters/official/telegram).
+</Callout>
+
+## Install
+
+<PackageInstall package="chat-adapter-supergreen chat @chat-adapter/state-memory" />
+
+Use `chat` 4.45 or later.
+
+## Quick start
+
+`createSupergreenAdapter()` reads `SUPERGREEN_TOKEN` and (optionally) `SUPERGREEN_PHONE_NUMBER` from the environment. For production serverless deployments, replace `@chat-adapter/state-memory` with [Redis](/adapters/official/redis) or [PostgreSQL](/adapters/official/postgres).
+
+```typescript title="lib/bot.ts" lineNumbers
+import { Chat } from "chat";
+import { createMemoryState } from "@chat-adapter/state-memory";
+import { createSupergreenAdapter } from "chat-adapter-supergreen";
+
+export const bot = new Chat({
+  userName: "mybot",
+  state: createMemoryState(),
+  adapters: {
+    supergreen: createSupergreenAdapter({
+      ignoreFromMe: true,
+      userName: "mybot",
+    }),
+  },
+});
+
+// Direct messages (1:1 WhatsApp or Telegram chats)
+bot.onDirectMessage(async (thread, message) => {
+  await thread.startTyping();
+  await thread.post(`You said: ${message.text}`);
+});
+
+// Group chats: respond when @-mentioned, then subscribe to follow-ups
+bot.onNewMention(async (thread, message) => {
+  await thread.subscribe();
+  await thread.reply(message, "Got it — I'm listening to this group.");
+});
+
+bot.onSubscribedMessage(async (thread, message) => {
+  await thread.post(`Follow-up: ${message.text}`);
+});
+```
+
+`onNewMention` fires on native WhatsApp `@<accountNumber>` mentions and on `@` followed by the adapter's `userName` (default `"supergreen-bot"`, or `SUPERGREEN_BOT_USERNAME`) in the message text. The `userName` passed to `Chat` isn't used, so set the adapter's `userName` to the name group members type.
+
+Then expose the webhook route:
+
+```typescript title="app/api/webhooks/supergreen/route.ts" lineNumbers
+import { after } from "next/server";
+import { bot } from "@/lib/bot";
+
+export async function POST(request: Request): Promise<Response> {
+  return bot.webhooks.supergreen(request, {
+    waitUntil: (task) => after(() => task),
+  });
+}
+```
+
+## Platform setup
+
+1. Sign in at [supergreen.cc](https://supergreen.cc) and connect a WhatsApp or Telegram account.
+2. Copy your account secret token into `SUPERGREEN_TOKEN`. Optionally set `SUPERGREEN_PHONE_NUMBER` (E.164 digits without `+`) for proactive `openDM()` and `getGroups()` calls.
+3. Point your Supergreen webhook URL to your deployed `/api/webhooks/supergreen` route in the dashboard, or with `setWebhook` / `addWebhook` for WhatsApp accounts and `setTelegramWebhook` / `addTelegramWebhook` for Telegram accounts.
+
+## Configuration
+
+<TypeTable
+  type={{
+    token: {
+      type: "string | (() => string | Promise<string>)",
+      description:
+        "Supergreen account secret token. Falls back to `SUPERGREEN_TOKEN`.",
+    },
+    fromNumber: {
+      type: "string | (() => string | Promise<string>)",
+      description:
+        "Connected phone number (E.164 digits, e.g. `\"15551234567\"`). Required for proactive `openDM()` and `getGroups()`. Falls back to `SUPERGREEN_PHONE_NUMBER`.",
+    },
+    defaultNetwork: {
+      type: "\"whatsapp\" | \"telegram\"",
+      default: "\"whatsapp\"",
+      description:
+        "Default network used by `openDM()` when no `whatsapp:` or `telegram:` prefix is supplied.",
+    },
+    baseUrl: {
+      type: "string",
+      default: "\"https://api.supergreen.cc\"",
+      description:
+        "Supergreen API base URL. Falls back to `SUPERGREEN_BASE_URL`.",
+    },
+    adapterName: {
+      type: "string",
+      default: "\"supergreen\"",
+      description:
+        "Adapter name and thread-ID prefix (must not contain `:`).",
+    },
+    userName: {
+      type: "string",
+      default: "\"supergreen-bot\"",
+      description:
+        "Bot username for `@mention` detection and logs. Falls back to `SUPERGREEN_BOT_USERNAME`.",
+    },
+    linkPreview: {
+      type: "boolean",
+      default: "false",
+      description:
+        "Whether to render link previews on outbound WhatsApp text messages.",
+    },
+    ignoreFromMe: {
+      type: "boolean",
+      default: "false",
+      description:
+        "When `false`, only echoes of messages sent by this adapter are marked `isMe: true` so human messages typed from the phone stay observable. Set `true` to ignore all `fromMe: true` messages, edits, deletes, and reactions.",
+    },
+    onLifecycleEvent: {
+      type: "(event: SupergreenLifecycleEvent) => void | Promise<void>",
+      description:
+        "Callback for `connected`, `disconnected`, `banned`, `vote`, `participant_joined`, and `participant_left` webhooks.",
+    },
+    fetch: {
+      type: "typeof globalThis.fetch",
+      description:
+        "Custom `fetch` implementation for outbound API requests and attachment downloads.",
+    },
+    logger: {
+      type: "Logger",
+      default: "ConsoleLogger(\"info\")",
+      description:
+        "Logger used before `Chat` initializes the adapter. After initialization, the adapter uses the `Chat` instance's logger.",
+    },
+  }}
+/>
+
+### Environment variables
+
+| Variable | Required | Description |
+| --- | --- | --- |
+| `SUPERGREEN_TOKEN` | Yes, unless `token` is passed | Supergreen account secret token |
+| `SUPERGREEN_PHONE_NUMBER` | No | Connected phone number (E.164 digits) for proactive `openDM()` / `getGroups()` |
+| `SUPERGREEN_BASE_URL` | No | Custom Supergreen API base URL (defaults to `https://api.supergreen.cc`) |
+| `SUPERGREEN_BOT_USERNAME` | No | Bot username for `@mention` detection |
+
+### Dynamic credentials
+
+`token` accepts an async resolver that the adapter calls, without caching, on every outbound API request and webhook verification. `fromNumber` also accepts a resolver, which the adapter calls for proactive calls such as `openDM()` and `getGroups()` and for webhooks without a `phoneNumber`. Messages to an existing thread use the account number encoded in its thread ID.
+
+```typescript
+import { createSupergreenAdapter } from "chat-adapter-supergreen";
+
+const supergreen = createSupergreenAdapter({
+  token: async () => fetchSecret("SUPERGREEN_TOKEN"),
+  fromNumber: async () => fetchSecret("SUPERGREEN_PHONE_NUMBER"),
+});
+```
+
+## Webhooks
+
+Supergreen signs every webhook with `x-supergreen-signature: sha256=<hmac-sha256-hex>`. The adapter verifies the signature in constant time before processing any payload and returns `401` if missing or invalid. Pass `waitUntil` (such as Next.js `after()`) to `bot.webhooks.supergreen(request, { waitUntil })` so webhook handling completes after the `200` response is returned.
+
+## Echo handling (`fromMe`)
+
+Because Supergreen runs on a user-owned WhatsApp or Telegram account, messages sent from the phone and echoes of bot replies both arrive with `fromMe: true`. By default, the adapter records every message ID returned by `postMessage()`, `reply()`, and `editMessage()` in Chat SDK's `StateAdapter` and marks only those echoes as `author.isMe = true` (preventing feedback loops across serverless instances when using a shared state adapter, while still letting handlers see manual phone messages). Set `ignoreFromMe: true` to ignore all `fromMe: true` messages, edits, deletes, and reactions. With the default `ignoreFromMe: false`, messages you type on the phone reach your handlers, so a bot that answers every direct message also answers your own messages to contacts. Echo detection relies on the state adapter, so with `@chat-adapter/state-memory` on serverless, an echo handled by a different instance is processed as a new message.
+
+## WhatsApp extensions
+
+Narrow `thread.adapter` with `isSupergreenAdapter()` to call WhatsApp and Telegram helpers beyond the base `Adapter` interface:
+
+```typescript
+import { isSupergreenAdapter } from "chat-adapter-supergreen";
+
+bot.onSubscribedMessage(async (thread) => {
+  if (isSupergreenAdapter(thread.adapter)) {
+    await thread.adapter.sendPoll(thread.id, {
+      name: "Lunch?",
+      choices: ["Sushi", "Pizza", "Tacos"],
+    });
+  }
+});
+```
+
+Available extensions: `sendPoll`, `sendContact`, `getGroups`, `getTelegramGroups`, `getGroupMembers`, `checkWhatsAppNumber`, and `adapter.client` for calling any Supergreen REST endpoint directly.
+
+## Thread IDs
+
+```
+supergreen:<network>:<base64url(accountNumber)>:<base64url(chatId)>
+```
+
+For example, WhatsApp account `15551234567` chatting with `15559876543@c.us`:
+
+```
+supergreen:whatsapp:MTU1NTEyMzQ1Njc:MTU1NTk4NzY1NDNAYy51cw
+```
+
+Use `adapter.encodeThreadId()` and `adapter.decodeThreadId()` instead of constructing thread IDs manually.
+
+## Limitations
+
+- Cards are rendered as formatted plain-text fallback because WhatsApp Web has no native interactive card format.
+- Mention detection matches native WhatsApp `@<accountNumber>` mentions and plain text `@<userName>`; other platform mention formats (such as WhatsApp LID mentions or Telegram display-name mentions) are not parsed.
+- Message edits, deletes, reactions, typing indicators, media uploads, quoted replies, and 7-day `fetchMessages()` history are currently WhatsApp-only; Telegram threads support receiving and sending text messages and listing groups.
+
+## Feature support
+
+<FeatureSupport />
+
+## Resources
+
+- [Supergreen Chat SDK docs](https://supergreen.cc/docs#chat-sdk)
+- [GitHub](https://github.com/uriva/chat-adapter-supergreen)
+- [npm](https://www.npmjs.com/package/chat-adapter-supergreen)

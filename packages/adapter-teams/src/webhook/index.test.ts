@@ -165,6 +165,120 @@ describe("Teams webhook primitives", () => {
     ).toMatchObject({ actionId: undefined, kind: "card_action" });
   });
 
+  describe("message/submitAction invokes", () => {
+    // Modeled on Microsoft's documented feedback payload; no captured traffic
+    // exists yet.
+    const feedbackInvoke = (value: unknown) => ({
+      ...baseActivity,
+      id: "invoke-id",
+      name: "message/submitAction",
+      replyToId: "1700000000000",
+      type: "invoke",
+      value,
+    });
+
+    it("classifies a thumbs up as positive message feedback", () => {
+      const raw = feedbackInvoke({
+        actionName: "feedback",
+        actionValue: { reaction: "like", feedback: "" },
+      });
+
+      expect(parseTeamsWebhookBody(raw)).toStrictEqual({
+        continuation: {
+          activityId: "invoke-id",
+          channelId: "channel-id",
+          conversationId: "conversation-id",
+          replyToId: "1700000000000",
+          serviceUrl: "https://smba.example/",
+          teamId: "team-id",
+          tenantId: "tenant-id",
+        },
+        kind: "message_feedback",
+        messageId: "1700000000000",
+        raw,
+        user: { aadObjectId: "aad-id", id: "user-id", name: "Ada" },
+        value: "positive",
+      });
+    });
+
+    it("classifies a thumbs down with the comment the user typed", () => {
+      expect(
+        parseTeamsWebhookBody(
+          feedbackInvoke({
+            actionName: "feedback",
+            actionValue: {
+              reaction: "dislike",
+              feedback: JSON.stringify({ feedbackText: "Missing last week." }),
+            },
+          })
+        )
+      ).toMatchObject({
+        comment: "Missing last week.",
+        kind: "message_feedback",
+        messageId: "1700000000000",
+        value: "negative",
+      });
+    });
+
+    it("omits the comment when it isn't in Teams' feedbackText envelope", () => {
+      const payload = parseTeamsWebhookBody(
+        feedbackInvoke({
+          actionName: "feedback",
+          actionValue: { reaction: "like", feedback: "Missing last week." },
+        })
+      );
+
+      expect(payload).toMatchObject({
+        kind: "message_feedback",
+        value: "positive",
+      });
+      expect(payload).not.toHaveProperty("comment");
+    });
+
+    it("leaves the message ID unset when the invoke has no replyToId", () => {
+      const { replyToId: _replyToId, ...invoke } = feedbackInvoke({
+        actionName: "feedback",
+        actionValue: { reaction: "like", feedback: "" },
+      });
+
+      const payload = parseTeamsWebhookBody(invoke);
+
+      expect(payload.kind).toBe("message_feedback");
+      expect(payload).toHaveProperty("messageId", undefined);
+    });
+
+    it.each([
+      [
+        "another action name",
+        { actionName: "report", actionValue: { reaction: "like" } },
+      ],
+      ["a missing action name", { actionValue: { reaction: "like" } }],
+      [
+        "a reaction Teams doesn't document",
+        { actionName: "feedback", actionValue: { reaction: "laugh" } },
+      ],
+      ["a missing action value", { actionName: "feedback" }],
+      ["a missing value", undefined],
+    ])("marks %s as unsupported", (_kind, value) => {
+      expect(parseTeamsWebhookBody(feedbackInvoke(value))).toMatchObject({
+        kind: "unsupported",
+        reason: "Unsupported Teams activity type: invoke",
+      });
+    });
+
+    it("does not treat another invoke carrying a feedback value as feedback", () => {
+      expect(
+        parseTeamsWebhookBody({
+          ...feedbackInvoke({
+            actionName: "feedback",
+            actionValue: { reaction: "like", feedback: "" },
+          }),
+          name: "composeExtension/submitAction",
+        })
+      ).toMatchObject({ kind: "unsupported" });
+    });
+  });
+
   it("marks unknown and unhandled activity types as unsupported", () => {
     expect(
       parseTeamsWebhookBody({ ...baseActivity, type: "typing" })

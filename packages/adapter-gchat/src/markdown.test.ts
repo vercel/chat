@@ -93,8 +93,77 @@ describe("GoogleChatFormatConverter", () => {
 
     it("should handle blockquotes", () => {
       const ast = converter.toAst("> quoted text");
-      const result = converter.fromAst(ast);
-      expect(result).toContain("> quoted text");
+      expect(converter.fromAst(ast)).toBe("> quoted text");
+    });
+
+    it("should prefix a lazy continuation line", () => {
+      const ast = converter.toAst("> line one\nline two");
+      expect(converter.fromAst(ast)).toBe("> line one\n> line two");
+    });
+
+    it("should skip a quote child that renders to nothing", () => {
+      const ast = converter.toAst(
+        "> [foo]: https://example.com\n>\n> first\n>\n> second"
+      );
+      expect(converter.fromAst(ast)).toBe("> first\n>\n> second");
+    });
+
+    it("should not end a quote with a blank quoted line", () => {
+      const ast = converter.toAst("> text\n>\n> [foo]: https://example.com");
+      expect(converter.fromAst(ast)).toBe("> text");
+    });
+
+    it("should quote every line of a multi-line paragraph", () => {
+      const ast = converter.toAst("> line one\n> line two");
+      expect(converter.fromAst(ast)).toBe("> line one\n> line two");
+    });
+
+    it("should quote every paragraph of a multi-paragraph blockquote", () => {
+      const ast = converter.toAst("> first paragraph\n>\n> second paragraph");
+      expect(converter.fromAst(ast)).toBe(
+        "> first paragraph\n>\n> second paragraph"
+      );
+    });
+
+    it("should quote every list item inside a blockquote", () => {
+      const ast = converter.toAst("> - a\n> - b");
+      expect(converter.fromAst(ast)).toBe("> • a\n> • b");
+    });
+
+    it("should prefix nested blockquotes and code blocks on every line", () => {
+      const ast = converter.toAst(
+        [
+          "> outer",
+          ">",
+          "> > inner one",
+          "> >",
+          "> > inner two",
+          ">",
+          "> ```",
+          "> line one",
+          "> line two",
+          "> ```",
+        ].join("\n")
+      );
+      expect(converter.fromAst(ast)).toBe(
+        [
+          "> outer",
+          ">",
+          "> > inner one",
+          "> >",
+          "> > inner two",
+          ">",
+          "> ```",
+          "> line one",
+          "> line two",
+          "> ```",
+        ].join("\n")
+      );
+    });
+
+    it("should treat a carriage return as a line break inside a quote", () => {
+      const ast = converter.toAst("> ```\r> first\r>\r> second\r> ```");
+      expect(converter.fromAst(ast)).toBe("> ```\n> first\n>\n> second\n> ```");
     });
 
     it("should handle unordered lists with bullet points", () => {
@@ -192,6 +261,109 @@ describe("GoogleChatFormatConverter", () => {
       expect(converter.toAst("```\ncode\n```")).toMatchObject({
         type: "root",
         children: [{ type: "code", value: "code" }],
+      });
+    });
+
+    it("keeps asterisks and tildes that aren't formatting as literal text", () => {
+      expect(converter.toAst("2 * 3 and 4 * 5, ~10 to ~20")).toMatchObject({
+        type: "root",
+        children: [
+          {
+            type: "paragraph",
+            children: [{ type: "text", value: "2 * 3 and 4 * 5, ~10 to ~20" }],
+          },
+        ],
+      });
+    });
+
+    it("parses bold next to a literal asterisk", () => {
+      expect(converter.toAst("*total*: 2 * 3")).toMatchObject({
+        type: "root",
+        children: [
+          {
+            type: "paragraph",
+            children: [
+              { type: "strong", children: [{ type: "text", value: "total" }] },
+              { type: "text", value: ": 2 * 3" },
+            ],
+          },
+        ],
+      });
+    });
+
+    it("keeps asterisks inside inline code", () => {
+      expect(converter.toAst("`rm -rf *` and `a*b*c`")).toMatchObject({
+        type: "root",
+        children: [
+          {
+            type: "paragraph",
+            children: [
+              { type: "inlineCode", value: "rm -rf *" },
+              { type: "text", value: " and " },
+              { type: "inlineCode", value: "a*b*c" },
+            ],
+          },
+        ],
+      });
+    });
+
+    it("keeps asterisks inside code blocks", () => {
+      expect(converter.toAst("```\nx = *a*\n```")).toMatchObject({
+        type: "root",
+        children: [{ type: "code", value: "x = *a*" }],
+      });
+    });
+
+    it("keeps bold that wraps or follows inline code", () => {
+      expect(converter.toAst("*bold with `*` inside*")).toMatchObject({
+        children: [
+          {
+            type: "paragraph",
+            children: [
+              {
+                type: "strong",
+                children: [
+                  { type: "text", value: "bold with " },
+                  { type: "inlineCode", value: "*" },
+                  { type: "text", value: " inside" },
+                ],
+              },
+            ],
+          },
+        ],
+      });
+      expect(converter.toAst("run `npm i` then *restart*")).toMatchObject({
+        children: [
+          {
+            type: "paragraph",
+            children: [
+              { type: "text", value: "run " },
+              { type: "inlineCode", value: "npm i" },
+              { type: "text", value: " then " },
+              {
+                type: "strong",
+                children: [{ type: "text", value: "restart" }],
+              },
+            ],
+          },
+        ],
+      });
+    });
+
+    it("pairs each code block's own fences", () => {
+      expect(
+        converter.toAst("```\na *1*\n```\n*bold*\n```\nb *2*\n```")
+      ).toMatchObject({
+        children: [
+          { type: "code", value: "a *1*" },
+          {
+            type: "paragraph",
+            children: [
+              { type: "strong", children: [{ type: "text", value: "bold" }] },
+            ],
+          },
+          { type: "code", value: "b *2*" },
+        ],
       });
     });
   });

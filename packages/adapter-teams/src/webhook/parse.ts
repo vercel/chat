@@ -4,6 +4,7 @@ import {
   extractTeamsUser,
   isTeamsMention,
 } from "./continuation";
+import { parseTeamsFeedbackInvoke } from "./feedback";
 import type {
   TeamsActivity,
   TeamsParseOptions,
@@ -86,6 +87,24 @@ export function parseTeamsWebhookBody(
         user,
         value: activity.value,
       };
+    }
+    // Mirrors the Teams SDK's `message.submit.feedback` route.
+    if (
+      activity.name === "message/submitAction" &&
+      activity.value?.actionName === "feedback"
+    ) {
+      const feedback = parseTeamsFeedbackInvoke(activity.value);
+      if (feedback) {
+        return {
+          ...(feedback.comment ? { comment: feedback.comment } : {}),
+          continuation,
+          kind: "message_feedback",
+          messageId: activity.replyToId,
+          raw: activity,
+          user,
+          value: feedback.value,
+        };
+      }
     }
   }
 

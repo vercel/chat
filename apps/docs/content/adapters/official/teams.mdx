@@ -451,6 +451,103 @@ Messages posted through the built-in [AI tools](/docs/ai/ai-sdk-tools) are label
 
 See Microsoft's [AI content labels documentation](https://learn.microsoft.com/en-us/microsoftteams/platform/agents-in-teams/integrate-ai/ai-content-labels).
 
+## Feedback buttons
+
+Set `feedbackButtons: true` on a message object to show Teams' native thumbs up and thumbs down buttons on the bot's message. After a click, Teams asks the user for an optional comment, then sends the feedback to your bot:
+
+```typescript title="lib/bot.ts"
+await thread.post({ markdown: answer, aiGenerated: true, feedbackButtons: true });
+
+bot.onAction("message_feedback", async (event) => {
+  // event.value is "positive" or "negative".
+  // event.values?.feedback holds the user's comment, when they typed one.
+  // event.messageId is the ID of the message that was rated.
+  await recordFeedback(event.messageId, event.value, event.values?.feedback);
+});
+```
+
+Clicks dispatch through the regular action flow with the action ID `"message_feedback"` and the values `"positive"` and `"negative"`. These match the defaults of the Slack adapter's [feedback buttons](/adapters/official/slack#feedback-buttons), so one handler serves both platforms.
+
+The flag follows the same rules as `aiGenerated`. It works with `markdown`, `raw`, `ast`, and `card` messages, and with raw Adaptive Cards. A plain string, a bare card element, or a JSX `<Card>` is sent without buttons. An edit replaces the whole Teams activity, so pass `feedbackButtons: true` again on every edit to keep the buttons.
+
+To add buttons to a streamed response, wrap the stream in a `StreamingPlan`:
+
+```typescript
+await thread.post(
+  new StreamingPlan(result.fullStream, { aiGenerated: true, feedbackButtons: true })
+);
+```
+
+The buttons appear once the stream finishes, in DMs and in group chats and channels. If a native stream runs past Teams' two-minute streaming limit, the Teams SDK sends the final message without the buttons.
+
+## Raw Adaptive Cards
+
+Chat SDK cards cover the elements that every platform can render. For Adaptive Card features they don't cover, such as `Badge` or container styles, pass the card as `adaptiveCard` to the Teams adapter's `postMessage`, `postChannelMessage`, `postEphemeral`, or `editMessage`. The adapter sends the card as is. `thread.post()` doesn't accept it, because other platforms can't render it.
+
+```typescript title="lib/bot.ts"
+const teams = bot.getAdapter("teams");
+
+await teams.postMessage(thread.id, {
+  adaptiveCard: {
+    type: "AdaptiveCard",
+    version: "1.5",
+    body: [{ type: "Badge", text: "Bug", style: "Attention" }],
+  },
+  fallbackText: "Bug: checkout fails on Safari",
+});
+```
+
+`adaptiveCard` takes the card's JSON or a card object built with `@microsoft/teams.cards`, including the card that `cardToAdaptiveCard` returns for a Chat SDK card. The adapter throws a `ValidationError` when `adaptiveCard` isn't an object, or when the same message also sets `markdown`, `raw`, `ast`, or `card`. To type your own helpers, import `TeamsPostableAdaptiveCard` from `@chat-adapter/teams`.
+
+Teams shows `fallbackText` as the activity summary, in notifications and in clients that can't render the card. A Chat SDK card posted as `{ card, fallbackText }` sets the same summary.
+
+A raw card message also accepts `files`, `aiGenerated`, and `feedbackButtons`. It doesn't send [`attachments`](#outgoing-attachments). `editMessage` updates the card and doesn't upload `files`, as with any other edit.
+
+## Outgoing attachments
+
+The adapter sends image entries in `attachments` on `{ markdown }`, `{ ast }`, and `{ raw }` messages. This applies to `thread.post()` and the adapter's `postMessage`, `postChannelMessage`, and `postEphemeral`. An entry is treated as an image when its `mimeType` starts with `image/`, or when `mimeType` isn't set and `type` is `"image"`.
+
+```typescript title="lib/bot.ts"
+await thread.post({
+  markdown: "Screenshot from the report",
+  attachments: [
+    { type: "image", url: "https://example.com/screenshot.png", mimeType: "image/png" },
+  ],
+});
+```
+
+How an image is sent depends on what the attachment carries:
+
+| Attachment has | How it's sent |
+|----------------|---------------|
+| `data` or `fetchData` | Inline, as a base64 data URI. The adapter uses `data` when it's set and calls `fetchData` otherwise, and ignores `url`. Images over 1 MB are skipped. |
+| Only `url` | By reference, when the URL is HTTPS. Teams loads the URL directly, so it has to be reachable without credentials. Other URLs are skipped. |
+
+Sending by reference keeps a large image out of the message payload. Sending the bytes is what lets you forward an image from an incoming message, because the URL on an [incoming inline image](#incoming-attachments) needs the bot's credentials:
+
+```typescript title="lib/bot.ts"
+bot.onSubscribedMessage(async (thread, message) => {
+  if (message.attachments.length === 0) {
+    return;
+  }
+
+  await thread.post({
+    markdown: "Forwarding your image",
+    attachments: message.attachments,
+  });
+});
+```
+
+Teams supports only images as inline attachments from a bot, so the adapter skips file, video, and audio attachments. Microsoft documents [PNG, JPEG, and GIF images up to 1 MB and 1024 x 1024 pixels](https://learn.microsoft.com/en-us/microsoftteams/platform/bots/how-to/agents-inline-images). Teams can accept an image outside those limits and then not render it.
+
+The adapter takes the content type from `mimeType`. Without it, the adapter detects PNG, JPEG, and GIF from the bytes, then checks the file extension in `name` or the URL path, and falls back to `image/png`. Set `mimeType` so the content type matches the image.
+
+A skipped attachment doesn't fail the post. The rest of the message is sent and the adapter logs one warning that lists the attachments it skipped and why, including one whose `fetchData` throws.
+
+Card messages don't send `attachments`, whether the card is a Chat SDK card or a raw `adaptiveCard`. Use `files` there. `files` are sent inline as base64 data URIs whatever their type.
+
+`editMessage` and `sent.edit()` don't upload bytes, so an edit sends neither `files` nor attachments that have `data` or `fetchData`. An edit does send image attachments that have only a `url`. To keep such an image on the message, include the attachment in the edited message.
+
 ## User lookup
 
 `bot.getUser()` looks up user profiles through the Microsoft Graph API. To enable it:
@@ -563,6 +660,7 @@ export async function POST(request: Request) {
 | `card_action` | Adaptive Card actions and `Action.Submit` message activities |
 | `dialog_open` | Task Module `task/fetch` invokes |
 | `dialog_submit` | Task Module `task/submit` invokes |
+| `message_feedback` | Feedback button clicks (`message/submitAction` invokes), with `value`, `comment`, and `messageId` |
 | `conversation_update` | Conversation membership and install context updates |
 | `installation_update` | App installation updates |
 | `unsupported` | Valid Activities not normalized by this helper yet |

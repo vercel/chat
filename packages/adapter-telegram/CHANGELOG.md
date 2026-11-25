@@ -1,5 +1,25 @@
 # @chat-adapter/telegram
 
+## 4.45.0
+
+### Minor Changes
+
+- 2def4d3: Keep replies in a regular supergroup on the chat's thread. Outside forums, Telegram also sets `message_thread_id` on replies to identify the reply thread, and the adapter turned that into a separate `telegram:{chatId}:{messageThreadId}` thread. A bot subscribed to the chat never saw the reply. The adapter now uses `message_thread_id` as a thread only when `is_topic_message` is `true`, so forum topics keep their own threads.
+  
+  Upgrading: in a regular supergroup, replies now arrive on `telegram:{chatId}`. Anything your bot keyed on a `telegram:{chatId}:{n}` thread ID from such a group, such as subscriptions and `thread.setState` values, stops matching. Unless the bot is also subscribed to the chat itself, follow-ups in those reply threads reach `onNewMention` or `onNewMessage` instead of `onSubscribedMessage`. Calling `thread.subscribe()` from a reply now subscribes the bot to the whole chat, and `thread.post()` from a reply's handler no longer sends `message_thread_id`. Use `thread.reply()` to answer a specific message. Reply chains in the chat share one thread lock, so the `concurrency` strategy applies across them: with the default `drop`, a message that arrives while a handler is running for the same chat is discarded.
+  
+  Stop posting to stored `telegram:{chatId}:{n}` IDs from a regular supergroup. The adapter still sends `message_thread_id` for them and returns the message on the stored ID, while replies to it arrive on `telegram:{chatId}`.
+
+### Patch Changes
+
+- 08fff39: Give each polling `getUpdates` request a deadline of the long polling `timeout` plus 30 seconds. When a connection drops without a reset, for example after a network switch or a suspend and resume, the request used to wait until the operating system closed the socket, which can take 15 minutes or more, and the bot received no updates in that time. It now fails at the deadline, and the polling loop logs a `Telegram polling request failed` warning with `Telegram getUpdates request timed out` in its `error` field, backs off, and polls again on a new connection. The `getMe` and `deleteWebhook` requests have a 30 second deadline. Stopping polling and media group collection work as before.
+- 7fd677e: Wrap an actions block with more than 8 buttons into evenly sized inline keyboard rows of at most 8. Telegram keeps only the first 8 buttons of a row and silently drops the rest, so cards with long button lists lost their last options.
+- Updated dependencies [7012331]
+- Updated dependencies [50c1116]
+- Updated dependencies [d0ff1dc]
+  - chat@4.45.0
+  - @chat-adapter/shared@4.45.0
+
 ## 4.44.0
 
 ### Minor Changes

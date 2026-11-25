@@ -13,6 +13,7 @@ import {
 } from "./markdown";
 import { Message } from "./message";
 import { isPostableObject, postPostableObject } from "./postable-object";
+import type { StreamingPlanData } from "./streaming-plan";
 import type { ThreadHistoryCache } from "./thread-history";
 import type {
   Adapter,
@@ -84,6 +85,20 @@ function isAsyncIterable(value: unknown): value is AsyncIterable<string> {
   return (
     value !== null && typeof value === "object" && Symbol.asyncIterator in value
   );
+}
+
+async function accumulateStreamText(
+  stream: AsyncIterable<unknown>
+): Promise<string> {
+  let accumulated = "";
+  for await (const chunk of fromFullStream(stream)) {
+    if (typeof chunk === "string") {
+      accumulated += chunk;
+    } else if (chunk.type === "markdown_text") {
+      accumulated += chunk.text;
+    }
+  }
+  return accumulated;
 }
 
 export class ChannelImpl<TState = Record<string, unknown>>
@@ -281,21 +296,25 @@ export class ChannelImpl<TState = Record<string, unknown>>
     message: string | PostableMessage | ChatElement
   ): Promise<SentMessage | PostableObject> {
     if (isPostableObject(message)) {
+      // Channels have no native streaming: accumulate and post as single message
+      if (message.kind === "stream") {
+        const { stream, options } = message.getPostData() as StreamingPlanData;
+        await this.postSingleMessage({
+          markdown: await accumulateStreamText(stream),
+          ...(options.aiGenerated ? { aiGenerated: true } : {}),
+          ...(options.feedbackButtons ? { feedbackButtons: true } : {}),
+        });
+        return message;
+      }
       await this.handlePostableObject(message);
       return message;
     }
 
     // Handle AsyncIterable (streaming) — accumulate and post as single message
     if (isAsyncIterable(message)) {
-      let accumulated = "";
-      for await (const chunk of fromFullStream(message)) {
-        if (typeof chunk === "string") {
-          accumulated += chunk;
-        } else if (chunk.type === "markdown_text") {
-          accumulated += chunk.text;
-        }
-      }
-      return this.postSingleMessage({ markdown: accumulated });
+      return this.postSingleMessage({
+        markdown: await accumulateStreamText(message),
+      });
     }
 
     // Auto-convert JSX elements to CardElement

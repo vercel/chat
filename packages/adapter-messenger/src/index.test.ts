@@ -1804,14 +1804,6 @@ describe("MessengerAdapter", () => {
         expect(result.messages).toHaveLength(1);
       });
 
-      it("clamps limit above 100 to 100", async () => {
-        const adapter = await initAdapterWithNumberedMessages(5);
-        const result = await adapter.fetchMessages("messenger:USER_123", {
-          limit: 500,
-        });
-        expect(result.messages).toHaveLength(5);
-      });
-
       it("returns no nextCursor for forward from last message", async () => {
         const adapter = await initAdapterWithNumberedMessages(3);
         const result = await adapter.fetchMessages("messenger:USER_123", {
@@ -1857,9 +1849,131 @@ describe("MessengerAdapter", () => {
       });
 
       it("uses default limit of 50 when not specified", async () => {
-        const adapter = await initAdapterWithNumberedMessages(3);
+        const adapter = await initAdapterWithNumberedMessages(60);
         const result = await adapter.fetchMessages("messenger:USER_123");
-        expect(result.messages).toHaveLength(3);
+        expect(result.messages).toHaveLength(50);
+        expect(result.messages[0].id).toBe("mid.11");
+        expect(result.messages[49].id).toBe("mid.60");
+        expect(result.nextCursor).toBe("mid.11");
+      });
+    });
+
+    describe("history bound", () => {
+      const FLOOD_THREAD = "messenger:USER_123";
+      const CONTROL_THREAD = "messenger:USER_789";
+      const BASE_TIME = 1735689600000;
+
+      async function deliver(
+        adapter: MessengerAdapter,
+        events: MessengerMessagingEvent[]
+      ): Promise<number> {
+        const body = JSON.stringify(createWebhookPayload(events));
+        const response = await adapter.handleWebhook(
+          new Request("https://example.com/webhook", {
+            method: "POST",
+            headers: {
+              "content-type": "application/json",
+              "x-hub-signature-256": signPayload(body),
+            },
+            body,
+          })
+        );
+        return response.status;
+      }
+
+      function inbound(
+        senderId: string,
+        mid: string,
+        offset: number
+      ): MessengerMessagingEvent {
+        return {
+          sender: { id: senderId },
+          recipient: { id: "PAGE_456" },
+          timestamp: BASE_TIME + offset * 1000,
+          message: { mid, text: `text of ${mid}` },
+        };
+      }
+
+      async function walkBackward(
+        adapter: MessengerAdapter,
+        threadId: string
+      ): Promise<string[]> {
+        const ids: string[] = [];
+        let cursor: string | undefined;
+        do {
+          const page = await adapter.fetchMessages(threadId, {
+            cursor,
+            limit: 30,
+          });
+          ids.unshift(...page.messages.map((message) => message.id));
+          cursor = page.nextCursor;
+        } while (cursor);
+        return ids;
+      }
+
+      it("keeps the newest 100 messages of a thread and leaves other threads alone", async () => {
+        const adapter = createAdapter();
+        mockFetch.mockResolvedValueOnce(
+          graphApiOk({ id: "PAGE_456", name: "Test Page" })
+        );
+        await adapter.initialize(createMockChat());
+
+        // The control thread's messages are older than every flood message.
+        const controlStatus = await deliver(adapter, [
+          inbound("USER_789", "mid.control.1", -3),
+          inbound("USER_789", "mid.control.2", -2),
+          inbound("USER_789", "mid.control.3", -1),
+        ]);
+        expect(controlStatus).toBe(200);
+
+        // mid.flood.1 is the oldest by send time but arrives last, so the
+        // survivors differ between dropping by send time and by arrival.
+        const flood: MessengerMessagingEvent[] = [];
+        for (let index = 2; index <= 105; index++) {
+          flood.push(inbound("USER_123", `mid.flood.${index}`, index));
+        }
+        flood.push(inbound("USER_123", "mid.flood.1", 1));
+        await expect(deliver(adapter, flood)).resolves.toBe(200);
+
+        for (const index of [1, 2, 3, 4, 5]) {
+          await expect(
+            adapter.fetchMessage(FLOOD_THREAD, `mid.flood.${index}`)
+          ).resolves.toBeNull();
+        }
+        for (const index of [6, 7, 104, 105]) {
+          await expect(
+            adapter.fetchMessage(FLOOD_THREAD, `mid.flood.${index}`)
+          ).resolves.toMatchObject({
+            id: `mid.flood.${index}`,
+            text: `text of mid.flood.${index}`,
+            threadId: FLOOD_THREAD,
+          });
+        }
+
+        const survivors = Array.from(
+          { length: 100 },
+          (_, index) => `mid.flood.${index + 6}`
+        );
+        await expect(walkBackward(adapter, FLOOD_THREAD)).resolves.toEqual(
+          survivors
+        );
+        const fullPage = await adapter.fetchMessages(FLOOD_THREAD, {
+          limit: 100,
+        });
+        expect(fullPage.messages.map((message) => message.id)).toEqual(
+          survivors
+        );
+        expect(fullPage.nextCursor).toBeUndefined();
+
+        const controlIds = ["mid.control.1", "mid.control.2", "mid.control.3"];
+        await expect(walkBackward(adapter, CONTROL_THREAD)).resolves.toEqual(
+          controlIds
+        );
+        for (const id of controlIds) {
+          await expect(
+            adapter.fetchMessage(CONTROL_THREAD, id)
+          ).resolves.toMatchObject({ id, threadId: CONTROL_THREAD });
+        }
       });
     });
   });

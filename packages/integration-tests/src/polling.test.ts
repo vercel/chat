@@ -575,7 +575,7 @@ describe("Telegram polling admission", () => {
     const retryAt = Date.now() + 60_000;
     const pending = album().map((update) => ({
       update,
-      receivedAt: 0,
+      receivedAt: Date.now() - 60_000,
       attempts: 5,
       retryAt,
     }));
@@ -609,7 +609,10 @@ describe("Telegram polling admission", () => {
     const state = createMemoryState();
     await state.connect();
     const pending = [
-      ...album().map((update) => ({ update, receivedAt: 0 })),
+      ...album().map((update) => ({
+        update,
+        receivedAt: Date.now() - 60_000,
+      })),
       ...album().map((update) => ({
         update: {
           ...update,
@@ -664,7 +667,7 @@ describe("Telegram polling admission", () => {
       offset: 3,
       pending: album().map((update) => ({
         update,
-        receivedAt: 0,
+        receivedAt: Date.now() - 60_000,
         attempts,
         retryAt: 0,
       })),

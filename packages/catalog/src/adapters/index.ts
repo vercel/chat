@@ -1,6 +1,7 @@
 import type { CatalogAdapter, CommunityAdapter } from "../types";
 import { baileys } from "./community/baileys";
 import { blooio } from "./community/blooio";
+import { chatwoot } from "./community/chatwoot";
 import { cloudflareDo } from "./community/cloudflare-do";
 import { line } from "./community/line";
 import { mattermost } from "./community/mattermost";
@@ -8,9 +9,11 @@ import { mysql } from "./community/mysql";
 import { qq } from "./community/qq";
 import { rocketchat } from "./community/rocketchat";
 import { signal } from "./community/signal";
+import { supergreen } from "./community/supergreen";
 import { webex } from "./community/webex";
 import { wecom } from "./community/wecom";
 import { weixin } from "./community/weixin";
+import { wwebjs } from "./community/wwebjs";
 import { zaileys } from "./community/zaileys";
 import { zalo } from "./community/zalo";
 import { zoom } from "./community/zoom";
@@ -51,6 +54,7 @@ import { photon } from "./vendor-official/photon";
 import { resend } from "./vendor-official/resend";
 import { sendblue } from "./vendor-official/sendblue";
 import { velt } from "./vendor-official/velt";
+import { wayza } from "./vendor-official/wayza";
 import { zernio } from "./vendor-official/zernio";
 
 /**
@@ -95,6 +99,7 @@ export const ADAPTERS = {
   photon,
   dial,
   adeli,
+  wayza,
   hibira,
 } as const satisfies Record<string, CatalogAdapter>;
 
@@ -117,4 +122,7 @@ export const COMMUNITY_ADAPTERS = {
   signal,
   rocketchat,
   zoom,
+  wwebjs,
+  chatwoot,
+  supergreen,
 } as const satisfies Record<string, CommunityAdapter>;

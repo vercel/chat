@@ -1,5 +1,27 @@
 # @chat-adapter/catalog
 
+## 4.45.0
+
+### Patch Changes
+
+- 09cb11e: Add Adeli as a vendor-official adapter (`@adeli/chat-sdk-adapter`) to the catalog, docs listing, and CLI scaffold spec.
+- 50c1116: Correct three Meta adapter entries. Messenger: fields render as plain text, message history comes from an in-memory cache of received and sent messages, there is no mention detection, and the adapter has no custom API endpoint option. Instagram: message history comes from an in-memory cache of received and sent messages. WhatsApp: message history comes from the thread history that Chat SDK persists in the state adapter.
+- 0801548: Point the Photon vendor-official adapter at `@photon-ai/chat-adapter`, which replaces `@photon-ai/chat-adapter-imessage`. The catalog entry, docs page, and CLI scaffold now use `createPhotonAdapter` and the `PHOTON_*` environment variables.
+- e5e5206: Add the community Rocket.Chat adapter `chat-adapter-rocketchat` to the catalog.
+- a6ec788: Add the community Signal adapter `@stibbons/chat-adapter-signal` to the catalog.
+- 6e0bba3: The Teams adapter reports edited messages to `onMessageUpdated`. It used to drop Teams `messageUpdate` activities, so a bot never saw an edit. The updated message has `isMention` set from its mention entities, like a new message. Teams sends only the new version, so `previousMessage` is `undefined`. Undeletes are still ignored.
+  
+  Webhook options are now scoped to each request instead of the activity id, so an edit that reuses its message's id no longer loses its `waitUntil` while the original message is still being handled.
+  
+  In a DM, a stream posted from `onMessageUpdated` goes out as its own message instead of being written into the reply to the original message, which may still be streaming.
+  
+  The catalog lists Teams message edit events as partial, because channel edits haven't been checked against captured traffic.
+- 0471806: **Zoom Team Chat community adapter**
+  
+  - Lists the independently maintained `zoom-chat-adapter` package for Zoom Team Chat, including its source repository and capability matrix.
+  - Adds setup and usage documentation for Zoom Marketplace credentials, HMAC-SHA256 webhook verification, channel and DM messaging, formatting, and thread IDs.
+  - Documents the current capabilities and limits: post, edit, delete, post+edit streaming, direct-only threaded replies, no reactions or message history, no thread subscription, and no webhook for DM thread replies.
+
 ## 4.44.0
 
 ### Patch Changes

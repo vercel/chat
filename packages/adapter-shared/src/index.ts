@@ -84,6 +84,11 @@ export {
 // In-memory message history for platforms without a history API
 export {
   compareMessagesByTime,
+  DEFAULT_MAX_MESSAGE_STORE_WEIGHT,
+  DEFAULT_MAX_MESSAGES_PER_THREAD,
+  estimateMessageWeight,
+  MessageStore,
+  type MessageStoreOptions,
   messageSequence,
   paginateMessages,
   upsertMessage,

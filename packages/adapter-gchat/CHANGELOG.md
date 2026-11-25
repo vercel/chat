@@ -1,5 +1,29 @@
 # @chat-adapter/gchat
 
+## 4.45.0
+
+### Minor Changes
+
+- e521714: Expose sender email addresses on Google Chat events. `message.author.email` is set on incoming webhook messages and `event.user.email` on card button clicks, both from the `email` field Google Chat sends in the event. Pub/Sub messages, reactions, and `fetchMessages` results come from the Chat API, whose user resource has no email, so the adapter fills the field from its user cache, which holds an email once the user has sent a webhook message that included one. Without a cached email the field is `undefined`.
+  
+  The user cache now keeps a stored email, avatar, and bot flag when a later event for the same user omits them, so `getUser` no longer loses the email after a Pub/Sub message or a `fetchMessages` call. An empty email is treated as missing. A display name seen only on a Pub/Sub or `fetchMessages` payload creates a cache entry when the user has none, and no longer replaces an existing one.
+
+### Patch Changes
+
+- 7012331: Quote every line of a Markdown block quote in the Discord, Slack, and Google Chat converters. Each converter added the `> ` prefix only to the first line of each block inside a quote, so later lines, list items, and code block lines fell out of the quote, and quoted paragraphs ran together. Slack hit this only on `response_url` replies. Now every line gets the prefix, and a quoted blank line separates the blocks. On Discord, which only quotes a line that starts with `> `, blank quoted lines keep the trailing space.
+  
+  The rendering now lives in a new `renderBlockquote` method on `BaseFormatConverter`, which the Teams converter also uses. It skips a quote child that renders to nothing, such as a link definition, so a quote no longer starts or ends with a blank quoted line.
+- 0f0d77f: Set `message.isMention` from `USER_MENTION` annotations on webhook, Pub/Sub, and fetched messages. It was left unset, so Chat fell back to matching `@userName` in the text, and a bot named `Bot` also handled mentions of a user named `Bot Dev`.
+  
+  When `botUserId` is configured, `isMention` is `true` only when an annotation names the bot, and a plain-text `@bot` without a mention annotation no longer counts as a mention. Without `botUserId`, a message that only mentions people reports `isMention: false`, and every other message still uses the text fallback.
+  
+  Messages read from the API (`fetchMessages`, `fetchMessage`, `fetchChannelMessages`, and `listThreads`) now have the bot's mention rewritten to `@userName`, as webhook and Pub/Sub messages already did. A message that mentions the bot more than once is now rewritten at the right positions. The adapter warns at startup when `botUserId` is not a `users/...` resource name, and once when a mentioned app's ID differs from `botUserId`.
+- Updated dependencies [7012331]
+- Updated dependencies [50c1116]
+- Updated dependencies [d0ff1dc]
+  - chat@4.45.0
+  - @chat-adapter/shared@4.45.0
+
 ## 4.44.0
 
 ### Patch Changes

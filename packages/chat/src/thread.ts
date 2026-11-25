@@ -124,6 +124,16 @@ function withAiGenerated(
   return options?.aiGenerated ? { ...postable, aiGenerated: true } : postable;
 }
 
+function withMessageFlags(
+  postable: PostableMarkdown,
+  options: StreamOptions | undefined
+): PostableMarkdown {
+  return {
+    ...withAiGenerated(postable, options),
+    ...(options?.feedbackButtons ? { feedbackButtons: true } : {}),
+  };
+}
+
 let neverAbortedSignal: AbortSignal | undefined;
 
 /**
@@ -522,6 +532,7 @@ export class ThreadImpl<TState = Record<string, unknown>>
           stream: AsyncIterable<string | StreamChunk | StreamEvent>;
           options: {
             aiGenerated?: boolean;
+            feedbackButtons?: boolean;
             groupTasks?: "plan" | "timeline";
             endWith?: unknown[];
             sessionStatus?: StreamOptions["sessionStatus"];
@@ -530,6 +541,7 @@ export class ThreadImpl<TState = Record<string, unknown>>
         };
         const streamOptions: StreamOptions = {
           ...(data.options.aiGenerated ? { aiGenerated: true } : {}),
+          ...(data.options.feedbackButtons ? { feedbackButtons: true } : {}),
           ...(data.options.updateIntervalMs !== undefined
             ? { updateIntervalMs: data.options.updateIntervalMs }
             : {}),
@@ -874,7 +886,7 @@ export class ThreadImpl<TState = Record<string, unknown>>
         this._typingStarted = false;
         const sent = this.createSentMessage(
           raw.id,
-          withAiGenerated({ markdown: accumulated }, options),
+          withMessageFlags({ markdown: accumulated }, options),
           raw.threadId
         );
 
@@ -1120,10 +1132,14 @@ export class ThreadImpl<TState = Record<string, unknown>>
     const accumulated = renderer.getText();
     const finalContent = renderer.finish();
 
+    // Messages written while the stream was running carry no feedback buttons
+    const needsFeedbackButtonsEdit =
+      msg !== null && Boolean(options?.feedbackButtons);
+
     if (!msg) {
       msg = await this.adapter.postMessage(
         this.id,
-        withAiGenerated(
+        withMessageFlags(
           { markdown: accumulated.trim() ? accumulated : " " },
           options
         )
@@ -1136,13 +1152,27 @@ export class ThreadImpl<TState = Record<string, unknown>>
       await this.adapter.editMessage(
         threadIdForEdits,
         msg.id,
-        withAiGenerated({ markdown: accumulated }, options)
+        withMessageFlags({ markdown: accumulated }, options)
       );
+    } else if (finalContent.trim() && needsFeedbackButtonsEdit) {
+      // The full text is already delivered, so a failed flag-only edit must not fail the post
+      try {
+        await this.adapter.editMessage(
+          threadIdForEdits,
+          msg.id,
+          withMessageFlags({ markdown: accumulated }, options)
+        );
+      } catch (error) {
+        this._logger?.warn(
+          "fallbackStream feedback buttons edit failed",
+          error
+        );
+      }
     }
 
     const sent = this.createSentMessage(
       msg.id,
-      withAiGenerated({ markdown: accumulated }, options),
+      withMessageFlags({ markdown: accumulated }, options),
       threadIdForEdits
     );
 

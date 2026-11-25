@@ -1,5 +1,17 @@
 # @chat-adapter/shared
 
+## 4.45.0
+
+### Minor Changes
+
+- 50c1116: Add helpers that Messenger, Instagram, and WhatsApp each implemented separately: Meta webhook verification (`verifyMetaWebhookChallenge`, `verifyMetaSignature`), Graph API error mapping (`throwMetaGraphApiError`), the `chat:{json}` callback data codec, `findCardActions` and `truncateWithEllipsis` for cards, in-memory message history (`upsertMessage`, `paginateMessages`), and `parseRetryAfter` for `Retry-After` headers given in seconds or as an HTTP date. Telegram and Twilio use the shared callback data codec too, and `@chat-adapter/shared/callback-data` exposes it as a dependency-free subpath.
+
+### Patch Changes
+
+- Updated dependencies [7012331]
+- Updated dependencies [d0ff1dc]
+  - chat@4.45.0
+
 ## 4.44.0
 
 ### Minor Changes

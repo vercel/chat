@@ -1,5 +1,33 @@
 # chat
 
+## 4.45.0
+
+### Minor Changes
+
+- d0ff1dc: feat: stream model reasoning with `reasoning` chunks
+  
+  `StreamChunk` has a new `reasoning` type, `{ type: "reasoning", text }`, for deltas of the model's reasoning. Like `task_update` and `plan_update`, `reasoning` chunks don't count toward the posted message's text.
+  
+  The Web adapter streams them to `useChat` as reasoning parts, or as AG-UI `REASONING_*` events with `protocol: "ag-ui"`. Consecutive `reasoning` chunks fill one part, and text, a new task, or the first plan chunk closes it. A `reasoning` chunk also closes the current text part, so `message.parts` keeps reasoning and text in the order the handler yielded them.
+  
+  `thread.post()` passes `reasoning` chunks only to adapters that set the new optional `supportsReasoningChunks` property on `Adapter` to `true`, which the Web adapter does. For every other adapter it removes them from the stream, so reasoning is never posted to a chat platform. The Slack adapter's `stream()` also skips them when called directly instead of forwarding them to Slack's streaming API, which has no reasoning chunk type. A rejected chunk would also turn off task and plan chunks for the rest of the stream.
+  
+  Reasoning events in an AI SDK `fullStream` or a TanStack AI stream are still skipped. Only `reasoning` chunks you yield are streamed.
+
+### Patch Changes
+
+- 7012331: Quote every line of a Markdown block quote in the Discord, Slack, and Google Chat converters. Each converter added the `> ` prefix only to the first line of each block inside a quote, so later lines, list items, and code block lines fell out of the quote, and quoted paragraphs ran together. Slack hit this only on `response_url` replies. Now every line gets the prefix, and a quoted blank line separates the blocks. On Discord, which only quotes a line that starts with `> `, blank quoted lines keep the trailing space.
+  
+  The rendering now lives in a new `renderBlockquote` method on `BaseFormatConverter`, which the Teams converter also uses. It skips a quote child that renders to nothing, such as a link definition, so a quote no longer starts or ends with a blank quoted line.
+- Updated dependencies [09cb11e]
+- Updated dependencies [50c1116]
+- Updated dependencies [0801548]
+- Updated dependencies [e5e5206]
+- Updated dependencies [a6ec788]
+- Updated dependencies [6e0bba3]
+- Updated dependencies [0471806]
+  - @chat-adapter/catalog@4.45.0
+
 ## 4.44.0
 
 ### Minor Changes
