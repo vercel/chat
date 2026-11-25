@@ -99,6 +99,15 @@ You need a Wati plan that includes webhooks and the messaging API (Pro or Busine
       type: "Logger",
       description: "Chat SDK-compatible logger.",
     },
+    logLevel: {
+      type: "LogLevel",
+      default: "\"info\"",
+      description: "Console log level used before the Chat logger is available.",
+    },
+    fetch: {
+      type: "typeof fetch",
+      description: "Custom `fetch` implementation, for tests or proxies.",
+    },
   }}
 />
 
@@ -136,7 +145,7 @@ export async function POST(request: Request): Promise<Response> {
 }
 ```
 
-Wati doesn't sign webhooks, so the adapter checks the shared secret in the URL's `token` parameter, like the Telegram adapter's secret token, and returns `401` without it. Keep the full webhook URL private. Messages sent by your team or by Wati chatbots are ignored, so the bot doesn't answer itself or your agents.
+Wati doesn't sign webhooks, so the adapter checks a shared secret, sent in the `x-wati-webhook-secret` header or the URL's `token` query parameter, and returns `401` without it. Query parameters often appear in request and proxy logs, so treat the full webhook URL as a credential and rotate the secret if it leaks. Messages sent by your team or by Wati chatbots are ignored, so the bot doesn't answer itself or your agents.
 
 ## Buttons and lists
 
@@ -157,7 +166,7 @@ await thread.post(
 );
 ```
 
-Up to 3 buttons send as WhatsApp reply buttons. 4 to 10 buttons, and `Select` menus, send as a WhatsApp list message. WhatsApp returns only the tapped label, so labels in one message must be unique and buttons must be 20 characters or fewer; the adapter throws a validation error rather than truncating them.
+Up to 3 buttons send as WhatsApp reply buttons. 4 to 10 buttons, and `Select` menus, send as a WhatsApp list message. WhatsApp returns only the tapped label, so labels in one message must be unique, reply-button labels must be 20 characters or fewer, and list options 24 or fewer; the adapter throws a validation error rather than truncating them.
 
 ## Templates
 

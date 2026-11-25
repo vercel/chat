@@ -8,7 +8,6 @@ export const wati = {
   env: {
     config: [
       "verifyWebhooks",
-      "channelPhoneNumber",
       "actionMappingTtlMs",
       "logger",
       "logLevel",
@@ -66,7 +65,7 @@ export const wati = {
     ephemeralMessages: "no",
     userLookup: "no",
     customApiEndpoint: { status: "yes", label: "Regional hosts" },
-    fetchMessages: "yes",
+    fetchMessages: { status: "partial", label: "Newest first only" },
     fetchSingleMessage: "no",
     fetchThreadInfo: "yes",
     fetchChannelMessages: "no",
