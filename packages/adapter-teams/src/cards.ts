@@ -81,6 +81,7 @@ export type PreparedTeamsMessage =
   | {
       adaptiveCard: object;
       aiGenerated: boolean;
+      feedbackButtons: boolean;
       files: FileUpload[];
       summary?: string;
     }
@@ -95,7 +96,8 @@ export function prepareTeamsMessage(
   input: TeamsPostableMessage
 ): PreparedTeamsMessage {
   if (typeof input === "object" && input !== null && "adaptiveCard" in input) {
-    const { adaptiveCard, aiGenerated, fallbackText, files } = input;
+    const { adaptiveCard, aiGenerated, fallbackText, feedbackButtons, files } =
+      input;
     if (
       typeof adaptiveCard !== "object" ||
       adaptiveCard === null ||
@@ -116,6 +118,7 @@ export function prepareTeamsMessage(
     return {
       adaptiveCard,
       aiGenerated: aiGenerated === true,
+      feedbackButtons: feedbackButtons === true,
       files: files ?? [],
       summary: fallbackText || undefined,
     };
@@ -132,6 +135,7 @@ export function prepareTeamsMessage(
   return {
     adaptiveCard: cardToAdaptiveCard(card),
     aiGenerated: postable?.aiGenerated === true,
+    feedbackButtons: postable?.feedbackButtons === true,
     files,
     summary: postable?.fallbackText || undefined,
   };

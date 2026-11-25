@@ -997,6 +997,7 @@ describe("ThreadImpl", () => {
       for (const [, postable] of postCalls) {
         if (typeof postable === "object") {
           expect(postable).not.toHaveProperty("aiGenerated");
+          expect(postable).not.toHaveProperty("feedbackButtons");
         }
       }
       const editCalls = (mockAdapter.editMessage as ReturnType<typeof vi.fn>)
@@ -1004,12 +1005,340 @@ describe("ThreadImpl", () => {
       expect(editCalls.length).toBeGreaterThan(0);
       for (const [, , postable] of editCalls) {
         expect(postable).not.toHaveProperty("aiGenerated");
+        expect(postable).not.toHaveProperty("feedbackButtons");
       }
       expect(mockAdapter.editMessage).toHaveBeenLastCalledWith(
         "slack:C123:1234.5678",
         "msg-1",
         { markdown: "Hello World" }
       );
+    });
+
+    it("should pass feedbackButtons from StreamingPlan to adapter.stream", async () => {
+      const mockStream = vi.fn().mockResolvedValue({
+        id: "msg-stream",
+        threadId: "t1",
+        raw: "Hello",
+      });
+      mockAdapter.stream = mockStream;
+
+      await thread.post(
+        new StreamingPlan(createTextStream(["Hello"]), {
+          feedbackButtons: true,
+        })
+      );
+
+      expect(mockStream).toHaveBeenCalledWith(
+        "slack:C123:1234.5678",
+        expect.any(Object),
+        expect.objectContaining({ feedbackButtons: true })
+      );
+    });
+
+    describe("feedbackButtons in fallback streaming", () => {
+      const THREAD_ID = "slack:C123:1234.5678";
+      const postedMessages = () =>
+        vi.mocked(mockAdapter.postMessage).mock.calls.map((call) => call[1]);
+      const editedMessages = () =>
+        vi.mocked(mockAdapter.editMessage).mock.calls.map((call) => call[2]);
+      const createThreadWithoutPlaceholder = () =>
+        new ThreadImpl({
+          id: THREAD_ID,
+          adapter: mockAdapter,
+          channelId: "C123",
+          stateAdapter: mockState,
+          fallbackStreamingPlaceholderText: null,
+        });
+      const createGate = () => {
+        let release: () => void = () => undefined;
+        const gate = new Promise<void>((resolve) => {
+          release = resolve;
+        });
+        return { gate, release: () => release() };
+      };
+
+      beforeEach(() => {
+        mockAdapter.stream = undefined;
+      });
+
+      afterEach(() => {
+        vi.useRealTimers();
+      });
+
+      it("should keep feedbackButtons off intermediate edits and add it to the final edit", async () => {
+        vi.useFakeTimers();
+        const { gate, release } = createGate();
+        async function* gatedStream(): AsyncIterable<string> {
+          yield "Hello";
+          await gate;
+          yield " World";
+        }
+
+        const postPromise = thread.post(
+          new StreamingPlan(gatedStream(), {
+            aiGenerated: true,
+            feedbackButtons: true,
+            updateIntervalMs: 100,
+          })
+        );
+
+        await vi.advanceTimersByTimeAsync(150);
+        expect(editedMessages()).toStrictEqual([
+          { markdown: "Hello", aiGenerated: true },
+        ]);
+
+        release();
+        await vi.advanceTimersByTimeAsync(500);
+        await postPromise;
+
+        expect(postedMessages()).toStrictEqual(["..."]);
+        expect(vi.mocked(mockAdapter.editMessage).mock.calls).toStrictEqual([
+          [THREAD_ID, "msg-1", { markdown: "Hello", aiGenerated: true }],
+          [
+            THREAD_ID,
+            "msg-1",
+            {
+              markdown: "Hello World",
+              aiGenerated: true,
+              feedbackButtons: true,
+            },
+          ],
+        ]);
+      });
+
+      it("should force a final edit with feedbackButtons when the content is unchanged since the last edit", async () => {
+        vi.useFakeTimers();
+        const { gate, release } = createGate();
+        async function* gatedStream(): AsyncIterable<string> {
+          yield "Hello";
+          await gate;
+        }
+
+        const postPromise = thread.post(
+          new StreamingPlan(gatedStream(), {
+            feedbackButtons: true,
+            updateIntervalMs: 100,
+          })
+        );
+
+        await vi.advanceTimersByTimeAsync(150);
+        expect(editedMessages()).toStrictEqual([{ markdown: "Hello" }]);
+
+        release();
+        await vi.advanceTimersByTimeAsync(500);
+        await postPromise;
+
+        expect(postedMessages()).toStrictEqual(["..."]);
+        expect(editedMessages()).toStrictEqual([
+          { markdown: "Hello" },
+          { markdown: "Hello", feedbackButtons: true },
+        ]);
+      });
+
+      it("should resolve the post when the feedbackButtons-only final edit is rejected", async () => {
+        vi.useFakeTimers();
+        const { gate, release } = createGate();
+        async function* gatedStream(): AsyncIterable<string> {
+          yield "Hello";
+          await gate;
+        }
+        vi.mocked(mockAdapter.editMessage).mockImplementation(
+          async (threadId, messageId, message) => {
+            if ((message as { feedbackButtons?: boolean }).feedbackButtons) {
+              throw new Error("edit rejected");
+            }
+            return { id: messageId, threadId, raw: {} };
+          }
+        );
+
+        const postPromise = thread.post(
+          new StreamingPlan(gatedStream(), {
+            feedbackButtons: true,
+            updateIntervalMs: 100,
+          })
+        );
+
+        await vi.advanceTimersByTimeAsync(150);
+        release();
+        await vi.advanceTimersByTimeAsync(500);
+        await expect(postPromise).resolves.toBeInstanceOf(StreamingPlan);
+
+        expect(editedMessages()).toStrictEqual([
+          { markdown: "Hello" },
+          { markdown: "Hello", feedbackButtons: true },
+        ]);
+      });
+
+      it("should reject the post when the final edit that delivers new content is rejected", async () => {
+        vi.useFakeTimers();
+        const { gate, release } = createGate();
+        async function* gatedStream(): AsyncIterable<string> {
+          yield "Hello";
+          await gate;
+          yield " world";
+        }
+        vi.mocked(mockAdapter.editMessage).mockImplementation(
+          async (threadId, messageId, message) => {
+            if ((message as { feedbackButtons?: boolean }).feedbackButtons) {
+              throw new Error("edit rejected");
+            }
+            return { id: messageId, threadId, raw: {} };
+          }
+        );
+
+        const postPromise = thread.post(
+          new StreamingPlan(gatedStream(), {
+            feedbackButtons: true,
+            updateIntervalMs: 100,
+          })
+        );
+        const settled = expect(postPromise).rejects.toThrow("edit rejected");
+
+        await vi.advanceTimersByTimeAsync(150);
+        release();
+        await vi.advanceTimersByTimeAsync(500);
+        await settled;
+
+        expect(editedMessages()).toStrictEqual([
+          { markdown: "Hello" },
+          { markdown: "Hello world", feedbackButtons: true },
+        ]);
+      });
+
+      it("should not add a final edit for unchanged content when feedbackButtons is not set", async () => {
+        vi.useFakeTimers();
+        const { gate, release } = createGate();
+        async function* gatedStream(): AsyncIterable<string> {
+          yield "Hello";
+          await gate;
+        }
+
+        const postPromise = thread.post(
+          new StreamingPlan(gatedStream(), {
+            aiGenerated: true,
+            updateIntervalMs: 100,
+          })
+        );
+
+        await vi.advanceTimersByTimeAsync(150);
+        release();
+        await vi.advanceTimersByTimeAsync(500);
+        await postPromise;
+
+        expect(postedMessages()).toStrictEqual(["..."]);
+        expect(editedMessages()).toStrictEqual([
+          { markdown: "Hello", aiGenerated: true },
+        ]);
+      });
+
+      it("should post the first chunk without feedbackButtons and add it with a final edit when the placeholder is disabled", async () => {
+        await createThreadWithoutPlaceholder().post(
+          new StreamingPlan(createTextStream(["Hi"]), {
+            aiGenerated: true,
+            feedbackButtons: true,
+          })
+        );
+
+        expect(vi.mocked(mockAdapter.postMessage).mock.calls).toStrictEqual([
+          [THREAD_ID, { markdown: "Hi", aiGenerated: true }],
+        ]);
+        expect(vi.mocked(mockAdapter.editMessage).mock.calls).toStrictEqual([
+          [
+            THREAD_ID,
+            "msg-1",
+            { markdown: "Hi", aiGenerated: true, feedbackButtons: true },
+          ],
+        ]);
+      });
+
+      it("should not add a final edit when the placeholder is disabled and feedbackButtons is not set", async () => {
+        await createThreadWithoutPlaceholder().post(
+          new StreamingPlan(createTextStream(["Hi"]), { aiGenerated: true })
+        );
+
+        expect(postedMessages()).toStrictEqual([
+          { markdown: "Hi", aiGenerated: true },
+        ]);
+        expect(editedMessages()).toStrictEqual([]);
+      });
+
+      it("should post once with feedbackButtons when content is only posted after the stream ends", async () => {
+        await createThreadWithoutPlaceholder().post(
+          // A lone table header row is held back until the stream ends
+          new StreamingPlan(createTextStream(["| A | B |\n"]), {
+            aiGenerated: true,
+            feedbackButtons: true,
+          })
+        );
+
+        expect(postedMessages()).toStrictEqual([
+          {
+            markdown: "| A | B |\n",
+            aiGenerated: true,
+            feedbackButtons: true,
+          },
+        ]);
+        expect(editedMessages()).toStrictEqual([]);
+      });
+
+      it("should post once with feedbackButtons when the stream has no content and the placeholder is disabled", async () => {
+        await createThreadWithoutPlaceholder().post(
+          new StreamingPlan(createTextStream([]), { feedbackButtons: true })
+        );
+
+        expect(postedMessages()).toStrictEqual([
+          { markdown: " ", feedbackButtons: true },
+        ]);
+        expect(editedMessages()).toStrictEqual([]);
+      });
+
+      it("should not write feedbackButtons when the stream throws after the first post", async () => {
+        async function* failingStream(): AsyncIterable<string> {
+          yield "Hi";
+          throw new Error("stream failed");
+        }
+
+        await expect(
+          createThreadWithoutPlaceholder().post(
+            new StreamingPlan(failingStream(), {
+              aiGenerated: true,
+              feedbackButtons: true,
+            })
+          )
+        ).rejects.toThrow("stream failed");
+
+        expect(postedMessages()).toStrictEqual([
+          { markdown: "Hi", aiGenerated: true },
+        ]);
+        expect(editedMessages()).toStrictEqual([]);
+      });
+
+      it("should not write feedbackButtons when the stream throws after an intermediate edit", async () => {
+        vi.useFakeTimers();
+        const { gate, release } = createGate();
+        async function* failingStream(): AsyncIterable<string> {
+          yield "Hello";
+          await gate;
+          throw new Error("stream failed");
+        }
+
+        const rejection = expect(
+          thread.post(
+            new StreamingPlan(failingStream(), {
+              feedbackButtons: true,
+              updateIntervalMs: 100,
+            })
+          )
+        ).rejects.toThrow("stream failed");
+
+        await vi.advanceTimersByTimeAsync(150);
+        release();
+        await vi.advanceTimersByTimeAsync(500);
+        await rejection;
+
+        expect(postedMessages()).toStrictEqual(["..."]);
+        expect(editedMessages()).toStrictEqual([{ markdown: "Hello" }]);
+      });
     });
 
     it("should still work without options (backward compat)", async () => {

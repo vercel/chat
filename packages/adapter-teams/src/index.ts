@@ -15,6 +15,7 @@ import type {
   IConversationUpdateActivity,
   IMessageActivity,
   IMessageReactionActivity,
+  IMessageSubmitActionInvokeActivity,
   IMessageUpdateActivity,
   InstallUpdateActivity,
   ITaskFetchInvokeActivity,
@@ -23,11 +24,7 @@ import type {
   SentActivity,
   TaskModuleResponse,
 } from "@microsoft/teams.api";
-import {
-  MessageActivity,
-  MessageActivityInput,
-  TypingActivity,
-} from "@microsoft/teams.api";
+import { MessageActivity, TypingActivity } from "@microsoft/teams.api";
 import type { IActivityContext, IStreamer } from "@microsoft/teams.apps";
 import { StreamCancelledError } from "@microsoft/teams.apps";
 import { users } from "@microsoft/teams.graph-endpoints";
@@ -85,6 +82,13 @@ import {
 } from "./cards";
 import { toAppOptions } from "./config";
 import { handleTeamsError } from "./errors";
+import {
+  applyFeedbackButtons,
+  FEEDBACK_ACTION_ID,
+  feedbackActionFromInvoke,
+  reactionForLog,
+  streamChunkActivity,
+} from "./feedback";
 import { TeamsGraphReader } from "./graph-api";
 import { isInstallAction, parseInstallationAction } from "./installation";
 import { TeamsFormatConverter } from "./markdown";
@@ -177,6 +181,9 @@ function createCardActivity(
   if (card.aiGenerated) {
     activity.addAiGenerated();
   }
+  if (card.feedbackButtons) {
+    activity.addFeedback();
+  }
   if (card.summary) {
     activity.withSummary(card.summary);
   }
@@ -225,6 +232,11 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
    * streamer, which belongs to the message request still in flight.
    */
   private readonly nativeStreamBlocked = new AsyncLocalStorage<true>();
+
+  /** Run a dispatch whose handlers must not stream into a DM's active streamer. */
+  private withoutNativeStream<T>(dispatch: () => T): T {
+    return this.nativeStreamBlocked.run(true, dispatch);
+  }
 
   constructor(config: TeamsAdapterConfig = {}) {
     this.config = { ...config };
@@ -287,6 +299,13 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
       this.cacheUserContext(ctx.activity);
       await this.handleAdaptiveCardAction(ctx);
       return CARD_ACTION_INVOKE_ACK;
+    });
+
+    // Teams expects an empty 200 for message/submitAction, which the SDK
+    // sends when the handler returns nothing.
+    this.app.on("message.submit.feedback", async (ctx) => {
+      this.cacheUserContext(ctx.activity);
+      this.handleFeedbackSubmit(ctx.activity);
     });
 
     this.app.on(
@@ -367,11 +386,14 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
       raw: activity,
     };
     const options = this.bridgeAdapter.getWebhookOptions();
-    if (isInstallAction(action)) {
-      this.chat.processInstalled?.({ ...event, action }, options);
-    } else {
-      this.chat.processUninstalled?.({ ...event, action }, options);
-    }
+    const chat = this.chat;
+    this.withoutNativeStream(() => {
+      if (isInstallAction(action)) {
+        chat.processInstalled?.({ ...event, action }, options);
+      } else {
+        chat.processUninstalled?.({ ...event, action }, options);
+      }
+    });
   }
 
   protected handleConversationUpdate(
@@ -402,14 +424,17 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
       return;
     }
 
-    this.chat.processMemberJoinedChannel(
-      {
-        adapter: this,
-        channelId: this.encodeThreadId(resolved.join),
-        userId,
-        inviterId: activity.from?.id,
-      },
-      this.bridgeAdapter.getWebhookOptions()
+    const chat = this.chat;
+    this.withoutNativeStream(() =>
+      chat.processMemberJoinedChannel(
+        {
+          adapter: this,
+          channelId: this.encodeThreadId(resolved.join),
+          userId,
+          inviterId: activity.from?.id,
+        },
+        this.bridgeAdapter.getWebhookOptions()
+      )
     );
   }
 
@@ -676,7 +701,7 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
 
     const threadId = this.threadIdFromActivity(activity);
     const chat = this.chat;
-    this.nativeStreamBlocked.run(true, () =>
+    this.withoutNativeStream(() =>
       chat.processMessageUpdated(
         {
           adapter: this,
@@ -769,9 +794,9 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
       threadId,
     });
 
-    this.chat.processAction(
-      actionEvent,
-      this.bridgeAdapter.getWebhookOptions()
+    const chat = this.chat;
+    this.withoutNativeStream(() =>
+      chat.processAction(actionEvent, this.bridgeAdapter.getWebhookOptions())
     );
   }
 
@@ -823,9 +848,61 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
       threadId,
     });
 
-    this.chat.processAction(
-      actionEvent,
-      this.bridgeAdapter.getWebhookOptions()
+    const chat = this.chat;
+    this.withoutNativeStream(() =>
+      chat.processAction(actionEvent, this.bridgeAdapter.getWebhookOptions())
+    );
+  }
+
+  /**
+   * Handle a click on Teams' native feedback buttons (message/submitAction).
+   * Dispatched through onAction with the same action ID and values as
+   * Slack's feedback buttons, so one handler serves both.
+   */
+  protected handleFeedbackSubmit(
+    activity: IMessageSubmitActionInvokeActivity
+  ): void {
+    if (!this.chat) {
+      return;
+    }
+
+    const feedback = feedbackActionFromInvoke(activity.value);
+    if (!feedback) {
+      this.logger.debug("Teams feedback with an unknown reaction", {
+        reaction: reactionForLog(activity.value?.actionValue?.reaction),
+      });
+      return;
+    }
+    if (feedback.unrecognizedFeedback) {
+      this.logger.debug(
+        "Teams feedback comment in an unrecognized format",
+        feedback.unrecognizedFeedback
+      );
+    }
+
+    const threadId = this.threadIdFromActivity(activity);
+    const actionEvent: Omit<ActionEvent, "thread" | "openModal"> & {
+      adapter: TeamsAdapter;
+    } = {
+      actionId: FEEDBACK_ACTION_ID,
+      value: feedback.value,
+      values: feedback.values,
+      user: this.authorFromActivity(activity),
+      messageId: activity.replyToId || "",
+      threadId,
+      adapter: this,
+      raw: activity,
+    };
+
+    this.logger.debug("Processing Teams feedback", {
+      value: feedback.value,
+      messageId: actionEvent.messageId,
+      threadId,
+    });
+
+    const chat = this.chat;
+    this.withoutNativeStream(() =>
+      chat.processAction(actionEvent, this.bridgeAdapter.getWebhookOptions())
     );
   }
 
@@ -863,16 +940,19 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
       values: cardInputValues(payload, AUTO_SUBMIT_KEYS),
     };
 
-    for (const [key, val] of entries) {
-      this.chat.processAction(
-        {
-          ...baseEvent,
-          actionId: key,
-          value: submitValueToString(val),
-        },
-        webhookOptions
-      );
-    }
+    const chat = this.chat;
+    this.withoutNativeStream(() => {
+      for (const [key, val] of entries) {
+        chat.processAction(
+          {
+            ...baseEvent,
+            actionId: key,
+            value: submitValueToString(val),
+          },
+          webhookOptions
+        );
+      }
+    });
   }
 
   /**
@@ -924,14 +1004,17 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
     const webhookOptions = this.bridgeAdapter.getWebhookOptions();
     let timer: ReturnType<typeof setTimeout> | undefined;
 
-    const actionPromise = this.chat.processAction(actionEvent, {
-      ...webhookOptions,
-      waitUntil: webhookOptions?.waitUntil ?? (() => {}),
-      onOpenModal: async (modal, contextId) => {
-        resolveModal({ modal, contextId });
-        return { viewId: contextId };
-      },
-    });
+    const chat = this.chat;
+    const actionPromise = this.withoutNativeStream(() =>
+      chat.processAction(actionEvent, {
+        ...webhookOptions,
+        waitUntil: webhookOptions?.waitUntil ?? (() => {}),
+        onOpenModal: async (modal, contextId) => {
+          resolveModal({ modal, contextId });
+          return { viewId: contextId };
+        },
+      })
+    );
 
     const result = await Promise.race([
       modalPromise,
@@ -1006,10 +1089,13 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
       contextId,
     });
 
-    const response = await this.chat.processModalSubmit(
-      event,
-      contextId,
-      this.bridgeAdapter.getWebhookOptions()
+    const chat = this.chat;
+    const response = await this.withoutNativeStream(() =>
+      chat.processModalSubmit(
+        event,
+        contextId,
+        this.bridgeAdapter.getWebhookOptions()
+      )
     );
     return modalResponseToTaskModuleResponse(response, this.logger, contextId);
   }
@@ -1024,6 +1110,7 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
       return;
     }
 
+    const chat = this.chat;
     const activity = ctx.activity;
     const conversationId = activity.conversation?.id || "";
     const messageIdMatch = conversationId.match(MESSAGEID_CAPTURE_PATTERN);
@@ -1054,9 +1141,11 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
         messageId,
       });
 
-      this.chat.processReaction(
-        { ...event, adapter: this },
-        this.bridgeAdapter.getWebhookOptions()
+      this.withoutNativeStream(() =>
+        chat.processReaction(
+          { ...event, adapter: this },
+          this.bridgeAdapter.getWebhookOptions()
+        )
       );
     }
 
@@ -1081,9 +1170,11 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
         messageId,
       });
 
-      this.chat.processReaction(
-        { ...event, adapter: this },
-        this.bridgeAdapter.getWebhookOptions()
+      this.withoutNativeStream(() =>
+        chat.processReaction(
+          { ...event, adapter: this },
+          this.bridgeAdapter.getWebhookOptions()
+        )
       );
     }
   }
@@ -1408,6 +1499,7 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
       activity.attachments = attachments;
     }
     applyAiGeneratedLabel(activity, message);
+    applyFeedbackButtons(activity, message);
 
     this.logger.debug("Teams API: send (message)", {
       conversationId,
@@ -1497,6 +1589,7 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
       activity.attachments = attachments;
     }
     applyAiGeneratedLabel(activity, message);
+    applyFeedbackButtons(activity, message);
 
     this.logger.debug("Teams API: send (targeted message)", {
       conversationId,
@@ -1726,6 +1819,7 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
       activity.attachments = attachments;
     }
     applyAiGeneratedLabel(activity, message);
+    applyFeedbackButtons(activity, message);
 
     const targeted = await this.isTargetedActivity(conversationId, messageId);
 
@@ -1892,7 +1986,8 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
         textStream,
         activeStream,
         options?.fallbackStreamingPlaceholderText,
-        options?.aiGenerated
+        options?.aiGenerated,
+        options?.feedbackButtons
       );
     }
 
@@ -1919,6 +2014,7 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
     return this.postMessage(threadId, {
       markdown: accumulated,
       aiGenerated: options?.aiGenerated,
+      feedbackButtons: options?.feedbackButtons,
     });
   }
 
@@ -1935,7 +2031,8 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
     textStream: AsyncIterable<string | StreamChunk>,
     stream: IStreamer,
     placeholderText?: string | null,
-    aiGenerated?: boolean
+    aiGenerated?: boolean,
+    feedbackButtons?: boolean
   ): Promise<RawMessage<unknown>> {
     let accumulated = "";
     let messageId = "";
@@ -1967,11 +2064,7 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
           continue;
         }
 
-        // The streamer builds the final message from the last emitted
-        // activity's entities, so every chunk carries the label.
-        stream.emit(
-          aiGenerated ? new MessageActivityInput(text).addAiGenerated() : text
-        );
+        stream.emit(streamChunkActivity(text, aiGenerated, feedbackButtons));
         accumulated += text;
       }
     } catch (error) {
@@ -2158,6 +2251,7 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
       activity.attachments = attachments;
     }
     applyAiGeneratedLabel(activity, message);
+    applyFeedbackButtons(activity, message);
 
     try {
       const sent = await this.app.sendTo(
