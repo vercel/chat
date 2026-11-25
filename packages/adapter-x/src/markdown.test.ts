@@ -175,6 +175,9 @@ describe("XFormatConverter", () => {
     it("indents line breaks inside a list item", () => {
       const ast = parseMarkdown("- one\\\n  two\n- next");
       expect(converter.fromAst(ast)).toBe("• one\n  two\n• next");
+      expect(converter.fromAst(parseMarkdown("- one\n  two\n- next"))).toBe(
+        "• one\n  two\n• next"
+      );
     });
   });
 

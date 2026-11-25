@@ -31,6 +31,7 @@ const BLOCK_SEPARATOR = /\n{2,}/;
  * plain text.
  */
 export class XFormatConverter extends BaseFormatConverter {
+  // X is plain text, so an unindented continuation line reads as outside the item
   protected override indentListContinuationLines = true;
 
   toAst(platformText: string): Root {
