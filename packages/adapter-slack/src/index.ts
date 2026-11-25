@@ -1149,8 +1149,10 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
   protected readonly formatConverter = new SlackFormatConverter();
   protected static readonly USER_CACHE_TTL_MS = 8 * 24 * 60 * 60 * 1000; // 8 days
   protected static readonly CHANNEL_CACHE_TTL_MS = 8 * 24 * 60 * 60 * 1000; // 8 days
+  /** How long listed user group handles stay in state. Longer than the refresh age, so a failed refresh still has handles to keep. */
+  protected static readonly USERGROUP_CACHE_TTL_MS = 8 * 24 * 60 * 60 * 1000; // 8 days
   /** How long listed user group handles are used before the list is fetched again. */
-  protected static readonly USERGROUP_CACHE_TTL_MS = 24 * 60 * 60 * 1000; // 24 hours
+  protected static readonly USERGROUP_REFRESH_MS = 24 * 60 * 60 * 1000; // 24 hours
   /** Minimum wait before `usergroups.list` is called again for a group the last list did not return, or after a failed call. */
   protected static readonly USERGROUP_RETRY_MS = 5 * 60 * 1000; // 5 minutes
   protected static readonly REVERSE_INDEX_TTL_MS = 8 * 24 * 60 * 60 * 1000; // 8 days
@@ -2090,7 +2092,7 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
     const cachedHandles = directory?.handles;
     const expired =
       !directory ||
-      now - directory.fetchedAt >= SlackAdapter.USERGROUP_CACHE_TTL_MS;
+      now - directory.fetchedAt >= SlackAdapter.USERGROUP_REFRESH_MS;
     const missing =
       !cachedHandles || ids.some((id) => !Object.hasOwn(cachedHandles, id));
     const lastAttempt = directory
@@ -2506,7 +2508,8 @@ export class SlackAdapter implements Adapter<SlackThreadId, unknown> {
         event.type === "subteam_created" ||
         event.type === "subteam_updated"
       ) {
-        this.handleSubteamChange(event as SlackSubteamEvent);
+        const task = this.handleSubteamChange(event as SlackSubteamEvent);
+        options?.waitUntil?.(task);
       }
     }
   }

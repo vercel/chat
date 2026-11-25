@@ -16879,6 +16879,7 @@ describe("inbound markdown budget", { timeout: 20_000 }, () => {
 describe("user group mention resolution", () => {
   const secret = "test-signing-secret";
   const DAY_MS = 24 * 60 * 60 * 1000;
+  const STATE_TTL_MS = 8 * DAY_MS;
   const RETRY_MS = 5 * 60 * 1000;
 
   interface UsergroupRequestContext {
@@ -16928,8 +16929,33 @@ describe("user group mention resolution", () => {
     };
   }
 
-  async function createUsergroupAdapter() {
+  /** A mock state whose entries expire after their TTL, like a real one. */
+  function createExpiringState() {
     const state = createMockState();
+    const expiries = new Map<string, number>();
+    vi.mocked(state.set).mockImplementation(
+      async (key: string, value: unknown, ttlMs?: number) => {
+        state.cache.set(key, value);
+        if (ttlMs === undefined) {
+          expiries.delete(key);
+        } else {
+          expiries.set(key, Date.now() + ttlMs);
+        }
+      }
+    );
+    vi.mocked(state.get).mockImplementation(async (key: string) => {
+      const expiresAt = expiries.get(key);
+      if (expiresAt !== undefined && expiresAt <= Date.now()) {
+        expiries.delete(key);
+        state.cache.delete(key);
+      }
+      return state.cache.get(key) ?? null;
+    });
+    return state;
+  }
+
+  async function createUsergroupAdapter() {
+    const state = createExpiringState();
     const logger = createMockLogger();
     const chatInstance = createMockChatInstance({ state });
     const adapter = createSlackAdapter({
@@ -17077,7 +17103,7 @@ describe("user group mention resolution", () => {
         fetchedAt: Date.now(),
         handles: { S111: "composer-dev", S222: "oncall" },
       },
-      DAY_MS
+      STATE_TTL_MS
     );
   });
 
@@ -17313,13 +17339,15 @@ describe("user group mention resolution", () => {
       team_id: "T123",
       event: { type, subteam: { id: "S222", handle: "oncall-emea" } },
     });
+    const waitUntil = vi.fn<(task: Promise<unknown>) => void>();
     const response = await adapter.handleWebhook(
-      createWebhookRequest(body, secret)
+      createWebhookRequest(body, secret),
+      { waitUntil }
     );
     expect(response.status).toBe(200);
-    await vi.waitFor(async () =>
-      expect(await state.get("slack:usergroups")).toBeNull()
-    );
+    expect(waitUntil).toHaveBeenCalledTimes(1);
+    await waitUntil.mock.calls[0][0];
+    expect(await state.get("slack:usergroups")).toBeNull();
 
     await expect(
       internals.resolveInlineMentions("<!subteam^S222>")
