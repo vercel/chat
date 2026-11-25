@@ -1,3 +1,5 @@
+import type { TeamsFeedbackValue } from "./feedback";
+
 export interface TeamsActivity extends Record<string, unknown> {
   channelData?: {
     channel?: { id?: string };
@@ -67,6 +69,7 @@ export type TeamsWebhookPayload =
   | TeamsDialogOpenPayload
   | TeamsDialogSubmitPayload
   | TeamsInstallationUpdatePayload
+  | TeamsMessageFeedbackPayload
   | TeamsMessagePayload
   | TeamsMessageReactionPayload
   | TeamsUnsupportedPayload;
@@ -89,6 +92,17 @@ export interface TeamsMessageReactionPayload extends TeamsPayloadBase {
   kind: "message_reaction";
   messageId?: string;
   user?: TeamsWebhookUser;
+}
+
+/** A click on Teams' native thumbs up/down buttons (`message/submitAction`). */
+export interface TeamsMessageFeedbackPayload extends TeamsPayloadBase {
+  /** The comment the user typed, when they left one. */
+  comment?: string;
+  kind: "message_feedback";
+  /** The message the feedback is about. */
+  messageId?: string;
+  user?: TeamsWebhookUser;
+  value: TeamsFeedbackValue;
 }
 
 export interface TeamsCardActionPayload extends TeamsPayloadBase {

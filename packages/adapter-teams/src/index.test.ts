@@ -2625,8 +2625,7 @@ describe("TeamsAdapter", () => {
         (mockApp.sendTo.mock.calls[0]?.[1] as SentActivity).channelData
           ?.feedbackLoop;
       const updatedFeedbackLoop = () =>
-        (update.mock.calls[0]?.[1] as SentActivity | undefined)?.channelData
-          ?.feedbackLoop;
+        (update.mock.calls[0]?.[1] as SentActivity).channelData?.feedbackLoop;
       return { adapter, threadId, sentFeedbackLoop, updatedFeedbackLoop };
     }
 
@@ -3851,7 +3850,25 @@ describe("feedback button clicks", () => {
     return { chat, click };
   }
 
-  it("dispatches a thumbs up through onAction and answers with an empty 200", async () => {
+  it("answers the invoke with a 200 and no body", async () => {
+    const adapter = new TestTeamsAdapter({
+      appId,
+      appPassword: "test",
+      logger,
+    });
+    const chat = createMockChatInstance();
+    adapter.stubWebhookOptions(undefined);
+    await adapter.initialize(chat);
+
+    const response = await adapter.receive(
+      feedbackInvoke({ reaction: "like", feedback: "" })
+    );
+
+    expect(response).toEqual({ status: 200 });
+    expect(chat.processAction).toHaveBeenCalledOnce();
+  });
+
+  it("dispatches a thumbs up through onAction and returns nothing to the SDK", async () => {
     const { chat, click } = await setUp();
 
     const response = await click(
@@ -3917,6 +3934,63 @@ describe("feedback button clicks", () => {
       { reaction: "laugh" }
     );
     expect(JSON.stringify(debug.mock.calls)).not.toContain("private comment");
+  });
+
+  it.each([
+    ["a string", "private comment", { type: "string", length: 15 }],
+    ["a non-string", { feedbackText: "private comment" }, { type: "object" }],
+  ])("dispatches without a comment and logs only the shape of %s feedback Teams doesn't document", async (_kind, feedback, shape) => {
+    const debug = vi.fn();
+    const spyLogger: Logger = {
+      child: () => spyLogger,
+      debug,
+      error: vi.fn(),
+      info: vi.fn(),
+      warn: vi.fn(),
+    };
+    const { chat, click } = await setUp(spyLogger);
+
+    await click(feedbackInvoke({ reaction: "dislike", feedback }));
+
+    expect(chat.processAction).toHaveBeenCalledExactlyOnceWith(
+      expect.objectContaining({
+        actionId: "message_feedback",
+        value: "negative",
+        values: undefined,
+      }),
+      undefined
+    );
+    expect(debug).toHaveBeenCalledWith(
+      "Teams feedback comment in an unrecognized format",
+      shape
+    );
+    expect(JSON.stringify(debug.mock.calls)).not.toContain("private comment");
+  });
+
+  it("does not log an unrecognized comment for feedback sent without one or with a documented one", async () => {
+    const debug = vi.fn();
+    const spyLogger: Logger = {
+      child: () => spyLogger,
+      debug,
+      error: vi.fn(),
+      info: vi.fn(),
+      warn: vi.fn(),
+    };
+    const { chat, click } = await setUp(spyLogger);
+
+    await click(feedbackInvoke({ reaction: "like", feedback: "" }));
+    await click(
+      feedbackInvoke({
+        reaction: "like",
+        feedback: JSON.stringify({ feedbackText: "Spot on." }),
+      })
+    );
+
+    expect(chat.processAction).toHaveBeenCalledTimes(2);
+    expect(debug).not.toHaveBeenCalledWith(
+      "Teams feedback comment in an unrecognized format",
+      expect.anything()
+    );
   });
 
   it("logs a long or non-string reaction without its full value", async () => {

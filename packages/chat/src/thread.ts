@@ -117,13 +117,19 @@ function isAsyncIterable(
   );
 }
 
+function withAiGenerated(
+  postable: PostableMarkdown,
+  options: StreamOptions | undefined
+): PostableMarkdown {
+  return options?.aiGenerated ? { ...postable, aiGenerated: true } : postable;
+}
+
 function withMessageFlags(
   postable: PostableMarkdown,
   options: StreamOptions | undefined
 ): PostableMarkdown {
   return {
-    ...postable,
-    ...(options?.aiGenerated ? { aiGenerated: true } : {}),
+    ...withAiGenerated(postable, options),
     ...(options?.feedbackButtons ? { feedbackButtons: true } : {}),
   };
 }
@@ -1076,7 +1082,7 @@ export class ThreadImpl<TState = Record<string, unknown>>
           await this.adapter.editMessage(
             threadIdForEdits,
             msg.id,
-            withMessageFlags({ markdown: content }, options)
+            withAiGenerated({ markdown: content }, options)
           );
           lastEditContent = content;
         } catch (error) {
@@ -1102,7 +1108,7 @@ export class ThreadImpl<TState = Record<string, unknown>>
           if (content.trim()) {
             msg = await this.adapter.postMessage(
               this.id,
-              withMessageFlags({ markdown: content }, options)
+              withAiGenerated({ markdown: content }, options)
             );
             threadIdForEdits = msg.threadId || this.id;
             lastEditContent = content;
@@ -1126,6 +1132,10 @@ export class ThreadImpl<TState = Record<string, unknown>>
     const accumulated = renderer.getText();
     const finalContent = renderer.finish();
 
+    // Messages written while the stream was running carry no feedback buttons
+    const needsFeedbackButtonsEdit =
+      msg !== null && Boolean(options?.feedbackButtons);
+
     if (!msg) {
       msg = await this.adapter.postMessage(
         this.id,
@@ -1144,6 +1154,20 @@ export class ThreadImpl<TState = Record<string, unknown>>
         msg.id,
         withMessageFlags({ markdown: accumulated }, options)
       );
+    } else if (finalContent.trim() && needsFeedbackButtonsEdit) {
+      // The full text is already delivered, so a failed flag-only edit must not fail the post
+      try {
+        await this.adapter.editMessage(
+          threadIdForEdits,
+          msg.id,
+          withMessageFlags({ markdown: accumulated }, options)
+        );
+      } catch (error) {
+        this._logger?.warn(
+          "fallbackStream feedback buttons edit failed",
+          error
+        );
+      }
     }
 
     const sent = this.createSentMessage(

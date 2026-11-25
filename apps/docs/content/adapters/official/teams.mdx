@@ -478,7 +478,7 @@ await thread.post(
 );
 ```
 
-In DMs, Teams shows the buttons once the stream finishes. If a native stream runs past Teams' two-minute streaming limit, the Teams SDK sends the final message without the buttons.
+The buttons appear once the stream finishes, in DMs and in group chats and channels. If a native stream runs past Teams' two-minute streaming limit, the Teams SDK sends the final message without the buttons.
 
 ## Raw Adaptive Cards
 
@@ -501,7 +501,7 @@ await teams.postMessage(thread.id, {
 
 Teams shows `fallbackText` as the activity summary, in notifications and in clients that can't render the card. A Chat SDK card posted as `{ card, fallbackText }` sets the same summary.
 
-A raw card message also accepts `files` and `aiGenerated`. `editMessage` updates the card and doesn't upload `files`, as with any other edit.
+A raw card message also accepts `files`, `aiGenerated`, and `feedbackButtons`. `editMessage` updates the card and doesn't upload `files`, as with any other edit.
 
 ## User lookup
 
@@ -615,6 +615,7 @@ export async function POST(request: Request) {
 | `card_action` | Adaptive Card actions and `Action.Submit` message activities |
 | `dialog_open` | Task Module `task/fetch` invokes |
 | `dialog_submit` | Task Module `task/submit` invokes |
+| `message_feedback` | Feedback button clicks (`message/submitAction` invokes), with `value`, `comment`, and `messageId` |
 | `conversation_update` | Conversation membership and install context updates |
 | `installation_update` | App installation updates |
 | `unsupported` | Valid Activities not normalized by this helper yet |

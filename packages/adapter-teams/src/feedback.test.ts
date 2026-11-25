@@ -26,10 +26,10 @@ describe("feedbackActionFromInvoke", () => {
   it("maps like and dislike to Slack's default values", () => {
     expect(
       feedbackActionFromInvoke({ actionValue: { reaction: "like" } })
-    ).toEqual({ value: "positive" });
+    ).toStrictEqual({ value: "positive" });
     expect(
       feedbackActionFromInvoke({ actionValue: { reaction: "dislike" } })
-    ).toEqual({ value: "negative" });
+    ).toStrictEqual({ value: "negative" });
   });
 
   it("reads the comment from Teams' feedbackText envelope", () => {
@@ -40,23 +40,47 @@ describe("feedbackActionFromInvoke", () => {
           feedback: '{"feedbackText":"Missing last week."}',
         },
       })
-    ).toEqual({
+    ).toStrictEqual({
       value: "negative",
       values: { feedback: "Missing last week." },
     });
   });
 
   it.each([
+    ["a missing feedback", undefined],
+    ["a null feedback", null],
     ["an empty string", ""],
+    ["an empty comment", '{"feedbackText":""}'],
     ["a blank comment", '{"feedbackText":"   "}'],
-    ["text that isn't JSON", "Missing last week."],
-    ["JSON without feedbackText", '{"comment":"Missing last week."}'],
-    ["a non-string feedbackText", '{"feedbackText":42}'],
-    ["a non-string feedback", 42],
-  ])("carries no comment for %s", (_kind, feedback) => {
+  ])("carries no comment and no signal for %s", (_kind, feedback) => {
     expect(
       feedbackActionFromInvoke({ actionValue: { reaction: "like", feedback } })
-    ).toEqual({ value: "positive" });
+    ).toStrictEqual({ value: "positive" });
+  });
+
+  it.each([
+    [
+      "text that isn't JSON",
+      "Missing last week.",
+      { type: "string", length: 18 },
+    ],
+    [
+      "JSON without feedbackText",
+      '{"comment":"Missing last week."}',
+      { type: "string", length: 32 },
+    ],
+    [
+      "a non-string feedbackText",
+      '{"feedbackText":42}',
+      { type: "string", length: 19 },
+    ],
+    ["JSON that isn't an object", '"Missing"', { type: "string", length: 9 }],
+    ["a number", 42, { type: "number" }],
+    ["an object", { feedbackText: "Missing last week." }, { type: "object" }],
+  ])("carries no comment but reports the shape of %s", (_kind, feedback, shape) => {
+    expect(
+      feedbackActionFromInvoke({ actionValue: { reaction: "like", feedback } })
+    ).toStrictEqual({ value: "positive", unrecognizedFeedback: shape });
   });
 
   it.each([

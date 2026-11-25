@@ -1,16 +1,18 @@
+import { MessageActivityInput } from "@microsoft/teams.api";
 import type { AdapterPostableMessage } from "chat";
+import {
+  parseTeamsFeedbackInvoke,
+  type TeamsUnrecognizedFeedback,
+} from "./webhook/feedback";
 
 /** Action ID dispatched to `bot.onAction` for feedback clicks, the same as Slack's default. */
 export const FEEDBACK_ACTION_ID = "message_feedback";
 
-/** Action value for a thumbs-up click, the same as Slack's default. */
-const FEEDBACK_POSITIVE_VALUE = "positive";
-
-/** Action value for a thumbs-down click, the same as Slack's default. */
-const FEEDBACK_NEGATIVE_VALUE = "negative";
-
 /** Key in `ActionEvent.values` holding the comment a user typed with their feedback. */
 const FEEDBACK_TEXT_KEY = "feedback";
+
+/** The reaction on a feedback invoke is untrusted, so only this much of it is logged. */
+const MAX_LOGGED_REACTION_LENGTH = 32;
 
 /**
  * Adds Teams' native thumbs up/down buttons to an outbound activity when the
@@ -29,8 +31,33 @@ export function applyFeedbackButtons(
   }
 }
 
+/**
+ * A chunk for the native streamer. The streamer builds the final message from
+ * the last emitted chunk's entities and every chunk's `channelData`, so each
+ * chunk carries the label and the feedback buttons.
+ */
+export function streamChunkActivity(
+  text: string,
+  aiGenerated: boolean | undefined,
+  feedbackButtons: boolean | undefined
+): string | MessageActivityInput {
+  if (!(aiGenerated || feedbackButtons)) {
+    return text;
+  }
+  const activity = new MessageActivityInput(text);
+  if (aiGenerated) {
+    activity.addAiGenerated();
+  }
+  if (feedbackButtons) {
+    activity.addFeedback();
+  }
+  return activity;
+}
+
 /** The `onAction` fields for a `message/submitAction` feedback invoke. */
 interface FeedbackAction {
+  /** Shape of a comment value that was sent but couldn't be read. */
+  unrecognizedFeedback?: TeamsUnrecognizedFeedback;
   value: string;
   values?: Record<string, string>;
 }
@@ -40,46 +67,27 @@ interface FeedbackAction {
  * action value and the typed comment. Returns `undefined` for a reaction
  * Teams doesn't document.
  */
-export function feedbackActionFromInvoke(value: {
-  actionValue?: { feedback?: unknown; reaction?: unknown };
-}): FeedbackAction | undefined {
-  const reaction = value.actionValue?.reaction;
-  let actionValue: string;
-  if (reaction === "like") {
-    actionValue = FEEDBACK_POSITIVE_VALUE;
-  } else if (reaction === "dislike") {
-    actionValue = FEEDBACK_NEGATIVE_VALUE;
-  } else {
+export function feedbackActionFromInvoke(
+  value: unknown
+): FeedbackAction | undefined {
+  const feedback = parseTeamsFeedbackInvoke(value);
+  if (!feedback) {
     return undefined;
   }
-
-  const text = feedbackText(value.actionValue?.feedback);
-  return text
-    ? { value: actionValue, values: { [FEEDBACK_TEXT_KEY]: text } }
-    : { value: actionValue };
+  return {
+    value: feedback.value,
+    ...(feedback.comment
+      ? { values: { [FEEDBACK_TEXT_KEY]: feedback.comment } }
+      : {}),
+    ...(feedback.unrecognizedFeedback
+      ? { unrecognizedFeedback: feedback.unrecognizedFeedback }
+      : {}),
+  };
 }
 
-/**
- * Teams sends the comment as a JSON string, `{"feedbackText":"..."}`. Anything
- * else carries no comment.
- */
-function feedbackText(feedback: unknown): string | undefined {
-  if (typeof feedback !== "string" || feedback === "") {
-    return undefined;
-  }
-  try {
-    const parsed: unknown = JSON.parse(feedback);
-    if (
-      typeof parsed === "object" &&
-      parsed !== null &&
-      "feedbackText" in parsed &&
-      typeof parsed.feedbackText === "string" &&
-      parsed.feedbackText.trim() !== ""
-    ) {
-      return parsed.feedbackText;
-    }
-  } catch {
-    // Not the documented envelope; treated as no comment.
-  }
-  return undefined;
+/** A feedback reaction Teams doesn't document, cut down to what is safe to log. */
+export function reactionForLog(reaction: unknown): string {
+  return typeof reaction === "string"
+    ? reaction.slice(0, MAX_LOGGED_REACTION_LENGTH)
+    : typeof reaction;
 }

@@ -35,3 +35,9 @@ Edited message in a personal chat (`messageUpdate` with `eventType: "editMessage
 ```json
 {"type":"messageUpdate","timestamp":"2022-10-28T17:19:39.4615413Z","localTimestamp":"2022-10-28T10:19:39.4615413-07:00","id":"1666977568748","channelId":"msteams","serviceUrl":"https://smba.trafficmanager.net/amer/","from":{"id":"29:1xXxFakeUserBase64IdStringForTeamsPlatformAbcDeFgHiJkLmNoPqRsTuVwXyZ012345ABCDEF","name":"Test User","aadObjectId":"00000000-1111-2222-3333-444444444444"},"conversation":{"conversationType":"personal","tenantId":"a1b2c3d4-e5f6-7890-abcd-ef1234567890","id":"a:1xXxFakePersonalConversationIdForTeamsPlatformAbcDeFgHiJkLmNoPqRsTuVwXyZ"},"recipient":{"id":"28:11111111-2222-3333-4444-555555555555","name":"Chat SDK Demo"},"entities":[{"locale":"en-US","country":"US","platform":"Web","timezone":"America/Los_Angeles","type":"clientInfo"}],"channelData":{"eventType":"editMessage","tenant":{"id":"a1b2c3d4-e5f6-7890-abcd-ef1234567890"}},"locale":"en-US","localTimezone":"America/Los_Angeles"}
 ```
+
+Feedback button click (`invoke` with the name `message/submitAction`). No capture of this invoke exists yet, and Microsoft doesn't publish a full activity for it. This is only the `value` from Microsoft's documented example. The feedback tests build the rest of the activity by hand. A capture is still needed from a personal chat, a channel thread, and a streamed reply, to confirm what `replyToId` and `conversation.id` carry. Source: https://raw.githubusercontent.com/MicrosoftDocs/msteams-docs/6c9a179db180929463e59b379ab6955732482c1c/msteams-platform/bots/how-to/bot-messages-ai-generated-content.md
+
+```json
+{"actionName":"feedback","actionValue":{"reaction":"like","feedback":"{\"feedbackText\":\"This is my feedback.\"}"}}
+```

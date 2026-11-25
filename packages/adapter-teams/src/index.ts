@@ -23,11 +23,7 @@ import type {
   SentActivity,
   TaskModuleResponse,
 } from "@microsoft/teams.api";
-import {
-  MessageActivity,
-  MessageActivityInput,
-  TypingActivity,
-} from "@microsoft/teams.api";
+import { MessageActivity, TypingActivity } from "@microsoft/teams.api";
 import type { IActivityContext, IStreamer } from "@microsoft/teams.apps";
 import { StreamCancelledError } from "@microsoft/teams.apps";
 import { users } from "@microsoft/teams.graph-endpoints";
@@ -87,6 +83,8 @@ import {
   applyFeedbackButtons,
   FEEDBACK_ACTION_ID,
   feedbackActionFromInvoke,
+  reactionForLog,
+  streamChunkActivity,
 } from "./feedback";
 import { TeamsGraphReader } from "./graph-api";
 import { isInstallAction, parseInstallationAction } from "./installation";
@@ -122,9 +120,6 @@ interface ActionSubmitData {
   actionId?: string;
   value?: string;
 }
-
-/** The reaction on a feedback invoke is untrusted, so only this much of it is logged. */
-const MAX_LOGGED_REACTION_LENGTH = 32;
 
 /**
  * Valid adaptiveCard/action invoke acknowledgement.
@@ -192,29 +187,6 @@ function createCardActivity(
   return activity;
 }
 
-/**
- * A chunk for the native streamer. The streamer builds the final message from
- * the last emitted chunk's entities and every chunk's `channelData`, so each
- * chunk carries the label and the feedback buttons.
- */
-function streamChunkActivity(
-  text: string,
-  aiGenerated: boolean | undefined,
-  feedbackButtons: boolean | undefined
-): string | MessageActivityInput {
-  if (!(aiGenerated || feedbackButtons)) {
-    return text;
-  }
-  const activity = new MessageActivityInput(text);
-  if (aiGenerated) {
-    activity.addAiGenerated();
-  }
-  if (feedbackButtons) {
-    activity.addFeedback();
-  }
-  return activity;
-}
-
 export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
   readonly name = "teams";
   readonly userName: string;
@@ -257,6 +229,11 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
    * streamer, which belongs to the message request still in flight.
    */
   private readonly nativeStreamBlocked = new AsyncLocalStorage<true>();
+
+  /** Run a dispatch whose handlers must not stream into a DM's active streamer. */
+  private withoutNativeStream<T>(dispatch: () => T): T {
+    return this.nativeStreamBlocked.run(true, dispatch);
+  }
 
   constructor(config: TeamsAdapterConfig = {}) {
     this.config = { ...config };
@@ -406,11 +383,14 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
       raw: activity,
     };
     const options = this.bridgeAdapter.getWebhookOptions();
-    if (isInstallAction(action)) {
-      this.chat.processInstalled?.({ ...event, action }, options);
-    } else {
-      this.chat.processUninstalled?.({ ...event, action }, options);
-    }
+    const chat = this.chat;
+    this.withoutNativeStream(() => {
+      if (isInstallAction(action)) {
+        chat.processInstalled?.({ ...event, action }, options);
+      } else {
+        chat.processUninstalled?.({ ...event, action }, options);
+      }
+    });
   }
 
   protected handleConversationUpdate(
@@ -441,14 +421,17 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
       return;
     }
 
-    this.chat.processMemberJoinedChannel(
-      {
-        adapter: this,
-        channelId: this.encodeThreadId(resolved.join),
-        userId,
-        inviterId: activity.from?.id,
-      },
-      this.bridgeAdapter.getWebhookOptions()
+    const chat = this.chat;
+    this.withoutNativeStream(() =>
+      chat.processMemberJoinedChannel(
+        {
+          adapter: this,
+          channelId: this.encodeThreadId(resolved.join),
+          userId,
+          inviterId: activity.from?.id,
+        },
+        this.bridgeAdapter.getWebhookOptions()
+      )
     );
   }
 
@@ -715,7 +698,7 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
 
     const threadId = this.threadIdFromActivity(activity);
     const chat = this.chat;
-    this.nativeStreamBlocked.run(true, () =>
+    this.withoutNativeStream(() =>
       chat.processMessageUpdated(
         {
           adapter: this,
@@ -808,9 +791,9 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
       threadId,
     });
 
-    this.chat.processAction(
-      actionEvent,
-      this.bridgeAdapter.getWebhookOptions()
+    const chat = this.chat;
+    this.withoutNativeStream(() =>
+      chat.processAction(actionEvent, this.bridgeAdapter.getWebhookOptions())
     );
   }
 
@@ -862,9 +845,9 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
       threadId,
     });
 
-    this.chat.processAction(
-      actionEvent,
-      this.bridgeAdapter.getWebhookOptions()
+    const chat = this.chat;
+    this.withoutNativeStream(() =>
+      chat.processAction(actionEvent, this.bridgeAdapter.getWebhookOptions())
     );
   }
 
@@ -880,16 +863,18 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
       return;
     }
 
-    const feedback = feedbackActionFromInvoke(activity.value ?? {});
+    const feedback = feedbackActionFromInvoke(activity.value);
     if (!feedback) {
-      const reaction: unknown = activity.value?.actionValue?.reaction;
       this.logger.debug("Teams feedback with an unknown reaction", {
-        reaction:
-          typeof reaction === "string"
-            ? reaction.slice(0, MAX_LOGGED_REACTION_LENGTH)
-            : typeof reaction,
+        reaction: reactionForLog(activity.value?.actionValue?.reaction),
       });
       return;
+    }
+    if (feedback.unrecognizedFeedback) {
+      this.logger.debug(
+        "Teams feedback comment in an unrecognized format",
+        feedback.unrecognizedFeedback
+      );
     }
 
     const threadId = this.threadIdFromActivity(activity);
@@ -912,9 +897,9 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
       threadId,
     });
 
-    this.chat.processAction(
-      actionEvent,
-      this.bridgeAdapter.getWebhookOptions()
+    const chat = this.chat;
+    this.withoutNativeStream(() =>
+      chat.processAction(actionEvent, this.bridgeAdapter.getWebhookOptions())
     );
   }
 
@@ -952,16 +937,19 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
       values: cardInputValues(payload, AUTO_SUBMIT_KEYS),
     };
 
-    for (const [key, val] of entries) {
-      this.chat.processAction(
-        {
-          ...baseEvent,
-          actionId: key,
-          value: submitValueToString(val),
-        },
-        webhookOptions
-      );
-    }
+    const chat = this.chat;
+    this.withoutNativeStream(() => {
+      for (const [key, val] of entries) {
+        chat.processAction(
+          {
+            ...baseEvent,
+            actionId: key,
+            value: submitValueToString(val),
+          },
+          webhookOptions
+        );
+      }
+    });
   }
 
   /**
@@ -1013,14 +1001,17 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
     const webhookOptions = this.bridgeAdapter.getWebhookOptions();
     let timer: ReturnType<typeof setTimeout> | undefined;
 
-    const actionPromise = this.chat.processAction(actionEvent, {
-      ...webhookOptions,
-      waitUntil: webhookOptions?.waitUntil ?? (() => {}),
-      onOpenModal: async (modal, contextId) => {
-        resolveModal({ modal, contextId });
-        return { viewId: contextId };
-      },
-    });
+    const chat = this.chat;
+    const actionPromise = this.withoutNativeStream(() =>
+      chat.processAction(actionEvent, {
+        ...webhookOptions,
+        waitUntil: webhookOptions?.waitUntil ?? (() => {}),
+        onOpenModal: async (modal, contextId) => {
+          resolveModal({ modal, contextId });
+          return { viewId: contextId };
+        },
+      })
+    );
 
     const result = await Promise.race([
       modalPromise,
@@ -1095,10 +1086,13 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
       contextId,
     });
 
-    const response = await this.chat.processModalSubmit(
-      event,
-      contextId,
-      this.bridgeAdapter.getWebhookOptions()
+    const chat = this.chat;
+    const response = await this.withoutNativeStream(() =>
+      chat.processModalSubmit(
+        event,
+        contextId,
+        this.bridgeAdapter.getWebhookOptions()
+      )
     );
     return modalResponseToTaskModuleResponse(response, this.logger, contextId);
   }
@@ -1113,6 +1107,7 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
       return;
     }
 
+    const chat = this.chat;
     const activity = ctx.activity;
     const conversationId = activity.conversation?.id || "";
     const messageIdMatch = conversationId.match(MESSAGEID_CAPTURE_PATTERN);
@@ -1143,9 +1138,11 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
         messageId,
       });
 
-      this.chat.processReaction(
-        { ...event, adapter: this },
-        this.bridgeAdapter.getWebhookOptions()
+      this.withoutNativeStream(() =>
+        chat.processReaction(
+          { ...event, adapter: this },
+          this.bridgeAdapter.getWebhookOptions()
+        )
       );
     }
 
@@ -1170,9 +1167,11 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
         messageId,
       });
 
-      this.chat.processReaction(
-        { ...event, adapter: this },
-        this.bridgeAdapter.getWebhookOptions()
+      this.withoutNativeStream(() =>
+        chat.processReaction(
+          { ...event, adapter: this },
+          this.bridgeAdapter.getWebhookOptions()
+        )
       );
     }
   }

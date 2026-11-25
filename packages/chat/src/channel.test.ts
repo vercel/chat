@@ -8,11 +8,14 @@ import {
   createMockState,
   createTestMessage,
 } from "./mock-adapter";
+import { StreamingPlan } from "./streaming-plan";
 import { ThreadImpl } from "./thread";
+import type { ThreadHistoryCache } from "./thread-history";
 import type {
   Adapter,
   Message,
   ScheduledMessage,
+  StreamChunk,
   ThreadSummary,
 } from "./types";
 import { NotImplementedError } from "./types";
@@ -454,6 +457,118 @@ describe("ChannelImpl", () => {
         { markdown: "Hello World" }
       );
       expect(result.text).toBe("Hello World");
+    });
+
+    describe("StreamingPlan", () => {
+      const createStream = () => {
+        const state = { completed: false };
+        async function* stream(): AsyncIterable<string | StreamChunk> {
+          yield "Hello";
+          yield { type: "markdown_text", text: " World" };
+          yield {
+            type: "task_update",
+            id: "task-1",
+            title: "Working",
+            status: "complete",
+          };
+          state.completed = true;
+        }
+        return { state, stream: stream() };
+      };
+
+      it("should consume the stream and post once with the plan's flags", async () => {
+        const mockAdapter = createMockAdapter();
+        const channel = new ChannelImpl({
+          id: "slack:C123",
+          adapter: mockAdapter,
+          stateAdapter: createMockState(),
+        });
+        const { state, stream } = createStream();
+        const plan = new StreamingPlan(stream, {
+          aiGenerated: true,
+          feedbackButtons: true,
+        });
+
+        const result = await channel.post(plan);
+
+        expect(state.completed).toBe(true);
+        expect(
+          vi.mocked(mockAdapter.postChannelMessage).mock.calls
+        ).toStrictEqual([
+          [
+            "slack:C123",
+            {
+              markdown: "Hello World",
+              aiGenerated: true,
+              feedbackButtons: true,
+            },
+          ],
+        ]);
+        expect(mockAdapter.postMessage).not.toHaveBeenCalled();
+        expect(mockAdapter.editMessage).not.toHaveBeenCalled();
+        expect(result).toBe(plan);
+      });
+
+      it("should omit the flags when the plan does not request them", async () => {
+        const mockAdapter = createMockAdapter();
+        const channel = new ChannelImpl({
+          id: "slack:C123",
+          adapter: mockAdapter,
+          stateAdapter: createMockState(),
+        });
+        const { state, stream } = createStream();
+
+        await channel.post(new StreamingPlan(stream, { groupTasks: "plan" }));
+
+        expect(state.completed).toBe(true);
+        expect(
+          vi.mocked(mockAdapter.postChannelMessage).mock.calls
+        ).toStrictEqual([["slack:C123", { markdown: "Hello World" }]]);
+      });
+
+      it("should fall back to postMessage and skip postObject", async () => {
+        const mockAdapter = createMockAdapter();
+        mockAdapter.postChannelMessage = undefined;
+        const postObject = vi
+          .fn()
+          .mockResolvedValue({ id: "obj-1", threadId: "slack:C123", raw: {} });
+        mockAdapter.postObject = postObject;
+        const channel = new ChannelImpl({
+          id: "slack:C123",
+          adapter: mockAdapter,
+          stateAdapter: createMockState(),
+        });
+        const { state, stream } = createStream();
+
+        await channel.post(
+          new StreamingPlan(stream, { feedbackButtons: true })
+        );
+
+        expect(state.completed).toBe(true);
+        expect(postObject).not.toHaveBeenCalled();
+        expect(vi.mocked(mockAdapter.postMessage).mock.calls).toStrictEqual([
+          ["slack:C123", { markdown: "Hello World", feedbackButtons: true }],
+        ]);
+      });
+
+      it("should append the posted message to thread history", async () => {
+        const mockAdapter = createMockAdapter();
+        const append = vi.fn().mockResolvedValue(undefined);
+        const channel = new ChannelImpl({
+          id: "slack:C123",
+          adapter: mockAdapter,
+          stateAdapter: createMockState(),
+          threadHistory: { append } as unknown as ThreadHistoryCache,
+        });
+        const { stream } = createStream();
+
+        await channel.post(new StreamingPlan(stream, { aiGenerated: true }));
+
+        expect(append).toHaveBeenCalledTimes(1);
+        const [historyId, message] = append.mock.calls[0];
+        expect(historyId).toBe("slack:C123");
+        expect(message.text).toBe("Hello World");
+      });
     });
   });
 

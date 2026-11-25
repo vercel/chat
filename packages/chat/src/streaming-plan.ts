@@ -24,7 +24,8 @@ export interface StreamingPlanOptions {
   /**
    * Show native thumbs up/down feedback buttons on the streamed message.
    * Adapters that support them per message (currently Teams) show them;
-   * others ignore it.
+   * others ignore it. With post+edit streaming, the buttons appear once the
+   * stream finishes.
    */
   feedbackButtons?: boolean;
   /**

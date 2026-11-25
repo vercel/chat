@@ -687,7 +687,7 @@ export interface StreamOptions {
   aiGenerated?: boolean;
   /** Placeholder text when explicitly configured for fallback streaming. */
   fallbackStreamingPlaceholderText?: string | null;
-  /** Show native thumbs up/down feedback buttons on the streamed message. Adapters that support them per message (currently Teams) show them. */
+  /** Show native thumbs up/down feedback buttons on the streamed message. Adapters that support them per message (currently Teams) show them. With post+edit streaming, the buttons appear once the stream finishes. */
   feedbackButtons?: boolean;
   /** Slack: The team/workspace ID */
   recipientTeamId?: string;

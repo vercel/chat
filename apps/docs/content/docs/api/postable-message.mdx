@@ -220,6 +220,14 @@ await thread.post(planned);
       type: 'number | undefined',
       default: '500',
     },
+    aiGenerated: {
+      description: 'Mark the streamed message as AI-generated. Adapters with a native AI label (currently Teams) show it; others ignore it.',
+      type: 'boolean | undefined',
+    },
+    feedbackButtons: {
+      description: 'Show native thumbs up/down feedback buttons on the streamed message once the stream finishes. Adapters that support them per message (currently Teams) show them; others ignore it. Clicks dispatch through `onAction` as `"message_feedback"`.',
+      type: 'boolean | undefined',
+    },
   }}
 />
 
