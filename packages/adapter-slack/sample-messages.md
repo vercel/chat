@@ -167,3 +167,54 @@ This message event comes from the reproduction in [issue #956](https://github.co
   }]
 }
 ```
+
+## Unlabeled user group mention
+
+Slack sends a user group mention without a handle. `usergroups.list` supplies it.
+
+```json
+{
+  "type": "message",
+  "user": "U0123456789",
+  "channel": "C0123456789",
+  "ts": "1726600000.000200",
+  "text": "cc <!subteam^S0123456789>",
+  "blocks": [
+    {
+      "type": "rich_text",
+      "elements": [
+        {
+          "type": "rich_text_section",
+          "elements": [
+            { "type": "text", "text": "cc " },
+            { "type": "usergroup", "usergroup_id": "S0123456789" }
+          ]
+        }
+      ]
+    }
+  ]
+}
+```
+
+## User group updated
+
+Slack sends `subteam_updated` when a group is renamed, disabled, or otherwise changed, and `subteam_created` with the same shape for a new group. Both need the `usergroups:read` scope. The adapter drops its cached handles for the workspace. This example follows the event shape in Slack's reference, trimmed to the fields that identify the group.
+
+```json
+{
+  "type": "subteam_updated",
+  "subteam": {
+    "id": "S0123456789",
+    "team_id": "T0123456789",
+    "is_usergroup": true,
+    "name": "Developers",
+    "handle": "devs",
+    "date_create": 1726500000,
+    "date_update": 1726600000,
+    "date_delete": 0,
+    "users": ["U0123456789"],
+    "user_count": 1
+  },
+  "event_ts": "1726600000.000300"
+}
+```

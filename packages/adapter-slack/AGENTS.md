@@ -199,8 +199,17 @@ writes themselves if they need to round-trip them.
 - `toAst(text)` — Slack mrkdwn → mdast. Handles `<@U…>`, `<#C…>`,
   `<!subteam^…>`, link/email syntax (`<url|label>`), bold (`*…*`),
   italic (`_…_`), strike (`~…~`), inline code, code fences, and
-  blockquotes. Mentions resolve via the `users.info` /
-  `usergroups.list` calls keyed by user-info cache to avoid round-trips.
+  blockquotes. Bare `<@U…>`, `<#C…>`, and `<!subteam^S…>` mentions resolve
+  through `users.info`, `conversations.info`, and `usergroups.list`
+  (`lookupMentionNames`), cached in the state adapter and scoped by
+  installation. Users and channels are cached per ID for eight days.
+  Slack has no single-group lookup, so `lookupUsergroups` lists groups and
+  stores every handle in one directory entry per workspace
+  (`usergroupDirectoryKey`), refreshed after 24 hours or dropped on
+  `subteam_created` / `subteam_updated`. Concurrent lookups share one
+  in-flight call. Unknown IDs and failed calls are retried at most every
+  five minutes, and the token is left unlabeled. It needs the
+  `usergroups:read` scope.
 - `fromAst(ast)` — mdast → mrkdwn. Lists, blockquotes, inline emphasis,
   links and code blocks all round-trip. Tables are flattened to fenced
   text because Slack mrkdwn has no table primitive.
@@ -363,7 +372,8 @@ When adding a feature, prefer extending an existing fixture in
 
 This package ships with the rest of the monorepo on a fixed Changesets
 schedule. Behavioural changes need a changeset (`pnpm changeset`,
-choose `@chat-adapter/slack` plus `chat` if a public type changed).
+choose `@chat-adapter/slack`, plus `chat` if a public type exported from
+`chat` changed).
 README updates, sample-message additions, and AGENTS.md edits are
 docs-only — no changeset required.
 

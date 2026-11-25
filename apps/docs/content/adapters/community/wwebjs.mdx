@@ -1,0 +1,424 @@
+---
+title: whatsapp-web.js (WhatsApp)
+description: Community WhatsApp adapter for Chat SDK that links an ordinary WhatsApp account as a device through whatsapp-web.js, with DMs and groups, message history, quoted replies, edits, deletes, reactions, and attachments.
+packageName: "chat-adapter-wwebjs"
+slug: wwebjs
+type: platform
+tagline: WhatsApp adapter for Chat SDK backed by whatsapp-web.js. Runs WhatsApp Web in Chromium inside your own long-running process, links by QR code or pairing code, and speaks as one WhatsApp account.
+community: true
+mdxBody: true
+---
+
+<Callout type="warn">
+This adapter uses whatsapp-web.js, which drives WhatsApp Web in a real browser. It isn't an official WhatsApp or Meta API and may break when WhatsApp changes its web client. WhatsApp may also ban numbers that automate an ordinary account. Evaluate that before you put it in front of users. For the official WhatsApp Business Cloud API, use the [WhatsApp adapter](/adapters/official/whatsapp).
+</Callout>
+
+## Install
+
+<PackageInstall package="chat-adapter-wwebjs chat @chat-adapter/shared @chat-adapter/state-memory" />
+
+`chat`, `@chat-adapter/shared`, and whatsapp-web.js are peer dependencies, so you choose their versions. WhatsApp Web has renamed the IDs whatsapp-web.js reads, so whatsapp-web.js 1.34.7, the latest release, can't send messages or find chats. Until a release carries the fix, install the commit the adapter is tested against:
+
+<PackageInstall package="github:pedroslopez/whatsapp-web.js#064a3d5" />
+
+pnpm 10 and later run dependency build scripts only when you allow them. Allow whatsapp-web.js, which builds when installed from GitHub, and Puppeteer, which downloads a Chromium build, in `pnpm-workspace.yaml`:
+
+```yaml title="pnpm-workspace.yaml"
+onlyBuiltDependencies:
+  - whatsapp-web.js
+  - puppeteer
+```
+
+pnpm pins the commit in the lockfile rather than in `package.json`, so commit the lockfile.
+
+To print the QR code in the terminal, as the quick start does, also install `qrcode-terminal`:
+
+<PackageInstall package="qrcode-terminal" />
+
+## Quick start
+
+The package is ESM only and needs Node.js 20 or newer and `chat` 4.40 or a later 4.x release.
+
+```typescript title="bot.ts" lineNumbers
+import { Chat } from "chat";
+import { createMemoryState } from "@chat-adapter/state-memory";
+import { createWWebJSAdapter } from "chat-adapter-wwebjs";
+import qrcode from "qrcode-terminal";
+import wwebjs from "whatsapp-web.js";
+
+const { LocalAuth } = wwebjs;
+
+const whatsapp = createWWebJSAdapter({
+  adapterName: "whatsapp",
+  clientOptions: { authStrategy: new LocalAuth({ dataPath: "./.wwebjs-auth" }) },
+  onQR: (qr) => qrcode.generate(qr, { small: true }),
+});
+
+const bot = new Chat({
+  userName: "mybot",
+  adapters: { whatsapp },
+  state: createMemoryState(),
+});
+
+bot.onDirectMessage(async (thread, message) => {
+  await thread.post(`Hello ${message.author.userName}!`);
+});
+
+bot.onNewMention(async (thread) => {
+  await thread.subscribe();
+  await thread.post("Hello from WhatsApp!");
+});
+
+await bot.initialize();
+await whatsapp.connect();
+```
+
+Register the adapter under the same key as its `adapterName`, because that key is the thread ID prefix Chat SDK resolves threads by: `adapters: { whatsapp }` needs `adapterName: "whatsapp"`. Register your handlers and call `bot.initialize()` before `whatsapp.connect()`. Messages that arrive before Chat SDK is initialized are dropped, and the adapter logs a warning if you connect too early.
+
+The memory state adapter keeps subscriptions, locks, and the adapter's catch-up position in process memory, which suits local development. Use [Redis](/adapters/official/redis) or [PostgreSQL](/adapters/official/postgres) in production so the bot keeps them across restarts.
+
+## Platform setup
+
+1. Make sure Chromium can start. Puppeteer's bundled Chromium covers most machines. On slim Linux images, install the shared libraries Chromium needs, or point `clientOptions.puppeteer.executablePath` at your own browser.
+2. Choose a whatsapp-web.js auth strategy and persist its data. `LocalAuth` stores the session in a directory, as in the quick start, and `RemoteAuth` stores it in a store you provide. Without a persisted session, you scan the QR code again on every start. The session signs in as your WhatsApp account, so keep its directory out of version control, for example by adding `.wwebjs-auth` to `.gitignore`.
+3. Start the process. On the phone, open WhatsApp, go to **Linked devices** > **Link a device**, and scan the QR code passed to `onQR`. WhatsApp replaces the QR code about every 20 seconds, so render each one `onQR` receives. To link without a camera, set `phoneNumber` and enter the code passed to `onPairingCode` under **Link with phone number**. Once a QR code or pairing code is shown, the adapter waits for it however long it takes.
+
+## Configuration
+
+<TypeTable
+  type={{
+    adapterName: {
+      type: "string",
+      default: "\"wwebjs\"",
+      description:
+        "Adapter identity, thread ID prefix, and state key prefix. Must match the key the adapter is registered under in `Chat`, must not contain `:`, and must be unique per account when several share a `Chat` instance or a state store.",
+    },
+    clientOptions: {
+      type: "ClientOptions",
+      default: "{}",
+      description:
+        "Options for the whatsapp-web.js client the adapter builds, such as `authStrategy`, `puppeteer`, and `webVersionCache`. Flags in `puppeteer.args` come after `RECOMMENDED_CHROMIUM_ARGS`, so yours win. Ignored when `client` is set.",
+    },
+    client: {
+      type: "Client",
+      description:
+        "An existing whatsapp-web.js client, exposed as `adapter.client`. See [Using an existing client](#using-an-existing-client). When omitted, the adapter builds one from `clientOptions`.",
+    },
+    manageClient: {
+      type: "boolean",
+      description:
+        "Forces who runs a `client` you passed. `true` has the adapter reconnect it and close it on `disconnect()` and on a signal, even if you started it. `false` only bridges it, even if you didn't. When omitted, it depends on whether the client was already started.",
+    },
+    onQR: {
+      type: "(qr: string) => unknown",
+      description:
+        "Receives the QR string during login. Render it with `qrcode-terminal` or a similar library.",
+    },
+    phoneNumber: {
+      type: "string",
+      description:
+        "Log in with a pairing code instead of a QR code. E.164 format without the leading `+`. Shorthand for `clientOptions.pairWithPhoneNumber`.",
+    },
+    onPairingCode: {
+      type: "(code: string) => unknown",
+      description:
+        "Receives the 8-character pairing code when `phoneNumber` is set.",
+    },
+    userName: {
+      type: "string",
+      default: "\"wwebjs-bot\"",
+      description:
+        "Bot display name. When unset, the adapter adopts the account's WhatsApp push name once the session is ready.",
+    },
+    logger: {
+      type: "Logger",
+      default: "ConsoleLogger",
+      description: "Logger used until `Chat` hands over its own.",
+    },
+    richContent: {
+      type: "boolean",
+      default: "false",
+      description:
+        "Imitates what WhatsApp lacks: cards in WhatsApp markup with their images sent as media, and modals as conversations. When off, a card is plain text and the adapter has no `openModal`. See [Formatting and cards](#formatting-and-cards).",
+    },
+    addons: {
+      type: "WWebJSAddon[]",
+      default: "[]",
+      description:
+        "Layers over how cards are sent and messages received, such as [`numberedActions()`](#card-actions). An addon is a plain object with optional `renderCard`, `cardSent`, and `onMessage` hooks.",
+    },
+    slashCommands: {
+      type: "string[]",
+      description:
+        "Commands, such as `\"/help\"`, whose messages reach `onSlashCommand`. See [Slash commands](#slash-commands).",
+    },
+    modalTexts: {
+      type: "Partial<WWebJSModalTexts>",
+      default: "English",
+      description:
+        "The phrases a conversational modal sends, including the `cancel` and `skip` words people answer with, to put them in your users' language.",
+    },
+    streaming: {
+      type: "\"buffer\" | \"edit\"",
+      default: "\"buffer\"",
+      description:
+        "How a streamed reply goes out. See [Streaming](#streaming).",
+    },
+    voiceNotes: {
+      type: "boolean | \"ogg\"",
+      default: "true",
+      description:
+        "Sends audio as a voice note, played inline with a waveform: `true` for all audio, `\"ogg\"` for OGG/Opus only, which every phone plays as one, and `false` for none.",
+    },
+    maxMediaBytes: {
+      type: "number",
+      default: "67108864",
+      description:
+        "Largest media, in bytes, read into memory, inbound or fetched from a `url`. The default is 64 MiB. The size is checked before reading, and the bytes are counted as they arrive, whatever size the sender declares.",
+    },
+    markSeen: {
+      type: "boolean",
+      default: "false",
+      description:
+        "Sends a read receipt for every inbound message as it arrives.",
+    },
+    receiveOwnMessages: {
+      type: "boolean",
+      default: "false",
+      description:
+        "Passes what the paired account does, from the phone or from this adapter, to Chat SDK: its messages, edits, deletes, and reactions. Chat SDK skips the messages, edits, and reactions as the bot's own, so only its deletes reach your handlers.",
+    },
+    catchUpMs: {
+      type: "number | false",
+      default: "86400000",
+      description:
+        "Delivers messages that arrived while the session was down, up to this old, once it's back. The default is 1 day, and `false` turns it off. See [Transport](#transport).",
+    },
+    connectTimeoutMs: {
+      type: "number",
+      default: "120000",
+      description:
+        "How long opening the session may take before the attempt is abandoned and, with `reconnect`, tried again. Once a QR code or pairing code is shown, the adapter waits for the scan without a limit.",
+    },
+    reconnect: {
+      type: "boolean",
+      default: "true",
+      description:
+        "Opens the session again when WhatsApp drops it, backing off from 5 seconds to 5 minutes. A logout is never retried.",
+    },
+    watchdogIntervalMs: {
+      type: "number | false",
+      default: "60000",
+      description:
+        "How often a connected session is asked whether WhatsApp still answers. Two failed checks in a row count as a disconnect. `false` turns it off.",
+    },
+    handleSignals: {
+      type: "boolean",
+      default: "true",
+      description:
+        "Closes the session on SIGINT, SIGTERM, and SIGHUP, giving it up to 8 seconds, then lets the signal end the process unless your app listens for it.",
+    },
+    recommendedArgs: {
+      type: "boolean",
+      default: "true",
+      description:
+        "Starts Chromium with `RECOMMENDED_CHROMIUM_ARGS`: one renderer process, no GPU, and no component updates.",
+    },
+  }}
+/>
+
+The adapter reads no environment variables. A WhatsApp Web session is a browser profile rather than an API token, so you persist it with an auth strategy such as `LocalAuth` or `RemoteAuth` instead.
+
+## Transport
+
+The adapter receives messages from a WhatsApp Web session that whatsapp-web.js runs in Chromium, not through webhooks, and `handleWebhook()` answers `501`. Run the bot as a long-running process such as a container, VM, or server. Serverless and edge functions can't hold the browser session.
+
+`connect()` launches the browser and resolves once WhatsApp is ready. An attempt that takes longer than `connectTimeoutMs` is abandoned and, with `reconnect`, tried again. When WhatsApp drops the session or the browser crashes, the adapter opens it again with backoff. A watchdog also asks the connected session every `watchdogIntervalMs` whether WhatsApp still answers, which catches a session that died without any event. A logout, when the device is unlinked on the phone, is never retried and needs a new pairing. `adapter.connection` reports where the session stands: `idle`, `connecting`, `connected`, `reconnecting`, `disconnected`, `logged_out`, or `closed`. Only `connected` can send and receive.
+
+A SIGTERM closes the browser and ends the process, so `docker stop` is clean. If your app listens for the signal itself, call `bot.shutdown()` or the adapter's `disconnect()` and exit when you're done.
+
+WhatsApp Web loads the messages that arrived while the session was down without an event for each one, so once the session is back, the adapter gathers what recent chats missed, up to `catchUpMs` old, and hands the messages to your handlers oldest first. Its position lives in the state adapter together with the account it belongs to, so with a persistent state adapter a restart starts where the last process stopped, and pairing a new number starts afresh. The first run records a position and replays nothing older. A restart part-way through a catch-up delivers messages again rather than skipping them. A chat outside the 100 most recent, or more than 50 messages behind, isn't caught up in full, and the adapter logs a warning when that happens.
+
+## Running the session apart from your bot
+
+The session needs a long-lived process with a browser, which serverless bots can't hold. [`chat-adapter-remote`](https://github.com/nivandres/chat-adapter-remote) runs this adapter in its own process and bridges it to your bot over signed HTTP. Pass `healthy: () => whatsapp.connection === "connected"` to its `serveAdapter()` so the host's health check follows the WhatsApp session.
+
+## Direct messages
+
+`adapter.openDM()` takes a phone number or a `@c.us` ID and resolves it to the chat WhatsApp uses for that person, often a LID, so a DM is one thread whoever opened it. Any other ID, such as one ending in `@lid`, is used as it is. `chat.openDM()` and `chat.getUser()` can't route WhatsApp user IDs to this adapter, so call the adapter directly:
+
+```typescript
+const thread = bot.thread(await whatsapp.openDM("15551234567"));
+await thread.post("Hello!");
+```
+
+The adapter's `getUser()` returns the contact's name, falling back to the push name and then the number, and the profile picture when privacy settings allow it. It returns `null` when WhatsApp has no such contact.
+
+## Groups and mentions
+
+Each WhatsApp chat is one thread, so `thread.subscribe()` covers a whole group and `thread.post()` sends to the group. When someone joins a group, `onMemberJoinedChannel` fires.
+
+`message.isMention` is `true` when WhatsApp marks a mention of the bot, by its phone number or its LID, or when the message quote-replies one of the bot's messages. Otherwise the adapter leaves it unset, and Chat SDK looks for `@` followed by the adapter's `userName` in the text. That name is the account's WhatsApp push name unless you set `userName`.
+
+In `message.text`, a WhatsApp mention of the bot reads `@<userName>`, and a mention of someone else reads `@` and the name WhatsApp has for them, or stays as WhatsApp sent it when there's none. To mention someone in a post, use `thread.mentionUser(userId)`. A bare `@number` in outgoing text stays text, so echoing what someone wrote mentions no one.
+
+## Formatting and cards
+
+Outbound markdown becomes WhatsApp markup: `*bold*`, `_italic_`, `~strikethrough~`, `` `code` ``, fenced code blocks, `>` quotes, and lists. Headings become bold lines. WhatsApp has no link syntax, so links render as `text (url)`, and no tables, so tables render as ASCII inside a code block. Inbound, WhatsApp markup arrives in `message.formatted` as the matching markdown nodes.
+
+By default, a card goes out as plain text: the title, the subtitle, its text, `Label: value` fields, tables and charts as text, and link buttons as `Label: url` lines. Images, buttons, and select menus are left out, and the adapter has no `openModal`, so `event.openModal()` resolves to `undefined` and your bot can tell a modal can't open.
+
+Set `richContent: true` to imitate cards and modals. Cards then use WhatsApp markup, with a bold title, `*Label:* value` fields, and tables in a monospaced code block. Their images go out as media, with the card text as the first image's caption, and [modals](#modals) run as conversations. Buttons and select menus need the separate [`numberedActions()`](#card-actions) addon.
+
+## Card actions
+
+WhatsApp Web can't send buttons. Add the `numberedActions()` addon and a card's buttons and select options are listed by number under its text, which follows `richContent`, and a reply with a number or a label reaches `onAction` as a click would. Disabled buttons and buttons that open a modal are left out.
+
+```typescript
+import { createWWebJSAdapter, numberedActions } from "chat-adapter-wwebjs";
+
+const whatsapp = createWWebJSAdapter({
+  adapterName: "whatsapp",
+  addons: [numberedActions()],
+});
+
+bot.onAction("approve", async (event) => {
+  await event.thread?.post(`Approved by ${event.user.userName}`);
+});
+```
+
+The options of a thread's latest card stay open for a day (`ttlMs`) in the state adapter, and the first pick closes them, so a repeated answer runs nothing twice. A reply that quotes another message isn't a pick, and neither is anything the bot's own account sends. In a group, anyone can answer, and `event.user` says who did. The reply that picked an option isn't delivered as a message unless you set `keepMessage: true`.
+
+## Modals
+
+With `richContent`, `openModal()` turns a modal into a conversation with the person who triggered it. The adapter sends the title and any text or fields the modal shows, then asks for each input in turn:
+
+| Input | Answered with |
+| --- | --- |
+| `TextInput` | Any text, within `maxLength` |
+| `NumberInput` | A number, within `min` and `max`, whole unless `decimal` is set |
+| `DateInput` | A date as `YYYY-MM-DD` |
+| `Select`, `RadioSelect` | An option's number or label |
+| `ExternalSelect` | Words to search, which reach `onOptionsLoad`, then a number from the results |
+
+People can answer an optional field, or one with an initial value, with `skip`. Sending `cancel`, or the modal's `closeLabel` when it sets one, stops the modal and reaches `onModalClose` when the modal sets `notifyOnClose`. An answer that doesn't fit is asked again. Once every field is answered, `onModalSubmit` receives the values. Return `{ action: "errors", errors }` to ask only those fields again with your messages, or `{ action: "update", modal }` or `{ action: "push", modal }` to start the new modal. A modal left unanswered stops waiting after a day.
+
+Modals open from actions, including answers to `numberedActions()`, and from slash commands. To open one for someone without either, pass `triggerIdOf(threadId, userId)` to the adapter's `openModal()`. `modalTexts` puts the phrases a modal sends, including the `cancel` and `skip` words, in your users' language.
+
+## Slash commands
+
+WhatsApp has no slash commands, so declare the ones you handle in `slashCommands`. A message whose first word is one of them reaches `onSlashCommand`:
+
+```typescript
+const whatsapp = createWWebJSAdapter({
+  adapterName: "whatsapp",
+  slashCommands: ["/help", "/agent"],
+});
+
+bot.onSlashCommand("/help", async (event) => {
+  await event.channel.post(`Help with ${event.text || "anything"}`);
+});
+```
+
+`/help billing` arrives as the command `/help` with the text `"billing"`, matched without regard to case. Any other text that starts with `/`, such as a path or `/shrug`, stays an ordinary message. A command can open a modal with `event.openModal()`.
+
+## Streaming
+
+WhatsApp can't stream, so `streaming` sets how `thread.post(textStream)` reaches it. `"buffer"`, the default, sends the reply once it's complete. `"edit"` sends the first words, then edits that message as the rest arrives, at most once a second. An edit WhatsApp refuses part-way only delays the words, and the last edit carries the full reply.
+
+`thread.startTyping()` shows WhatsApp's typing indicator, and `thread.startTyping("recording")` shows the recording one. The adapter's `endTyping(threadId)` clears it.
+
+## Attachments
+
+Send files with `files`, or with postable `attachments` that carry `data`, `fetchData`, or a `url`. Each file goes out as its own WhatsApp message, and the text becomes the caption of the first one that can hold it. Audio can't, so with only audio the text is sent as a separate message. Audio goes out as a voice note unless `voiceNotes` says otherwise. An attachment given only by `url` is fetched over HTTPS, never from a private or internal address, with a 30-second timeout and `maxMediaBytes` as its limit.
+
+Incoming `message.attachments` carry `type`, `name`, `mimeType`, `size`, and image or video dimensions, and `fetchData()` downloads the media, refusing anything over `maxMediaBytes`. Stickers arrive as images, and a location arrives as text with the place, its address, and a map link. The adapter implements `rehydrateAttachment()`, so `fetchData()` keeps working under the `queue` and `debounce` concurrency strategies.
+
+## Message actions
+
+- `thread.reply()` sends a native quoted reply, and an incoming reply carries the quoted message in `message.replyTo`.
+- `editMessage()` changes the text of the bot's own messages within the 15 minutes WhatsApp allows. `deleteMessage()` deletes a message for everyone.
+- `addReaction()` reacts to any message in the thread, and `removeReaction()` clears the bot's reaction whatever the emoji.
+- `thread.markAsRead()` marks the whole chat as read. Set `markSeen` to send a read receipt for every inbound message instead.
+- Incoming edits fire `onMessageUpdated` with the text they replaced, deletes for everyone fire `onMessageDeleted` with the original message when WhatsApp still has it, and reactions fire `onReaction`. The bot account's own events stay out, except its deletes when `receiveOwnMessages` is on.
+
+## Message history
+
+`fetchMessages()` reads the chat's WhatsApp history as the web client has synced it, so `thread.messages` works. Backward pages, the default, carry the oldest message they returned in the cursor, so a message arriving between pages shifts nothing. WhatsApp offers no oldest-first cursor, so forward reads load the conversation and slice it; use them for one-off backfills. One read reaches back at most 1,000 messages, and `fetchMessage()` returns a single message.
+
+`fetchThread()` returns the chat's name, and `fetchChannelInfo()` adds the member count for a group. A WhatsApp chat is one conversation, so `listThreads()` returns the chat's own thread. To list every chat the account has, newest first with its latest message, call the adapter's `listChats({ limit, cursor })`.
+
+## Using an existing client
+
+Pass a whatsapp-web.js `Client` you already run, and the adapter bridges it as it is:
+
+```typescript
+import { createWWebJSAdapter } from "chat-adapter-wwebjs";
+import wwebjs from "whatsapp-web.js";
+
+const { Client, LocalAuth } = wwebjs;
+
+const client = new Client({ authStrategy: new LocalAuth() });
+client.on("message", handleItYourself);
+await client.initialize();
+
+const whatsapp = createWWebJSAdapter({ client });
+await whatsapp.connect(); // already running: adopted without starting it again
+```
+
+- **Already started**, as above, the client is bridged. `connect()` adopts its session without a second `initialize()`, or waits for it if it's still starting. Its options and listeners are left alone, and its lifecycle stays yours: the adapter never reconnects or destroys it, nor closes it on a signal, and `disconnect()` only detaches the adapter.
+- **Never started**, the client is the adapter's to run, as if the adapter had built it: `connect()` starts it, and the adapter reconnects it and closes it on `disconnect()` and on a signal.
+
+`manageClient` forces either behavior. Install a single copy of whatsapp-web.js: the adapter warns about a client from another installed copy, because the media, locations, and polls it sends would fail.
+
+## WhatsApp extensions
+
+The adapter adds methods for WhatsApp features that have no Chat SDK equivalent: `sendPoll`, `onPollVote`, `sendLocation`, `sendEvent`, `sendSticker`, `forwardMessage`, `pinMessage`, `starMessage`, `fetchPinnedMessages`, `searchMessages`, `fetchGroupParticipants`, `getProfilePicUrl`, `setPresence`, `markAsUnread`, `muteThread`, `archiveThread`, `pinThread`, `onCall`, `onAck`, and `onGroupEvent`. Narrow a `Thread` or `Channel` with `requireWWebJSAdapter()` to reach them, or check with `isWWebJSAdapter()` when other adapters are registered too:
+
+```typescript
+import { requireWWebJSAdapter } from "chat-adapter-wwebjs";
+
+bot.onSubscribedMessage(async (thread) => {
+  const wa = requireWWebJSAdapter(thread);
+  const poll = await wa.sendPoll({
+    options: ["Tacos", "Sushi", "Ramen"],
+    question: "Lunch?",
+    threadId: thread.id,
+  });
+  wa.onPollVote(poll.id, (vote) => {
+    console.log(`${vote.voter.userName} picked ${vote.selectedOptions.join(", ")}`);
+  });
+});
+```
+
+`onPollVote` receives votes on polls the bot's account sent. Anything the adapter doesn't wrap is reachable through `adapter.client`, the whatsapp-web.js `Client`.
+
+## Thread IDs
+
+Thread IDs take the form `{adapterName}:{chatId}`, with the WhatsApp chat ID:
+
+| Conversation | Thread and channel ID |
+| --- | --- |
+| DM by phone number | `wwebjs:15551234567@c.us` |
+| DM by LID | `wwebjs:99990000111122@lid` |
+| Group | `wwebjs:1234567890-1234567890@g.us` |
+
+A chat is both the thread and the channel. To run several accounts, create one adapter per account, each with its own session, such as `new LocalAuth({ clientId: "sales" })`, and its own `adapterName` matching the key it's registered under. The name prefixes thread IDs and state keys, so `sales:` and `support:` never collide on one `Chat` instance or in one shared state store.
+
+## Limitations
+
+- No scheduled or ephemeral messages. `thread.schedule()` throws, and `thread.postEphemeral()` sends a DM with `fallbackToDM: true` and returns `null` otherwise.
+- Everything the paired account sends counts as the bot's own, from the phone too, so Chat SDK skips its messages, edits, and reactions even with `receiveOwnMessages`.
+- `forwardMessage()` and event call links fail on current WhatsApp Web, because whatsapp-web.js still calls modules WhatsApp has renamed. `sendEvent()` without `callType` attaches no link and works.
+- Statuses, broadcast lists, and WhatsApp's own notifications never reach your handlers.
+
+## Feature support
+
+<FeatureSupport />
+
+## Resources
+
+- [Adapter source](https://github.com/nivandres/chat-adapter-wwebjs)
+- [`chat-adapter-wwebjs` on npm](https://www.npmjs.com/package/chat-adapter-wwebjs)
+- [whatsapp-web.js](https://wwebjs.dev)
+- [`chat-adapter-remote`](https://github.com/nivandres/chat-adapter-remote)

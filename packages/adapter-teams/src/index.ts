@@ -2,6 +2,7 @@ import { AsyncLocalStorage } from "node:async_hooks";
 
 import {
   bufferToDataUri,
+  extractPostableAttachments,
   NetworkError,
   toBuffer,
   ValidationError,
@@ -30,6 +31,7 @@ import { users } from "@microsoft/teams.graph-endpoints";
 import type {
   ActionEvent,
   Adapter,
+  AdapterPostableMessage,
   Attachment,
   Author,
   ChannelInfo,
@@ -66,6 +68,7 @@ import {
   rehydrateTeamsAttachment,
   type TeamsActivityAttachment,
   type TeamsAttachmentFetchers,
+  toTeamsOutboundAttachments,
 } from "./attachments";
 import { BridgeHttpAdapter } from "./bridge-adapter";
 import {
@@ -1459,17 +1462,14 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
     const target = this.decodeThreadId(threadId);
     const { conversationId } = target;
 
-    const fileAttachments =
-      prepared.files.length > 0
-        ? await this.filesToAttachments(prepared.files)
-        : [];
+    const attachments = await this.outboundAttachments(input, prepared, "send");
 
     if (prepared.adaptiveCard) {
-      const activity = createCardActivity(prepared, fileAttachments);
+      const activity = createCardActivity(prepared, attachments);
 
       this.logger.debug("Teams API: send (adaptive card)", {
         conversationId,
-        fileCount: fileAttachments.length,
+        attachmentCount: attachments.length,
       });
 
       try {
@@ -1495,8 +1495,8 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
 
     const activity = new MessageActivity(text);
     activity.textFormat = "markdown";
-    if (fileAttachments.length > 0) {
-      activity.attachments = fileAttachments;
+    if (attachments.length > 0) {
+      activity.attachments = attachments;
     }
     applyAiGeneratedLabel(activity, message);
     applyFeedbackButtons(activity, message);
@@ -1504,7 +1504,7 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
     this.logger.debug("Teams API: send (message)", {
       conversationId,
       textLength: text.length,
-      fileCount: fileAttachments.length,
+      attachmentCount: attachments.length,
     });
 
     try {
@@ -1543,21 +1543,18 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
     const recipient = this.createTargetedRecipient(userId);
 
     const prepared = prepareTeamsMessage(input);
-    const fileAttachments =
-      prepared.files.length > 0
-        ? await this.filesToAttachments(prepared.files)
-        : [];
+    const attachments = await this.outboundAttachments(input, prepared, "send");
 
     if (prepared.adaptiveCard) {
-      const activity = createCardActivity(
-        prepared,
-        fileAttachments
-      ).withRecipient(recipient, true);
+      const activity = createCardActivity(prepared, attachments).withRecipient(
+        recipient,
+        true
+      );
 
       this.logger.debug("Teams API: send (targeted adaptive card)", {
         conversationId,
         userId,
-        fileCount: fileAttachments.length,
+        attachmentCount: attachments.length,
       });
 
       try {
@@ -1588,8 +1585,8 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
 
     const activity = new MessageActivity(text).withRecipient(recipient, true);
     activity.textFormat = "markdown";
-    if (fileAttachments.length > 0) {
-      activity.attachments = fileAttachments;
+    if (attachments.length > 0) {
+      activity.attachments = attachments;
     }
     applyAiGeneratedLabel(activity, message);
     applyFeedbackButtons(activity, message);
@@ -1598,7 +1595,7 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
       conversationId,
       userId,
       textLength: text.length,
-      fileCount: fileAttachments.length,
+      attachmentCount: attachments.length,
     });
 
     try {
@@ -1701,6 +1698,42 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
     };
   }
 
+  /**
+   * `files` go inline as data URIs, and image `attachments` go inline or by
+   * HTTPS URL. An edit uploads nothing and keeps only the attachments sent by
+   * URL. A card message takes `files` but no `attachments`.
+   */
+  private async outboundAttachments(
+    input: TeamsPostableMessage,
+    prepared: PreparedTeamsMessage,
+    mode: "edit" | "send"
+  ): Promise<NonNullable<MessageActivity["attachments"]>> {
+    const files =
+      mode === "send" && prepared.files.length > 0
+        ? await this.filesToAttachments(prepared.files)
+        : [];
+    const postableAttachments = extractPostableAttachments(
+      input as AdapterPostableMessage
+    );
+    const { attachments, skipped } = prepared.adaptiveCard
+      ? {
+          attachments: [],
+          skipped: postableAttachments.map((attachment, index) => ({
+            index,
+            name: attachment.name,
+            reason: "card-message",
+          })),
+        }
+      : await toTeamsOutboundAttachments(postableAttachments, mode);
+    if (skipped.length > 0) {
+      this.logger.warn("Teams: skipped attachments that can't be sent", {
+        count: skipped.length,
+        skipped,
+      });
+    }
+    return [...files, ...attachments];
+  }
+
   protected async filesToAttachments(
     files: FileUpload[]
   ): Promise<Array<{ contentType: string; contentUrl: string; name: string }>> {
@@ -1740,6 +1773,7 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
     const prepared = prepareTeamsMessage(input);
     const target = this.decodeThreadId(threadId);
     const { conversationId, serviceUrl } = target;
+    const attachments = await this.outboundAttachments(input, prepared, "edit");
 
     if (prepared.adaptiveCard) {
       const activity = createCardActivity(prepared);
@@ -1779,6 +1813,11 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
 
     const activity = new MessageActivity(text);
     activity.textFormat = "markdown";
+    // An update replaces the whole activity, so an attachment sent by URL has
+    // to be sent again to stay on the message.
+    if (attachments.length > 0) {
+      activity.attachments = attachments;
+    }
     applyAiGeneratedLabel(activity, message);
     applyFeedbackButtons(activity, message);
 
@@ -2177,13 +2216,10 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
           })
         : channelId;
 
-    const fileAttachments =
-      prepared.files.length > 0
-        ? await this.filesToAttachments(prepared.files)
-        : [];
+    const attachments = await this.outboundAttachments(input, prepared, "send");
 
     if (prepared.adaptiveCard) {
-      const activity = createCardActivity(prepared, fileAttachments);
+      const activity = createCardActivity(prepared, attachments);
 
       try {
         const sent = await this.app.sendTo(
@@ -2211,8 +2247,8 @@ export class TeamsAdapter implements Adapter<TeamsThreadId, unknown> {
     );
     const activity = new MessageActivity(text);
     activity.textFormat = "markdown";
-    if (fileAttachments.length > 0) {
-      activity.attachments = fileAttachments;
+    if (attachments.length > 0) {
+      activity.attachments = attachments;
     }
     applyAiGeneratedLabel(activity, message);
     applyFeedbackButtons(activity, message);

@@ -3,7 +3,7 @@ import {
   encodeCallbackData,
   ValidationError,
 } from "@chat-adapter/shared";
-import type { ActionsElement, CardChild, CardElement } from "chat";
+import type { ActionsElement, ButtonStyle, CardChild, CardElement } from "chat";
 import { convertEmojiPlaceholders } from "chat";
 import type {
   TelegramInlineKeyboardButton,
@@ -19,6 +19,12 @@ function convertLabel(label: string): string {
   return convertEmojiPlaceholders(label, "gchat");
 }
 
+function toButtonStyle(
+  style: ButtonStyle | undefined
+): Pick<TelegramInlineKeyboardButton, "style"> {
+  return style === "primary" || style === "danger" ? { style } : {};
+}
+
 function toInlineKeyboardRow(
   actions: ActionsElement
 ): TelegramInlineKeyboardButton[] {
@@ -29,6 +35,7 @@ function toInlineKeyboardRow(
       row.push({
         text: convertLabel(action.label),
         callback_data: encodeTelegramCallbackData(action.id, action.value),
+        ...toButtonStyle(action.style),
       });
       continue;
     }
@@ -37,6 +44,7 @@ function toInlineKeyboardRow(
       row.push({
         text: convertLabel(action.label),
         url: action.url,
+        ...toButtonStyle(action.style),
       });
     }
   }

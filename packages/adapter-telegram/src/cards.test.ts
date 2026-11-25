@@ -247,6 +247,88 @@ describe("cardToTelegramInlineKeyboard", () => {
     });
   });
 
+  it("maps button styles to Telegram button styles", () => {
+    const keyboard = cardToTelegramInlineKeyboard({
+      type: "card",
+      children: [
+        {
+          type: "actions",
+          children: [
+            {
+              type: "button",
+              id: "approve",
+              label: "Approve",
+              style: "primary",
+            },
+            { type: "button", id: "reject", label: "Reject", style: "danger" },
+            { type: "button", id: "skip", label: "Skip", style: "default" },
+            { type: "button", id: "later", label: "Later" },
+            {
+              type: "link-button",
+              label: "Docs",
+              url: "https://chat-sdk.dev",
+              style: "primary",
+            },
+          ],
+        },
+      ],
+    });
+
+    expect(keyboard).toStrictEqual({
+      inline_keyboard: [
+        [
+          {
+            text: "Approve",
+            callback_data: 'chat:{"a":"approve"}',
+            style: "primary",
+          },
+          {
+            text: "Reject",
+            callback_data: 'chat:{"a":"reject"}',
+            style: "danger",
+          },
+          { text: "Skip", callback_data: 'chat:{"a":"skip"}' },
+          { text: "Later", callback_data: 'chat:{"a":"later"}' },
+          { text: "Docs", url: "https://chat-sdk.dev", style: "primary" },
+        ],
+      ],
+    });
+  });
+
+  it("renders a disabled button as a regular callback button", () => {
+    const keyboard = cardToTelegramInlineKeyboard({
+      type: "card",
+      children: [
+        {
+          type: "actions",
+          children: [
+            {
+              type: "button",
+              id: "approve",
+              label: "Approve",
+              disabled: true,
+              style: "primary",
+            },
+            { type: "button", id: "reject", label: "Reject" },
+          ],
+        },
+      ],
+    });
+
+    expect(keyboard).toStrictEqual({
+      inline_keyboard: [
+        [
+          {
+            text: "Approve",
+            callback_data: 'chat:{"a":"approve"}',
+            style: "primary",
+          },
+          { text: "Reject", callback_data: 'chat:{"a":"reject"}' },
+        ],
+      ],
+    });
+  });
+
   it("ignores unsupported action controls", () => {
     const keyboard = cardToTelegramInlineKeyboard({
       type: "card",

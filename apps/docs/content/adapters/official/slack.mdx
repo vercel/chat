@@ -95,6 +95,7 @@ oauth_config:
       - mpim:read
       - reactions:read
       - reactions:write
+      - usergroups:read
       - users:read
 
 settings:
@@ -387,6 +388,12 @@ Because the adapter acknowledges the event with a 200 before handlers finish, Sl
       description:
         "Use Slack's native streaming API for streamed posts. Set false to always stream via post-and-edit.",
     },
+    unfurlWaitMs: {
+      type: "number",
+      default: "2000",
+      description:
+        "Polling budget in milliseconds for missing link previews. Set 0 to read cached previews once without waiting. Must be finite and nonnegative.",
+    },
     streamSegmentMaxAgeMs: {
       type: "number",
       default: "240000",
@@ -420,6 +427,20 @@ Because the adapter acknowledges the event with a 200 before handlers finish, Sl
 />
 
 Webhook mode requires `signingSecret` or a `webhookVerifier`. Socket mode requires `appToken`.
+
+### Link-preview wait
+
+Slack can deliver link previews in a separate event after the original message. By default, the adapter polls the preview cache with a 2-second budget before passing a message with missing previews to your handler. An edit waits once: the adapter polls for the edited message and reads the cache a single time for the previous-message snapshot. The bot's own messages skip the preview lookup, because Chat SDK doesn't pass them to your handlers.
+
+Set `unfurlWaitMs: 0` to read the cache once and continue with any previews already available:
+
+```typescript
+const slack = createSlackAdapter({ unfurlWaitMs: 0 });
+```
+
+Links whose previews arrive later remain bare in the delivered message. A positive value sets a shorter or longer polling budget. Negative or non-finite values throw a `ValidationError` when you create the adapter. The option has no upper limit, and your handler doesn't run until polling ends, so keep the value well below the time your host allows `waitUntil` tasks to run.
+
+The adapter returns an HTTP 200 response for ordinary message webhooks without waiting for message processing. If your host waits for the processing registered with `waitUntil` before sending the response, polling can add to that response time. Cache reads remain awaited, so `unfurlWaitMs` does not set a timeout for the state store or the whole request. If a cache read fails, the adapter logs a warning and delivers the message with the links it already has.
 
 ### Environment variables
 
@@ -786,6 +807,14 @@ Charts that violate Slack's constraints (50-character title, 12 segments/series,
 Bulleted and numbered lists created in Slack's composer become nested mdast `list` nodes in `message.formatted`. In `message.text`, list items are separated by newlines without bullet markers. Literal list text such as `---` and `[x]` stays literal, and paragraphs in subsequent rich text blocks stay outside the list.
 
 If a message with a list contains unsupported rich text elements, such as a `message_mention`, the adapter uses Slack's `event.text` fallback for the body. This preserves the fallback's content, but list structure is unavailable for those messages.
+
+### User group mentions
+
+Slack sends a user group mention as `<!subteam^S0123456789>` without a name. The adapter looks up the group's handle with `usergroups.list` and renders it in `message.text` as `@handle`, the same way it resolves `<@U…>` user and `<#C…>` channel mentions. Slack has no single-group lookup, so the adapter lists the workspace's groups, including disabled ones, and caches every handle in one state entry. The entry is scoped to the installation, and to the workspace on an org-wide install. Messages handled by the same process while a list call is in flight share that call.
+
+The adapter lists the groups again after 24 hours. To pick up a renamed or new group sooner, subscribe your app to the `subteam_created` and `subteam_updated` events, which make the adapter drop its cached handles. A mention of a group the last list didn't return triggers a new list call at most once every five minutes.
+
+This lookup needs the `usergroups:read` scope. If the scope is missing or the call fails, the adapter logs a warning, keeps any handles it already cached, and waits five minutes before calling again. A mention it can't resolve stays as `@S0123456789`. Mentions that already carry a label, such as `<!subteam^S0123456789|@devs>`, keep that label and make no API call.
 
 ## Inbound attachments
 

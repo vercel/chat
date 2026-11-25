@@ -230,10 +230,14 @@ in-memory cache keyed by thread ID. Inbound messages, echoes,
 `parseMessage`, and the adapter's own sends all write to it through
 `cacheMessage`.
 
-- `cacheMessage` uses `upsertMessage` from `@chat-adapter/shared`,
-  which replaces by message ID and keeps the list sorted. It expects
-  a list that is already sorted by the same comparator, so every
-  write must go through `cacheMessage`.
+- `cacheMessage` writes to a `MessageStore` from
+  `@chat-adapter/shared`, which replaces by message ID and keeps each
+  thread sorted.
+- The store keeps the newest 100 messages of each thread and stays
+  within a size budget of about 64 MB across all threads. Over
+  budget, it removes the oldest messages of the largest threads
+  first, so a message is not guaranteed to be readable after
+  `cacheMessage`.
 - Order is send time, then `messageSequence(id)`, the trailing
   `:{n}` of the message ID. Subclasses can override
   `messageSequence` or `compareMessages`.

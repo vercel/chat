@@ -481,6 +481,110 @@ describe("InstagramAdapter", () => {
         createAdapter().fetchMessages("instagram:IG_ACCOUNT_123:UNKNOWN")
       ).resolves.toEqual({ messages: [] });
     });
+
+    describe("history bound", () => {
+      const CONTROL_THREAD_ID = `instagram:${ACCOUNT_ID}:IGSID_789`;
+      const BASE_TIME = 1_735_689_600_000;
+
+      function inbound(
+        senderId: string,
+        mid: string,
+        offset: number
+      ): InstagramMessagingEvent {
+        return event({
+          sender: { id: senderId },
+          timestamp: BASE_TIME + offset * 1000,
+          message: { mid, text: `text of ${mid}` },
+        });
+      }
+
+      async function deliver(
+        adapter: InstagramAdapter,
+        events: InstagramMessagingEvent[]
+      ): Promise<number> {
+        const response = await adapter.handleWebhook(
+          signedRequest(webhook(events))
+        );
+        return response.status;
+      }
+
+      async function walkBackward(
+        adapter: InstagramAdapter,
+        threadId: string
+      ): Promise<string[]> {
+        const ids: string[] = [];
+        let cursor: string | undefined;
+        do {
+          const page = await adapter.fetchMessages(threadId, {
+            cursor,
+            limit: 30,
+          });
+          ids.unshift(...page.messages.map((message) => message.id));
+          cursor = page.nextCursor;
+        } while (cursor);
+        return ids;
+      }
+
+      it("keeps the newest 100 messages of a thread and leaves other threads alone", async () => {
+        const adapter = createAdapter();
+        await initialize(adapter);
+
+        // The control thread's messages are older than every flood message.
+        const controlStatus = await deliver(adapter, [
+          inbound("IGSID_789", "mid.control.1", -3),
+          inbound("IGSID_789", "mid.control.2", -2),
+          inbound("IGSID_789", "mid.control.3", -1),
+        ]);
+        expect(controlStatus).toBe(200);
+
+        // mid.flood.1 is the oldest by send time but arrives last, so the
+        // survivors differ between dropping by send time and by arrival.
+        const flood: InstagramMessagingEvent[] = [];
+        for (let index = 2; index <= 105; index++) {
+          flood.push(inbound("IGSID_456", `mid.flood.${index}`, index));
+        }
+        flood.push(inbound("IGSID_456", "mid.flood.1", 1));
+        await expect(deliver(adapter, flood)).resolves.toBe(200);
+
+        for (const index of [1, 2, 3, 4, 5]) {
+          await expect(
+            adapter.fetchMessage(THREAD_ID, `mid.flood.${index}`)
+          ).resolves.toBeNull();
+        }
+        for (const index of [6, 7, 104, 105]) {
+          await expect(
+            adapter.fetchMessage(THREAD_ID, `mid.flood.${index}`)
+          ).resolves.toMatchObject({
+            id: `mid.flood.${index}`,
+            text: `text of mid.flood.${index}`,
+            threadId: THREAD_ID,
+          });
+        }
+
+        const survivors = Array.from(
+          { length: 100 },
+          (_, index) => `mid.flood.${index + 6}`
+        );
+        await expect(walkBackward(adapter, THREAD_ID)).resolves.toEqual(
+          survivors
+        );
+        const fullPage = await adapter.fetchMessages(THREAD_ID, { limit: 100 });
+        expect(fullPage.messages.map((message) => message.id)).toEqual(
+          survivors
+        );
+        expect(fullPage.nextCursor).toBeUndefined();
+
+        const controlIds = ["mid.control.1", "mid.control.2", "mid.control.3"];
+        await expect(walkBackward(adapter, CONTROL_THREAD_ID)).resolves.toEqual(
+          controlIds
+        );
+        for (const id of controlIds) {
+          await expect(
+            adapter.fetchMessage(CONTROL_THREAD_ID, id)
+          ).resolves.toMatchObject({ id, threadId: CONTROL_THREAD_ID });
+        }
+      });
+    });
   });
 
   describe("sending", () => {

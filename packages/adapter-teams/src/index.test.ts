@@ -29,7 +29,10 @@ import {
   type MockInstance,
   vi,
 } from "vitest";
-import type { TeamsActivityAttachment } from "./attachments";
+import {
+  createTeamsAttachment,
+  type TeamsActivityAttachment,
+} from "./attachments";
 import { cardToAdaptiveCard } from "./cards";
 import {
   createTeamsAdapter,
@@ -2116,6 +2119,802 @@ describe("TeamsAdapter", () => {
           contentType: "text/plain",
           contentUrl: `data:text/plain;base64,${Buffer.from("steps to reproduce").toString("base64")}`,
           name: "repro.txt",
+        });
+      });
+    });
+
+    it.each([
+      "postMessage",
+      "postChannelMessage",
+      "postEphemeral",
+    ] as const)("sends a markdown message's HTTPS attachments by URL with %s", async (method) => {
+      const { adapter, sent, sendTo, threadId } = createAdapterWithMocks();
+      const message = {
+        markdown: "Screenshot attached",
+        attachments: [
+          {
+            type: "image" as const,
+            url: "https://example.com/screenshot.png",
+            mimeType: "image/png",
+            name: "screenshot.png",
+          },
+          { type: "image" as const, url: "http://example.com/insecure.png" },
+        ],
+      };
+
+      await (method === "postEphemeral"
+        ? adapter.postEphemeral(threadId, "29:target-user", message)
+        : adapter[method](threadId, message));
+
+      expect(sendTo).toHaveBeenCalledTimes(1);
+      expect(sent().attachments).toEqual([
+        {
+          contentType: "image/png",
+          contentUrl: "https://example.com/screenshot.png",
+          name: "screenshot.png",
+        },
+      ]);
+    });
+
+    describe("postable attachments", () => {
+      const PNG_BYTES = Buffer.from([
+        0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00, 0x00, 0x00, 0x0d,
+        0x49, 0x48, 0x44, 0x52,
+      ]);
+      const JPEG_BYTES = Buffer.from([
+        0xff, 0xd8, 0xff, 0xe0, 0x00, 0x10, 0x4a, 0x46, 0x49, 0x46, 0x00,
+      ]);
+      const SEND_METHODS = [
+        "postMessage",
+        "postChannelMessage",
+        "postEphemeral",
+      ] as const;
+      const SKIP_WARNING = "Teams: skipped attachments that can't be sent";
+
+      let warn: MockInstance<typeof logger.warn>;
+      let debug: MockInstance<typeof logger.debug>;
+
+      beforeEach(() => {
+        warn = vi.spyOn(logger, "warn").mockImplementation(() => undefined);
+        debug = vi.spyOn(logger, "debug").mockImplementation(() => undefined);
+      });
+
+      afterEach(() => {
+        warn.mockRestore();
+        debug.mockRestore();
+      });
+
+      const send = (
+        adapter: TeamsAdapter,
+        method: (typeof SEND_METHODS)[number],
+        threadId: string,
+        message: TeamsPostableMessage
+      ) =>
+        method === "postEphemeral"
+          ? adapter.postEphemeral(threadId, "29:target-user", message)
+          : adapter[method](threadId, message);
+
+      const textOf = (activity: SentActivity) =>
+        (activity as { text?: string }).text;
+
+      const decodeDataUri = (attachment: unknown) => {
+        const { contentType, contentUrl } = attachment as {
+          contentType: string;
+          contentUrl: string;
+        };
+        const [header, base64] = contentUrl.split(",");
+        return {
+          bytes: Buffer.from(base64, "base64"),
+          contentType,
+          header,
+        };
+      };
+
+      it.each(
+        SEND_METHODS
+      )("%s sends an attachment's bytes inline and its text", async (method) => {
+        const { adapter, sent, sendTo, threadId } = createAdapterWithMocks();
+        const fetchData = vi.fn(async () => PNG_BYTES);
+
+        await send(adapter, method, threadId, {
+          markdown: "Two images",
+          attachments: [
+            { type: "image", data: JPEG_BYTES, name: "photo" },
+            {
+              type: "image",
+              fetchData,
+              url: "https://private.example.com/needs-auth.png",
+              name: "shot.png",
+              mimeType: "image/png",
+            },
+          ],
+        });
+
+        expect(sendTo).toHaveBeenCalledTimes(1);
+        expect(textOf(sent())).toBe("Two images");
+        expect(sent().attachments).toEqual([
+          {
+            contentType: "image/jpeg",
+            contentUrl: `data:image/jpeg;base64,${JPEG_BYTES.toString("base64")}`,
+            name: "photo",
+          },
+          {
+            contentType: "image/png",
+            contentUrl: `data:image/png;base64,${PNG_BYTES.toString("base64")}`,
+            name: "shot.png",
+          },
+        ]);
+        const [jpeg, png] = (sent().attachments ?? []).map(decodeDataUri);
+        expect(jpeg.header).toBe("data:image/jpeg;base64");
+        expect(jpeg.bytes.equals(JPEG_BYTES)).toBe(true);
+        expect(png.header).toBe("data:image/png;base64");
+        expect(png.bytes.equals(PNG_BYTES)).toBe(true);
+        expect(fetchData).toHaveBeenCalledTimes(1);
+        expect(warn).not.toHaveBeenCalled();
+      });
+
+      it("sends an inbound Teams attachment back as its bytes, not its private URL", async () => {
+        const { adapter, sent, sendTo, threadId } = createAdapterWithMocks();
+        const privateUrl = `${TEST_SERVICE_URL}v3/attachments/att-1/views/original`;
+        const fetchAuthenticated = vi.fn(async () => JPEG_BYTES);
+        const inbound = createTeamsAttachment(
+          { contentType: "image/jpeg", contentUrl: privateUrl, name: "in.jpg" },
+          TEST_SERVICE_URL,
+          {
+            createAnonymousFetchData: () => () =>
+              Promise.reject(new Error("anonymous fetch must not be used")),
+            fetchAuthenticated,
+            fetchGraphFile: () =>
+              Promise.reject(new Error("Graph fetch must not be used")),
+          }
+        );
+        expect(inbound.url).toBe(privateUrl);
+
+        await adapter.postMessage(threadId, {
+          markdown: "Mirrored",
+          attachments: [inbound],
+        });
+
+        expect(fetchAuthenticated).toHaveBeenCalledTimes(1);
+        expect(fetchAuthenticated).toHaveBeenCalledWith(privateUrl);
+        expect(sendTo).toHaveBeenCalledTimes(1);
+        expect(sent().attachments).toEqual([
+          {
+            contentType: "image/jpeg",
+            contentUrl: `data:image/jpeg;base64,${JPEG_BYTES.toString("base64")}`,
+            name: "in.jpg",
+          },
+        ]);
+        expect(
+          decodeDataUri(sent().attachments?.[0]).bytes.equals(JPEG_BYTES)
+        ).toBe(true);
+        expect(JSON.stringify(sent().attachments)).not.toContain(privateUrl);
+        expect(warn).not.toHaveBeenCalled();
+      });
+
+      it.each(
+        SEND_METHODS
+      )("%s still sends the text when an attachment's fetchData rejects", async (method) => {
+        const { adapter, sent, sendTo, threadId } = createAdapterWithMocks();
+        const fetchData = vi.fn(() => Promise.reject(new Error("403")));
+
+        await send(adapter, method, threadId, {
+          markdown: "Report ready",
+          attachments: [
+            {
+              type: "image",
+              fetchData,
+              url: "https://private.example.com/shot.png?token=secret",
+              name: "shot.png",
+            },
+          ],
+        });
+
+        expect(fetchData).toHaveBeenCalledTimes(1);
+        expect(sendTo).toHaveBeenCalledTimes(1);
+        expect(textOf(sent())).toBe("Report ready");
+        expect(sent().attachments).toBeUndefined();
+        expect(warn).toHaveBeenCalledTimes(1);
+        expect(warn).toHaveBeenCalledWith(SKIP_WARNING, {
+          count: 1,
+          skipped: [{ index: 0, name: "shot.png", reason: "fetch-failed" }],
+        });
+        expect(JSON.stringify(warn.mock.calls)).not.toContain("secret");
+      });
+
+      it("still sends the text and the images when other attachments can't be sent", async () => {
+        const { adapter, sent, sendTo, threadId } = createAdapterWithMocks();
+
+        await adapter.postMessage(threadId, {
+          markdown: "Mixed",
+          attachments: [
+            {
+              type: "file",
+              url: "https://example.com/report.pdf",
+              mimeType: "application/pdf",
+              name: "report.pdf",
+            },
+            { type: "video", url: "https://example.com/clip.mp4" },
+            { type: "audio", url: "https://example.com/clip.mp3" },
+            {
+              type: "image",
+              url: "https://example.com/fake.png",
+              mimeType: "application/pdf",
+              name: "fake.png",
+            },
+            {
+              type: "image",
+              data: Buffer.alloc(1024 * 1024 + 1),
+              mimeType: "image/png",
+              name: "big.png",
+            },
+            { type: "image", url: "HTTPS://Example.com/ok.gif" },
+          ],
+        });
+
+        expect(sendTo).toHaveBeenCalledTimes(1);
+        expect(textOf(sent())).toBe("Mixed");
+        expect(sent().attachments).toEqual([
+          {
+            contentType: "image/gif",
+            contentUrl: "HTTPS://Example.com/ok.gif",
+            name: undefined,
+          },
+        ]);
+        expect(warn).toHaveBeenCalledTimes(1);
+        expect(warn).toHaveBeenCalledWith(SKIP_WARNING, {
+          count: 5,
+          skipped: [
+            { index: 0, name: "report.pdf", reason: "unsupported-type" },
+            { index: 1, name: undefined, reason: "unsupported-type" },
+            { index: 2, name: undefined, reason: "unsupported-type" },
+            { index: 3, name: "fake.png", reason: "unsupported-type" },
+            { index: 4, name: "big.png", reason: "too-large" },
+          ],
+        });
+      });
+
+      it.each(
+        SEND_METHODS
+      )("%s leaves zero-length image bytes off the activity and still sends the text", async (method) => {
+        const { adapter, sent, sendTo, threadId } = createAdapterWithMocks();
+        const fetchData = vi.fn(async () => Buffer.alloc(0));
+
+        await send(adapter, method, threadId, {
+          markdown: "Empty images",
+          attachments: [
+            {
+              type: "image",
+              data: Buffer.alloc(0),
+              mimeType: "image/png",
+              name: "empty-data.png",
+            },
+            {
+              type: "image",
+              fetchData,
+              url: "https://example.com/public.png",
+              name: "empty-fetch.png",
+            },
+          ],
+        });
+
+        expect(fetchData).toHaveBeenCalledTimes(1);
+        expect(sendTo).toHaveBeenCalledTimes(1);
+        expect(textOf(sent())).toBe("Empty images");
+        expect(sent().attachments).toBeUndefined();
+        expect(warn).toHaveBeenCalledTimes(1);
+        expect(warn).toHaveBeenCalledWith(SKIP_WARNING, {
+          count: 2,
+          skipped: [
+            { index: 0, name: "empty-data.png", reason: "no-content" },
+            { index: 1, name: "empty-fetch.png", reason: "no-content" },
+          ],
+        });
+      });
+
+      it("skips an attachment whose fetchData resolves to undefined and sends the rest", async () => {
+        const { adapter, sent, sendTo, threadId } = createAdapterWithMocks();
+        const fetchData = vi.fn(async () => undefined as unknown as Buffer);
+
+        await adapter.postMessage(threadId, {
+          markdown: "Nothing fetched",
+          attachments: [
+            {
+              type: "image",
+              fetchData,
+              url: "https://example.com/public.png",
+              name: "missing.png",
+            },
+            { type: "image", url: "https://example.com/kept.jpg" },
+          ],
+        });
+
+        expect(fetchData).toHaveBeenCalledTimes(1);
+        expect(sendTo).toHaveBeenCalledTimes(1);
+        expect(sent().attachments).toEqual([
+          {
+            contentType: "image/jpeg",
+            contentUrl: "https://example.com/kept.jpg",
+            name: undefined,
+          },
+        ]);
+        expect(warn).toHaveBeenCalledTimes(1);
+        expect(warn).toHaveBeenCalledWith(SKIP_WARNING, {
+          count: 1,
+          skipped: [{ index: 0, name: "missing.png", reason: "fetch-failed" }],
+        });
+      });
+
+      it.each(
+        SEND_METHODS
+      )("%s sends files, then the kept attachments in order, and reports skipped ones by their position", async (method) => {
+        const { adapter, sent, sendTo, threadId } = createAdapterWithMocks();
+
+        await send(adapter, method, threadId, {
+          markdown: "Ordered",
+          files: [
+            {
+              data: Buffer.from("one"),
+              filename: "one.txt",
+              mimeType: "text/plain",
+            },
+            {
+              data: Buffer.from("two"),
+              filename: "two.csv",
+              mimeType: "text/csv",
+            },
+          ],
+          attachments: [
+            { type: "image", url: "https://example.com/first.gif" },
+            {
+              type: "video",
+              url: "https://example.com/clip.mp4",
+              name: "clip.mp4",
+            },
+            { type: "image", data: JPEG_BYTES, name: "third.jpg" },
+            {
+              type: "image",
+              url: "http://example.com/fourth.png",
+              name: "fourth.png",
+            },
+            { type: "image", url: "https://example.com/fifth.png" },
+          ],
+        });
+
+        expect(sendTo).toHaveBeenCalledTimes(1);
+        expect(textOf(sent())).toBe("Ordered");
+        expect(sent().attachments).toEqual([
+          {
+            contentType: "text/plain",
+            contentUrl: "data:text/plain;base64,b25l",
+            name: "one.txt",
+          },
+          {
+            contentType: "text/csv",
+            contentUrl: "data:text/csv;base64,dHdv",
+            name: "two.csv",
+          },
+          {
+            contentType: "image/gif",
+            contentUrl: "https://example.com/first.gif",
+            name: undefined,
+          },
+          {
+            contentType: "image/jpeg",
+            contentUrl: `data:image/jpeg;base64,${JPEG_BYTES.toString("base64")}`,
+            name: "third.jpg",
+          },
+          {
+            contentType: "image/png",
+            contentUrl: "https://example.com/fifth.png",
+            name: undefined,
+          },
+        ]);
+        expect(warn).toHaveBeenCalledTimes(1);
+        expect(warn).toHaveBeenCalledWith(SKIP_WARNING, {
+          count: 2,
+          skipped: [
+            { index: 1, name: "clip.mp4", reason: "unsupported-type" },
+            { index: 3, name: "fourth.png", reason: "not-https" },
+          ],
+        });
+      });
+
+      it("sends files before attachments", async () => {
+        const { adapter, sent, sendTo, threadId } = createAdapterWithMocks();
+
+        await adapter.postMessage(threadId, {
+          markdown: "Both",
+          files: [
+            {
+              data: Buffer.from("log"),
+              filename: "log.txt",
+              mimeType: "text/plain",
+            },
+          ],
+          attachments: [{ type: "image", url: "https://example.com/a.png" }],
+        });
+
+        expect(sendTo).toHaveBeenCalledTimes(1);
+        expect(sent().attachments).toEqual([
+          {
+            contentType: "text/plain",
+            contentUrl: `data:text/plain;base64,${Buffer.from("log").toString("base64")}`,
+            name: "log.txt",
+          },
+          {
+            contentType: "image/png",
+            contentUrl: "https://example.com/a.png",
+            name: undefined,
+          },
+        ]);
+        expect(warn).not.toHaveBeenCalled();
+      });
+
+      it("doesn't warn when a message has no attachments", async () => {
+        const { adapter, sent, sendTo, threadId } = createAdapterWithMocks();
+
+        await adapter.postMessage(threadId, { markdown: "Plain" });
+
+        expect(sendTo).toHaveBeenCalledTimes(1);
+        expect(sent().attachments).toBeUndefined();
+        expect(warn).not.toHaveBeenCalled();
+      });
+
+      it.each([
+        [
+          "postMessage",
+          "Teams API: send (message)",
+          {
+            conversationId: "19:abc@thread.tacv2",
+            textLength: 7,
+            attachmentCount: 2,
+          },
+        ],
+        [
+          "postEphemeral",
+          "Teams API: send (targeted message)",
+          {
+            conversationId: "19:abc@thread.tacv2",
+            userId: "29:target-user",
+            textLength: 7,
+            attachmentCount: 2,
+          },
+        ],
+      ] as const)("%s logs the number of attachments as attachmentCount", async (method, logMessage, expected) => {
+        const { adapter, threadId } = createAdapterWithMocks();
+
+        await send(adapter, method, threadId, {
+          markdown: "Counted",
+          files: [{ data: Buffer.from("log"), filename: "log.txt" }],
+          attachments: [{ type: "image", url: "https://example.com/a.png" }],
+        });
+
+        const fields = debug.mock.calls.find(
+          ([message]) => message === logMessage
+        )?.[1];
+        expect(fields).toEqual(expected);
+      });
+
+      it.each([
+        [
+          "postMessage",
+          "Teams API: send (adaptive card)",
+          { conversationId: "19:abc@thread.tacv2", attachmentCount: 1 },
+        ],
+        [
+          "postEphemeral",
+          "Teams API: send (targeted adaptive card)",
+          {
+            conversationId: "19:abc@thread.tacv2",
+            userId: "29:target-user",
+            attachmentCount: 1,
+          },
+        ],
+      ] as const)("%s logs a card's files as attachmentCount", async (method, logMessage, expected) => {
+        const { adapter, threadId } = createAdapterWithMocks();
+
+        await send(adapter, method, threadId, {
+          adaptiveCard,
+          files: [{ data: Buffer.from("log"), filename: "log.txt" }],
+        });
+
+        const fields = debug.mock.calls.find(
+          ([message]) => message === logMessage
+        )?.[1];
+        expect(fields).toEqual(expected);
+      });
+
+      describe("on a card message", () => {
+        const attachments = [
+          {
+            type: "image" as const,
+            url: "https://example.com/a.png",
+            name: "a.png",
+          },
+          { type: "image" as const, data: PNG_BYTES },
+        ];
+        const droppedWarning = {
+          count: 2,
+          skipped: [
+            { index: 0, name: "a.png", reason: "card-message" },
+            { index: 1, name: undefined, reason: "card-message" },
+          ],
+        };
+
+        it.each(
+          SEND_METHODS
+        )("%s sends a Chat SDK card without them and warns", async (method) => {
+          const { adapter, sent, sendTo, threadId } = createAdapterWithMocks();
+          const card = { type: "card" as const, title: "Repro", children: [] };
+
+          await send(adapter, method, threadId, {
+            card,
+            attachments,
+          } as unknown as TeamsPostableMessage);
+
+          expect(sendTo).toHaveBeenCalledTimes(1);
+          expect(sent().attachments).toEqual([
+            {
+              contentType: CARD_CONTENT_TYPE,
+              content: cardToAdaptiveCard(card),
+            },
+          ]);
+          expect(warn).toHaveBeenCalledTimes(1);
+          expect(warn).toHaveBeenCalledWith(SKIP_WARNING, droppedWarning);
+        });
+
+        it.each(
+          SEND_METHODS
+        )("%s sends a raw Adaptive Card without them and warns", async (method) => {
+          const { adapter, sent, sendTo, threadId } = createAdapterWithMocks();
+
+          await send(adapter, method, threadId, {
+            adaptiveCard,
+            attachments,
+          } as unknown as TeamsPostableMessage);
+
+          expect(sendTo).toHaveBeenCalledTimes(1);
+          expect(sent().attachments).toEqual([
+            { contentType: CARD_CONTENT_TYPE, content: adaptiveCard },
+          ]);
+          expect(warn).toHaveBeenCalledTimes(1);
+          expect(warn).toHaveBeenCalledWith(SKIP_WARNING, droppedWarning);
+        });
+
+        it.each(
+          SEND_METHODS
+        )("%s sends a card with its files but not its attachments, and never resolves their bytes", async (method) => {
+          const { adapter, sent, sendTo, threadId } = createAdapterWithMocks();
+          const fetchData = vi.fn(async () => PNG_BYTES);
+
+          await send(adapter, method, threadId, {
+            adaptiveCard,
+            files: [
+              {
+                data: Buffer.from("log"),
+                filename: "log.txt",
+                mimeType: "text/plain",
+              },
+            ],
+            attachments: [
+              { type: "image", url: "https://example.com/a.png" },
+              { type: "image", fetchData, name: "fetched.png" },
+            ],
+          } as unknown as TeamsPostableMessage);
+
+          expect(fetchData).not.toHaveBeenCalled();
+          expect(sendTo).toHaveBeenCalledTimes(1);
+          expect(sent().attachments).toEqual([
+            { contentType: CARD_CONTENT_TYPE, content: adaptiveCard },
+            {
+              contentType: "text/plain",
+              contentUrl: "data:text/plain;base64,bG9n",
+              name: "log.txt",
+            },
+          ]);
+          expect(warn).toHaveBeenCalledTimes(1);
+          expect(warn).toHaveBeenCalledWith(SKIP_WARNING, {
+            count: 2,
+            skipped: [
+              { index: 0, name: undefined, reason: "card-message" },
+              { index: 1, name: "fetched.png", reason: "card-message" },
+            ],
+          });
+        });
+
+        it.each(
+          SEND_METHODS
+        )("%s sends a Chat SDK card with its files but not its attachments", async (method) => {
+          const { adapter, sent, sendTo, threadId } = createAdapterWithMocks();
+
+          await send(adapter, method, threadId, {
+            card: { type: "card" as const, title: "Repro", children: [] },
+            files: [
+              {
+                data: Buffer.from("log"),
+                filename: "log.txt",
+                mimeType: "text/plain",
+              },
+            ],
+            attachments: [
+              {
+                type: "image",
+                url: "https://example.com/a.png",
+                name: "a.png",
+              },
+            ],
+          } as unknown as TeamsPostableMessage);
+
+          expect(sendTo).toHaveBeenCalledTimes(1);
+          expect(
+            (sent().attachments ?? []).map(
+              (attachment) => attachment.contentType
+            )
+          ).toEqual([CARD_CONTENT_TYPE, "text/plain"]);
+          expect(sent().attachments?.[1]).toEqual({
+            contentType: "text/plain",
+            contentUrl: "data:text/plain;base64,bG9n",
+            name: "log.txt",
+          });
+          expect(warn).toHaveBeenCalledTimes(1);
+          expect(warn).toHaveBeenCalledWith(SKIP_WARNING, {
+            count: 1,
+            skipped: [{ index: 0, name: "a.png", reason: "card-message" }],
+          });
+        });
+
+        it("edits to a card without them and warns", async () => {
+          const { adapter, threadId, update, updated } =
+            createAdapterWithMocks();
+
+          await adapter.editMessage(threadId, "card-msg-1", {
+            adaptiveCard,
+            attachments,
+          } as unknown as TeamsPostableMessage);
+
+          expect(update).toHaveBeenCalledTimes(1);
+          expect(updated().attachments).toEqual([
+            { contentType: CARD_CONTENT_TYPE, content: adaptiveCard },
+          ]);
+          expect(warn).toHaveBeenCalledTimes(1);
+          expect(warn).toHaveBeenCalledWith(SKIP_WARNING, droppedWarning);
+        });
+
+        it("doesn't warn for a card with no attachments", async () => {
+          const { adapter, sendTo, threadId } = createAdapterWithMocks();
+
+          await adapter.postMessage(threadId, { adaptiveCard });
+
+          expect(sendTo).toHaveBeenCalledTimes(1);
+          expect(warn).not.toHaveBeenCalled();
+        });
+      });
+
+      describe("when editing a text message", () => {
+        it("sends the attachments that go by URL again", async () => {
+          const { adapter, threadId, update, updated } =
+            createAdapterWithMocks();
+
+          await adapter.editMessage(threadId, "card-msg-1", {
+            markdown: "Edited",
+            attachments: [
+              {
+                type: "image",
+                url: "https://example.com/a.jpg?v=2",
+                name: "a.jpg",
+              },
+              { type: "image", url: "HTTPS://Example.com/b" },
+            ],
+          });
+
+          expect(update).toHaveBeenCalledTimes(1);
+          expect(update.mock.calls[0]?.[0]).toBe("card-msg-1");
+          expect(textOf(updated())).toBe("Edited");
+          expect(updated().attachments).toEqual([
+            {
+              contentType: "image/jpeg",
+              contentUrl: "https://example.com/a.jpg?v=2",
+              name: "a.jpg",
+            },
+            {
+              contentType: "image/png",
+              contentUrl: "HTTPS://Example.com/b",
+              name: undefined,
+            },
+          ]);
+          expect(warn).not.toHaveBeenCalled();
+        });
+
+        it("never resolves bytes or uploads files, and sets no attachments when none go by URL", async () => {
+          const { adapter, threadId, update, updated } =
+            createAdapterWithMocks();
+          const fetchData = vi.fn(async () => PNG_BYTES);
+
+          await adapter.editMessage(threadId, "card-msg-1", {
+            markdown: "Edited",
+            files: [{ data: Buffer.from("log"), filename: "log.txt" }],
+            attachments: [
+              {
+                type: "image",
+                fetchData,
+                url: "https://example.com/a.png",
+                name: "a.png",
+              },
+              {
+                type: "image",
+                data: PNG_BYTES,
+                url: "https://example.com/b.png",
+                name: "b.png",
+              },
+              {
+                type: "file",
+                url: "https://example.com/c.pdf",
+                mimeType: "application/pdf",
+                name: "c.pdf",
+              },
+              { type: "image", url: "http://example.com/d.png", name: "d.png" },
+            ],
+          });
+
+          expect(fetchData).not.toHaveBeenCalled();
+          expect(update).toHaveBeenCalledTimes(1);
+          expect(textOf(updated())).toBe("Edited");
+          expect(updated().attachments).toBeUndefined();
+          expect(warn).toHaveBeenCalledTimes(1);
+          expect(warn).toHaveBeenCalledWith(SKIP_WARNING, {
+            count: 4,
+            skipped: [
+              { index: 0, name: "a.png", reason: "edit-no-upload" },
+              { index: 1, name: "b.png", reason: "edit-no-upload" },
+              { index: 2, name: "c.pdf", reason: "unsupported-type" },
+              { index: 3, name: "d.png", reason: "not-https" },
+            ],
+          });
+        });
+
+        it("keeps the URL attachments next to ones it can't upload", async () => {
+          const { adapter, threadId, update, updated } =
+            createAdapterWithMocks();
+          const fetchData = vi.fn(async () => PNG_BYTES);
+
+          await adapter.editMessage(threadId, "card-msg-1", {
+            markdown: "Edited",
+            attachments: [
+              { type: "image", fetchData, name: "upload.png" },
+              { type: "image", url: "https://example.com/keep.gif" },
+            ],
+          });
+
+          expect(fetchData).not.toHaveBeenCalled();
+          expect(update).toHaveBeenCalledTimes(1);
+          expect(updated().attachments).toEqual([
+            {
+              contentType: "image/gif",
+              contentUrl: "https://example.com/keep.gif",
+              name: undefined,
+            },
+          ]);
+          expect(warn).toHaveBeenCalledTimes(1);
+          expect(warn).toHaveBeenCalledWith(SKIP_WARNING, {
+            count: 1,
+            skipped: [
+              { index: 0, name: "upload.png", reason: "edit-no-upload" },
+            ],
+          });
+        });
+
+        it("sets no attachments and doesn't warn for a plain text edit", async () => {
+          const { adapter, threadId, update, updated } =
+            createAdapterWithMocks();
+
+          await adapter.editMessage(threadId, "card-msg-1", {
+            markdown: "Edited",
+          });
+
+          expect(update).toHaveBeenCalledTimes(1);
+          expect(updated().attachments).toBeUndefined();
+          expect(warn).not.toHaveBeenCalled();
         });
       });
     });
