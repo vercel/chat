@@ -95,6 +95,7 @@ oauth_config:
       - mpim:read
       - reactions:read
       - reactions:write
+      - usergroups:read
       - users:read
 
 settings:
@@ -806,6 +807,14 @@ Charts that violate Slack's constraints (50-character title, 12 segments/series,
 Bulleted and numbered lists created in Slack's composer become nested mdast `list` nodes in `message.formatted`. In `message.text`, list items are separated by newlines without bullet markers. Literal list text such as `---` and `[x]` stays literal, and paragraphs in subsequent rich text blocks stay outside the list.
 
 If a message with a list contains unsupported rich text elements, such as a `message_mention`, the adapter uses Slack's `event.text` fallback for the body. This preserves the fallback's content, but list structure is unavailable for those messages.
+
+### User group mentions
+
+Slack sends a user group mention as `<!subteam^S0123456789>` without a name. The adapter looks up the group's handle with `usergroups.list` and renders it in `message.text` as `@handle`, the same way it resolves `<@U…>` user and `<#C…>` channel mentions. Slack has no single-group lookup, so the adapter lists the workspace's groups, including disabled ones, and caches every handle in one state entry. The entry is scoped to the installation, and to the workspace on an org-wide install. Messages handled by the same process while a list call is in flight share that call.
+
+The adapter lists the groups again after 24 hours. To pick up a renamed or new group sooner, subscribe your app to the `subteam_created` and `subteam_updated` events, which make the adapter drop its cached handles. A mention of a group the last list didn't return triggers a new list call at most once every five minutes.
+
+This lookup needs the `usergroups:read` scope. If the scope is missing or the call fails, the adapter logs a warning, keeps any handles it already cached, and waits five minutes before calling again. A mention it can't resolve stays as `@S0123456789`. Mentions that already carry a label, such as `<!subteam^S0123456789|@devs>`, keep that label and make no API call.
 
 ## Inbound attachments
 
