@@ -280,6 +280,23 @@ describe("fromReactElement - React JSX mode", () => {
   });
 
   describe("Section conversion", () => {
+    it("preserves portable layout hints in React elements", () => {
+      const result = fromReactElement(
+        createReactElement(Section, {
+          layout: "carousel",
+          children: [
+            createReactElement(Section, {
+              children: createReactElement(Text, { children: "Item" }),
+            }),
+          ],
+        })
+      );
+      expect(result).toMatchObject({
+        type: "section",
+        layout: "carousel",
+        children: [{ type: "section" }],
+      });
+    });
     it("converts Section with children", () => {
       const reactSection = createReactElement(Section, {
         children: [

@@ -222,6 +222,25 @@ describe("Card Builder Functions", () => {
   });
 
   describe("Section", () => {
+    it("keeps layout hints without changing the default section shape", () => {
+      const children = [Section([Text("One")]), Section([Text("Two")])];
+      expect(Section(children)).toEqual({ type: "section", children });
+      expect(Section(children, { layout: "columns" })).toEqual({
+        type: "section",
+        children,
+        layout: "columns",
+      });
+      expect(
+        cardToFallbackText(
+          Card({ children: [Section(children, { layout: "carousel" })] })
+        )
+      ).toContain("One");
+      expect(
+        cardToFallbackText(
+          Card({ children: [Section(children, { layout: "carousel" })] })
+        )
+      ).toContain("Two");
+    });
     it("creates a section container", () => {
       const section = Section([Text("Content"), Divider()]);
       expect(section.type).toBe("section");

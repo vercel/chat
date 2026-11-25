@@ -59,6 +59,7 @@ import {
   type LinkElement,
   Section,
   type SectionElement,
+  type SectionOptions,
   Table,
   type TableElement,
   type TableOptions,
@@ -171,6 +172,9 @@ export interface ContainerProps {
   children?: unknown;
 }
 
+/** Props for a section with an optional portable layout hint. */
+export interface SectionProps extends ContainerProps, SectionOptions {}
+
 /** Props for Divider component (no props) */
 export type DividerProps = Record<string, never>;
 
@@ -274,7 +278,8 @@ export type CardJSXProps =
   | ExternalSelectProps
   | SelectOptionProps
   | TableProps
-  | ChartProps;
+  | ChartProps
+  | SectionProps;
 
 /** Component function type with proper overloads */
 type CardComponentFunction =
@@ -381,8 +386,8 @@ export interface DividerComponent {
 }
 
 export interface SectionComponent {
-  (children: CardChild[]): SectionElement;
-  (props: ContainerProps): ChatElement;
+  (children: CardChild[], options?: SectionOptions): SectionElement;
+  (props: SectionProps): ChatElement;
 }
 
 export interface ActionsComponent {
@@ -678,7 +683,9 @@ function resolveJSXElement(element: JSXElement): AnyCardElement {
 
   if (type === Section) {
     // Section takes array as first argument
-    return Section(processedChildren as CardChild[]);
+    return Section(processedChildren as CardChild[], {
+      layout: "layout" in props ? props.layout : undefined,
+    });
   }
 
   if (type === Actions) {

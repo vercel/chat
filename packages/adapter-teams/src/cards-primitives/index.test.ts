@@ -467,3 +467,69 @@ describe("Teams card primitives tables", () => {
     ).toBe("Feedback\n\nNotes");
   });
 });
+
+describe("portable column primitives", () => {
+  it("preserves inline actions and their input controls", () => {
+    const rendered = cardToAdaptiveCard({
+      type: "card",
+      children: [
+        {
+          type: "section",
+          layout: "columns",
+          children: [
+            {
+              type: "section",
+              children: [
+                { type: "text", content: "Choose" },
+                {
+                  type: "actions",
+                  children: [
+                    {
+                      type: "select",
+                      id: "choice",
+                      label: "Choice",
+                      options: [{ label: "One", value: "one" }],
+                    },
+                    {
+                      type: "button",
+                      id: "submit",
+                      label: "Submit",
+                      value: "first",
+                    },
+                  ],
+                },
+                { type: "text", content: "After" },
+              ],
+            },
+          ],
+        },
+      ],
+    });
+    expect(rendered.body).toMatchObject([
+      {
+        type: "ColumnSet",
+        columns: [
+          {
+            type: "Column",
+            width: "stretch",
+            items: [
+              { type: "TextBlock", text: "Choose" },
+              { type: "Input.ChoiceSet", id: "choice" },
+              {
+                type: "ActionSet",
+                actions: [
+                  {
+                    type: "Action.Submit",
+                    data: { actionId: "submit", value: "first" },
+                  },
+                ],
+              },
+              { type: "TextBlock", text: "After" },
+            ],
+          },
+        ],
+      },
+    ]);
+    expect(rendered.actions).toBeUndefined();
+  });
+});

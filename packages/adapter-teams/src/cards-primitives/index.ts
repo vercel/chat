@@ -219,12 +219,38 @@ function convertSelect(
     isRequired: !(select.optional ?? false),
     label: select.label,
     ...(select.placeholder ? { placeholder: select.placeholder } : {}),
+    ...(select.initialOption === undefined
+      ? {}
+      : { value: select.initialOption }),
     style,
     type: "Input.ChoiceSet",
   };
 }
 
 function convertSection(section: TeamsSectionElement): ConvertedChild {
+  const columns = section.children.filter(
+    (child): child is TeamsSectionElement => child.type === "section"
+  );
+  if (
+    section.layout === "columns" &&
+    columns.length > 0 &&
+    columns.length === section.children.length &&
+    columns.every((child) => child.children.length > 0)
+  ) {
+    return {
+      actions: [],
+      body: [
+        {
+          type: "ColumnSet",
+          columns: columns.map((child) => ({
+            type: "Column",
+            width: "stretch",
+            items: convertColumnItems(child),
+          })),
+        },
+      ],
+    };
+  }
   const body: unknown[] = [];
   const actions: unknown[] = [];
   for (const child of section.children) {
@@ -292,6 +318,22 @@ function tableColumnCount(headers: string[], rows: string[][]): number {
 
 // Returns an array so "no columns means nothing to draw" needs no null check at
 // the call site, matching what the empty ASCII fallback says.
+function convertColumnItems(section: TeamsSectionElement): unknown[] {
+  const items: unknown[] = [];
+  for (const child of section.children) {
+    if (child.type === "section" && child.layout !== "columns") {
+      items.push(...convertColumnItems(child));
+      continue;
+    }
+    const converted = convertChild(child);
+    items.push(...converted.body);
+    if (converted.actions.length > 0) {
+      items.push({ type: "ActionSet", actions: converted.actions });
+    }
+  }
+  return items;
+}
+
 function convertTable(table: TeamsTableElement): unknown[] {
   const columnCount = tableColumnCount(table.headers, table.rows);
   if (columnCount === 0) {

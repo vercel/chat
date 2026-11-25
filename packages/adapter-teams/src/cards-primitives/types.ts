@@ -96,6 +96,7 @@ export interface TeamsSelectOptionElement {
 
 export interface TeamsSelectElement {
   id: string;
+  initialOption?: string;
   label: string;
   optional?: boolean;
   options: TeamsSelectOptionElement[];
@@ -110,6 +111,7 @@ export interface TeamsRadioSelectElement
 
 export interface TeamsSectionElement {
   children: TeamsCardChild[];
+  layout?: "stack" | "columns" | "carousel";
   type: "section";
 }
 
