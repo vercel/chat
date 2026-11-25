@@ -54,7 +54,7 @@ export const telegram = {
     addReactions: "yes",
     removeReactions: "yes",
     typingIndicator: "yes",
-    messageUpdatedEvents: "no",
+    messageUpdatedEvents: "yes",
     messageDeletedEvents: "no",
     directMessages: "yes",
     ephemeralMessages: "no",

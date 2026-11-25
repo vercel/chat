@@ -333,6 +333,12 @@ Earlier versions gave each reply thread in a regular supergroup its own `telegra
 Stop posting to stored `telegram:{chatId}:{n}` IDs from a regular supergroup. The adapter still sends `message_thread_id` for them, and the message it returns keeps the stored ID, while replies to that message arrive on `telegram:{chatId}`.
 </Callout>
 
+## Message edits
+
+`onMessageUpdated` fires for `edited_message`, `edited_channel_post`, and, in Business mode, `edited_business_message` updates. Telegram sends only the new version, so `previousMessage` is `undefined`. The updated message keeps the original message ID, `isMention` is worked out from the edited message like a new one, and `metadata.editedAt` is Telegram's `edit_date`. Edits never reach `onNewMessage`, `onNewMention`, `onSubscribedMessage`, or `onSlashCommand`, and they don't start a typing indicator.
+
+Telegram reports an edited album caption as an edit of that one item, so its ID is the item's message ID rather than the ID of the combined album message.
+
 ## Business mode
 
 Telegram [Connected Business Bots](https://core.telegram.org/api/bots/connected-business-bots) let a bot reply to customer messages on behalf of a business account. Enable it with `businessMode: true`:
