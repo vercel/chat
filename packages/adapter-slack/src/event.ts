@@ -358,8 +358,8 @@ export function attachmentContent(
       // link node and the URL survives into the normalized message.
       push(
         title
-          ? `<${attachment.title_link}|${escapeSlackText(title)}>`
-          : `<${attachment.title_link}>`,
+          ? `<${escapeSlackText(attachment.title_link)}|${escapeSlackText(title)}>`
+          : `<${escapeSlackText(attachment.title_link)}>`,
         false
       );
     } else {

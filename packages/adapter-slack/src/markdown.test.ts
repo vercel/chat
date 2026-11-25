@@ -5,97 +5,306 @@ import { SlackFormatConverter } from "./markdown";
 describe("SlackFormatConverter", () => {
   const converter = new SlackFormatConverter();
 
-  describe("incoming fallback links", () => {
+  describe("incoming fallback", () => {
+    const OVER_BUDGET = "*".repeat(2049);
+    const text = (value: string) => ({ type: "text", value });
+    const link = (url: string, label: string) => ({
+      type: "link",
+      url,
+      children: [text(label)],
+    });
+    const tree = (...children: unknown[]) => ({
+      type: "root",
+      children: [{ type: "paragraph", children }],
+    });
+
     it.each([
-      "*".repeat(2049),
+      OVER_BUDGET,
       "]".repeat(129),
-      "a".repeat(16385),
-      "<".repeat(20000),
+      "a".repeat(16_385),
+      "<".repeat(20_000),
       "<unfinished\n".repeat(2000),
-    ])("preserves explicit links without parsing over-budget input %#", (prefix) => {
+    ])("keeps explicit links without parsing over-budget input %#", (prefix) => {
       const parsing = new SlackFormatConverter();
       const parse = vi.spyOn(parsing, "toAst");
       const result = parsing.parseIncoming(
-        `${prefix} <https://example.com/a?a=1&amp;b=2|領収書>`
+        `${prefix} *x* <https://example.com/a?a=1&amp;b=2|領収書> *y*`
       );
       expect(parse).not.toHaveBeenCalled();
-      expect(result.text).toBe(`${prefix} 領収書`);
-      expect(result.formatted).toEqual({
-        type: "root",
+      expect(result.text).toBe(`${prefix} *x* 領収書 *y*`);
+      expect(result.formatted).toEqual(
+        tree(
+          text(`${prefix} *x* `),
+          link("https://example.com/a?a=1&b=2", "領収書"),
+          text(" *y*")
+        )
+      );
+      expect(toPlainText(result.formatted)).toBe(result.text);
+    });
+
+    it("parses up to the emphasis limit and falls back one marker past it", () => {
+      const parsing = new SlackFormatConverter();
+      const parse = vi.spyOn(parsing, "toAst");
+      const atLimit = `${"*".repeat(2048)} <https://example.com|receipt>`;
+      parsing.parseIncoming(atLimit);
+      expect(parse).toHaveBeenCalledOnce();
+      expect(parse).toHaveBeenCalledWith(atLimit);
+
+      parse.mockClear();
+      const result = parsing.parseIncoming(`*${atLimit}`);
+      expect(parse).not.toHaveBeenCalled();
+      expect(result.text).toBe(`${OVER_BUDGET} receipt`);
+      expect(result.formatted).toEqual(
+        tree(text(`${OVER_BUDGET} `), link("https://example.com", "receipt"))
+      );
+    });
+
+    it("keeps links when parsing overflows the stack", () => {
+      const parsing = new SlackFormatConverter();
+      const parse = vi.spyOn(parsing, "toAst").mockImplementation(() => {
+        throw new RangeError("stack");
+      });
+      const result = parsing.parseIncoming("*x* <https://example.com|receipt>");
+      expect(parse).toHaveBeenCalledOnce();
+      expect(result.text).toBe("*x* receipt");
+      expect(result.formatted).toEqual(
+        tree(text("*x* "), link("https://example.com", "receipt"))
+      );
+    });
+
+    it("renders labels, mentions, and entities and keeps unknown tokens as typed", () => {
+      const result = converter.parseIncoming(
+        `${OVER_BUDGET} *x* <@U_FAKE|sam> <#C_FAKE|team> <!here> &amp; <https://example.com|A &amp; B> <mailto:test@example.com> <tel:+15550000000|call> <javascript:alert(1)|bad> &lt;https://example.com&gt;`
+      );
+      expect(result.text).toBe(
+        `${OVER_BUDGET} *x* @sam #team (C_FAKE) @here & A & B test@example.com call <javascript:alert(1)|bad> <https://example.com>`
+      );
+      expect(result.formatted).toEqual(
+        tree(
+          text(`${OVER_BUDGET} *x* @sam #team (C_FAKE) @here & `),
+          link("https://example.com", "A & B"),
+          text(" "),
+          link("mailto:test@example.com", "test@example.com"),
+          text(" "),
+          link("tel:+15550000000", "call"),
+          text(" <javascript:alert(1)|bad> <https://example.com>")
+        )
+      );
+      expect(toPlainText(result.formatted)).toBe(result.text);
+    });
+
+    it("keeps links in parts when the combined message exceeds the budget", () => {
+      const part = "*x* <https://example.com|receipt>";
+      const parse = converter.incomingPartsParser([OVER_BUDGET, part]);
+      expect(parse(part)).toEqual(
+        tree(text("*x* "), link("https://example.com", "receipt"))
+      );
+      expect(parse(" ")).toEqual({ type: "root", children: [] });
+
+      const [paragraph] = converter.incomingPartsParser([part])(part).children;
+      expect(paragraph).toMatchObject({
+        type: "paragraph",
         children: [
+          { type: "strong", children: [text("x")] },
+          text(" "),
           {
-            type: "paragraph",
-            children: [
-              { type: "text", value: `${prefix} ` },
-              {
-                type: "link",
-                url: "https://example.com/a?a=1&b=2",
-                children: [{ type: "text", value: "領収書" }],
-              },
-            ],
+            type: "link",
+            url: "https://example.com",
+            children: [text("receipt")],
           },
         ],
       });
     });
-  });
 
-  it("keeps parsing at the emphasis boundary", () => {
-    const parsing = new SlackFormatConverter();
-    const parse = vi.spyOn(parsing, "toAst");
-    parsing.parseIncoming(`${"*".repeat(2048)} <https://example.com|receipt>`);
-    expect(parse).toHaveBeenCalledOnce();
-  });
-
-  it("preserves links when parsing overflows the stack", () => {
-    const parsing = new SlackFormatConverter();
-    vi.spyOn(parsing, "toAst").mockImplementation(() => {
-      throw new RangeError("stack");
+    it("decodes entities within each text and link segment", () => {
+      const result = converter.parseIncoming(
+        `${OVER_BUDGET} *x* &am<https://example.com|p;> &amp;<https://example.com/b|lt;> *y*`
+      );
+      expect(result.text).toBe(`${OVER_BUDGET} *x* &amp; &lt; *y*`);
+      expect(result.formatted).toEqual(
+        tree(
+          text(`${OVER_BUDGET} *x* &am`),
+          link("https://example.com", "p;"),
+          text(" &"),
+          link("https://example.com/b", "lt;"),
+          text(" *y*")
+        )
+      );
+      expect(toPlainText(result.formatted)).toBe(result.text);
     });
-    expect(
-      parsing.parseIncoming("<https://example.com|receipt>").formatted
-    ).toMatchObject({
-      children: [{ children: [{ type: "link", url: "https://example.com" }] }],
+
+    it("links a reversed link token to its URL with the label as text", () => {
+      const result = converter.parseIncoming(
+        `${OVER_BUDGET} *x* <docs &amp; more|https://example.com/a?a=1&amp;b=2> <|https://example.com> *y*`
+      );
+      expect(result.text).toBe(
+        `${OVER_BUDGET} *x* docs & more <|https://example.com> *y*`
+      );
+      expect(result.formatted).toEqual(
+        tree(
+          text(`${OVER_BUDGET} *x* `),
+          link("https://example.com/a?a=1&b=2", "docs & more"),
+          text(" <|https://example.com> *y*")
+        )
+      );
+      expect(toPlainText(result.formatted)).toBe(result.text);
     });
-  });
 
-  it("preserves fallback labels, mentions, entities, and malformed tokens", () => {
-    const prefix = "*".repeat(2049);
-    const input = `${prefix} <@U_FAKE|sam> <#C_FAKE|team> <!here> &amp; <https://example.com|A &amp; B> <mailto:test@example.com> <tel:+15550000000|call> <https://example.com|> <javascript:alert(1)|bad> &lt;https://example.com&gt;`;
-    const result = converter.parseIncoming(input);
-    expect(result.text).toBe(
-      `${prefix} @sam #team (C_FAKE) @here & A & B test@example.com call <https://example.com|> <javascript:alert(1)|bad> <https://example.com>`
-    );
-    expect(toPlainText(result.formatted)).toBe(result.text);
-    const paragraph = result.formatted.children[0];
-    expect(paragraph?.type).toBe("paragraph");
-    if (paragraph?.type === "paragraph") {
-      expect(
-        paragraph.children
-          .filter((node) => node.type === "link")
-          .map((node) => node.url)
-      ).toEqual([
-        "https://example.com",
-        "mailto:test@example.com",
-        "tel:+15550000000",
-      ]);
-    }
-  });
-
-  it("preserves links in parts when the combined message exceeds the budget", () => {
-    const part = "<https://example.com|receipt>";
-    const parse = converter.incomingPartsParser(["*".repeat(2049), part]);
-    expect(parse(part)).toMatchObject({
-      children: [
-        {
-          children: [
-            {
-              type: "link",
-              url: "https://example.com",
-              children: [{ type: "text", value: "receipt" }],
-            },
-          ],
-        },
+    it.each([
+      [
+        "<https://example.com/a>",
+        "https://example.com/a",
+        "https://example.com/a",
       ],
+      ["<https://example.com/a|b|c>", "https://example.com/a", "b|c"],
+      ["<mailto:a@example.com>", "mailto:a@example.com", "a@example.com"],
+      ["<mailto:a@example.com|b|c>", "mailto:a@example.com", "b|c"],
+      ["<tel:+15550100>", "tel:+15550100", "+15550100"],
+      ["<docs|https://example.com/a>", "https://example.com/a", "docs"],
+    ])("links %s as the parser does", (token, url, label) => {
+      const parsed = converter.parseIncoming(token);
+      expect(parsed.text).toBe(label);
+      expect(parsed.formatted).toMatchObject(
+        tree({ type: "link", url, children: [text(label)] })
+      );
+
+      const result = converter.parseIncoming(`${OVER_BUDGET} *x* ${token} *y*`);
+      expect(result.text).toBe(`${OVER_BUDGET} *x* ${label} *y*`);
+      expect(result.formatted).toEqual(
+        tree(text(`${OVER_BUDGET} *x* `), link(url, label), text(" *y*"))
+      );
+      expect(toPlainText(result.formatted)).toBe(result.text);
+    });
+
+    it.each([
+      ["<mailto:>", "mailto:"],
+      ["<tel:>", "tel:"],
+      ["<https://>", "https://"],
+      ["<https://|x>", "https://|x"],
+      ["<mailto:|x>", "mailto:|x"],
+      ["<https://example.com|>", "https://example.com|"],
+      ["<mailto:a@example.com|>", "mailto:a@example.com|"],
+      ["<http://a b>", "http://a b"],
+      ["<http://a b|c>", "[c](http://a b)"],
+      ["<mailto:a b|c>", "[c](mailto:a b)"],
+      ["<mailto:a b>", "[a b](mailto:a b)"],
+      ["<docs|https://a b>", "[docs](https://a b)"],
+      ["<mailto:|a b>", "<mailto:|a b>"],
+      ["<|https://example.com>", "<|https://example.com>"],
+    ])("renders %s as the parser's text without a link", (token, rendered) => {
+      expect(converter.parseIncoming(token).text).toBe(rendered);
+
+      const result = converter.parseIncoming(`${OVER_BUDGET} *x* ${token} *y*`);
+      expect(result.text).toBe(`${OVER_BUDGET} *x* ${rendered} *y*`);
+      expect(result.formatted).toEqual(
+        tree(text(`${OVER_BUDGET} *x* ${rendered} *y*`))
+      );
+      expect(toPlainText(result.formatted)).toBe(result.text);
+    });
+
+    it.each([
+      ["<!subteam^S_FAKE|>"],
+      ["<@U_FAKE|>"],
+      ["<#C_FAKE|>"],
+      ["<docs|https://example.com|more>"],
+      ["<https://example.com|a\rb>"],
+      ["<https://example.com|a\nb>"],
+    ])("keeps %j as typed", (token) => {
+      const result = converter.parseIncoming(`${OVER_BUDGET} *x* ${token} *y*`);
+      expect(result).toEqual({
+        text: `${OVER_BUDGET} *x* ${token} *y*`,
+        formatted: tree(text(`${OVER_BUDGET} *x* ${token} *y*`)),
+      });
+    });
+
+    it("renders a special mention with an empty label as the parser does", () => {
+      expect(converter.parseIncoming("<!here|>").text).toBe("@here");
+      expect(
+        converter.parseIncoming(`${OVER_BUDGET} *x* <!here|> *y*`)
+      ).toEqual({
+        text: `${OVER_BUDGET} *x* @here *y*`,
+        formatted: tree(text(`${OVER_BUDGET} *x* @here *y*`)),
+      });
+    });
+
+    it("renders a link token with a tab in its destination as text", () => {
+      const result = converter.parseIncoming(
+        `${OVER_BUDGET} *x* <http://a\tb|c> *y*`
+      );
+      expect(result).toEqual({
+        text: `${OVER_BUDGET} *x* [c](http://a\tb) *y*`,
+        formatted: tree(text(`${OVER_BUDGET} *x* [c](http://a\tb) *y*`)),
+      });
+    });
+
+    it("returns one empty text node for empty text", () => {
+      class AlwaysOver extends SlackFormatConverter {
+        protected override exceedsIncomingBudget(): boolean {
+          return true;
+        }
+      }
+      expect(new AlwaysOver().parseIncoming("")).toEqual({
+        text: "",
+        formatted: tree(text("")),
+      });
+    });
+
+    describe("incomingFallbackText override", () => {
+      const input = `${OVER_BUDGET} *x* <@U_FAKE|sam> &amp; <https://example.com/secret|secret receipt>`;
+      const rendered = `${OVER_BUDGET} *x* @sam & secret receipt`;
+
+      it("uses the overridden text and drops link nodes", () => {
+        const received: string[] = [];
+        class Redacting extends SlackFormatConverter {
+          protected override incomingFallbackText(mrkdwn: string): string {
+            const fallback = super.incomingFallbackText(mrkdwn);
+            received.push(fallback);
+            return fallback.replaceAll("secret", "[redacted]");
+          }
+        }
+        const redacted = `${OVER_BUDGET} *x* @sam & [redacted] receipt`;
+        const redacting = new Redacting();
+
+        expect(redacting.parseIncoming(input)).toEqual({
+          text: redacted,
+          formatted: tree(text(redacted)),
+        });
+        expect(redacting.incomingPartsParser([input])(input)).toEqual(
+          tree(text(redacted))
+        );
+        expect(received).toEqual([rendered, rendered]);
+      });
+
+      it("drops link nodes when the override leaves the text unchanged", () => {
+        const calls: string[] = [];
+        class RedactingSource extends SlackFormatConverter {
+          protected override incomingFallbackText(mrkdwn: string): string {
+            calls.push(mrkdwn);
+            return super.incomingFallbackText(
+              mrkdwn.replaceAll("/secret", "/redacted")
+            );
+          }
+        }
+        const source = `${OVER_BUDGET} *x* <https://example.com/secret|receipt>`;
+        const visible = `${OVER_BUDGET} *x* receipt`;
+        expect(converter.parseIncoming(source)).toEqual({
+          text: visible,
+          formatted: tree(
+            text(`${OVER_BUDGET} *x* `),
+            link("https://example.com/secret", "receipt")
+          ),
+        });
+
+        const redacting = new RedactingSource();
+        expect(redacting.parseIncoming(source)).toEqual({
+          text: visible,
+          formatted: tree(text(visible)),
+        });
+        expect(redacting.incomingPartsParser([source])(source)).toEqual(
+          tree(text(visible))
+        );
+        expect(calls).toEqual([source, source]);
+      });
     });
   });
 

@@ -274,7 +274,7 @@ const SLACK_MESSAGE_URL_PATTERN =
   /^https?:\/\/[^/]+\.slack\.com\/archives\/([A-Z0-9]+)\/p(\d+)(?:\?.*)?$/;
 // Bracketed URL in message text; length-bounded to keep the scan linear.
 const BRACKETED_URL_PATTERN = /<(https?:\/\/[^>]{1,2048})>/g;
-const HTTP_URL_PREFIX_PATTERN = /^https?:\/\//;
+const LINK_TARGET_PATTERN = /^(https?:\/\/|mailto:|tel:)(.+)$/;
 
 import type {
   SlackAdapterConfig,
@@ -756,7 +756,9 @@ function literalParagraphs(literal: string): SlackContentNode[] {
     if (children.length > 0) {
       children.push({ type: "break" });
     }
-    children.push(...literalPhrasing(line));
+    for (const child of literalPhrasing(line)) {
+      children.push(child);
+    }
   }
   flush();
   return paragraphs;
@@ -795,17 +797,20 @@ function literalPhrasing(line: string): SlackPhrasing[] {
     const target = pipeIdx === -1 ? inner : inner.slice(0, pipeIdx);
     const label = pipeIdx === -1 ? undefined : inner.slice(pipeIdx + 1);
     const id = target.slice(1);
+    const link = LINK_TARGET_PATTERN.exec(target);
     if (target.startsWith("@") && SLACK_USER_ID_PATTERN.test(id)) {
       plain += `@${label ?? id}`;
     } else if (target.startsWith("#") && SLACK_USER_ID_PATTERN.test(id)) {
       plain += label ? `#${label} (${id})` : `#${id}`;
-    } else if (HTTP_URL_PREFIX_PATTERN.test(target)) {
+    } else if (link) {
+      const [, scheme, rest] = link;
+      const unlabelled = scheme.startsWith("http") ? target : rest;
       flushPlain();
       children.push({
         type: "link",
-        url: target,
+        url: unescapeSlackText(target),
         children: [
-          { type: "text", value: label ? unescapeSlackText(label) : target },
+          { type: "text", value: unescapeSlackText(label || unlabelled) },
         ],
       });
     } else {
