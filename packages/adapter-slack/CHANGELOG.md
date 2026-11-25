@@ -1,5 +1,43 @@
 # @chat-adapter/slack
 
+## 4.46.0
+
+### Minor Changes
+
+- e31cf96: Add `unfurlWaitMs` to the Slack adapter to configure polling for missing link previews. Set it to `0` to read cached previews once without waiting. The default polling budget remains 2 seconds, and polling now stops at the budget instead of up to one 150 ms poll interval past it, measured on a monotonic clock.
+  
+  Link-preview polling also waits less in these cases:
+  
+  - A message edit waits once instead of twice. The previous-message snapshot reads the preview cache a single time.
+  - The bot's own messages skip the preview lookup, because Chat SDK doesn't pass them to handlers.
+  - A link whose preview has a description but no title keeps the data from the event. It no longer waits for the cache or takes cached values over the event's.
+  
+  A failed preview cache read now logs a warning before the adapter delivers the message with the links it has.
+- 324ecc2: Resolve Slack user group mentions to their handles. A message that mentions a group as `<!subteam^S0123456789>` now renders as `@handle` in `message.text`, matching how the adapter already resolves user and channel mentions. Before this change, Slack sent no name with the mention, so it rendered as `@S0123456789`.
+  
+  The adapter reads handles from `usergroups.list`, which returns every group at once, and caches them in the state adapter as one entry per workspace, scoped to the installation. It lists the groups again after 24 hours, or sooner if your app subscribes to the `subteam_created` and `subteam_updated` events. Add the `usergroups:read` scope to your Slack app. Without it, or if the call fails, the mention renders as before and the adapter waits five minutes before calling again. Mentions that already carry a label keep it.
+
+### Patch Changes
+
+- 33fb43e: Preserve explicit Slack link destinations and labels in the incoming message AST when Markdown parsing limits are exceeded. This covers `<url|label>`, `<url>`, `mailto:` and `tel:` tokens, and the reversed `<label|url>` form. Keep the parsing limits and the plain-text display of well-formed tokens. Malformed link tokens, such as `<mailto:>` or `<http://a b|c>`, now render the same text as the Markdown parser. A `SlackFormatConverter` subclass that overrides `incomingFallbackText()` still gets its text in a single text node, without link nodes.
+  
+  Decode entities in link destinations in plain-text attachment fields, and turn `mailto:` and `tel:` tokens in those fields into `link` nodes.
+- 167a6c7: Stop a failed Socket Mode `ack()` from crashing the process. When an event arrived while the socket was closing or reconnecting, `ack()` rejected with `slack_socket_mode_no_reply_received_error`. `SocketModeClient` doesn't await its `slack_event` listeners, so the rejection went unhandled and Node exited, for example in the middle of a graceful shutdown. The adapter now logs `Failed to acknowledge socket mode event` instead. This covers both `mode: "socket"` and `startSocketModeListener()`.
+  
+  What happens to the event depends on its type. An Events API event is skipped, and Slack redelivers it because it was never acknowledged. A slash command is skipped too, and Slack doesn't document redelivery for it, so it can be lost. For an interactive payload the handler has already run, so only its response to Slack is lost, for example modal validation errors. The exception is `startSocketModeListener()` with a `webhookUrl`, which acknowledges every event before forwarding it, so a failed `ack()` there means the event isn't forwarded, whatever its type.
+  
+  An error that escapes an interactive payload's handler is logged as `Error handling socket mode event`, and the payload isn't acknowledged.
+  
+  With `mode: "socket"`, events that arrive after `disconnect()` starts are now ignored, matching `startSocketModeListener()`.
+  
+  A forwarded socket event that fails while being routed now logs `Error routing forwarded socket event` and returns a 500 response. It previously returned 400 `Invalid JSON`. A forwarded request with valid JSON but no `body` or `eventType` returns 400 `Invalid socket event`.
+- Updated dependencies [859d012]
+- Updated dependencies [34d5336]
+- Updated dependencies [566e586]
+- Updated dependencies [4ff668d]
+  - @chat-adapter/shared@4.46.0
+  - chat@4.46.0
+
 ## 4.45.0
 
 ### Patch Changes

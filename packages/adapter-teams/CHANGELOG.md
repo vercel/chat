@@ -1,5 +1,25 @@
 # @chat-adapter/teams
 
+## 4.46.0
+
+### Minor Changes
+
+- 566e586: Add an optional `feedbackButtons` field to `PostableRaw`, `PostableMarkdown`, `PostableAst`, `PostableCard`, `StreamingPlanOptions`, and `StreamOptions`. When it's `true`, adapters that support native feedback buttons per message show them. The Teams adapter shows Teams' thumbs up and thumbs down buttons on new, edited, channel, targeted, and streamed messages, and on raw Adaptive Cards. An edit must set the flag again to keep the buttons. Clicks dispatch through `bot.onAction("message_feedback")` with the value `"positive"` or `"negative"`, the same as the Slack adapter's feedback buttons, and any comment the user typed is in `event.values.feedback`.
+  
+  With post+edit streaming, the buttons are added once the stream finishes, so a partial answer can't be rated. `channel.post()` now consumes a `StreamingPlan` and posts its text as one message with the plan's `aiGenerated` and `feedbackButtons` flags. Before, it posted an empty message and never read the stream.
+  
+  In the Teams adapter, handlers for actions, feedback clicks, reactions, dialogs, installs, and member joins no longer write into the native stream of a DM reply that is still in progress. They post a separate message. `parseTeamsWebhookBody` from `@chat-adapter/teams/webhook` returns the new `message_feedback` kind for feedback clicks.
+
+### Patch Changes
+
+- befc385: Send image `attachments` on Teams messages instead of dropping them. An image with `data` or `fetchData` is sent inline as a base64 data URI, and an image with only an HTTPS `url` is sent by reference. Other attachment types are skipped with a warning and the rest of the message still posts.
+- Updated dependencies [859d012]
+- Updated dependencies [34d5336]
+- Updated dependencies [566e586]
+- Updated dependencies [4ff668d]
+  - @chat-adapter/shared@4.46.0
+  - chat@4.46.0
+
 ## 4.45.0
 
 ### Minor Changes

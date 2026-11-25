@@ -1,5 +1,13 @@
 # create-chat-sdk
 
+## 0.7.2
+
+### Patch Changes
+
+- 82b401c: Add Hibira Live Chat as a vendor-official adapter (`@hibira-io/chat-adapter`) to the catalog, docs listing, and CLI scaffold spec.
+- e490e84: Add the vendor-official Wati adapter `@wati-io/chat-sdk-adapter` to the catalog and `create-chat-sdk`.
+- 9faccfa: Add the vendor-official Wayza adapter `@wayza/chat-adapter` to the catalog and `create-chat-sdk`.
+
 ## 0.7.1
 
 ### Patch Changes

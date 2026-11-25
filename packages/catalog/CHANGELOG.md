@@ -1,5 +1,16 @@
 # @chat-adapter/catalog
 
+## 4.46.0
+
+### Patch Changes
+
+- 66f2672: Add the community Chatwoot adapter `chat-adapter-chatwoot` to the catalog.
+- 82b401c: Add Hibira Live Chat as a vendor-official adapter (`@hibira-io/chat-adapter`) to the catalog, docs listing, and CLI scaffold spec.
+- a7e2745: Add the community Supergreen adapter `chat-adapter-supergreen` to the catalog.
+- e490e84: Add the vendor-official Wati adapter `@wati-io/chat-sdk-adapter` to the catalog and `create-chat-sdk`.
+- 9faccfa: Add the vendor-official Wayza adapter `@wayza/chat-adapter` to the catalog and `create-chat-sdk`.
+- 66f2672: Add the community WhatsApp adapter `chat-adapter-wwebjs`, built on whatsapp-web.js, to the catalog.
+
 ## 4.45.0
 
 ### Patch Changes
