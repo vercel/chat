@@ -213,7 +213,7 @@ Messenger applies this action to the conversation's seen state rather than a sin
 | Fetch messages | In-memory cache only |
 | Fetch thread info | Yes |
 
-Messenger has no API for listing past messages, so `fetchMessages` reads from an in-memory cache of the messages this process has received and sent. The cache is empty after a restart and isn't shared between instances.
+Messenger has no API for listing past messages, so `fetchMessages` reads from an in-memory cache of the messages this process has received and sent. The cache keeps the newest 100 messages of each thread and stays within an overall size budget of about 64 MB, removing the oldest messages of the largest threads first. It is empty after a restart and isn't shared between instances.
 
 ## Interactive messages
 

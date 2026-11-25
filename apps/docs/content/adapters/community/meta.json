@@ -15,6 +15,9 @@
     "signal",
     "rocketchat",
     "zoom",
+    "wwebjs",
+    "chatwoot",
+    "supergreen",
     "---State---",
     "cloudflare-do",
     "mysql"

@@ -2,11 +2,11 @@ import {
   compareMessagesByTime,
   messageSequence as defaultMessageSequence,
   extractCard,
+  MessageStore,
   NetworkError,
   paginateMessages as paginateCachedMessages,
   parseRetryAfter,
   throwMetaGraphApiError,
-  upsertMessage,
   ValidationError,
   verifyMetaSignature,
   verifyMetaWebhookChallenge,
@@ -63,10 +63,9 @@ export class MessengerAdapter
   protected readonly apiVersion: string;
   protected readonly logger: Logger;
   protected readonly formatConverter = new MessengerFormatConverter();
-  private readonly messageCache = new Map<
-    string,
-    Message<MessengerRawMessage>[]
-  >();
+  private readonly messageCache = new MessageStore<MessengerRawMessage>({
+    compare: (a, b) => this.compareMessages(a, b),
+  });
   private readonly userProfileCache = new Map<string, MessengerUserProfile>();
 
   protected chat: ChatInstance | null = null;
@@ -529,9 +528,7 @@ export class MessengerAdapter
     threadId: string,
     options: FetchOptions = {}
   ): Promise<FetchResult<MessengerRawMessage>> {
-    const messages = [...(this.messageCache.get(threadId) ?? [])].sort((a, b) =>
-      this.compareMessages(a, b)
-    );
+    const messages = this.messageCache.messages(threadId);
 
     return this.paginateMessages(messages, options);
   }
@@ -742,22 +739,13 @@ export class MessengerAdapter
   }
 
   protected cacheMessage(message: Message<MessengerRawMessage>): void {
-    const existing = this.messageCache.get(message.threadId) ?? [];
-    upsertMessage(existing, message, (a, b) => this.compareMessages(a, b));
-    this.messageCache.set(message.threadId, existing);
+    this.messageCache.upsert(message);
   }
 
   protected findCachedMessage(
     messageId: string
   ): Message<MessengerRawMessage> | undefined {
-    for (const messages of this.messageCache.values()) {
-      const found = messages.find((message) => message.id === messageId);
-      if (found) {
-        return found;
-      }
-    }
-
-    return undefined;
+    return this.messageCache.find(messageId);
   }
 
   protected compareMessages(

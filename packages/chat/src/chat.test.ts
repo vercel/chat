@@ -6892,6 +6892,66 @@ describe("Chat", () => {
       expect((stored as Array<{ id: string }>)[0].id).toBe("msg-1");
     });
 
+    it("stores formatted trees without positions, or as plain text when history.thread.storeFormatted is false", async () => {
+      const storedFormatted = async (
+        history?: ConstructorParameters<typeof Chat>[0]["history"]
+      ) => {
+        const adapter = createMockAdapter("whatsapp");
+        (adapter as { persistThreadHistory: boolean }).persistThreadHistory =
+          true;
+        const state = createMockState();
+        const persistChat = new Chat({
+          userName: "testbot",
+          adapters: { whatsapp: adapter },
+          state,
+          logger: mockLogger,
+          history,
+        });
+        await persistChat.webhooks.whatsapp(
+          new Request("http://test.com", { method: "POST" })
+        );
+        const message = createTestMessage("msg-1", "**bold** text");
+        await persistChat.handleIncomingMessage(
+          adapter,
+          "whatsapp:phone:user1",
+          message
+        );
+        const stored = state.cache.get("msg-history:whatsapp:phone:user1") as
+          | { formatted: unknown }[]
+          | undefined;
+        return { live: message.formatted, stored: stored?.[0]?.formatted };
+      };
+
+      const byDefault = await storedFormatted();
+      expect(JSON.stringify(byDefault.live)).toContain('"position"');
+      expect(JSON.stringify(byDefault.stored)).not.toContain('"position"');
+      expect(byDefault.stored).toEqual({
+        type: "root",
+        children: [
+          {
+            type: "paragraph",
+            children: [
+              { type: "strong", children: [{ type: "text", value: "bold" }] },
+              { type: "text", value: " text" },
+            ],
+          },
+        ],
+      });
+
+      const textOnly = await storedFormatted({
+        thread: { storeFormatted: false },
+      });
+      expect(textOnly.stored).toEqual({
+        type: "root",
+        children: [
+          {
+            type: "paragraph",
+            children: [{ type: "text", value: "**bold** text" }],
+          },
+        ],
+      });
+    });
+
     it("caches incoming messages when adapter sets the deprecated persistMessageHistory flag", async () => {
       const adapter = createMockAdapter("whatsapp");
       (adapter as { persistMessageHistory: boolean }).persistMessageHistory =

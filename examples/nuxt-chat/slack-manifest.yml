@@ -25,6 +25,8 @@ oauth_config:
       - chat:write
       - pins:write
       - reactions:write
+      # User group handles for <!subteam^…> mentions
+      - usergroups:read
       # User info for display names
       - users:read
 

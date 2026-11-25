@@ -766,24 +766,28 @@ The same three functions are available from `@chat-adapter/shared/callback-data`
 
 ### Message history
 
-Some platforms have no API for listing past messages. For those, keep the messages your adapter sees in memory and serve `fetchMessages` from that list:
+Some platforms have no API for listing past messages. For those, keep the messages your adapter sees in a `MessageStore` and serve `fetchMessages` from it:
 
 ```typescript
 import {
-  upsertMessage,         // Insert or replace a message by ID, keeping the list sorted
+  MessageStore,          // Bounded per-thread message store
   paginateMessages,      // Page a sorted list with message-ID cursors
   compareMessagesByTime, // Default order: send time, then messageSequence
   messageSequence,       // Trailing ":{n}" in a message ID, or 0
 } from "@chat-adapter/shared";
 
-const messages = this.messageCache.get(threadId) ?? [];
-upsertMessage(messages, message);
-this.messageCache.set(threadId, messages);
+private readonly messageCache = new MessageStore<MyRawMessage>();
 
-return paginateMessages(messages, options);
+// When the adapter receives or sends a message:
+this.messageCache.upsert(message);
+
+// In fetchMessages:
+return paginateMessages(this.messageCache.messages(threadId), options);
 ```
 
-`upsertMessage` expects a list that is already sorted by the comparator you pass. A list that starts empty and only changes through `upsertMessage` with the same comparator meets that requirement. See `@chat-adapter/messenger` and `@chat-adapter/instagram` for reference implementations.
+`MessageStore` replaces a message by ID and keeps each thread sorted, oldest first. It keeps the newest 100 messages of each thread and stays within a size budget of about 64 MB across all threads, so a long-running process does not grow with every message it sees. When the budget is exceeded, the store removes the oldest messages of the largest threads first. Pass `maxMessagesPerThread`, `maxWeight`, or `compare` to change the limits or the order.
+
+`upsertMessage` is still exported for adapters that manage their own sorted list. It expects a list that is already sorted by the comparator you pass. See `@chat-adapter/messenger` and `@chat-adapter/instagram` for reference implementations.
 
 ### Rate limits
 

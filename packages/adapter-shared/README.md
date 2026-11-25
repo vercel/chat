@@ -51,6 +51,8 @@ These are also exported from `@chat-adapter/shared/callback-data`, which has no 
 
 For platforms whose API cannot list past messages, such as Messenger and Instagram:
 
+- `MessageStore` - a per-thread message store that keeps the newest `maxMessagesPerThread` messages of each thread (100 by default) and stays within `maxWeight` estimated bytes across all threads (about 64 MB by default), removing the oldest messages of the largest threads first
+- `estimateMessageWeight(message)` - the size estimate `MessageStore` uses, based on the message's text and the node count of its `formatted` tree
 - `upsertMessage(messages, message, compare?)` - insert or replace a message by ID in a list that is already sorted, keeping it sorted
 - `paginateMessages(messages, options)` - page a sorted list with message-ID cursors
 - `compareMessagesByTime(a, b, sequence?)` and `messageSequence(id)` - the default sort order: send time, then the trailing `:{n}` in the message ID

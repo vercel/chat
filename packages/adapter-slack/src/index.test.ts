@@ -11,6 +11,7 @@ import {
 import {
   connectWebhookContract,
   createMockChatInstance,
+  createMockLogger,
   createMockState,
   mockLogger,
   threadIdContract,
@@ -19,6 +20,7 @@ import { WebClient } from "@slack/web-api";
 import type {
   AdapterPostableMessage,
   ChatInstance,
+  Logger,
   Message,
   StateAdapter,
 } from "chat";
@@ -34,7 +36,15 @@ import {
   Image,
   stringifyMarkdown,
 } from "chat";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import {
+  afterEach,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  onTestFinished,
+  vi,
+} from "vitest";
 import { cardToBlockKit, cardToFallbackText } from "./cards";
 import type {
   SlackAdapterConfig,
@@ -9835,6 +9845,79 @@ describe("resolveInlineMentions", () => {
     expect(message.text).toContain("#general");
   });
 
+  it("resolves rich-text user group mentions in incoming messages", async () => {
+    const state = createMockState();
+    const chatInstance = createMockChatInstance({ state });
+    chatInstance.processMessage = vi.fn();
+
+    const adapter = createSlackAdapter({
+      botToken: "xoxb-test-token",
+      signingSecret: secret,
+      logger: mockLogger,
+      botUserId: "U_BOT",
+    });
+    mockClientMethod(
+      adapter,
+      "auth.test",
+      vi.fn().mockResolvedValue({
+        ok: true,
+        user_id: "U_BOT",
+        bot_id: "B_BOT",
+      })
+    );
+    await adapter.initialize(chatInstance);
+    mockClientMethod(
+      adapter,
+      "users.info",
+      vi.fn().mockResolvedValue({
+        ok: true,
+        user: { name: "sender", profile: { display_name: "Sender" } },
+      })
+    );
+    mockClientMethod(
+      adapter,
+      "usergroups.list",
+      vi.fn().mockResolvedValue({
+        ok: true,
+        usergroups: [{ id: "S0123456789", handle: "some-team" }],
+      })
+    );
+
+    const body = JSON.stringify({
+      type: "event_callback",
+      team_id: "T123",
+      event: {
+        type: "message",
+        user: "U_SENDER",
+        channel: "C456",
+        text: "hey <!subteam^S0123456789> look",
+        ts: "1234567890.999999",
+        blocks: [
+          {
+            type: "rich_text",
+            elements: [
+              {
+                type: "rich_text_section",
+                elements: [
+                  { type: "text", text: "hey " },
+                  { type: "usergroup", usergroup_id: "S0123456789" },
+                  { type: "text", text: " look" },
+                ],
+              },
+            ],
+          },
+        ],
+      },
+    });
+    await adapter.handleWebhook(createWebhookRequest(body, secret));
+
+    const factory = (chatInstance.processMessage as ReturnType<typeof vi.fn>)
+      .mock.calls[0][2];
+    const message = await factory();
+
+    expect(message.text).toBe("hey @some-team look");
+  });
+
   it("leaves channel mentions with existing labels unchanged", async () => {
     const state = createMockState();
     const chatInstance = createMockChatInstance({ state });
@@ -12807,80 +12890,248 @@ describe("socket mode - initialize", () => {
   });
 });
 
-describe("socket mode - routeSocketEvent", () => {
-  async function createSocketAdapter() {
-    mockSocketStart.mockClear();
-    mockSocketOn.mockClear();
-    mockSocketDisconnect.mockClear();
+type SlackEventHandler = (args: {
+  ack: (response?: Record<string, unknown>) => Promise<void>;
+  body: Record<string, unknown>;
+  type: string;
+  retry_num?: number;
+  retry_reason?: string;
+}) => Promise<void>;
 
-    const state = createMockState();
-    const chatInstance = createMockChatInstance({ state });
-    const adapter = createSlackAdapter({
-      botUserId: "U_BOT",
-      mode: "socket",
-      appToken: "xapp-test-token",
-      botToken: "xoxb-test-token",
-      logger: mockLogger,
-    });
+interface SlashCommandInternals {
+  runSlashCommand(
+    params: URLSearchParams,
+    options?: unknown
+  ): Promise<Response>;
+}
 
-    await adapter.initialize(chatInstance);
+const SOCKET_ACK_ERROR_MESSAGE =
+  "Failed to send a WebSocket message as the client is not ready";
+const SOCKET_ACK_FAILURE_LOG = "Failed to acknowledge socket mode event";
+const SOCKET_HANDLER_FAILURE_LOG = "Error handling socket mode event";
 
-    const slackEventHandler = mockSocketOn.mock.calls.find(
-      (call: unknown[]) => call[0] === "slack_event"
-    )?.[1] as (args: {
-      ack: (response?: Record<string, unknown>) => Promise<void>;
-      body: Record<string, unknown>;
-      type: string;
-      retry_num?: number;
-      retry_reason?: string;
-    }) => Promise<void>;
+const SOCKET_MESSAGE_BODY = {
+  event: {
+    type: "message",
+    channel: "C123",
+    ts: "1234567890.123456",
+    text: "hello from socket",
+    user: "U_USER",
+  },
+};
 
-    return { adapter, chatInstance, slackEventHandler };
+const SOCKET_SLASH_COMMAND_BODY = {
+  command: "/test",
+  text: "arg1",
+  user_id: "U_USER",
+  channel_id: "C123",
+};
+
+const SOCKET_VIEW_SUBMISSION_BODY = {
+  type: "view_submission",
+  trigger_id: "trigger123",
+  user: { id: "U_USER", username: "testuser", name: "Test User" },
+  view: {
+    id: "V123",
+    callback_id: "feedback_form",
+    state: { values: {} },
+  },
+};
+
+const MODAL_ERRORS_RESPONSE = {
+  action: "errors",
+  errors: { name: "Required" },
+} as const;
+
+const SLACK_MODAL_ERRORS_BODY = {
+  response_action: "errors",
+  errors: { name: "Required" },
+};
+
+// SocketModeClient mocks are shared, so the latest registration belongs to
+// the client created most recently.
+function latestSlackEventHandler(): SlackEventHandler {
+  const handler = mockSocketOn.mock.calls
+    .filter((call: unknown[]) => call[0] === "slack_event")
+    .at(-1)?.[1];
+  if (typeof handler !== "function") {
+    throw new Error("No slack_event listener registered");
   }
+  return handler as SlackEventHandler;
+}
 
-  it("dispatches events_api to processMessage", async () => {
-    const { chatInstance, slackEventHandler } = await createSocketAdapter();
+// Every error log on the logger, with the logged error compared by identity.
+function errorLogs(logger: Logger, expectedError: unknown) {
+  return vi.mocked(logger.error).mock.calls.map(([message, context]) => {
+    const { error, ...rest } = context as { error?: unknown };
+    return { message, ...rest, sameError: error === expectedError };
+  });
+}
 
-    await slackEventHandler({
-      ack: vi.fn().mockResolvedValue(undefined),
-      type: "events_api",
-      body: {
-        event: {
-          type: "message",
-          channel: "C123",
-          ts: "1234567890.123456",
-          text: "hello from socket",
-          user: "U_USER",
-        },
-      },
-    });
+async function createSocketAdapter(logger: Logger = mockLogger) {
+  mockSocketStart.mockClear();
+  mockSocketOn.mockClear();
+  mockSocketDisconnect.mockClear();
 
-    expect(chatInstance).toHaveDispatched("processMessage");
+  const state = createMockState();
+  const chatInstance = createMockChatInstance({ state, logger });
+  const adapter = createSlackAdapter({
+    botUserId: "U_BOT",
+    mode: "socket",
+    appToken: "xapp-test-token",
+    botToken: "xoxb-test-token",
+    logger,
   });
 
-  it("dispatches slash_commands to processSlashCommand", async () => {
+  await adapter.initialize(chatInstance);
+
+  return {
+    adapter,
+    chatInstance,
+    slackEventHandler: latestSlackEventHandler(),
+  };
+}
+
+async function startTransientSocketListener(config: {
+  fetch?: typeof fetch;
+  logger: Logger;
+  webhookUrl?: string;
+}) {
+  mockSocketOn.mockClear();
+
+  const state = createMockState();
+  const chatInstance = createMockChatInstance({ state, logger: config.logger });
+  const adapter = createSlackAdapter({
+    botUserId: "U_BOT",
+    botToken: "xoxb-test-token",
+    signingSecret: "test-signing-secret",
+    appToken: "xapp-test-token",
+    socketForwardingSecret: "test-forwarding-secret",
+    fetch: config.fetch,
+    logger: config.logger,
+  });
+  await adapter.initialize(chatInstance);
+
+  const abortController = new AbortController();
+  const waitUntil = vi.fn();
+  onTestFinished(async () => {
+    abortController.abort();
+    await waitUntil.mock.calls[0]?.[0];
+  });
+  await adapter.startSocketModeListener(
+    { waitUntil },
+    60_000,
+    abortController.signal,
+    config.webhookUrl
+  );
+
+  return {
+    adapter,
+    chatInstance,
+    slackEventHandler: latestSlackEventHandler(),
+    waitUntil,
+  };
+}
+
+describe("socket mode - routeSocketEvent", () => {
+  it("processes an events_api event after a successful ack", async () => {
+    const logger = createMockLogger();
+    const { chatInstance, slackEventHandler } =
+      await createSocketAdapter(logger);
+    const ack = vi.fn().mockResolvedValue(undefined);
+
+    await slackEventHandler({
+      ack,
+      type: "events_api",
+      body: SOCKET_MESSAGE_BODY,
+    });
+
+    expect(ack).toHaveBeenCalledTimes(1);
+    expect(chatInstance.processMessage).toHaveBeenCalledTimes(1);
+    expect(logger.error).not.toHaveBeenCalled();
+  });
+
+  it("logs an events_api ack failure without processing the event", async () => {
+    const logger = createMockLogger();
+    const { chatInstance, slackEventHandler } =
+      await createSocketAdapter(logger);
+    const error = new Error(SOCKET_ACK_ERROR_MESSAGE);
+    const ack = vi.fn().mockRejectedValue(error);
+
+    await expect(
+      slackEventHandler({ ack, type: "events_api", body: SOCKET_MESSAGE_BODY })
+    ).resolves.toBeUndefined();
+
+    expect(ack).toHaveBeenCalledTimes(1);
+    expect(errorLogs(logger, error)).toEqual([
+      { message: SOCKET_ACK_FAILURE_LOG, type: "events_api", sameError: true },
+    ]);
+    expect(chatInstance.processMessage).not.toHaveBeenCalled();
+  });
+
+  it("runs a slash command after a successful ack", async () => {
+    const logger = createMockLogger();
     const { adapter, chatInstance, slackEventHandler } =
-      await createSocketAdapter();
+      await createSocketAdapter(logger);
     mockClientMethod(
       adapter,
       "users.info",
       vi.fn().mockResolvedValue({ ok: true, user: { name: "testuser" } })
     );
+    const runSlashCommand = vi.spyOn(
+      adapter as unknown as SlashCommandInternals,
+      "runSlashCommand"
+    );
+    onTestFinished(() => runSlashCommand.mockRestore());
+    const ack = vi.fn().mockResolvedValue(undefined);
 
     await slackEventHandler({
-      ack: vi.fn().mockResolvedValue(undefined),
+      ack,
       type: "slash_commands",
-      body: {
-        command: "/test",
-        text: "arg1",
-        user_id: "U_USER",
-        channel_id: "C123",
-      },
+      body: SOCKET_SLASH_COMMAND_BODY,
     });
 
-    await vi.waitFor(() => {
-      expect(chatInstance).toHaveDispatched("processSlashCommand");
-    });
+    expect(ack).toHaveBeenCalledTimes(1);
+    expect(runSlashCommand).toHaveBeenCalledTimes(1);
+    await runSlashCommand.mock.results[0]?.value;
+    expect(chatInstance.processSlashCommand).toHaveBeenCalledTimes(1);
+    expect(chatInstance.processSlashCommand).toHaveBeenCalledWith(
+      expect.objectContaining({ command: "/test", text: "arg1" }),
+      undefined
+    );
+    expect(logger.error).not.toHaveBeenCalled();
+  });
+
+  it("logs a slash command ack failure without running the command", async () => {
+    const logger = createMockLogger();
+    const { adapter, chatInstance, slackEventHandler } =
+      await createSocketAdapter(logger);
+    const runSlashCommand = vi.spyOn(
+      adapter as unknown as SlashCommandInternals,
+      "runSlashCommand"
+    );
+    onTestFinished(() => runSlashCommand.mockRestore());
+    const error = new Error(SOCKET_ACK_ERROR_MESSAGE);
+    const ack = vi.fn().mockRejectedValue(error);
+
+    await expect(
+      slackEventHandler({
+        ack,
+        type: "slash_commands",
+        body: SOCKET_SLASH_COMMAND_BODY,
+      })
+    ).resolves.toBeUndefined();
+
+    expect(ack).toHaveBeenCalledTimes(1);
+    expect(errorLogs(logger, error)).toEqual([
+      {
+        message: SOCKET_ACK_FAILURE_LOG,
+        type: "slash_commands",
+        sameError: true,
+      },
+    ]);
+    expect(runSlashCommand).not.toHaveBeenCalled();
+    expect(chatInstance.processSlashCommand).not.toHaveBeenCalled();
   });
 
   it("dispatches interactive payloads to processAction", async () => {
@@ -12913,8 +13164,10 @@ describe("socket mode - routeSocketEvent", () => {
     expect(chatInstance).toHaveDispatched("processAction");
   });
 
-  it("acks interactive with response payload for view_submission", async () => {
-    const { slackEventHandler } = await createSocketAdapter();
+  it("acks interactive block_actions without a response body", async () => {
+    const logger = createMockLogger();
+    const { chatInstance, slackEventHandler } =
+      await createSocketAdapter(logger);
     const ack = vi.fn().mockResolvedValue(undefined);
 
     await slackEventHandler({
@@ -12931,7 +13184,81 @@ describe("socket mode - routeSocketEvent", () => {
       },
     });
 
-    expect(ack).toHaveBeenCalled();
+    expect(chatInstance.processAction).toHaveBeenCalledTimes(1);
+    expect(ack).toHaveBeenCalledTimes(1);
+    expect(ack.mock.calls[0]?.[0]).toBeUndefined();
+    expect(logger.error).not.toHaveBeenCalled();
+  });
+
+  it("acks an interactive view_submission with the handler's response body", async () => {
+    const logger = createMockLogger();
+    const { chatInstance, slackEventHandler } =
+      await createSocketAdapter(logger);
+    const processModalSubmit = vi.fn().mockResolvedValue(MODAL_ERRORS_RESPONSE);
+    chatInstance.processModalSubmit = processModalSubmit;
+    const ack = vi.fn().mockResolvedValue(undefined);
+
+    await slackEventHandler({
+      ack,
+      type: "interactive",
+      body: SOCKET_VIEW_SUBMISSION_BODY,
+    });
+
+    expect(processModalSubmit).toHaveBeenCalledTimes(1);
+    expect(ack.mock.calls).toEqual([[SLACK_MODAL_ERRORS_BODY]]);
+    expect(logger.error).not.toHaveBeenCalled();
+  });
+
+  it("logs an interactive handler failure without acking", async () => {
+    const logger = createMockLogger();
+    const { chatInstance, slackEventHandler } =
+      await createSocketAdapter(logger);
+    const error = new Error("modal handler failed");
+    const processModalSubmit = vi.fn().mockRejectedValue(error);
+    chatInstance.processModalSubmit = processModalSubmit;
+    const ack = vi.fn().mockResolvedValue(undefined);
+
+    await expect(
+      slackEventHandler({
+        ack,
+        type: "interactive",
+        body: SOCKET_VIEW_SUBMISSION_BODY,
+      })
+    ).resolves.toBeUndefined();
+
+    expect(processModalSubmit).toHaveBeenCalledTimes(1);
+    expect(ack).not.toHaveBeenCalled();
+    expect(errorLogs(logger, error)).toEqual([
+      {
+        message: SOCKET_HANDLER_FAILURE_LOG,
+        type: "interactive",
+        sameError: true,
+      },
+    ]);
+  });
+
+  it("logs an interactive ack failure after the handler has run", async () => {
+    const logger = createMockLogger();
+    const { chatInstance, slackEventHandler } =
+      await createSocketAdapter(logger);
+    const processModalSubmit = vi.fn().mockResolvedValue(MODAL_ERRORS_RESPONSE);
+    chatInstance.processModalSubmit = processModalSubmit;
+    const error = new Error(SOCKET_ACK_ERROR_MESSAGE);
+    const ack = vi.fn().mockRejectedValue(error);
+
+    await expect(
+      slackEventHandler({
+        ack,
+        type: "interactive",
+        body: SOCKET_VIEW_SUBMISSION_BODY,
+      })
+    ).resolves.toBeUndefined();
+
+    expect(processModalSubmit).toHaveBeenCalledTimes(1);
+    expect(ack.mock.calls).toEqual([[SLACK_MODAL_ERRORS_BODY]]);
+    expect(errorLogs(logger, error)).toEqual([
+      { message: SOCKET_ACK_FAILURE_LOG, type: "interactive", sameError: true },
+    ]);
   });
 
   it("processes retries like first deliveries (dedupe drops true duplicates)", async () => {
@@ -13018,6 +13345,47 @@ describe("socket mode - disconnect", () => {
     await adapter.disconnect();
 
     expect(mockSocketDisconnect).toHaveBeenCalled();
+  });
+
+  it("ignores socket events delivered while disconnecting and resumes after reconnecting", async () => {
+    const logger = createMockLogger();
+    const { adapter, chatInstance, slackEventHandler } =
+      await createSocketAdapter(logger);
+    const deliver = async (handler: SlackEventHandler) => {
+      const ack = vi.fn().mockResolvedValue(undefined);
+      await handler({ ack, type: "events_api", body: SOCKET_MESSAGE_BODY });
+      return ack;
+    };
+
+    const ackBefore = await deliver(slackEventHandler);
+    expect(ackBefore).toHaveBeenCalledTimes(1);
+    expect(chatInstance.processMessage).toHaveBeenCalledTimes(1);
+
+    let ackDuring: ReturnType<typeof vi.fn> | undefined;
+    mockSocketDisconnect.mockImplementationOnce(async () => {
+      ackDuring = await deliver(slackEventHandler);
+    });
+    try {
+      await adapter.disconnect();
+    } finally {
+      mockSocketDisconnect.mockReset();
+      mockSocketDisconnect.mockResolvedValue(undefined);
+    }
+
+    expect(ackDuring).toBeDefined();
+    expect(ackDuring).not.toHaveBeenCalled();
+    expect(chatInstance.processMessage).toHaveBeenCalledTimes(1);
+    expect(logger.error).not.toHaveBeenCalled();
+
+    const ackLate = await deliver(slackEventHandler);
+    expect(ackLate).not.toHaveBeenCalled();
+    expect(chatInstance.processMessage).toHaveBeenCalledTimes(1);
+
+    await adapter.initialize(chatInstance);
+    const ackAfter = await deliver(latestSlackEventHandler());
+    expect(ackAfter).toHaveBeenCalledTimes(1);
+    expect(chatInstance.processMessage).toHaveBeenCalledTimes(2);
+    expect(logger.error).not.toHaveBeenCalled();
   });
 
   it("is a no-op when not connected", async () => {
@@ -13356,6 +13724,138 @@ describe("socket mode forwarding - handleWebhook", () => {
       { waitUntil }
     );
   });
+
+  async function createForwardingTarget() {
+    const logger = createMockLogger();
+    const state = createMockState();
+    const chatInstance = createMockChatInstance({ state, logger });
+    const adapter = createSlackAdapter({
+      botUserId: "U_BOT",
+      botToken: "xoxb-test-token",
+      signingSecret: secret,
+      appToken,
+      logger,
+    });
+    await adapter.initialize(chatInstance);
+    return { adapter, chatInstance, logger };
+  }
+
+  function forwardedRequest(body: string): Request {
+    return new Request("https://example.com/webhook", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-slack-socket-token": appToken,
+      },
+      body,
+    });
+  }
+
+  const forwardedViewSubmission = JSON.stringify({
+    type: "socket_event",
+    eventType: "interactive",
+    body: SOCKET_VIEW_SUBMISSION_BODY,
+    timestamp: 1,
+  });
+
+  it("returns 400 Invalid JSON for a forwarded body that is not JSON", async () => {
+    const { adapter, logger } = await createForwardingTarget();
+
+    const response = await adapter.handleWebhook(forwardedRequest("{not json"));
+
+    expect(response.status).toBe(400);
+    expect(await response.text()).toBe("Invalid JSON");
+    expect(logger.error).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["JSON null", null],
+    ["a JSON number", 42],
+    ["a missing body", { type: "socket_event", eventType: "events_api" }],
+    [
+      "a null body",
+      { type: "socket_event", eventType: "events_api", body: null },
+    ],
+    [
+      "a string body",
+      { type: "socket_event", eventType: "events_api", body: "text" },
+    ],
+    [
+      "a missing eventType",
+      { type: "socket_event", body: SOCKET_MESSAGE_BODY },
+    ],
+    [
+      "a non-string eventType",
+      { type: "socket_event", eventType: 1, body: SOCKET_MESSAGE_BODY },
+    ],
+  ])("returns 400 Invalid socket event for %s", async (_name, event) => {
+    const { adapter, chatInstance, logger } = await createForwardingTarget();
+
+    const response = await adapter.handleWebhook(
+      forwardedRequest(JSON.stringify(event))
+    );
+
+    expect(response.status).toBe(400);
+    expect(await response.text()).toBe("Invalid socket event");
+    expect(chatInstance.processMessage).not.toHaveBeenCalled();
+    expect(logger.error).not.toHaveBeenCalled();
+  });
+
+  it("returns 200 ok after routing a well-formed forwarded event", async () => {
+    const { adapter, chatInstance, logger } = await createForwardingTarget();
+
+    const response = await adapter.handleWebhook(
+      forwardedRequest(
+        JSON.stringify({
+          type: "socket_event",
+          eventType: "events_api",
+          body: SOCKET_MESSAGE_BODY,
+        })
+      )
+    );
+
+    expect(response.status).toBe(200);
+    expect(await response.text()).toBe("ok");
+    expect(chatInstance.processMessage).toHaveBeenCalledTimes(1);
+    expect(logger.error).not.toHaveBeenCalled();
+  });
+
+  it("returns 200 ok after routing a forwarded view_submission", async () => {
+    const { adapter, chatInstance, logger } = await createForwardingTarget();
+    const processModalSubmit = vi.fn().mockResolvedValue(MODAL_ERRORS_RESPONSE);
+    chatInstance.processModalSubmit = processModalSubmit;
+
+    const response = await adapter.handleWebhook(
+      forwardedRequest(forwardedViewSubmission)
+    );
+
+    expect(response.status).toBe(200);
+    expect(await response.text()).toBe("ok");
+    expect(processModalSubmit).toHaveBeenCalledTimes(1);
+    expect(logger.error).not.toHaveBeenCalled();
+  });
+
+  it("returns 500 and logs when routing a forwarded event fails", async () => {
+    const { adapter, chatInstance, logger } = await createForwardingTarget();
+    const error = new Error("modal handler failed");
+    const processModalSubmit = vi.fn().mockRejectedValue(error);
+    chatInstance.processModalSubmit = processModalSubmit;
+
+    const response = await adapter.handleWebhook(
+      forwardedRequest(forwardedViewSubmission)
+    );
+
+    expect(response.status).toBe(500);
+    expect(await response.text()).toBe("Failed to route socket event");
+    expect(processModalSubmit).toHaveBeenCalledTimes(1);
+    expect(errorLogs(logger, error)).toEqual([
+      {
+        message: "Error routing forwarded socket event",
+        type: "interactive",
+        sameError: true,
+      },
+    ]);
+  });
 });
 
 describe("startSocketModeListener", () => {
@@ -13407,6 +13907,156 @@ describe("startSocketModeListener", () => {
     expect(response.status).toBe(500);
     expect(await response.text()).toContain("waitUntil");
   });
+
+  const webhookUrl = "https://example.com/api/webhooks/slack";
+
+  it("forwards an acked listener event to the webhook URL", async () => {
+    const logger = createMockLogger();
+    const fetchMock = vi.fn<typeof fetch>(async () => new Response("ok"));
+    const { chatInstance, slackEventHandler } =
+      await startTransientSocketListener({
+        fetch: fetchMock,
+        logger,
+        webhookUrl,
+      });
+    const ack = vi.fn().mockResolvedValue(undefined);
+
+    await slackEventHandler({
+      ack,
+      type: "events_api",
+      body: SOCKET_MESSAGE_BODY,
+      retry_num: 1,
+      retry_reason: "timeout",
+    });
+
+    expect(ack).toHaveBeenCalledTimes(1);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const [url, init] = fetchMock.mock.calls[0] ?? [];
+    expect(url).toBe(webhookUrl);
+    expect(init?.method).toBe("POST");
+    expect(init?.headers).toEqual({
+      "Content-Type": "application/json",
+      "x-slack-socket-token": "test-forwarding-secret",
+    });
+    expect(JSON.parse(init?.body as string)).toEqual({
+      type: "socket_event",
+      eventType: "events_api",
+      body: SOCKET_MESSAGE_BODY,
+      retryNum: 1,
+      timestamp: expect.any(Number),
+    });
+    expect(chatInstance.processMessage).not.toHaveBeenCalled();
+    expect(logger.error).not.toHaveBeenCalled();
+  });
+
+  it("does not forward a listener event whose ack fails", async () => {
+    const logger = createMockLogger();
+    const fetchMock = vi.fn<typeof fetch>(async () => new Response("ok"));
+    const { slackEventHandler } = await startTransientSocketListener({
+      fetch: fetchMock,
+      logger,
+      webhookUrl,
+    });
+    const error = new Error(SOCKET_ACK_ERROR_MESSAGE);
+    const ack = vi.fn().mockRejectedValue(error);
+
+    await expect(
+      slackEventHandler({ ack, type: "events_api", body: SOCKET_MESSAGE_BODY })
+    ).resolves.toBeUndefined();
+
+    expect(ack).toHaveBeenCalledTimes(1);
+    expect(errorLogs(logger, error)).toEqual([
+      { message: SOCKET_ACK_FAILURE_LOG, type: "events_api", sameError: true },
+    ]);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("processes an acked listener event directly without a webhook URL", async () => {
+    const logger = createMockLogger();
+    const fetchMock = vi.fn<typeof fetch>(async () => new Response("ok"));
+    const { chatInstance, slackEventHandler } =
+      await startTransientSocketListener({ fetch: fetchMock, logger });
+    const ack = vi.fn().mockResolvedValue(undefined);
+
+    await slackEventHandler({
+      ack,
+      type: "events_api",
+      body: SOCKET_MESSAGE_BODY,
+    });
+
+    expect(ack).toHaveBeenCalledTimes(1);
+    expect(chatInstance.processMessage).toHaveBeenCalledTimes(1);
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(logger.error).not.toHaveBeenCalled();
+  });
+
+  it("does not process a listener event directly when its ack fails", async () => {
+    const logger = createMockLogger();
+    const { chatInstance, slackEventHandler } =
+      await startTransientSocketListener({ logger });
+    const error = new Error(SOCKET_ACK_ERROR_MESSAGE);
+    const ack = vi.fn().mockRejectedValue(error);
+
+    await expect(
+      slackEventHandler({ ack, type: "events_api", body: SOCKET_MESSAGE_BODY })
+    ).resolves.toBeUndefined();
+
+    expect(ack).toHaveBeenCalledTimes(1);
+    expect(errorLogs(logger, error)).toEqual([
+      { message: SOCKET_ACK_FAILURE_LOG, type: "events_api", sameError: true },
+    ]);
+    expect(chatInstance.processMessage).not.toHaveBeenCalled();
+  });
+
+  it("drops a redelivered listener event that was already processed directly", async () => {
+    const logger = createMockLogger();
+    const { chatInstance, slackEventHandler } =
+      await startTransientSocketListener({ logger });
+    const body = { ...SOCKET_MESSAGE_BODY, event_id: "Ev_REDELIVERED" };
+
+    await slackEventHandler({
+      ack: vi.fn().mockResolvedValue(undefined),
+      type: "events_api",
+      body,
+    });
+    expect(chatInstance.processMessage).toHaveBeenCalledTimes(1);
+
+    const retryAck = vi.fn().mockResolvedValue(undefined);
+    await slackEventHandler({
+      ack: retryAck,
+      type: "events_api",
+      body,
+      retry_num: 1,
+      retry_reason: "timeout",
+    });
+
+    expect(retryAck).toHaveBeenCalledTimes(1);
+    expect(chatInstance.processMessage).toHaveBeenCalledTimes(1);
+    expect(logger.error).not.toHaveBeenCalled();
+  });
+
+  it("hands a directly processed slash command to waitUntil", async () => {
+    const logger = createMockLogger();
+    const { adapter, chatInstance, slackEventHandler, waitUntil } =
+      await startTransientSocketListener({ logger });
+    mockClientMethod(
+      adapter,
+      "users.info",
+      vi.fn().mockResolvedValue({ ok: true, user: { name: "testuser" } })
+    );
+    expect(waitUntil).toHaveBeenCalledTimes(1);
+
+    await slackEventHandler({
+      ack: vi.fn().mockResolvedValue(undefined),
+      type: "slash_commands",
+      body: SOCKET_SLASH_COMMAND_BODY,
+    });
+
+    expect(waitUntil).toHaveBeenCalledTimes(2);
+    await waitUntil.mock.calls[1]?.[0];
+    expect(chatInstance.processSlashCommand).toHaveBeenCalledTimes(1);
+    expect(logger.error).not.toHaveBeenCalled();
+  });
 });
 
 describe("routeSocketEvent with options", () => {
@@ -13440,7 +14090,7 @@ describe("routeSocketEvent with options", () => {
     return { adapter, chatInstance, slackEventHandler };
   }
 
-  it("dispatches slash_commands with waitUntil wrapping", async () => {
+  it("dispatches slash_commands without webhook options", async () => {
     const { adapter, chatInstance, slackEventHandler } =
       await createSocketAdapterWithOptions();
     mockClientMethod(
@@ -17050,5 +17700,665 @@ describe("inbound markdown budget", { timeout: 20_000 }, () => {
         ]);
       }
     });
+  });
+});
+
+// ============================================================================
+// User group mention resolution
+// ============================================================================
+
+describe("user group mention resolution", () => {
+  const secret = "test-signing-secret";
+  const DAY_MS = 24 * 60 * 60 * 1000;
+  const STATE_TTL_MS = 8 * DAY_MS;
+  const RETRY_MS = 5 * 60 * 1000;
+
+  interface UsergroupRequestContext {
+    enterpriseId?: string;
+    installationId?: string;
+    isEnterpriseInstall?: boolean;
+    teamId?: string;
+    token: string;
+  }
+
+  interface UsergroupTestAdapter {
+    _client: {
+      conversations: { info: unknown };
+      usergroups: { list: unknown };
+      users: { info: unknown };
+    };
+    handleSubteamChange(event: {
+      subteam?: { handle?: string; id?: string };
+      type: "subteam_created" | "subteam_updated";
+    }): Promise<void>;
+    requestContext: {
+      run<T>(ctx: UsergroupRequestContext, fn: () => T): T;
+    };
+    resolveInlineMentions(text: string): Promise<string>;
+  }
+
+  interface ListedGroup {
+    date_delete?: number;
+    handle?: string;
+    id: string;
+  }
+
+  interface ListArgs {
+    include_disabled?: boolean;
+    include_users?: boolean;
+    team_id?: string;
+    token?: string;
+  }
+
+  /** Answers like Slack: disabled groups only with `include_disabled`. */
+  function listResponse(groups: ListedGroup[], args: ListArgs) {
+    return {
+      ok: true,
+      usergroups: groups.filter(
+        (group) => args.include_disabled || !group.date_delete
+      ),
+    };
+  }
+
+  /** A mock state whose entries expire after their TTL, like a real one. */
+  function createExpiringState() {
+    const state = createMockState();
+    const expiries = new Map<string, number>();
+    vi.mocked(state.set).mockImplementation(
+      async (key: string, value: unknown, ttlMs?: number) => {
+        state.cache.set(key, value);
+        if (ttlMs === undefined) {
+          expiries.delete(key);
+        } else {
+          expiries.set(key, Date.now() + ttlMs);
+        }
+      }
+    );
+    vi.mocked(state.get).mockImplementation(async (key: string) => {
+      const expiresAt = expiries.get(key);
+      if (expiresAt !== undefined && expiresAt <= Date.now()) {
+        expiries.delete(key);
+        state.cache.delete(key);
+      }
+      return state.cache.get(key) ?? null;
+    });
+    return state;
+  }
+
+  async function createUsergroupAdapter() {
+    const state = createExpiringState();
+    const logger = createMockLogger();
+    const chatInstance = createMockChatInstance({ state });
+    const adapter = createSlackAdapter({
+      botToken: "xoxb-test-token",
+      signingSecret: secret,
+      logger,
+      botUserId: "U_BOT",
+    });
+    await adapter.initialize(chatInstance);
+    const internals = adapter as unknown as UsergroupTestAdapter;
+    const groups: ListedGroup[] = [
+      { id: "S111", handle: "composer-dev" },
+      { id: "S222", handle: "oncall" },
+    ];
+    const listMock = vi.fn(async (args: ListArgs) =>
+      listResponse(groups, args)
+    );
+    internals._client.usergroups.list = listMock;
+    return {
+      adapter,
+      chatInstance,
+      groups,
+      internals,
+      listMock,
+      logger,
+      state,
+    };
+  }
+
+  beforeEach(() => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date("2026-01-01T00:00:00Z"));
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("labels a bare user group token with its handle and keeps the ID", async () => {
+    const { internals, listMock } = await createUsergroupAdapter();
+
+    await expect(
+      internals.resolveInlineMentions("ping <!subteam^S111>")
+    ).resolves.toBe("ping <!subteam^S111|@composer-dev>");
+    expect(listMock).toHaveBeenCalledWith(
+      expect.objectContaining({ include_users: false })
+    );
+  });
+
+  it("resolves a disabled group", async () => {
+    const { groups, internals } = await createUsergroupAdapter();
+    groups.push({ id: "S333", handle: "retired", date_delete: 1_700_000_000 });
+
+    await expect(
+      internals.resolveInlineMentions("<!subteam^S333>")
+    ).resolves.toBe("<!subteam^S333|@retired>");
+  });
+
+  it("lists groups once for several groups in one message", async () => {
+    const { internals, listMock } = await createUsergroupAdapter();
+
+    await expect(
+      internals.resolveInlineMentions("<!subteam^S111> and <!subteam^S222>")
+    ).resolves.toBe(
+      "<!subteam^S111|@composer-dev> and <!subteam^S222|@oncall>"
+    );
+    expect(listMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("shares one in-flight list call between concurrent messages", async () => {
+    const { groups, internals, listMock } = await createUsergroupAdapter();
+    let release: () => void = () => undefined;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    listMock.mockImplementation(async (args) => {
+      await gate;
+      return listResponse(groups, args);
+    });
+
+    const pending = Promise.all([
+      internals.resolveInlineMentions("<!subteam^S111>"),
+      internals.resolveInlineMentions("<!subteam^S222>"),
+      internals.resolveInlineMentions("<!subteam^S111> <!subteam^S222>"),
+    ]);
+    await vi.waitFor(() => expect(listMock).toHaveBeenCalled());
+    release();
+
+    await expect(pending).resolves.toEqual([
+      "<!subteam^S111|@composer-dev>",
+      "<!subteam^S222|@oncall>",
+      "<!subteam^S111|@composer-dev> <!subteam^S222|@oncall>",
+    ]);
+    expect(listMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not share an in-flight list call between installations", async () => {
+    const { internals, listMock } = await createUsergroupAdapter();
+    listMock.mockImplementation(async ({ token }) => ({
+      ok: true,
+      usergroups: [
+        { id: "S111", handle: token === "xoxb-team-a" ? "a-devs" : "b-devs" },
+      ],
+    }));
+
+    const results = await Promise.all([
+      internals.requestContext.run(
+        { token: "xoxb-team-a", installationId: "T_A" },
+        () => internals.resolveInlineMentions("<!subteam^S111>")
+      ),
+      internals.requestContext.run(
+        { token: "xoxb-team-b", installationId: "T_B" },
+        () => internals.resolveInlineMentions("<!subteam^S111>")
+      ),
+    ]);
+
+    expect(results).toEqual([
+      "<!subteam^S111|@a-devs>",
+      "<!subteam^S111|@b-devs>",
+    ]);
+    expect(listMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("reuses the cached handles on later messages", async () => {
+    const { internals, listMock } = await createUsergroupAdapter();
+
+    await internals.resolveInlineMentions("<!subteam^S111>");
+    await expect(
+      internals.resolveInlineMentions("<!subteam^S222>")
+    ).resolves.toBe("<!subteam^S222|@oncall>");
+
+    expect(listMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("stores every listed group in one state entry", async () => {
+    const { internals, state } = await createUsergroupAdapter();
+    vi.mocked(state.set).mockClear();
+
+    await internals.resolveInlineMentions("<!subteam^S111>");
+
+    expect(state.set).toHaveBeenCalledTimes(1);
+    expect(state.set).toHaveBeenCalledWith(
+      "slack:usergroups",
+      {
+        fetchedAt: Date.now(),
+        handles: { S111: "composer-dev", S222: "oncall" },
+      },
+      STATE_TTL_MS
+    );
+  });
+
+  it("scopes the cached handles by installation", async () => {
+    const { internals, listMock, state } = await createUsergroupAdapter();
+
+    await internals.requestContext.run(
+      { token: "xoxb-team-a", installationId: "T_A" },
+      () => internals.resolveInlineMentions("<!subteam^S111>")
+    );
+    await internals.requestContext.run(
+      { token: "xoxb-team-b", installationId: "T_B" },
+      () => internals.resolveInlineMentions("<!subteam^S111>")
+    );
+
+    expect(listMock).toHaveBeenCalledTimes(2);
+    expect(await state.get("slack:usergroups:T_A")).toMatchObject({
+      handles: { S111: "composer-dev" },
+    });
+    expect(await state.get("slack:usergroups:T_B")).toMatchObject({
+      handles: { S111: "composer-dev" },
+    });
+    expect(await state.get("slack:usergroups")).toBeNull();
+  });
+
+  it("keeps each workspace's groups apart on an org-wide install", async () => {
+    const { internals, listMock } = await createUsergroupAdapter();
+    listMock.mockImplementation(async ({ team_id }) => ({
+      ok: true,
+      usergroups:
+        team_id === "T_B"
+          ? [{ id: "S9", handle: "team-b-group" }]
+          : [{ id: "S1", handle: "team-a-group" }],
+    }));
+    const orgContext = (teamId: string): UsergroupRequestContext => ({
+      token: "xoxb-org",
+      installationId: "E1",
+      enterpriseId: "E1",
+      isEnterpriseInstall: true,
+      teamId,
+    });
+
+    await expect(
+      internals.requestContext.run(orgContext("T_A"), () =>
+        internals.resolveInlineMentions("<!subteam^S9>")
+      )
+    ).resolves.toBe("<!subteam^S9>");
+    await expect(
+      internals.requestContext.run(orgContext("T_B"), () =>
+        internals.resolveInlineMentions("<!subteam^S9>")
+      )
+    ).resolves.toBe("<!subteam^S9|@team-b-group>");
+    await expect(
+      internals.requestContext.run(orgContext("T_A"), () =>
+        internals.resolveInlineMentions("<!subteam^S1>")
+      )
+    ).resolves.toBe("<!subteam^S1|@team-a-group>");
+
+    expect(listMock.mock.calls.map(([args]) => args.team_id)).toEqual([
+      "T_A",
+      "T_B",
+    ]);
+  });
+
+  it("leaves labeled group tokens untouched", async () => {
+    const { internals, listMock } = await createUsergroupAdapter();
+
+    await expect(
+      internals.resolveInlineMentions("<!subteam^S111|@custom> <!here>")
+    ).resolves.toBe("<!subteam^S111|@custom> <!here>");
+    expect(listMock).not.toHaveBeenCalled();
+  });
+
+  it("keeps a supplied label next to a resolved token for the same group", async () => {
+    const { internals } = await createUsergroupAdapter();
+
+    await expect(
+      internals.resolveInlineMentions("<!subteam^S111|@custom> <!subteam^S111>")
+    ).resolves.toBe("<!subteam^S111|@custom> <!subteam^S111|@composer-dev>");
+  });
+
+  it("leaves the token of a listed group without a handle untouched", async () => {
+    const { groups, internals, state } = await createUsergroupAdapter();
+    groups.push({ id: "S444" });
+
+    await expect(
+      internals.resolveInlineMentions("<!subteam^S444> <!subteam^S111>")
+    ).resolves.toBe("<!subteam^S444> <!subteam^S111|@composer-dev>");
+    expect(await state.get("slack:usergroups")).toMatchObject({
+      handles: { S111: "composer-dev", S222: "oncall" },
+    });
+  });
+
+  it("renders an unresolved group as its ID in message.text", async () => {
+    const { adapter, chatInstance, internals, listMock } =
+      await createUsergroupAdapter();
+    const processMessage = vi.fn();
+    chatInstance.processMessage = processMessage;
+    internals._client.users.info = vi.fn().mockResolvedValue({
+      user: { name: "sender", profile: { display_name: "Sender" } },
+    });
+    listMock.mockRejectedValue(new Error("missing_scope"));
+
+    const body = JSON.stringify({
+      type: "event_callback",
+      team_id: "T123",
+      event: {
+        type: "message",
+        user: "U_SENDER",
+        channel: "C456",
+        text: "hey <!subteam^S111> look",
+        ts: "1234567890.999999",
+      },
+    });
+    await adapter.handleWebhook(createWebhookRequest(body, secret));
+    const message = await processMessage.mock.calls[0][2]();
+
+    expect(listMock).toHaveBeenCalledTimes(1);
+    expect(message.text).toBe("hey @S111 look");
+  });
+
+  it("leaves an unknown group token untouched and resolves the known ones", async () => {
+    const { internals } = await createUsergroupAdapter();
+
+    await expect(
+      internals.resolveInlineMentions("<!subteam^S999> <!subteam^S111>")
+    ).resolves.toBe("<!subteam^S999> <!subteam^S111|@composer-dev>");
+  });
+
+  it("waits five minutes before listing again for an unknown group", async () => {
+    const { groups, internals, listMock } = await createUsergroupAdapter();
+
+    await internals.resolveInlineMentions("<!subteam^S999>");
+    groups.push({ id: "S999", handle: "new-team" });
+
+    vi.setSystemTime(Date.now() + RETRY_MS - 1);
+    await expect(
+      internals.resolveInlineMentions("<!subteam^S999>")
+    ).resolves.toBe("<!subteam^S999>");
+    expect(listMock).toHaveBeenCalledTimes(1);
+
+    vi.setSystemTime(Date.now() + 1);
+    await expect(
+      internals.resolveInlineMentions("<!subteam^S999>")
+    ).resolves.toBe("<!subteam^S999|@new-team>");
+    expect(listMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("lists again after 24 hours and picks up a renamed handle", async () => {
+    const { groups, internals, listMock } = await createUsergroupAdapter();
+
+    await internals.resolveInlineMentions("<!subteam^S222>");
+    groups[1].handle = "oncall-emea";
+
+    vi.setSystemTime(Date.now() + DAY_MS - 1);
+    await expect(
+      internals.resolveInlineMentions("<!subteam^S222>")
+    ).resolves.toBe("<!subteam^S222|@oncall>");
+    expect(listMock).toHaveBeenCalledTimes(1);
+
+    vi.setSystemTime(Date.now() + 1);
+    await expect(
+      internals.resolveInlineMentions("<!subteam^S222>")
+    ).resolves.toBe("<!subteam^S222|@oncall-emea>");
+    expect(listMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("leaves the token untouched and warns once while usergroups.list fails", async () => {
+    const { groups, internals, listMock, logger } =
+      await createUsergroupAdapter();
+    const failure = new Error("missing_scope");
+    listMock.mockRejectedValue(failure);
+
+    for (const _attempt of [1, 2, 3]) {
+      await expect(
+        internals.resolveInlineMentions("<!subteam^S111>")
+      ).resolves.toBe("<!subteam^S111>");
+    }
+    expect(listMock).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(logger.warn).mock.calls).toEqual([
+      ["Could not fetch user group handles", { error: failure }],
+    ]);
+
+    listMock.mockImplementation(async (args) => listResponse(groups, args));
+    vi.setSystemTime(Date.now() + RETRY_MS);
+    await expect(
+      internals.resolveInlineMentions("<!subteam^S111>")
+    ).resolves.toBe("<!subteam^S111|@composer-dev>");
+    expect(listMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("keeps the cached handles when a refresh fails", async () => {
+    const { internals, listMock } = await createUsergroupAdapter();
+    await internals.resolveInlineMentions("<!subteam^S111>");
+
+    listMock.mockRejectedValue(new Error("ratelimited"));
+    vi.setSystemTime(Date.now() + DAY_MS);
+
+    await expect(
+      internals.resolveInlineMentions("<!subteam^S111>")
+    ).resolves.toBe("<!subteam^S111|@composer-dev>");
+    expect(listMock).toHaveBeenCalledTimes(2);
+
+    await internals.resolveInlineMentions("<!subteam^S111>");
+    expect(listMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("returns the fetched handle when the state write fails", async () => {
+    const { internals, logger, state } = await createUsergroupAdapter();
+    const failure = new Error("state unavailable");
+    vi.mocked(state.set).mockRejectedValue(failure);
+
+    await expect(
+      internals.resolveInlineMentions("<!subteam^S111>")
+    ).resolves.toBe("<!subteam^S111|@composer-dev>");
+    expect(vi.mocked(logger.warn).mock.calls).toEqual([
+      ["Could not cache user group handles", { error: failure }],
+    ]);
+  });
+
+  it.each([
+    "subteam_updated",
+    "subteam_created",
+  ])("drops the cached handles on a %s event", async (type) => {
+    const { adapter, groups, internals, listMock, state } =
+      await createUsergroupAdapter();
+    await internals.resolveInlineMentions("<!subteam^S222>");
+    expect(await state.get("slack:usergroups")).not.toBeNull();
+    groups[1].handle = "oncall-emea";
+
+    const body = JSON.stringify({
+      type: "event_callback",
+      team_id: "T123",
+      event: { type, subteam: { id: "S222", handle: "oncall-emea" } },
+    });
+    const waitUntil = vi.fn<(task: Promise<unknown>) => void>();
+    const response = await adapter.handleWebhook(
+      createWebhookRequest(body, secret),
+      { waitUntil }
+    );
+    expect(response.status).toBe(200);
+    expect(waitUntil).toHaveBeenCalledTimes(1);
+    await waitUntil.mock.calls[0][0];
+    expect(await state.get("slack:usergroups")).toBeNull();
+
+    await expect(
+      internals.resolveInlineMentions("<!subteam^S222>")
+    ).resolves.toBe("<!subteam^S222|@oncall-emea>");
+    expect(listMock).toHaveBeenCalledTimes(2);
+  });
+
+  it.each<[string, UsergroupRequestContext, string]>([
+    [
+      "installation",
+      { token: "xoxb-team-a", installationId: "T_A" },
+      "slack:usergroups:T_A",
+    ],
+    [
+      "org-wide workspace",
+      {
+        token: "xoxb-org",
+        installationId: "E1",
+        enterpriseId: "E1",
+        isEnterpriseInstall: true,
+        teamId: "T_A",
+      },
+      "slack:usergroups:E1:T_A",
+    ],
+  ])("drops only the %s's cached handles on a subteam event", async (_label, context, key) => {
+    const { internals, state } = await createUsergroupAdapter();
+    await internals.resolveInlineMentions("<!subteam^S111>");
+    await internals.requestContext.run(context, () =>
+      internals.resolveInlineMentions("<!subteam^S111>")
+    );
+    expect(await state.get(key)).not.toBeNull();
+
+    await internals.requestContext.run(context, () =>
+      internals.handleSubteamChange({
+        type: "subteam_updated",
+        subteam: { id: "S111" },
+      })
+    );
+
+    expect(await state.get(key)).toBeNull();
+    expect(await state.get("slack:usergroups")).not.toBeNull();
+  });
+
+  it("keeps the cached handles on a subteam_updated event with the cached handle", async () => {
+    const { adapter, internals, listMock, state } =
+      await createUsergroupAdapter();
+    await internals.resolveInlineMentions("<!subteam^S222>");
+    vi.mocked(state.get).mockClear();
+
+    const body = JSON.stringify({
+      type: "event_callback",
+      team_id: "T123",
+      event: {
+        type: "subteam_updated",
+        subteam: { id: "S222", handle: "oncall", users: ["U1", "U2"] },
+      },
+    });
+    await adapter.handleWebhook(createWebhookRequest(body, secret));
+    await vi.waitFor(() =>
+      expect(state.get).toHaveBeenCalledWith("slack:usergroups")
+    );
+    await new Promise((resolve) => setTimeout(resolve, 20));
+
+    expect(state.delete).not.toHaveBeenCalledWith("slack:usergroups");
+    await internals.resolveInlineMentions("<!subteam^S222>");
+    expect(listMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not cache a list call that was in flight when a subteam event arrived", async () => {
+    const { groups, internals, listMock, state } =
+      await createUsergroupAdapter();
+    let release: () => void = () => undefined;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    listMock.mockImplementationOnce(async (args) => {
+      const stale = listResponse(structuredClone(groups), args);
+      await gate;
+      return stale;
+    });
+
+    const pending = internals.resolveInlineMentions("<!subteam^S222>");
+    await vi.waitFor(() => expect(listMock).toHaveBeenCalled());
+    groups[1].handle = "oncall-emea";
+    await internals.handleSubteamChange({
+      type: "subteam_updated",
+      subteam: { id: "S222" },
+    });
+    release();
+    await pending;
+
+    expect(await state.get("slack:usergroups")).toBeNull();
+    await expect(
+      internals.resolveInlineMentions("<!subteam^S222>")
+    ).resolves.toBe("<!subteam^S222|@oncall-emea>");
+    expect(listMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("keeps sharing the newer list call after a dropped one settles", async () => {
+    const { groups, internals, listMock } = await createUsergroupAdapter();
+    const releases: Array<() => void> = [];
+    listMock.mockImplementation(async (args) => {
+      await new Promise<void>((resolve) => {
+        releases.push(resolve);
+      });
+      return listResponse(groups, args);
+    });
+
+    const first = internals.resolveInlineMentions("<!subteam^S111>");
+    await vi.waitFor(() => expect(releases).toHaveLength(1));
+    await internals.handleSubteamChange({
+      type: "subteam_updated",
+      subteam: { id: "S111" },
+    });
+    const second = internals.resolveInlineMentions("<!subteam^S111>");
+    await vi.waitFor(() => expect(releases).toHaveLength(2));
+    releases[0]();
+    await first;
+
+    const third = internals.resolveInlineMentions("<!subteam^S222>");
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(listMock).toHaveBeenCalledTimes(2);
+
+    releases[1]();
+    await expect(Promise.all([second, third])).resolves.toEqual([
+      "<!subteam^S111|@composer-dev>",
+      "<!subteam^S222|@oncall>",
+    ]);
+    expect(listMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("warns without throwing when the cached handles cannot be dropped", async () => {
+    const { internals, logger, state } = await createUsergroupAdapter();
+    const failure = new Error("state unavailable");
+    vi.mocked(state.delete).mockRejectedValue(failure);
+
+    await expect(
+      internals.handleSubteamChange({
+        type: "subteam_updated",
+        subteam: { id: "S111" },
+      })
+    ).resolves.toBeUndefined();
+    expect(vi.mocked(logger.warn).mock.calls).toEqual([
+      [
+        "Failed to invalidate user group cache",
+        { usergroupId: "S111", error: failure },
+      ],
+    ]);
+  });
+
+  it("resolves users, channels, and groups in the same message", async () => {
+    const { internals } = await createUsergroupAdapter();
+    internals._client.users.info = vi.fn().mockResolvedValue({
+      user: { name: "alice", profile: { display_name: "Alice" } },
+    });
+    internals._client.conversations.info = vi
+      .fn()
+      .mockResolvedValue({ channel: { name: "general" } });
+
+    await expect(
+      internals.resolveInlineMentions("<@U1> in <#C1> cc <!subteam^S222>")
+    ).resolves.toBe("<@U1|Alice> in <#C1|general> cc <!subteam^S222|@oncall>");
+  });
+
+  it.each([
+    ["x <! y <@U1>", "x <! y <@U1|Alice>"],
+    ["x <! y <#C1>", "x <! y <#C1|general>"],
+    ["x <! y <!subteam^S111>", "x <! y <!subteam^S111|@composer-dev>"],
+    ["a <@ b <# c <@U1> d", "a <@ b <# c <@U1|Alice> d"],
+    ["<!here> then <@U1>", "<!here> then <@U1|Alice>"],
+    ["<@U1> then <! unclosed", "<@U1|Alice> then <! unclosed"],
+  ])("resolves the mention in %j around a literal opener", async (text, expected) => {
+    const { internals } = await createUsergroupAdapter();
+    internals._client.users.info = vi.fn().mockResolvedValue({
+      user: { name: "alice", profile: { display_name: "Alice" } },
+    });
+    internals._client.conversations.info = vi
+      .fn()
+      .mockResolvedValue({ channel: { name: "general" } });
+
+    await expect(internals.resolveInlineMentions(text)).resolves.toBe(expected);
   });
 });
