@@ -75,6 +75,14 @@ export interface WebAdapterConfig {
   /** Optional logger override. */
   logger?: Logger;
   /**
+   * Adapter name used to identify this instance in thread IDs and in the
+   * `adapters` map passed to `Chat`.
+   *
+   * Default: `"web"`. Set a distinct name when registering more than one Web
+   * adapter (e.g. `"support"` and `"sales"`) so their threads don't collide.
+   */
+  name?: string;
+  /**
    * When true, chat-sdk persists incoming message history in the configured state adapter.
    *
    * Default: `true`. Web has no platform-side history API, so the only way for

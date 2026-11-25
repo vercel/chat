@@ -52,14 +52,8 @@ export interface WebThreadIdData {
 
 const ADAPTER_NAME = "web";
 
-/** Default thread id derivation: `web:{userId}:{conversationId}`. */
-const defaultThreadIdFor = (args: {
-  user: WebUser;
-  conversationId: string;
-}): string => `${ADAPTER_NAME}:${args.user.id}:${args.conversationId}`;
-
 export class WebAdapter implements Adapter<WebThreadIdData, WebMessage> {
-  readonly name = ADAPTER_NAME;
+  readonly name: string;
   readonly userName: string;
   readonly persistMessageHistory: boolean;
   readonly lockScope = "thread" as const;
@@ -73,12 +67,13 @@ export class WebAdapter implements Adapter<WebThreadIdData, WebMessage> {
   protected readonly threadIdFor: NonNullable<WebAdapterConfig["threadIdFor"]>;
 
   constructor(opts: WebAdapterConfig) {
+    this.name = opts.name || ADAPTER_NAME;
     if (!opts.userName) {
-      throw new ValidationError(ADAPTER_NAME, "userName is required");
+      throw new ValidationError(this.name, "userName is required");
     }
     if (typeof opts.getUser !== "function") {
       throw new ValidationError(
-        ADAPTER_NAME,
+        this.name,
         "getUser is required — supply a function that resolves the user from the inbound Request"
       );
     }
@@ -86,13 +81,16 @@ export class WebAdapter implements Adapter<WebThreadIdData, WebMessage> {
     const protocolName = opts.protocol ?? "ai-sdk";
     if (!Object.hasOwn(webProtocols, protocolName)) {
       throw new ValidationError(
-        ADAPTER_NAME,
+        this.name,
         `Unknown protocol "${protocolName}". Use "ai-sdk" or "ag-ui".`
       );
     }
     this.protocol = webProtocols[protocolName];
     this.resolveUser = opts.getUser;
-    this.threadIdFor = opts.threadIdFor ?? defaultThreadIdFor;
+    this.threadIdFor =
+      opts.threadIdFor ??
+      ((args: { user: WebUser; conversationId: string }) =>
+        `${this.name}:${args.user.id}:${args.conversationId}`);
     // Default true: with no platform-side message API, the only way for
     // chat-sdk handlers to see prior turns (via thread/channel.messages) is
     // through the configured state adapter. The request body's `messages[]`
@@ -242,14 +240,14 @@ export class WebAdapter implements Adapter<WebThreadIdData, WebMessage> {
   }
 
   encodeThreadId(data: WebThreadIdData): string {
-    return `${ADAPTER_NAME}:${data.userId}:${data.conversationId}`;
+    return `${this.name}:${data.userId}:${data.conversationId}`;
   }
 
   decodeThreadId(threadId: string): WebThreadIdData {
     const parts = threadId.split(":");
-    if (parts.length < 3 || parts[0] !== ADAPTER_NAME) {
+    if (parts.length < 3 || parts[0] !== this.name) {
       throw new ValidationError(
-        ADAPTER_NAME,
+        this.name,
         `Invalid web thread id: ${threadId}`
       );
     }

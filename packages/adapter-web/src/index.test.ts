@@ -215,6 +215,46 @@ describe("WebAdapter — thread id encoding", () => {
     expect(() => adapter.decodeThreadId("slack:C123:1.2")).toThrow();
   });
 
+  it("uses a configured name as the thread id prefix", () => {
+    const named = createWebAdapter({
+      name: "support",
+      userName: "testbot",
+      getUser: () => TEST_USER,
+    });
+    const data = { userId: "u-test", conversationId: "abc-123" };
+    expect(named.name).toBe("support");
+    expect(named.encodeThreadId(data)).toBe("support:u-test:abc-123");
+    expect(named.decodeThreadId("support:u-test:abc-123")).toEqual(data);
+    expect(() => named.decodeThreadId("web:u-test:abc-123")).toThrow();
+  });
+
+  it("keeps two named web adapters' threads distinct and resolvable", async () => {
+    const support = createWebAdapter({
+      name: "support",
+      userName: "testbot",
+      getUser: () => TEST_USER,
+    });
+    const sales = createWebAdapter({
+      name: "sales",
+      userName: "testbot",
+      getUser: () => TEST_USER,
+    });
+    const chat = new Chat({
+      userName: "testbot",
+      adapters: { support, sales },
+      state: createMemoryState(),
+    });
+    await chat.initialize();
+
+    const data = { userId: "u-1", conversationId: "c-1" };
+    const supportId = support.encodeThreadId(data);
+    const salesId = sales.encodeThreadId(data);
+    expect(supportId).toBe("support:u-1:c-1");
+    expect(salesId).toBe("sales:u-1:c-1");
+    expect(chat.thread(supportId).id).toBe(supportId);
+    expect(chat.thread(salesId).id).toBe(salesId);
+  });
+
   it("uses thread id as channel id (no separate channel concept on web)", () => {
     expect(adapter.channelIdFromThreadId("web:u-test:abc")).toBe(
       "web:u-test:abc"
