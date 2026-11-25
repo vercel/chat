@@ -295,7 +295,7 @@ for persistence, upgrade cleanup, and proactive examples.
 
 ## Outgoing attachments
 
-`files` are sent inline as base64 data URIs. An entry in `attachments` with an HTTPS `url` is sent by reference instead, so a large image doesn't count toward the message size. Teams loads the URL itself, so it has to be publicly reachable.
+The adapter sends image entries in `attachments` on `{ markdown }`, `{ ast }`, and `{ raw }` messages. An entry is treated as an image when its `mimeType` starts with `image/`, or when `mimeType` isn't set and `type` is `"image"`. Teams supports only images as inline attachments from a bot, so other types are skipped.
 
 ```typescript
 await thread.post({
@@ -305,6 +305,13 @@ await thread.post({
   ],
 });
 ```
+
+- An attachment with `data` or `fetchData` is sent inline as a base64 data URI, and its `url` is ignored. Images over 1 MB are skipped. This is how `attachments: message.attachments` forwards an inline image from an incoming message, whose URL needs the bot's credentials.
+- An attachment with only a `url` is sent by reference when the URL is HTTPS, which keeps a large image out of the message payload. Teams loads the URL directly, so it has to be reachable without credentials. Other URLs are skipped.
+
+A skipped attachment doesn't fail the post: the rest of the message is sent and the adapter logs a warning. Card messages don't send `attachments`, so use `files` there. `files` are sent inline as base64 data URIs whatever their type. An edit doesn't upload bytes, so `files` and attachments with `data` or `fetchData` aren't sent. Image attachments with only a `url` are sent again, so include them in the edited message to keep them.
+
+See the [Teams adapter docs](https://chat-sdk.dev/adapters/official/teams#outgoing-attachments) for content type detection and the image limits Microsoft documents.
 
 ## Incoming attachments
 

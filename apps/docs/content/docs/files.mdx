@@ -49,6 +49,8 @@ Outgoing `attachments` are available on `{ raw }`, `{ markdown }`, and `{ ast }`
 
 On Telegram, `files` always upload as documents, while `attachments` keep their image, audio, video, or file media type. Multiple Telegram `files` or compatible `attachments` are sent as media groups. Use `data` or `fetchData` for private or authenticated files. URL-only attachments must be public URLs that Telegram can fetch directly.
 
+On Teams, only image `attachments` are sent, and other types are skipped. An image with `data` or `fetchData` is sent inline, and an image with only an HTTPS `url` is sent by reference. See [Teams outgoing attachments](/adapters/official/teams#outgoing-attachments) for the limits.
+
 ### Multiple files
 
 ```typescript title="lib/bot.ts" lineNumbers

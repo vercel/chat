@@ -1,10 +1,25 @@
-import { downloadAttachment, NetworkError } from "@chat-adapter/shared";
+import {
+  bufferToDataUri,
+  downloadAttachment,
+  NetworkError,
+  toBuffer,
+} from "@chat-adapter/shared";
 import type { Attachment } from "chat";
 
 const FILE_DOWNLOAD_INFO_CONTENT_TYPE =
   "application/vnd.microsoft.teams.file.download.info";
 const GRAPH_FILE_REFERENCE_CONTENT_TYPE = "reference";
 const FILE_TYPE_PREFIX_PATTERN = /^\./;
+const IMAGE_MIME_TYPE_PATTERN = /^image\//i;
+// Teams documents 1 MB as the limit for an image sent inline, and an
+// attachment it rejects can fail the whole message.
+const MAX_INLINE_IMAGE_BYTES = 1024 * 1024;
+const FALLBACK_IMAGE_MIME_TYPE = "image/png";
+const IMAGE_SIGNATURES: [mimeType: string, signature: number[]][] = [
+  ["image/png", [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]],
+  ["image/jpeg", [0xff, 0xd8, 0xff]],
+  ["image/gif", [0x47, 0x49, 0x46, 0x38]],
+];
 const LOOPBACK_HOST_PATTERN = /^(?:localhost|127(?:\.\d{1,3}){3}|\[::1\])$/i;
 const FILE_MIME_TYPES: Record<string, string> = {
   apng: "image/apng",
@@ -285,4 +300,170 @@ export function rehydrateTeamsAttachment(
     ...attachment,
     fetchData: createFetchDataFn(retrieval, fetchers),
   };
+}
+
+type OutboundAttachmentSkipReason =
+  | "edit-no-upload"
+  | "fetch-failed"
+  | "invalid-url"
+  | "no-content"
+  | "not-https"
+  | "too-large"
+  | "unsupported-type";
+
+interface SkippedOutboundAttachment {
+  /** Position in the postable's `attachments`. */
+  index: number;
+  name?: string;
+  reason: OutboundAttachmentSkipReason;
+}
+
+interface TeamsOutboundAttachment {
+  contentType: string;
+  contentUrl: string;
+  name?: string;
+}
+
+function isImageAttachment(attachment: Attachment): boolean {
+  return attachment.mimeType
+    ? IMAGE_MIME_TYPE_PATTERN.test(attachment.mimeType)
+    : attachment.type === "image";
+}
+
+function sniffImageMimeType(bytes: Buffer): string | undefined {
+  for (const [mimeType, signature] of IMAGE_SIGNATURES) {
+    if (
+      bytes.length >= signature.length &&
+      signature.every((byte, offset) => bytes[offset] === byte)
+    ) {
+      return mimeType;
+    }
+  }
+  return;
+}
+
+function urlPathname(url: string | undefined): string | undefined {
+  if (!url) {
+    return;
+  }
+  try {
+    return new URL(url).pathname;
+  } catch {
+    return;
+  }
+}
+
+function inferImageMimeType(attachment: Attachment, bytes?: Buffer): string {
+  if (attachment.mimeType) {
+    return attachment.mimeType;
+  }
+  const sniffed = bytes && sniffImageMimeType(bytes);
+  if (sniffed) {
+    return sniffed;
+  }
+  for (const candidate of [attachment.name, urlPathname(attachment.url)]) {
+    const inferred = candidate ? inferFileMimeType(candidate) : undefined;
+    if (inferred && IMAGE_MIME_TYPE_PATTERN.test(inferred)) {
+      return inferred;
+    }
+  }
+  return FALLBACK_IMAGE_MIME_TYPE;
+}
+
+async function resolveAttachmentBytes(
+  attachment: Attachment
+): Promise<Buffer | null> {
+  try {
+    const data =
+      attachment.data ??
+      (attachment.fetchData ? await attachment.fetchData() : undefined);
+    return await toBuffer(data, {
+      platform: "teams",
+      throwOnUnsupported: false,
+    });
+  } catch {
+    return null;
+  }
+}
+
+function urlSkipReason(url: string): OutboundAttachmentSkipReason | undefined {
+  try {
+    return new URL(url).protocol === "https:" ? undefined : "not-https";
+  } catch {
+    return "invalid-url";
+  }
+}
+
+async function toTeamsOutboundAttachment(
+  attachment: Attachment,
+  mode: "edit" | "send"
+): Promise<TeamsOutboundAttachment | OutboundAttachmentSkipReason> {
+  // Teams renders only images sent this way, and can reject the whole message
+  // when it carries another type.
+  if (!isImageAttachment(attachment)) {
+    return "unsupported-type";
+  }
+
+  // Bytes win over `url`: an attachment that carries `data` or `fetchData`
+  // usually has a `url` that needs credentials Teams doesn't have.
+  if (attachment.data || attachment.fetchData) {
+    if (mode === "edit") {
+      return "edit-no-upload";
+    }
+    const bytes = await resolveAttachmentBytes(attachment);
+    if (!bytes) {
+      return "fetch-failed";
+    }
+    if (bytes.length === 0) {
+      return "no-content";
+    }
+    if (bytes.length > MAX_INLINE_IMAGE_BYTES) {
+      return "too-large";
+    }
+    const contentType = inferImageMimeType(attachment, bytes);
+    return {
+      contentType,
+      contentUrl: bufferToDataUri(bytes, contentType),
+      name: attachment.name,
+    };
+  }
+
+  if (!attachment.url) {
+    return "no-content";
+  }
+  const reason = urlSkipReason(attachment.url);
+  if (reason) {
+    return reason;
+  }
+  return {
+    contentType: inferImageMimeType(attachment),
+    contentUrl: attachment.url,
+    name: attachment.name,
+  };
+}
+
+/**
+ * Map a postable's `attachments` to Teams activity attachments. An entry
+ * Teams can't take is reported in `skipped` instead of thrown, so the rest of
+ * the message still sends. `edit` mode keeps the entries sent by URL and never
+ * resolves bytes.
+ */
+export async function toTeamsOutboundAttachments(
+  attachments: Attachment[],
+  mode: "edit" | "send"
+): Promise<{
+  attachments: TeamsOutboundAttachment[];
+  skipped: SkippedOutboundAttachment[];
+}> {
+  const sent: TeamsOutboundAttachment[] = [];
+  const skipped: SkippedOutboundAttachment[] = [];
+  for (const [index, attachment] of attachments.entries()) {
+    const result = await toTeamsOutboundAttachment(attachment, mode);
+    if (typeof result === "string") {
+      skipped.push({ index, name: attachment.name, reason: result });
+    } else {
+      sent.push(result);
+    }
+  }
+  return { attachments: sent, skipped };
 }
