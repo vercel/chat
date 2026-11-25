@@ -77,7 +77,7 @@ export const wati = {
   name: "Wati",
   packageName: "@wati-io/chat-sdk-adapter",
   peerDeps: [],
-  readme: "https://github.com/wati-io/chat-sdk-adapter/tree/v0.1.1/adapter",
+  readme: "https://github.com/wati-io/chat-sdk-adapter/tree/v0.1.2/adapter",
   slug: "wati",
   type: "platform",
 } as const satisfies CatalogAdapter;
