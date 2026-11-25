@@ -28,7 +28,7 @@ export const wati = {
       secretEnv("WATI_ACCESS_TOKEN", "Wati API access token."),
       secretEnv(
         "WATI_WEBHOOK_SECRET",
-        "Secret that Wati webhook deliveries must carry in the token query parameter."
+        "Secret that Wati webhook deliveries must carry in the token query parameter or x-wati-webhook-secret header."
       ),
     ],
   },
