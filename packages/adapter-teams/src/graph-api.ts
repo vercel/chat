@@ -16,6 +16,7 @@ import type {
 import { Message, NotImplementedError } from "chat";
 import {
   createTeamsGraphAttachment,
+  createTeamsGraphInlineImage,
   type TeamsAttachmentFetchers,
 } from "./attachments";
 import type { TeamsFormatConverter } from "./markdown";
@@ -28,6 +29,7 @@ import type {
 
 const MESSAGEID_STRIP_PATTERN = /;messageid=\d+/;
 const SEMICOLON_MESSAGEID_CAPTURE_PATTERN = /;messageid=(\d+)/;
+const IMG_SRC_PATTERN = /<img\b[^>]*\bsrc="([^"]+)"/gi;
 
 /**
  * Graph API chat message — uses the shape returned by @microsoft/teams.graph-endpoints.
@@ -51,6 +53,23 @@ const TRUSTED_GRAPH_HOSTS = new Set([
   "graph.microsoft.us",
   "microsoftgraph.chinacloudapi.cn",
 ]);
+
+export function isGraphHostedContentUrl(value: string): boolean {
+  let url: URL;
+  try {
+    url = new URL(value);
+  } catch {
+    return false;
+  }
+  return (
+    url.protocol === "https:" &&
+    TRUSTED_GRAPH_HOSTS.has(url.hostname.toLowerCase()) &&
+    !url.username &&
+    !url.password &&
+    !url.port &&
+    url.pathname.includes("/hostedContents/")
+  );
+}
 
 export interface TeamsGraphReaderDeps {
   /** Fetchers used by attachments on messages read through Graph. */
@@ -872,17 +891,20 @@ export class TeamsGraphReader {
   }
 
   private extractAttachmentsFromGraphMessage(msg: GraphMessage): Attachment[] {
-    if (!msg.attachments?.length) {
-      return [];
-    }
-
-    return msg.attachments.map(
+    const attachments = (msg.attachments ?? []).map(
       (att: {
         contentType?: string | null;
         contentUrl?: string | null;
         name?: string | null;
       }) => createTeamsGraphAttachment(att, this.deps.attachmentFetchers)
     );
+    const images = [...(msg.body?.content ?? "").matchAll(IMG_SRC_PATTERN)]
+      .map(([, src]) => src)
+      .filter(isGraphHostedContentUrl)
+      .map((url) =>
+        createTeamsGraphInlineImage(url, this.deps.attachmentFetchers)
+      );
+    return [...attachments, ...images];
   }
 
   private mapGraphMessages(

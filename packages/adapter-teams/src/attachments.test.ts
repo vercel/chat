@@ -20,6 +20,7 @@ function createFetchers(
       : createAnonymousAttachmentFetchData,
     fetchAuthenticated,
     fetchGraphFile,
+    fetchGraphHostedContent: vi.fn(),
   };
 }
 
