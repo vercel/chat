@@ -2545,6 +2545,182 @@ describe("parseMessage", () => {
     );
   });
 
+  it.each([
+    ["https://example.com/?a=1&b=2"],
+    ["https://example.com/?q=a&amp;b"],
+    ["https://example.com/?a=1&lt;=2&gt;=3"],
+  ])("keeps title_link %s as sent", (titleLink) => {
+    for (const title of ["Report", undefined]) {
+      const message = adapter.parseMessage({
+        type: "message",
+        user: "U123",
+        channel: "C456",
+        text: "",
+        ts: "1786120899.208429",
+        attachments: [{ title, title_link: titleLink }],
+      });
+
+      expect(message.formatted).toEqual({
+        type: "root",
+        children: [
+          {
+            type: "paragraph",
+            children: [
+              {
+                type: "link",
+                url: titleLink,
+                children: [{ type: "text", value: title ?? titleLink }],
+              },
+            ],
+          },
+        ],
+      });
+      expect(message.links.map((link) => link.url)).toEqual([titleLink]);
+    }
+  });
+
+  it("parses an attachment line with many link tokens", () => {
+    const count = 200_000;
+    const message = adapter.parseMessage({
+      type: "message",
+      user: "U123",
+      channel: "C456",
+      text: "",
+      ts: "1786120899.208429",
+      attachments: [{ text: "<mailto:a@example.com|a>".repeat(count) }],
+    });
+
+    const [paragraph] = message.formatted.children;
+    expect(paragraph).toMatchObject({ type: "paragraph" });
+    const children = "children" in paragraph ? paragraph.children : [];
+    expect(children).toHaveLength(count);
+    expect(children.at(-1)).toEqual({
+      type: "link",
+      url: "mailto:a@example.com",
+      children: [{ type: "text", value: "a" }],
+    });
+  });
+
+  describe("link tokens in plain-text attachment content", () => {
+    const text = (value: string) => ({ type: "text", value });
+    const link = (url: string, label: string) => ({
+      type: "link",
+      url,
+      children: [text(label)],
+    });
+
+    it.each([
+      {
+        name: "decodes entities in a labelled URL",
+        input: "*x* <https://example.com/a?a=1&amp;b=2|receipt> _y_",
+        children: [
+          text("*x* "),
+          link("https://example.com/a?a=1&b=2", "receipt"),
+          text(" _y_"),
+        ],
+        plain: "*x* receipt _y_",
+      },
+      {
+        name: "decodes entities in an unlabelled URL and its link text",
+        input: "*x* <https://example.com/a?a=1&amp;b=2> _y_",
+        children: [
+          text("*x* "),
+          link(
+            "https://example.com/a?a=1&b=2",
+            "https://example.com/a?a=1&b=2"
+          ),
+          text(" _y_"),
+        ],
+        plain: "*x* https://example.com/a?a=1&b=2 _y_",
+      },
+      {
+        name: "links a labelled mailto target",
+        input: "*x* <mailto:a@example.com|mail *us*> _y_",
+        children: [
+          text("*x* "),
+          link("mailto:a@example.com", "mail *us*"),
+          text(" _y_"),
+        ],
+        plain: "*x* mail *us* _y_",
+      },
+      {
+        name: "links an unlabelled mailto target with the address as its text",
+        input: "*x* <mailto:a&amp;b@example.com> _y_",
+        children: [
+          text("*x* "),
+          link("mailto:a&b@example.com", "a&b@example.com"),
+          text(" _y_"),
+        ],
+        plain: "*x* a&b@example.com _y_",
+      },
+      {
+        name: "links a labelled tel target",
+        input: "*x* <tel:+15550100|call> _y_",
+        children: [text("*x* "), link("tel:+15550100", "call"), text(" _y_")],
+        plain: "*x* call _y_",
+      },
+      {
+        name: "links an unlabelled tel target with the number as its text",
+        input: "*x* <tel:+15550100> _y_",
+        children: [
+          text("*x* "),
+          link("tel:+15550100", "+15550100"),
+          text(" _y_"),
+        ],
+        plain: "*x* +15550100 _y_",
+      },
+      {
+        name: "uses the unlabelled link text for an empty label",
+        input: "*x* <https://example.com|> <mailto:a@example.com|> _y_",
+        children: [
+          text("*x* "),
+          link("https://example.com", "https://example.com"),
+          text(" "),
+          link("mailto:a@example.com", "a@example.com"),
+          text(" _y_"),
+        ],
+        plain: "*x* https://example.com a@example.com _y_",
+      },
+      {
+        name: "keeps tokens with nothing after the scheme as text",
+        input: "*x* <https://> <http://|a> <mailto:> <mailto:|b> <tel:> _y_",
+        children: [
+          text("*x* <https://> <http://|a> <mailto:> <mailto:|b> <tel:> _y_"),
+        ],
+        plain: "*x* <https://> <http://|a> <mailto:> <mailto:|b> <tel:> _y_",
+      },
+    ])("$name", async ({ input, children, plain }) => {
+      const event: SlackEvent = {
+        type: "message",
+        user: "U123",
+        channel: "C456",
+        text: "",
+        ts: "1786120899.208429",
+        attachments: [{ text: input }],
+      };
+      const internals = adapter as unknown as {
+        parseSlackMessage(
+          value: SlackEvent,
+          threadId: string
+        ): Promise<Message<unknown>>;
+      };
+
+      for (const message of [
+        adapter.parseMessage(event),
+        await internals.parseSlackMessage(
+          event,
+          "slack:C456:1786120899.208429"
+        ),
+      ]) {
+        expect(message.formatted).toEqual({
+          type: "root",
+          children: [{ type: "paragraph", children }],
+        });
+        expect(message.text).toBe(plain);
+      }
+    });
+  });
+
   it("keeps each attachment's tables adjacent to its text", () => {
     const table = (cell: string) => ({
       type: "table",
@@ -17066,6 +17242,32 @@ describe("inbound markdown budget", { timeout: 20_000 }, () => {
       }
     });
 
+    it("preserves link destinations above the emphasis limit on both incoming paths", async () => {
+      const prefix = "*".repeat(2049);
+      for (const message of await parseBoth({
+        text: `${prefix} <https://example.com/a|receipt> _tail_`,
+      })) {
+        expect(message.text).toBe(`${prefix} receipt _tail_`);
+        expect(message.formatted).toEqual({
+          type: "root",
+          children: [
+            {
+              type: "paragraph",
+              children: [
+                { type: "text", value: `${prefix} ` },
+                {
+                  type: "link",
+                  url: "https://example.com/a",
+                  children: [{ type: "text", value: "receipt" }],
+                },
+                { type: "text", value: " _tail_" },
+              ],
+            },
+          ],
+        });
+      }
+    });
+
     it("keeps oversized history messages unparsed", async () => {
       const { adapter } = await createAdapter();
       mockClientMethod(
@@ -17329,7 +17531,23 @@ describe("inbound markdown budget", { timeout: 20_000 }, () => {
       for (const message of await parseBoth({ text: input })) {
         expect(message.formatted).toEqual({
           type: "root",
-          children: [unparsed(expected)],
+          children: [
+            {
+              type: "paragraph",
+              children: [
+                {
+                  type: "text",
+                  value: "Tom & Jerry @alice joined #general (C789), see ",
+                },
+                {
+                  type: "link",
+                  url: "https://example.com",
+                  children: [{ type: "text", value: "the docs" }],
+                },
+                { type: "text", value: ` <now> *as typed*${FILLER}` },
+              ],
+            },
+          ],
         });
         expect(message.text).toBe(expected);
       }
@@ -17347,7 +17565,7 @@ describe("inbound markdown budget", { timeout: 20_000 }, () => {
               type: "message",
               user: "U123",
               ts,
-              text: `<!subteam^S123|@devs> <mailto:a@example.com|mail> <https://example.com>${FILLER}`,
+              text: `<!subteam^S123|@devs> <mailto:a@example.com|mail> <https://example.com> *as typed*${FILLER}`,
             },
           ],
         })
@@ -17358,10 +17576,29 @@ describe("inbound markdown budget", { timeout: 20_000 }, () => {
         { direction: "forward" }
       );
 
-      const expected = `@devs mail https://example.com${FILLER}`;
+      const expected = `@devs mail https://example.com *as typed*${FILLER}`;
       expect(messages[0]?.formatted).toEqual({
         type: "root",
-        children: [unparsed(expected)],
+        children: [
+          {
+            type: "paragraph",
+            children: [
+              { type: "text", value: "@devs " },
+              {
+                type: "link",
+                url: "mailto:a@example.com",
+                children: [{ type: "text", value: "mail" }],
+              },
+              { type: "text", value: " " },
+              {
+                type: "link",
+                url: "https://example.com",
+                children: [{ type: "text", value: "https://example.com" }],
+              },
+              { type: "text", value: ` *as typed*${FILLER}` },
+            ],
+          },
+        ],
       });
       expect(messages[0]?.text).toBe(expected);
     });
@@ -17375,7 +17612,25 @@ describe("inbound markdown budget", { timeout: 20_000 }, () => {
       for (const message of await parseBoth({ text: input })) {
         expect(message.formatted).toEqual({
           type: "root",
-          children: [unparsed(expected)],
+          children: [
+            {
+              type: "paragraph",
+              children: [
+                { type: "text", value: "Plain *bold* words and " },
+                ...Array.from({ length: 330 }, (_, index) => [
+                  {
+                    type: "link",
+                    url: "https://example.com",
+                    children: [{ type: "text", value: "a link" }],
+                  },
+                  {
+                    type: "text",
+                    value: index === 329 ? ".\n" : ".\nPlain *bold* words and ",
+                  },
+                ]).flat(),
+              ],
+            },
+          ],
         });
         expect(message.text).toBe(expected);
       }

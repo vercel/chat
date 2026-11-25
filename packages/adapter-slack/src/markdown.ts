@@ -28,9 +28,11 @@ import {
   isStrongNode,
   isTableNode,
   isTextNode,
+  type Link,
   parseMarkdown,
   type Root,
   stringifyMarkdown,
+  type Text,
   tableToAscii,
 } from "chat";
 import { slackMrkdwnToMarkdown, unescapeSlackText } from "./format";
@@ -40,9 +42,15 @@ export type SlackTextPayload = { text: string } | { markdown_text: string };
 const SLACK_ID_PATTERN = /^[A-Z0-9_]+$/;
 const SPECIAL_MENTION_TOKEN_PATTERN = /^!(here|channel|everyone)(?:\|[^<>]*)?$/;
 const USER_GROUP_TOKEN_PATTERN = /^!subteam\^([A-Z0-9_]+)(?:\|@?(.+))?$/;
-const LINK_TARGET_PATTERN = /^(?:https?:\/\/|mailto:|tel:)/;
+const LINK_SCHEME_PATTERN = /^(?:https?:\/\/|mailto:|tel:)/;
 const WEB_URL_PATTERN = /^https?:\/\/[^|]+$/;
-const LINK_SCHEME_PATTERN = /^(?:mailto|tel):/;
+const BLANK_PATTERN = /[ \t]/;
+
+interface ControlToken {
+  text: string;
+  /** The destination the fallback links the text to, if any. */
+  url?: string;
+}
 
 /**
  * Index just past the `>` that closes the `<` at `index`, or -1 when another
@@ -62,46 +70,108 @@ function angleTokenEnd(mrkdwn: string, index: number): number {
 }
 
 /**
- * The plain text `toAst` renders for the content of one `<…>` control token,
- * or `undefined` for a token it keeps verbatim.
+ * `toAst` rewrites a link token to `[label](url)`. A blank ends a markdown
+ * link destination, so that markdown then stays literal text.
  */
-function controlTokenText(token: string): string | undefined {
+function linkToken(url: string, label: string): ControlToken {
+  return BLANK_PATTERN.test(url)
+    ? { text: `[${label}](${url})` }
+    : { text: label, url };
+}
+
+/**
+ * A token whose target starts with a link scheme of `length` characters. The
+ * text matches `toAst`. The link is narrower: only a token with characters
+ * after the scheme and, when it has a `|`, a label gets one. `toAst` also
+ * autolinks the rest, such as `<mailto:>` or `<https://example.com|>`, and
+ * the fallback renders those as text.
+ */
+function schemeToken(
+  token: string,
+  target: string,
+  label: string | undefined,
+  length: number
+): ControlToken | undefined {
+  const web = token.startsWith("http");
+  if (target.length > length) {
+    if (label) {
+      return linkToken(target, label);
+    }
+    if (label === undefined && !web) {
+      return linkToken(target, target.slice(length));
+    }
+    if (label === undefined && !BLANK_PATTERN.test(target)) {
+      return { text: target, url: target };
+    }
+  }
+  if (web || !BLANK_PATTERN.test(token)) {
+    return { text: token };
+  }
+}
+
+/**
+ * The plain text `toAst` renders for the content of one `<…>` control token,
+ * with the destination of a link token, or `undefined` for a token `toAst`
+ * keeps verbatim.
+ */
+function controlTokenText(token: string): ControlToken | undefined {
   const pipe = token.indexOf("|");
   const target = pipe === -1 ? token : token.slice(0, pipe);
   const label = pipe === -1 ? undefined : token.slice(pipe + 1);
+  const scheme = LINK_SCHEME_PATTERN.exec(target);
+  if (scheme) {
+    return schemeToken(token, target, label, scheme[0].length);
+  }
+  const special = SPECIAL_MENTION_TOKEN_PATTERN.exec(token);
+  if (special) {
+    return { text: `@${special[1]}` };
+  }
   if (label === "") {
     return;
   }
 
-  const special = SPECIAL_MENTION_TOKEN_PATTERN.exec(token);
-  if (special) {
-    return `@${special[1]}`;
-  }
   const group = USER_GROUP_TOKEN_PATTERN.exec(token);
   if (group) {
-    return `@${group[2] ?? group[1]}`;
+    return { text: `@${group[2] ?? group[1]}` };
   }
   if (target.startsWith("@") && SLACK_ID_PATTERN.test(target.slice(1))) {
-    return label === undefined ? target : `@${label}`;
+    return { text: label === undefined ? target : `@${label}` };
   }
   if (target.startsWith("#") && SLACK_ID_PATTERN.test(target.slice(1))) {
-    return label === undefined ? target : `#${label} (${target.slice(1)})`;
+    return {
+      text: label === undefined ? target : `#${label} (${target.slice(1)})`,
+    };
   }
-  if (!LINK_TARGET_PATTERN.test(target)) {
-    return label !== undefined && WEB_URL_PATTERN.test(label)
-      ? target
-      : undefined;
+  if (target && label !== undefined && WEB_URL_PATTERN.test(label)) {
+    return linkToken(label, target);
   }
-  return label ?? target.replace(LINK_SCHEME_PATTERN, "");
 }
 
 /**
- * Render mrkdwn as plain text without parsing it as markdown: control tokens
- * become the text `toAst` renders for them and entities are decoded, while
- * formatting characters stay as typed. Runs in linear time.
+ * Render mrkdwn as text and explicit links without parsing markdown: control
+ * tokens become the text `toAst` renders for them, link tokens become link
+ * nodes, and entities are decoded, while formatting characters stay as typed.
+ * Runs in linear time.
+ *
+ * Code is not recognized: a link token inside backticks still becomes a link
+ * node between the literal backticks, where `toAst` keeps it as code text.
  */
-function slackMrkdwnToPlainText(mrkdwn: string): string {
-  let result = "";
+function slackMrkdwnFallback(mrkdwn: string): {
+  formatted: Root;
+  text: string;
+} {
+  const children: (Text | Link)[] = [];
+  let text = "";
+  let pending = "";
+  const flushPending = (): void => {
+    if (pending) {
+      const value = unescapeSlackText(pending);
+      children.push({ type: "text", value });
+      text += value;
+      pending = "";
+    }
+  };
+
   let start = 0;
   let cursor = mrkdwn.indexOf("<");
   while (cursor !== -1) {
@@ -110,14 +180,34 @@ function slackMrkdwnToPlainText(mrkdwn: string): string {
       cursor = mrkdwn.indexOf("<", cursor + 1);
       continue;
     }
-    const text = controlTokenText(mrkdwn.slice(cursor + 1, end - 1));
-    if (text !== undefined) {
-      result += mrkdwn.slice(start, cursor) + text;
+    const token = controlTokenText(mrkdwn.slice(cursor + 1, end - 1));
+    if (token !== undefined) {
+      pending += mrkdwn.slice(start, cursor);
+      if (token.url === undefined) {
+        pending += token.text;
+      } else {
+        flushPending();
+        const value = unescapeSlackText(token.text);
+        children.push({
+          type: "link",
+          url: unescapeSlackText(token.url),
+          children: [{ type: "text", value }],
+        });
+        text += value;
+      }
       start = end;
     }
     cursor = mrkdwn.indexOf("<", end);
   }
-  return unescapeSlackText(result + mrkdwn.slice(start));
+  pending += mrkdwn.slice(start);
+  flushPending();
+  if (children.length === 0) {
+    children.push({ type: "text", value: "" });
+  }
+  return {
+    text,
+    formatted: { type: "root", children: [{ type: "paragraph", children }] },
+  };
 }
 
 export class SlackFormatConverter extends BaseFormatConverter {
@@ -140,7 +230,7 @@ export class SlackFormatConverter extends BaseFormatConverter {
    * Return a parser for the mrkdwn parts of one message, such as its text,
    * layout block text, attachment text, and table cells. The parse budget
    * applies to all parts together: when they exceed it, no part is parsed and
-   * each becomes a single text node. Otherwise each part goes through
+   * each retains only text and explicit link nodes. Otherwise each part goes through
    * `parseIncoming`.
    *
    * @internal Used by SlackAdapter to parse inbound messages.
@@ -169,7 +259,35 @@ export class SlackFormatConverter extends BaseFormatConverter {
   }
 
   protected override incomingFallbackText(mrkdwn: string): string {
-    return slackMrkdwnToPlainText(mrkdwn);
+    return slackMrkdwnFallback(mrkdwn).text;
+  }
+
+  /**
+   * Keep link nodes only while `incomingFallbackText` is not overridden. A
+   * subclass that overrides it gets its text in a single text node, so the
+   * tree never carries content, such as a link destination, that the override
+   * removed.
+   */
+  protected override unparsedIncoming(mrkdwn: string): {
+    formatted: Root;
+    text: string;
+  } {
+    if (
+      this.incomingFallbackText ===
+      SlackFormatConverter.prototype.incomingFallbackText
+    ) {
+      return slackMrkdwnFallback(mrkdwn);
+    }
+    const text = this.incomingFallbackText(mrkdwn);
+    return {
+      text,
+      formatted: {
+        type: "root",
+        children: [
+          { type: "paragraph", children: [{ type: "text", value: text }] },
+        ],
+      },
+    };
   }
 
   /**
