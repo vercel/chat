@@ -184,7 +184,7 @@ await thread.post({
 });
 ```
 
-Use `attachments` on `{ raw }`, `{ markdown }`, or `{ ast }` when an adapter supports typed media uploads, such as Telegram's image/audio/video/file uploads and media groups.
+Use `attachments` on `{ raw }`, `{ markdown }`, or `{ ast }` when an adapter supports typed media uploads, such as Telegram's image/audio/video/file uploads and media groups. Teams sends [image attachments](/adapters/official/teams#outgoing-attachments) and skips other types.
 
 See the [Files](/docs/files) page for more on attachments.
 
