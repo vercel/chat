@@ -6448,6 +6448,120 @@ describe("TelegramAdapter", () => {
     expect(event.previousMessage).toBeUndefined();
   });
 
+  it.each([
+    {
+      chat: REGULAR_SUPERGROUP,
+      original: "can someone look at this",
+      edited: "can someone look at this @mybot",
+      entities: [{ type: "mention" as const, offset: 25, length: 6 }],
+      threadId: "telegram:-100123",
+      isMention: true,
+    },
+    {
+      chat: { id: 123, type: "private" as const, first_name: "User" },
+      original: "hi",
+      edited: "hi there",
+      entities: undefined,
+      threadId: "telegram:123",
+      isMention: false,
+    },
+  ])("reports a $chat.type edit to onMessageUpdated once, without a second reply or typing", async ({
+    chat: telegramChat,
+    original,
+    edited,
+    entities,
+    threadId,
+    isMention,
+  }) => {
+    mockFetch.mockImplementation(async (input: RequestInfo | URL) =>
+      String(input).endsWith("/getMe")
+        ? telegramOk({
+            id: 999,
+            is_bot: true,
+            first_name: "Bot",
+            username: "mybot",
+          })
+        : telegramOk(true)
+    );
+    const adapter = createTelegramAdapter({
+      botToken: "token",
+      mode: "webhook",
+      allowUnverifiedWebhooks: true,
+      logger: mockLogger,
+      userName: "mybot",
+    });
+    const chat = new Chat({
+      adapters: { telegram: adapter },
+      logger: mockLogger,
+      state: createMockState(),
+      userName: "mybot",
+    });
+    await chat.initialize();
+    const replies: string[] = [];
+    const updates: {
+      threadId: string;
+      text: string;
+      isMention?: boolean;
+      prev: unknown;
+    }[] = [];
+    chat.onNewMention(async (_thread, message) => {
+      replies.push(message.text);
+    });
+    chat.onDirectMessage(async (_thread, message) => {
+      replies.push(message.text);
+    });
+    chat.onMessageUpdated(async (thread, message, previousMessage) => {
+      updates.push({
+        threadId: thread.id,
+        text: message.text,
+        isMention: message.isMention,
+        prev: previousMessage,
+      });
+    });
+
+    const post = async (update: Record<string, unknown>) => {
+      const pending: Promise<unknown>[] = [];
+      const response = await adapter.handleWebhook(
+        new Request("https://example.com/webhook", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify(update),
+        }),
+        { waitUntil: (task: Promise<unknown>) => pending.push(task) }
+      );
+      await Promise.all(pending);
+      expect(response.status).toBe(200);
+    };
+
+    await post({
+      update_id: 1,
+      message: sampleMessage({ chat: telegramChat, text: original }),
+    });
+    const typingBeforeEdit = mockFetch.mock.calls.filter(([input]) =>
+      String(input).includes("/sendChatAction")
+    ).length;
+    await post({
+      update_id: 2,
+      edited_message: sampleMessage({
+        chat: telegramChat,
+        text: edited,
+        entities,
+        edit_date: 1735689700,
+      }),
+    });
+
+    expect(replies.length).toBeLessThanOrEqual(1);
+    expect(replies).not.toContain(edited);
+    expect(updates).toEqual([
+      { threadId, text: edited, isMention, prev: undefined },
+    ]);
+    expect(
+      mockFetch.mock.calls.filter(([input]) =>
+        String(input).includes("/sendChatAction")
+      )
+    ).toHaveLength(typingBeforeEdit);
+  });
+
   it("processes channel_post webhook updates", async () => {
     mockFetch.mockResolvedValueOnce(
       telegramOk({
