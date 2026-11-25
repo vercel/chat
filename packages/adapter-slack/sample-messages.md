@@ -195,3 +195,26 @@ Slack sends a user group mention without a handle. `usergroups.list` supplies it
   ]
 }
 ```
+
+## User group updated
+
+Slack sends `subteam_updated` when a group is renamed, disabled, or otherwise changed, and `subteam_created` with the same shape for a new group. Both need the `usergroups:read` scope. The adapter drops its cached handles for the workspace. This example follows the event shape in Slack's reference, trimmed to the fields that identify the group.
+
+```json
+{
+  "type": "subteam_updated",
+  "subteam": {
+    "id": "S0123456789",
+    "team_id": "T0123456789",
+    "is_usergroup": true,
+    "name": "Developers",
+    "handle": "devs",
+    "date_create": 1726500000,
+    "date_update": 1726600000,
+    "date_delete": 0,
+    "users": ["U0123456789"],
+    "user_count": 1
+  },
+  "event_ts": "1726600000.000300"
+}
+```

@@ -201,10 +201,15 @@ writes themselves if they need to round-trip them.
   italic (`_…_`), strike (`~…~`), inline code, code fences, and
   blockquotes. Bare `<@U…>`, `<#C…>`, and `<!subteam^S…>` mentions resolve
   through `users.info`, `conversations.info`, and `usergroups.list`
-  (`lookupMentionNames`), each cached in the state adapter for eight days
-  and scoped by installation. `usergroups.list` has no single-group
-  lookup, so `lookupUsergroup` lists groups and caches every handle. It needs
-  the `usergroups:read` scope and falls back to the ID on failure.
+  (`lookupMentionNames`), cached in the state adapter and scoped by
+  installation. Users and channels are cached per ID for eight days.
+  Slack has no single-group lookup, so `lookupUsergroups` lists groups and
+  stores every handle in one directory entry per workspace
+  (`usergroupDirectoryKey`), refreshed after 24 hours or dropped on
+  `subteam_created` / `subteam_updated`. Concurrent lookups share one
+  in-flight call. Unknown IDs and failed calls are retried at most every
+  five minutes, and the token is left unlabeled. It needs the
+  `usergroups:read` scope.
 - `fromAst(ast)` — mdast → mrkdwn. Lists, blockquotes, inline emphasis,
   links and code blocks all round-trip. Tables are flattened to fenced
   text because Slack mrkdwn has no table primitive.
