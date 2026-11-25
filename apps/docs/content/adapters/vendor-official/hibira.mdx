@@ -1,0 +1,184 @@
+---
+title: Hibira Live Chat
+description: Hibira Live Chat adapter for Chat SDK. Answer website chat, LINE and email conversations with your bot, and hand them to your team.
+packageName: "@hibira-io/chat-adapter"
+slug: hibira
+type: platform
+tagline: Website chat, LINE and email conversations from Hibira Live Chat as direct messages, built and maintained by Hibira. Verified webhooks, typing indicators and handoff to human agents.
+community: true
+vendorOfficial: true
+author: Hibira
+mdxBody: true
+---
+
+## Create a new bot
+
+Scaffold a Next.js bot with the Hibira Live Chat adapter using [`create-chat-sdk`](/docs/create-chat-sdk):
+
+<CreateChatSdk adapters="hibira memory" />
+
+The generated app uses the [Memory state adapter](/adapters/official/memory) for local development. To add the adapter to an existing app, start at [Install](#install).
+
+## Install
+
+<PackageInstall package="@hibira-io/chat-adapter chat @chat-adapter/state-memory" />
+
+For production, use a persistent state adapter such as `@chat-adapter/state-redis` instead of in-memory state.
+
+## Quick start
+
+```typescript title="lib/bot.ts" lineNumbers
+import { Chat } from "chat";
+import { createHibiraAdapter } from "@hibira-io/chat-adapter";
+import { createMemoryState } from "@chat-adapter/state-memory";
+
+export const chat = new Chat({
+  userName: "support-bot",
+  adapters: {
+    hibira: createHibiraAdapter(),
+  },
+  state: createMemoryState(),
+});
+
+chat.onDirectMessage(async (thread, message) => {
+  await thread.post(`Thanks! Looking into "${message.text}" now.`);
+});
+```
+
+Add a [webhook route](#webhooks) so Live Chat can deliver visitors' messages.
+
+## Platform setup
+
+The REST API and webhooks are on the Live Chat Team and Business plans.
+
+1. In [chat.hibira.io](https://chat.hibira.io), open **Settings › API & webhooks**.
+2. Create an API key with the **Read and write** scope.
+3. Add a webhook endpoint with your webhook URL, for example `https://your-app.com/api/webhooks/hibira`, and select at least the `message.created` event. Copy its signing secret.
+4. Optional: invite an agent for the bot, such as "Support bot", and set its ID as `HIBIRA_LIVECHAT_AGENT_ID` so replies show that name.
+5. If the workspace's own AI assistant answers chats, turn it off so visitors don't get two answers.
+
+## Configuration
+
+`createHibiraAdapter()` reads credentials from environment variables by default. You can also pass them explicitly. `apiKey` and `webhookSecret` accept a function, which the adapter calls on every request:
+
+```typescript
+createHibiraAdapter({
+  apiKey: () => getSecret("livechat-api-key"),
+  webhookSecret: process.env.HIBIRA_LIVECHAT_WEBHOOK_SECRET,
+  agentId: "ag_...",
+});
+```
+
+<TypeTable
+  type={{
+    apiKey: {
+      type: "string | (() => string | Promise<string>)",
+      description:
+        "Workspace API key with the write scope. Resolved on every REST call. Auto-detected from `HIBIRA_LIVECHAT_API_KEY` when omitted.",
+    },
+    webhookSecret: {
+      type: "string | (() => string | Promise<string>)",
+      description:
+        "Signing secret of the webhook endpoint. Resolved on every verification. Auto-detected from `HIBIRA_LIVECHAT_WEBHOOK_SECRET` when omitted.",
+    },
+    agentId: {
+      type: "string",
+      description:
+        "Agent the bot replies as. Auto-detected from `HIBIRA_LIVECHAT_AGENT_ID`. Defaults to the agent who created the API key. Required with `dispatchAgentMessages`.",
+    },
+    apiUrl: {
+      type: "string",
+      description:
+        "REST API base URL. Auto-detected from `HIBIRA_LIVECHAT_API_URL`. Defaults to `https://chat.hibira.io/v1`.",
+    },
+    dispatchAgentMessages: {
+      type: "boolean",
+      description:
+        "Also dispatch human agents' messages to your handlers. Defaults to `false`.",
+    },
+    onEvent: {
+      type: "(event: HibiraWebhookEvent) => void | Promise<void>",
+      description: "Called with every verified webhook event.",
+    },
+    signatureToleranceSeconds: {
+      type: "number",
+      description: "Maximum age of a webhook signature. Defaults to `300`.",
+    },
+    userName: {
+      type: "string",
+      description: "Bot user name. Defaults to `hibira-bot`.",
+    },
+  }}
+/>
+
+### Environment variables
+
+| Variable | Required | Description |
+| --- | --- | --- |
+| `HIBIRA_LIVECHAT_API_KEY` | Yes | Workspace API key with the write scope (`lck_…`) |
+| `HIBIRA_LIVECHAT_WEBHOOK_SECRET` | Yes | Signing secret of the webhook endpoint (`lcwh_…`) |
+| `HIBIRA_LIVECHAT_AGENT_ID` | No | Agent the bot replies as. Defaults to the agent who created the key |
+| `HIBIRA_LIVECHAT_API_URL` | No | REST API base URL. Defaults to `https://chat.hibira.io/v1` |
+
+## Webhooks
+
+```typescript title="app/api/webhooks/hibira/route.ts" lineNumbers
+import { after } from "next/server";
+import { chat } from "@/lib/bot";
+
+export async function POST(request: Request) {
+  await chat.initialize();
+  return chat.webhooks.hibira(request, {
+    waitUntil: (task) => after(() => task),
+  });
+}
+```
+
+The adapter verifies the `Hibira-Signature` header (HMAC-SHA256 with a timestamp) and answers `401` to unsigned or stale deliveries. Only visitors' messages reach your handlers: internal notes, the bot's own replies, the workspace AI's answers and system messages don't. Set `dispatchAgentMessages: true` to also receive human agents' messages. It requires `agentId`, so the adapter can recognize its own replies after a restart; `createHibiraAdapter()` throws without it.
+
+Use `onEvent` to see every webhook event, such as `conversation.assigned` or `conversation.closed`, for example to stop answering once an agent takes over.
+
+## Thread IDs
+
+Each Live Chat conversation is one thread, `hibira:<conversation id>`, and a direct message. Visitors who write from the website widget, LINE or email arrive the same way, and replies go back on the channel they came from.
+
+## Sending messages
+
+Live Chat shows plain text. The adapter flattens Markdown (links become `text (url)`), renders cards and tables as text, and splits replies longer than 4,000 characters into several messages.
+
+Streamed answers are collected while the visitor sees the bot typing, then sent as one message, because Live Chat messages can't be edited. Live Chat shows an agent's typing indicator only after that agent has written in the conversation, so the indicator appears from the bot's second reply on.
+
+## Handoff
+
+The adapter has Live Chat actions besides the Chat SDK methods:
+
+```typescript
+import type { HibiraAdapter } from "@hibira-io/chat-adapter";
+
+const hibira = chat.getAdapter("hibira") as HibiraAdapter;
+
+await hibira.handoff(thread.id, { teamId: "tm_billing" }); // or { agentId } or nothing
+await hibira.postNote(thread.id, "Asked for a refund on order 1042.");
+await hibira.closeConversation(thread.id);
+```
+
+`getConversation(threadId)` returns the visitor's details (name, email, page, verified `user_id`, channel) and the latest 100 messages.
+
+## Limitations
+
+- Messages can't be edited or deleted, so `editMessage` and `deleteMessage` throw.
+- No reactions, buttons, modals, slash commands or file uploads. Files attached to a reply aren't sent: the adapter logs a warning and posts the text.
+- The typing indicator appears only after the bot has written in the conversation.
+- `fetchMessages` returns the latest 100 messages of a conversation.
+
+## Feature support
+
+<FeatureSupport />
+
+## Resources
+
+Hibira maintains this adapter as Chat SDK and the Live Chat API evolve. For account or API help, write to Hibira support from chat.hibira.io.
+
+- [Live Chat REST API and webhooks](https://chat.hibira.io/docs/#api)
+- [GitHub](https://github.com/hibira-io/chat-adapter)
+- [npm](https://www.npmjs.com/package/@hibira-io/chat-adapter)

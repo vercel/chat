@@ -43,6 +43,7 @@ import { adeli } from "./vendor-official/adeli";
 import { agentphone } from "./vendor-official/agentphone";
 import { cloudflareAgents } from "./vendor-official/cloudflare-agents";
 import { dial } from "./vendor-official/dial";
+import { hibira } from "./vendor-official/hibira";
 import { kapso } from "./vendor-official/kapso";
 import { lark } from "./vendor-official/lark";
 import { linq } from "./vendor-official/linq";
@@ -99,6 +100,7 @@ export const ADAPTERS = {
   dial,
   adeli,
   wayza,
+  hibira,
 } as const satisfies Record<string, CatalogAdapter>;
 
 /**
