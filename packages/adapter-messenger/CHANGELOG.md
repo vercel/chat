@@ -1,5 +1,17 @@
 # @chat-adapter/messenger
 
+## 4.46.0
+
+### Patch Changes
+
+- 859d012: Add `MessageStore` to `@chat-adapter/shared`, an in-memory message store that keeps the newest 100 messages of each thread and stays within a size budget of about 64 MB across all threads. The Telegram, Messenger, and Instagram adapters now use it for the messages `fetchMessages` returns, so the cache no longer grows with every message the process sees. Older messages beyond those limits are no longer returned.
+- Updated dependencies [859d012]
+- Updated dependencies [34d5336]
+- Updated dependencies [566e586]
+- Updated dependencies [4ff668d]
+  - @chat-adapter/shared@4.46.0
+  - chat@4.46.0
+
 ## 4.45.0
 
 ### Patch Changes

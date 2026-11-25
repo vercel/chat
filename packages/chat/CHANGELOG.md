@@ -1,5 +1,27 @@
 # chat
 
+## 4.46.0
+
+### Minor Changes
+
+- 566e586: Add an optional `feedbackButtons` field to `PostableRaw`, `PostableMarkdown`, `PostableAst`, `PostableCard`, `StreamingPlanOptions`, and `StreamOptions`. When it's `true`, adapters that support native feedback buttons per message show them. The Teams adapter shows Teams' thumbs up and thumbs down buttons on new, edited, channel, targeted, and streamed messages, and on raw Adaptive Cards. An edit must set the flag again to keep the buttons. Clicks dispatch through `bot.onAction("message_feedback")` with the value `"positive"` or `"negative"`, the same as the Slack adapter's feedback buttons, and any comment the user typed is in `event.values.feedback`.
+  
+  With post+edit streaming, the buttons are added once the stream finishes, so a partial answer can't be rated. `channel.post()` now consumes a `StreamingPlan` and posts its text as one message with the plan's `aiGenerated` and `feedbackButtons` flags. Before, it posted an empty message and never read the stream.
+  
+  In the Teams adapter, handlers for actions, feedback clicks, reactions, dialogs, installs, and member joins no longer write into the native stream of a DM reply that is still in progress. They post a separate message. `parseTeamsWebhookBody` from `@chat-adapter/teams/webhook` returns the new `message_feedback` kind for feedback clicks.
+- 4ff668d: Thread history now stores each message's `formatted` tree without the parser's `position` data, which cuts the stored size of a formatted message by about three to four times. Messages read back from thread history no longer have `position` on their nodes. Add `history.thread.storeFormatted`: set it to `false` to store a single text node holding the message's `text` in place of the tree. Entries stored before this change still load as they were stored.
+
+### Patch Changes
+
+- 34d5336: Close the source stream passed to `thread.post()` once the post settles. The stream wrappers given to an adapter's `stream()` and to the post and edit fallback had `next()` but no `return()`, so leaving the loop early (a `break`, a thrown error, or a failed post while streaming) never reached the cleanup in the abort handling, and the source generator stayed open with its model request still running. Both wrappers are now async generators, which pass `return()` through to the source. A source that was never read at all (the adapter's `stream()` throws or returns before reading, the placeholder post fails, or the thread is already aborted) is now closed too, so an AI SDK `ReadableStream` is cancelled instead of left running. A read still pending when the thread is aborted can delay that close, so pass the abort signal to the model call as well.
+- Updated dependencies [66f2672]
+- Updated dependencies [82b401c]
+- Updated dependencies [a7e2745]
+- Updated dependencies [e490e84]
+- Updated dependencies [9faccfa]
+- Updated dependencies [66f2672]
+  - @chat-adapter/catalog@4.46.0
+
 ## 4.45.0
 
 ### Minor Changes
