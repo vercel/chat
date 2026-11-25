@@ -14187,6 +14187,148 @@ describe("native stream rotation", () => {
       expect(chatStream).toHaveBeenCalledTimes(1);
     });
   });
+
+  // Slack caps markdown_text at 12,000 characters across a whole stream.
+  describe("markdown length limit", () => {
+    /** The markdown_text each segment received across its append and stop calls. */
+    function segmentTexts(
+      segments: ReturnType<typeof setup>["segments"],
+      count: number
+    ): string[] {
+      return segments
+        .slice(0, count)
+        .map((segment) =>
+          [...segment.append.mock.calls, ...segment.stop.mock.calls]
+            .map(([args]) => (args as { markdown_text?: string }).markdown_text)
+            .join("")
+        );
+    }
+
+    async function streamParts(parts: string[]) {
+      // Age-based rotation is off, so every rotation here is for length.
+      const { adapter, segments, chatStream } = setup({
+        streamSegmentMaxAgeMs: Number.POSITIVE_INFINITY,
+      });
+      async function* stream() {
+        yield* parts;
+      }
+      const result = await adapter.stream(THREAD, stream());
+      return {
+        result,
+        texts: segmentTexts(segments, chatStream.mock.calls.length),
+      };
+    }
+
+    it("continues in a new message before the reply passes the limit", async () => {
+      const first = `${"a".repeat(7000)}\n\n`;
+      const second = `${"b".repeat(7000)}\n\n`;
+
+      const { result, texts } = await streamParts([first, second]);
+
+      expect(texts).toEqual([first, second]);
+      expect(result).toMatchObject({
+        id: "1234567890.1",
+        messageIds: ["1234567890.0", "1234567890.1"],
+      });
+    });
+
+    it("rotates at a line break when small deltas add up past the limit", async () => {
+      const line = `${"x".repeat(999)}\n`;
+      const parts = Array.from({ length: 13 }, () => line);
+
+      const { texts } = await streamParts(parts);
+
+      expect(texts).toEqual([line.repeat(11), line.repeat(2)]);
+    });
+
+    it("moves a line that does not fit to the next message whole", async () => {
+      const link = `https://example.com/${"p".repeat(980)}\n`;
+      const first = `${"a".repeat(11_000)}\n`;
+
+      const { texts } = await streamParts([first, link]);
+
+      expect(texts).toEqual([first, link]);
+    });
+
+    it("splits a line longer than a message without breaking an emoji", async () => {
+      const line = `${"a".repeat(11_899)}\u{1F600}${"b".repeat(100)}`;
+
+      const { texts } = await streamParts([line]);
+
+      expect(texts).toEqual([
+        "a".repeat(11_899),
+        `\u{1F600}${"b".repeat(100)}`,
+      ]);
+    });
+
+    it("closes and reopens a code fence cut by the limit", async () => {
+      const { texts } = await streamParts([
+        "```ts\n",
+        `${"c".repeat(7000)}\n`,
+        `${"d".repeat(7000)}\n`,
+        "```\n",
+      ]);
+
+      expect(texts).toEqual([
+        `\`\`\`ts\n${"c".repeat(7000)}\n\`\`\``,
+        `\`\`\`ts\n${"d".repeat(7000)}\n\`\`\`\n`,
+      ]);
+    });
+
+    it("repeats the table header when the limit cuts a table", async () => {
+      const header = "| a | b |\n|---|---|\n";
+      const { texts } = await streamParts([
+        header,
+        `| ${"1".repeat(7000)} | 2 |\n`,
+        `| ${"3".repeat(7000)} | 4 |\n`,
+      ]);
+
+      expect(texts).toHaveLength(2);
+      expect(texts[0].length).toBeLessThanOrEqual(12_000);
+      expect(texts[1]).toBe(`${header}| ${"3".repeat(7000)} | 4 |\n`);
+    });
+
+    it("keeps a rotation for age within the limit", async () => {
+      await withClock(async (tick) => {
+        const { adapter, segments, chatStream } = setup();
+        const first = `${"a".repeat(11_000)}\n\n`;
+        // Past the max age with a paragraph break, but the text before the
+        // break no longer fits in the old message.
+        const second = `${"b".repeat(1000)}\n\nc\n`;
+        async function* stream() {
+          yield first;
+          tick(MAX_AGE + 1);
+          yield second;
+        }
+
+        await adapter.stream(THREAD, stream());
+
+        expect(segmentTexts(segments, chatStream.mock.calls.length)).toEqual([
+          first,
+          second,
+        ]);
+      });
+    });
+
+    it("does not fall back to post-and-edit after a rotation rendered text", async () => {
+      const { adapter, segments } = setup({
+        streamSegmentMaxAgeMs: Number.POSITIVE_INFINITY,
+      });
+      const postSpy = vi.spyOn(adapter, "postMessage");
+      // The oversized first delta is cut by stopping the first segment, the
+      // first call Slack accepts; the next call then fails.
+      segments[1].append.mockRejectedValue(new Error("ratelimited"));
+      async function* stream() {
+        yield "a".repeat(15_000);
+      }
+
+      await expect(adapter.stream(THREAD, stream())).rejects.toThrow(
+        "ratelimited"
+      );
+      expect(segments[0].stop).toHaveBeenCalledTimes(1);
+      expect(postSpy).not.toHaveBeenCalled();
+    });
+  });
 });
 
 describe("native streaming fallback", () => {
