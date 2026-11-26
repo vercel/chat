@@ -17,9 +17,9 @@ This adapter uses whatsapp-web.js, which drives WhatsApp Web in a real browser. 
 
 <PackageInstall package="chat-adapter-wwebjs chat @chat-adapter/shared @chat-adapter/state-memory" />
 
-`chat`, `@chat-adapter/shared`, and whatsapp-web.js are peer dependencies, so you choose their versions. WhatsApp Web has renamed the IDs whatsapp-web.js reads, so whatsapp-web.js 1.34.7, the latest release, can't send messages or find chats. Until a release carries the fix, install the commit the adapter is tested against:
+`chat`, `@chat-adapter/shared`, and whatsapp-web.js are peer dependencies, so you choose their versions. Around 2026-11-25, WhatsApp Web removed a module whatsapp-web.js waited on, so every release up to 1.34.8 times out with `auth timeout` before showing a QR code. Until a release carries the fix, install the commit the adapter is tested against, by its full SHA. npm resolves a short SHA over SSH and fails without a GitHub SSH key:
 
-<PackageInstall package="github:pedroslopez/whatsapp-web.js#064a3d5" />
+<PackageInstall package="github:pedroslopez/whatsapp-web.js#38eb45b2759450cc6fccb6a7a3f2cbc3bdb87db2" />
 
 pnpm 10 and later run dependency build scripts only when you allow them. Allow whatsapp-web.js, which builds when installed from GitHub, and Puppeteer, which downloads a Chromium build, in `pnpm-workspace.yaml`:
 
@@ -29,7 +29,7 @@ onlyBuiltDependencies:
   - puppeteer
 ```
 
-pnpm pins the commit in the lockfile rather than in `package.json`, so commit the lockfile.
+pnpm pins the commit in the lockfile rather than in `package.json`, so commit the lockfile. npm 11 also skips these scripts until you run `npm approve-scripts puppeteer whatsapp-web.js`, and bun until both are listed under `trustedDependencies` in `package.json`. Without Puppeteer's download, run `npx puppeteer browsers install chrome`, or point `clientOptions.puppeteer.executablePath` at a Chromium you have.
 
 To print the QR code in the terminal, as the quick start does, also install `qrcode-terminal`:
 

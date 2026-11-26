@@ -46,7 +46,7 @@ export const wwebjs = {
   group: "community",
   name: "whatsapp-web.js WhatsApp",
   packageName: "chat-adapter-wwebjs",
-  readme: "https://github.com/nivandres/chat-adapter-wwebjs/tree/v0.2.0",
+  readme: "https://github.com/nivandres/chat-adapter-wwebjs/tree/v0.2.1",
   slug: "wwebjs",
   type: "platform",
 } as const satisfies CommunityAdapter;
