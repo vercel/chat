@@ -17,9 +17,9 @@ This adapter uses whatsapp-web.js, which drives WhatsApp Web in a real browser. 
 
 <PackageInstall package="chat-adapter-wwebjs chat @chat-adapter/shared @chat-adapter/state-memory" />
 
-`chat`, `@chat-adapter/shared`, and whatsapp-web.js are peer dependencies, so you choose their versions. WhatsApp Web has renamed the IDs whatsapp-web.js reads, so whatsapp-web.js 1.34.7, the latest release, can't send messages or find chats. Until a release carries the fix, install the commit the adapter is tested against:
+`chat`, `@chat-adapter/shared`, and whatsapp-web.js are peer dependencies, so you choose their versions. Around 2026-11-25, WhatsApp Web removed a module whatsapp-web.js waited on, so every release up to 1.34.8 times out with `auth timeout` before showing a QR code. Until a release carries the fix, install the commit the adapter is tested against, by its full SHA. npm resolves a short SHA over SSH and fails without a GitHub SSH key:
 
-<PackageInstall package="github:pedroslopez/whatsapp-web.js#064a3d5" />
+<PackageInstall package="github:pedroslopez/whatsapp-web.js#38eb45b2759450cc6fccb6a7a3f2cbc3bdb87db2" />
 
 pnpm 10 and later run dependency build scripts only when you allow them. Allow whatsapp-web.js, which builds when installed from GitHub, and Puppeteer, which downloads a Chromium build, in `pnpm-workspace.yaml`:
 
@@ -29,7 +29,7 @@ onlyBuiltDependencies:
   - puppeteer
 ```
 
-pnpm pins the commit in the lockfile rather than in `package.json`, so commit the lockfile.
+pnpm pins the commit in the lockfile rather than in `package.json`, so commit the lockfile. npm 11 also skips these scripts until you run `npm approve-scripts puppeteer whatsapp-web.js`, and bun until both are listed under `trustedDependencies` in `package.json`. Without Puppeteer's download, run `npx puppeteer browsers install chrome`, or point `clientOptions.puppeteer.executablePath` at a Chromium you have.
 
 To print the QR code in the terminal, as the quick start does, also install `qrcode-terminal`:
 
@@ -107,7 +107,7 @@ The memory state adapter keeps subscriptions, locks, and the adapter's catch-up 
     manageClient: {
       type: "boolean",
       description:
-        "Forces who runs a `client` you passed. `true` has the adapter reconnect it and close it on `disconnect()` and on a signal, even if you started it. `false` only bridges it, even if you didn't. When omitted, it depends on whether the client was already started.",
+        "Forces who runs a `client` you passed. `true` has the adapter reconnect it and close it on `disconnect()` and on a signal, even if you started it, adopting its session without starting it again. `false` only bridges it, even if you didn't. When omitted, it depends on whether the client was already started.",
     },
     onQR: {
       type: "(qr: string) => unknown",
@@ -186,7 +186,7 @@ The memory state adapter keeps subscriptions, locks, and the adapter's catch-up 
       type: "boolean",
       default: "false",
       description:
-        "Passes what the paired account does, from the phone or from this adapter, to Chat SDK: its messages, edits, deletes, and reactions. Chat SDK skips the messages, edits, and reactions as the bot's own, so only its deletes reach your handlers.",
+        "Delivers what the account's owner does on the phone or another linked device, such as messages, edits, deletes, and reactions, as a person's, from the bot's own account. What the adapter itself sends stays the bot's own. See [Messages from the phone](#messages-from-the-phone).",
     },
     catchUpMs: {
       type: "number | false",
@@ -340,13 +340,31 @@ Incoming `message.attachments` carry `type`, `name`, `mimeType`, `size`, and ima
 - `editMessage()` changes the text of the bot's own messages within the 15 minutes WhatsApp allows. `deleteMessage()` deletes a message for everyone.
 - `addReaction()` reacts to any message in the thread, and `removeReaction()` clears the bot's reaction whatever the emoji.
 - `thread.markAsRead()` marks the whole chat as read. Set `markSeen` to send a read receipt for every inbound message instead.
-- Incoming edits fire `onMessageUpdated` with the text they replaced, deletes for everyone fire `onMessageDeleted` with the original message when WhatsApp still has it, and reactions fire `onReaction`. The bot account's own events stay out, except its deletes when `receiveOwnMessages` is on.
+- Incoming edits fire `onMessageUpdated` with the text they replaced, deletes for everyone fire `onMessageDeleted` with the original message when WhatsApp still has it, and reactions fire `onReaction`. What the paired account does reaches your handlers only with `receiveOwnMessages`.
 
 ## Message history
 
 `fetchMessages()` reads the chat's WhatsApp history as the web client has synced it, so `thread.messages` works. Backward pages, the default, carry the oldest message they returned in the cursor, so a message arriving between pages shifts nothing. WhatsApp offers no oldest-first cursor, so forward reads load the conversation and slice it; use them for one-off backfills. One read reaches back at most 1,000 messages, and `fetchMessage()` returns a single message.
 
 `fetchThread()` returns the chat's name, and `fetchChannelInfo()` adds the member count for a group. A WhatsApp chat is one conversation, so `listThreads()` returns the chat's own thread. To list every chat the account has, newest first with its latest message, call the adapter's `listChats({ limit, cursor })`.
+
+## Messages from the phone
+
+The paired account is someone's WhatsApp, and they may keep using it. By default nothing the account sends reaches your handlers. With `receiveOwnMessages`, what its owner does on the phone or another linked device arrives as a person's, with `message.author.userId` set to the bot's own account, so a bot can step back when a person takes over:
+
+```typescript
+const whatsapp = createWWebJSAdapter({
+  adapterName: "whatsapp",
+  receiveOwnMessages: true,
+});
+
+bot.onSubscribedMessage(async (thread, message) => {
+  if (message.author.userId === whatsapp.botUserId) return thread.unsubscribe();
+  await thread.post(`You said: ${message.text}`);
+});
+```
+
+What the adapter itself sends stays the bot's own, and Chat SDK skips it, even when WhatsApp echoes a message back before the send returns. The adapter records each message it sent in the state adapter for as long as `catchUpMs` reaches back, so a restart that catches up on the account's messages still skips its own. Catching up from a position recorded without that record, before 0.2.0 or with the option off, skips the account's messages altogether. The owner answers a modal opened for them and runs slash commands like anyone, while the adapter's own echoes never do, and nothing the account sends picks a card's numbered option.
 
 ## Using an existing client
 
@@ -408,7 +426,7 @@ A chat is both the thread and the channel. To run several accounts, create one a
 ## Limitations
 
 - No scheduled or ephemeral messages. `thread.schedule()` throws, and `thread.postEphemeral()` sends a DM with `fallbackToDM: true` and returns `null` otherwise.
-- Everything the paired account sends counts as the bot's own, from the phone too, so Chat SDK skips its messages, edits, and reactions even with `receiveOwnMessages`.
+- `fetchMessages()` and the rest of the history count everything the paired account sent as the bot's own, because the adapter remembers what it sent only as far back as `catchUpMs`.
 - `forwardMessage()` and event call links fail on current WhatsApp Web, because whatsapp-web.js still calls modules WhatsApp has renamed. `sendEvent()` without `callType` attaches no link and works.
 - Statuses, broadcast lists, and WhatsApp's own notifications never reach your handlers.
 
